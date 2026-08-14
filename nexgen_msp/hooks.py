@@ -1,14 +1,27 @@
 app_name = "nexgen_msp"
 app_title = "Nexgen MSP"
-app_publisher = "Nexgen"
+app_publisher = "Nexgen Business Solutions"
 app_description = "MSP service, request, work order and billing management for Nexgen"
-app_email = "ebenetv08@gmail.com"
+app_email = "devteam@nxgensolutions.com"
 app_license = "mit"
 
 # Apps
 # ------------------
 
-# required_apps = []
+required_apps = ["erpnext"]
+
+fixtures = [
+	{
+		"dt": "Role",
+		"filters": [
+			[
+				"name",
+				"in",
+				["MSP System Admin", "MSP Technician", "Customer Portal Manager"],
+			]
+		],
+	}
+]
 
 # Each item in the list will be shown as an app in the apps page
 # add_to_apps_screen = [
@@ -63,6 +76,22 @@ app_license = "mit"
 # role_home_page = {
 # 	"Role": "home_page"
 # }
+
+website_route_rules = [
+	{"from_route": "/msp", "to_route": "msp"},
+	{"from_route": "/msp/<path:subpath>", "to_route": "msp"},
+]
+
+website_redirects = [
+	{"source": "/", "target": "/msp/login", "redirect_http_status": 302},
+	{"source": "/index", "target": "/msp/login", "redirect_http_status": 302},
+	{
+		"source": "/login",
+		"target": "/msp/login",
+		"redirect_http_status": 302,
+		"forward_query_parameters": True,
+	},
+]
 
 # Generators
 # ----------
@@ -138,13 +167,12 @@ app_license = "mit"
 # ---------------
 # Hook on document methods and events
 
-# doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	}
-# }
+doc_events = {
+	"Contact": {
+		"after_insert": "nexgen_msp.utils.permissions.sync_contact_user_permission",
+		"on_update": "nexgen_msp.utils.permissions.sync_contact_user_permission",
+	}
+}
 
 # Scheduled Tasks
 # ---------------

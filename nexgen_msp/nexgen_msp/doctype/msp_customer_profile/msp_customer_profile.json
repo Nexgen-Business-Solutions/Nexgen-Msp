@@ -1,0 +1,238 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:customer",
+ "creation": "2026-08-09 17:43:46.581658",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "customer",
+  "contract_status",
+  "column_break_contract",
+  "contract_start_date",
+  "contract_end_date",
+  "section_billing",
+  "billing_frequency",
+  "billing_timing",
+  "billing_cutoff_day",
+  "column_break_billing",
+  "proration_method",
+  "invoice_grouping",
+  "customer_approval_required",
+  "section_pricing",
+  "price_list",
+  "currency",
+  "column_break_pricing",
+  "default_cost_center",
+  "section_eligibility",
+  "service_eligibility",
+  "section_portal",
+  "portal_manager_contacts",
+  "section_notes",
+  "billing_notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Customer",
+   "options": "Customer",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "Draft",
+   "fieldname": "contract_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Contract Status",
+   "options": "Draft\nActive\nSuspended\nEnded",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_contract",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "contract_start_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Contract Start Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "contract_end_date",
+   "fieldtype": "Date",
+   "label": "Contract End Date"
+  },
+  {
+   "fieldname": "section_billing",
+   "fieldtype": "Section Break",
+   "label": "Billing Policy"
+  },
+  {
+   "default": "Monthly",
+   "fieldname": "billing_frequency",
+   "fieldtype": "Select",
+   "label": "Billing Frequency",
+   "options": "Monthly",
+   "reqd": 1
+  },
+  {
+   "default": "In Arrears",
+   "fieldname": "billing_timing",
+   "fieldtype": "Select",
+   "label": "Billing Timing",
+   "options": "In Advance\nIn Arrears",
+   "reqd": 1
+  },
+  {
+   "fieldname": "billing_cutoff_day",
+   "fieldtype": "Int",
+   "label": "Billing Cut-off Day",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_billing",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "proration_method",
+   "fieldtype": "Select",
+   "label": "Proration Method",
+   "options": "None\nDaily Actual Days\n30-Day Convention\nStart Next Month\nFull Activation Month\nEnd At Month End",
+   "reqd": 1
+  },
+  {
+   "default": "One Invoice",
+   "fieldname": "invoice_grouping",
+   "fieldtype": "Select",
+   "label": "Invoice Grouping",
+   "options": "One Invoice\nBy Site\nBy PO or Cost Center",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "customer_approval_required",
+   "fieldtype": "Check",
+   "label": "Customer Approval Required Before Invoicing"
+  },
+  {
+   "fieldname": "section_pricing",
+   "fieldtype": "Section Break",
+   "label": "Pricing"
+  },
+  {
+   "fieldname": "price_list",
+   "fieldtype": "Link",
+   "label": "Price List",
+   "options": "Price List",
+   "reqd": 1
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_pricing",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "default_cost_center",
+   "fieldtype": "Link",
+   "label": "Default Cost Center",
+   "options": "Cost Center"
+  },
+  {
+   "fieldname": "section_eligibility",
+   "fieldtype": "Section Break",
+   "label": "Service Eligibility"
+  },
+  {
+   "fieldname": "service_eligibility",
+   "fieldtype": "Table",
+   "label": "Service Eligibility",
+   "options": "Service Eligibility"
+  },
+  {
+   "fieldname": "section_portal",
+   "fieldtype": "Section Break",
+   "label": "Portal Contacts"
+  },
+  {
+   "fieldname": "portal_manager_contacts",
+   "fieldtype": "Table",
+   "label": "Portal Contacts",
+   "options": "MSP Portal Contact"
+  },
+  {
+   "fieldname": "section_notes",
+   "fieldtype": "Section Break",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "billing_notes",
+   "fieldtype": "Small Text",
+   "label": "Billing Notes"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-13 18:39:18.931355",
+ "modified_by": "Administrator",
+ "module": "Nexgen MSP",
+ "name": "MSP Customer Profile",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "MSP System Admin",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "MSP Technician",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

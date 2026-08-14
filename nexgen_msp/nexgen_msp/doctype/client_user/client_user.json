@@ -1,0 +1,248 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-08-07 02:27:08.066927",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "full_name",
+  "customer",
+  "column_break_identity",
+  "lifecycle_status",
+  "department",
+  "section_account",
+  "username",
+  "email",
+  "column_break_account",
+  "external_employee_id",
+  "section_lifecycle",
+  "start_date",
+  "disabled_date",
+  "column_break_lifecycle",
+  "disabled_reason",
+  "section_identity",
+  "ad_object_id",
+  "column_break_ad",
+  "ad_status",
+  "section_portal",
+  "portal_visible",
+  "portal_user",
+  "remarks"
+ ],
+ "fields": [
+  {
+   "default": "CU-.####",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "CU-.####",
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "full_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Full Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Customer",
+   "options": "Customer",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_identity",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Pending",
+   "fieldname": "lifecycle_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Lifecycle Status",
+   "options": "Pending\nActive\nDisabled\nArchived",
+   "reqd": 1
+  },
+  {
+   "fieldname": "department",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Department"
+  },
+  {
+   "fieldname": "section_account",
+   "fieldtype": "Section Break",
+   "label": "Account"
+  },
+  {
+   "fieldname": "username",
+   "fieldtype": "Data",
+   "label": "Username"
+  },
+  {
+   "fieldname": "email",
+   "fieldtype": "Data",
+   "label": "Email",
+   "options": "Email"
+  },
+  {
+   "fieldname": "column_break_account",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "external_employee_id",
+   "fieldtype": "Data",
+   "label": "External Employee ID"
+  },
+  {
+   "fieldname": "section_lifecycle",
+   "fieldtype": "Section Break",
+   "label": "Lifecycle"
+  },
+  {
+   "fieldname": "start_date",
+   "fieldtype": "Date",
+   "label": "Start Date"
+  },
+  {
+   "depends_on": "eval:doc.lifecycle_status==\"Disabled\" || doc.lifecycle_status==\"Archived\"",
+   "fieldname": "disabled_date",
+   "fieldtype": "Date",
+   "label": "Disabled Date",
+   "mandatory_depends_on": "eval:doc.lifecycle_status==\"Disabled\""
+  },
+  {
+   "fieldname": "column_break_lifecycle",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.lifecycle_status==\"Disabled\" || doc.lifecycle_status==\"Archived\"",
+   "fieldname": "disabled_reason",
+   "fieldtype": "Select",
+   "label": "Disabled Reason",
+   "options": "\nDeparture\nRole Change\nDuplicate\nContract Ended\nOther"
+  },
+  {
+   "fieldname": "section_identity",
+   "fieldtype": "Section Break",
+   "label": "Identity System"
+  },
+  {
+   "fieldname": "ad_object_id",
+   "fieldtype": "Data",
+   "label": "AD Object ID"
+  },
+  {
+   "fieldname": "column_break_ad",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Not Managed",
+   "fieldname": "ad_status",
+   "fieldtype": "Select",
+   "label": "AD Status",
+   "options": "Not Managed\nPending\nActive\nDisabled\nError"
+  },
+  {
+   "fieldname": "section_portal",
+   "fieldtype": "Section Break",
+   "label": "Portal and Notes"
+  },
+  {
+   "default": "1",
+   "fieldname": "portal_visible",
+   "fieldtype": "Check",
+   "label": "Visible in Customer Portal"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  },
+  {
+   "fieldname": "portal_user",
+   "fieldtype": "Link",
+   "label": "Portal User",
+   "no_copy": 1,
+   "options": "User",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-13 19:10:52.890826",
+ "modified_by": "Administrator",
+ "module": "Nexgen MSP",
+ "name": "Client User",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "MSP System Admin",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "MSP Technician",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Customer Portal Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "search_fields": "full_name,customer,username,email",
+ "show_title_field_in_link": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "full_name",
+ "track_changes": 1
+}

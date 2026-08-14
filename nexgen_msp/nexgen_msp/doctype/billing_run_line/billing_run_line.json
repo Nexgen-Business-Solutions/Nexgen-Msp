@@ -1,0 +1,141 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-08-09 17:43:47.328951",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "service_assignment",
+  "service_item",
+  "assignment_scope",
+  "client_user",
+  "managed_device",
+  "column_break_line",
+  "quantity",
+  "billable_days",
+  "period_days",
+  "unit_rate",
+  "price_source",
+  "proration_method",
+  "amount",
+  "section_exception",
+  "exception_code",
+  "exception_detail"
+ ],
+ "fields": [
+  {
+   "columns": 2,
+   "fieldname": "service_assignment",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Service Assignment",
+   "options": "Service Assignment",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "service_item",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Service",
+   "options": "Item",
+   "reqd": 1
+  },
+  {
+   "fieldname": "assignment_scope",
+   "fieldtype": "Select",
+   "label": "Scope",
+   "options": "User\nDevice\nCustomer\nSite\nPooled"
+  },
+  {
+   "fieldname": "client_user",
+   "fieldtype": "Link",
+   "label": "Client User",
+   "options": "Client User"
+  },
+  {
+   "fieldname": "managed_device",
+   "fieldtype": "Link",
+   "label": "Managed Device",
+   "options": "Managed Device"
+  },
+  {
+   "fieldname": "column_break_line",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 1,
+   "fieldname": "quantity",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Quantity"
+  },
+  {
+   "fieldname": "billable_days",
+   "fieldtype": "Int",
+   "label": "Billable Days"
+  },
+  {
+   "fieldname": "period_days",
+   "fieldtype": "Int",
+   "label": "Period Days"
+  },
+  {
+   "columns": 2,
+   "fieldname": "unit_rate",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Unit Rate"
+  },
+  {
+   "fieldname": "price_source",
+   "fieldtype": "Select",
+   "label": "Price Source",
+   "options": "Contract\nItem Price\nManual Override"
+  },
+  {
+   "fieldname": "proration_method",
+   "fieldtype": "Data",
+   "label": "Proration Method",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount"
+  },
+  {
+   "fieldname": "section_exception",
+   "fieldtype": "Section Break",
+   "label": "Exception"
+  },
+  {
+   "fieldname": "exception_code",
+   "fieldtype": "Select",
+   "label": "Exception",
+   "options": "\nMissing Rate\nInvalid Dates\nUnapproved Override\nNegative Quantity\nMissing Customer Mapping\nOverlapping Assignment\nAlready Invoiced"
+  },
+  {
+   "fieldname": "exception_detail",
+   "fieldtype": "Small Text",
+   "label": "Exception Detail"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-09 17:43:47.328951",
+ "modified_by": "Administrator",
+ "module": "Nexgen MSP",
+ "name": "Billing Run Line",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

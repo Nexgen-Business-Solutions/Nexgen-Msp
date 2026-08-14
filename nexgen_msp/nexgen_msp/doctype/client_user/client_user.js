@@ -1,0 +1,8 @@
+// Copyright (c) 2026, Nexgen Business Solutions and contributors
+// For license information, please see license.txt
+
+// frappe.ui.form.on("Client User", {
+// 	refresh(frm) {
+
+// 	},
+// });

@@ -1,0 +1,256 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-08-07 02:27:08.328772",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "hostname",
+  "customer",
+  "column_break_main",
+  "device_type",
+  "status",
+  "section_assignment",
+  "assigned_client_user",
+  "assigned_date",
+  "column_break_assignment",
+  "retired_date",
+  "section_hardware",
+  "serial_number",
+  "asset_tag",
+  "manufacturer",
+  "column_break_hardware",
+  "model",
+  "operating_system",
+  "section_network",
+  "network_interfaces",
+  "section_external",
+  "rmm_asset_id",
+  "column_break_external",
+  "sophos_endpoint_id",
+  "section_notes",
+  "remarks"
+ ],
+ "fields": [
+  {
+   "default": "DEV-.####",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "DEV-.####",
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "hostname",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Hostname",
+   "reqd": 1
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Customer",
+   "options": "Customer",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_main",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "device_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Device Type",
+   "options": "PC\nLaptop\nMini PC\nMac\nTablet\nServer\nFirewall\nVM\nOther",
+   "reqd": 1
+  },
+  {
+   "default": "Pending",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Pending\nActive\nStock\nReturned\nDamaged\nRetired\nLost",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_assignment",
+   "fieldtype": "Section Break",
+   "label": "Assignment"
+  },
+  {
+   "fieldname": "assigned_client_user",
+   "fieldtype": "Link",
+   "label": "Assigned Client User",
+   "options": "Client User"
+  },
+  {
+   "fieldname": "assigned_date",
+   "fieldtype": "Date",
+   "label": "Assigned Date"
+  },
+  {
+   "fieldname": "column_break_assignment",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:[\"Returned\",\"Damaged\",\"Retired\",\"Lost\"].includes(doc.status)",
+   "fieldname": "retired_date",
+   "fieldtype": "Date",
+   "label": "Retired Date",
+   "mandatory_depends_on": "eval:[\"Returned\",\"Retired\"].includes(doc.status)"
+  },
+  {
+   "fieldname": "section_hardware",
+   "fieldtype": "Section Break",
+   "label": "Hardware"
+  },
+  {
+   "fieldname": "serial_number",
+   "fieldtype": "Data",
+   "label": "Serial Number"
+  },
+  {
+   "fieldname": "asset_tag",
+   "fieldtype": "Data",
+   "label": "Asset Tag"
+  },
+  {
+   "fieldname": "manufacturer",
+   "fieldtype": "Data",
+   "label": "Manufacturer"
+  },
+  {
+   "fieldname": "column_break_hardware",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "model",
+   "fieldtype": "Data",
+   "label": "Model"
+  },
+  {
+   "fieldname": "operating_system",
+   "fieldtype": "Data",
+   "label": "Operating System"
+  },
+  {
+   "fieldname": "section_network",
+   "fieldtype": "Section Break",
+   "label": "Network Interfaces"
+  },
+  {
+   "fieldname": "network_interfaces",
+   "fieldtype": "Table",
+   "label": "Network Interfaces",
+   "options": "Network Interface"
+  },
+  {
+   "fieldname": "section_external",
+   "fieldtype": "Section Break",
+   "label": "External Systems"
+  },
+  {
+   "fieldname": "rmm_asset_id",
+   "fieldtype": "Data",
+   "label": "RMM Asset ID"
+  },
+  {
+   "fieldname": "column_break_external",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "sophos_endpoint_id",
+   "fieldtype": "Data",
+   "label": "Sophos Endpoint ID"
+  },
+  {
+   "fieldname": "section_notes",
+   "fieldtype": "Section Break",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-13 18:39:19.616168",
+ "modified_by": "Administrator",
+ "module": "Nexgen MSP",
+ "name": "Managed Device",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "MSP System Admin",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "MSP Technician",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Customer Portal Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "search_fields": "hostname,customer,serial_number",
+ "show_title_field_in_link": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "hostname",
+ "track_changes": 1
+}

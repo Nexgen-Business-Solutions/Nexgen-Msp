@@ -1,0 +1,57 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-08-09 17:43:46.463263",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "contact",
+  "portal_role",
+  "can_submit_requests"
+ ],
+ "fields": [
+  {
+   "columns": 4,
+   "fieldname": "contact",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Contact",
+   "options": "Contact",
+   "reqd": 1
+  },
+  {
+   "columns": 3,
+   "default": "Portal Viewer",
+   "fieldname": "portal_role",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Portal Role",
+   "options": "Portal Manager\nPortal Viewer",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "default": "0",
+   "fieldname": "can_submit_requests",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Can Submit Requests"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-09 17:43:46.463263",
+ "modified_by": "Administrator",
+ "module": "Nexgen MSP",
+ "name": "MSP Portal Contact",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}
