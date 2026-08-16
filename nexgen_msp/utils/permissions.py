@@ -125,6 +125,72 @@ def get_customer_contact(user, customer):
     return rows[0][0] if rows else None
 
 
+INVITATION_TEMPLATE = "MSP Portal Invitation"
+
+INVITATION_SUBJECT = "Your {{ app_name }} portal access"
+
+INVITATION_BODY = """<p>Hello {{ full_name }},</p>
+
+<p>An access to the {{ app_name }} portal has been created for {{ customer }}.</p>
+
+<p>From the portal you can review your users, devices and services, and submit
+service requests to our team.</p>
+
+<p>Set your password to activate your account:</p>
+
+<p><a href="{{ link }}">Set my password</a></p>
+
+<p>If the button does not work, copy this address into your browser:<br>
+{{ link }}</p>
+
+<p>This link can only be used once. If you did not expect this email, you can ignore it.</p>
+
+<p>{{ app_name }}</p>
+"""
+
+
+def ensure_invitation_template():
+    if frappe.db.exists("Email Template", INVITATION_TEMPLATE):
+        return INVITATION_TEMPLATE
+
+    frappe.get_doc(
+        {
+            "doctype": "Email Template",
+            "name": INVITATION_TEMPLATE,
+            "subject": INVITATION_SUBJECT,
+            "use_html": 1,
+            "response_html": INVITATION_BODY,
+        }
+    ).insert(ignore_permissions=True)
+
+    return INVITATION_TEMPLATE
+
+
+def send_portal_invitation(user_doc, customer):
+    ensure_invitation_template()
+
+    template = frappe.get_doc("Email Template", INVITATION_TEMPLATE)
+    link = user_doc._reset_password(send_email=False)
+
+    context = {
+        "full_name": user_doc.full_name or user_doc.name,
+        "customer": customer,
+        "link": link,
+        "app_name": "Nexgen MSP",
+    }
+
+    frappe.sendmail(
+        recipients=[user_doc.name],
+        subject=frappe.render_template(template.subject, context),
+        message=frappe.render_template(template.response_html or template.response, context),
+        reference_doctype="User",
+        reference_name=user_doc.name,
+        now=False,
+    )
+
+    return link
+
+
 def get_linked_customers(contact_doc):
     return [
         link.link_name

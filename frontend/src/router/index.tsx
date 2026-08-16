@@ -1,9 +1,11 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
-import { Laptop, LayoutDashboard, Users } from 'lucide-react';
 import LoginScreen from '@/features/auth/pages/LoginScreen';
 import AppLayout from '@/shared/layout/AppLayout';
-import ModulePlaceholder from '@/shared/layout/ModulePlaceholder';
 import AuthGuard from './guards/AuthGuard';
+import RoleHome from './RoleHome';
+import ClientUsers from '@/pages/ClientUsers';
+import Devices from '@/pages/Devices';
+import PortalRecords from '@/features/portal/pages/PortalRecords';
 
 export const router = createBrowserRouter([
   {
@@ -18,36 +20,10 @@ export const router = createBrowserRouter([
       </AuthGuard>
     ),
     children: [
-      {
-        index: true,
-        element: (
-          <ModulePlaceholder
-            icon={LayoutDashboard}
-            title="Dashboard"
-            description="This module is not built yet."
-          />
-        ),
-      },
-      {
-        path: 'client-users',
-        element: (
-          <ModulePlaceholder
-            icon={Users}
-            title="Client Users"
-            description="This module is not built yet."
-          />
-        ),
-      },
-      {
-        path: 'devices',
-        element: (
-          <ModulePlaceholder
-            icon={Laptop}
-            title="Devices"
-            description="This module is not built yet."
-          />
-        ),
-      },
+      { index: true, element: <RoleHome /> },
+      { path: 'client-users', element: <ClientUsers /> },
+      { path: 'devices', element: <Devices /> },
+      { path: 'records', element: <PortalRecords /> },
     ],
   },
   {

@@ -1,11 +1,14 @@
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { X } from 'lucide-react';
-import { NAV_ITEMS } from './navigation';
+import { useSession } from '@/shared/hooks/useSession';
+import { getNavForRoles } from './navigation';
 
 const SidebarNav: React.FC<{ onNavigate?: () => void }> = ({ onNavigate }) => {
   const navigate = useNavigate();
   const { pathname } = useLocation();
+  const { data: session } = useSession();
+  const navItems = getNavForRoles(session?.roles);
 
   const go = (path: string) => {
     navigate(path);
@@ -18,7 +21,7 @@ const SidebarNav: React.FC<{ onNavigate?: () => void }> = ({ onNavigate }) => {
   return (
     <nav className="flex flex-1 flex-col overflow-y-auto px-3 py-4">
       <div className="space-y-1">
-        {NAV_ITEMS.map(({ id, label, icon: Icon, path, end }) => {
+        {navItems.map(({ id, label, icon: Icon, path, end }) => {
           const active = isActive(path, end);
           return (
             <button

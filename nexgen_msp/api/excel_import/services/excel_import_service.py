@@ -64,6 +64,8 @@ class ExcelImportService:
                 "service_assignments": 0,
                 "portal_users": 0,
                 "portal_contacts": 0,
+                "user_permissions": 0,
+                "invitations_sent": 0,
             },
             "skipped": {
                 "rows_failed": 0,
@@ -346,11 +348,10 @@ class ExcelImportService:
         first_name = names[0] if names else email
         last_name = " ".join(names[1:]) or None
 
-        user, user_created = permissions.ensure_portal_user(
-            email, first_name, last_name, send_welcome_email
-        )
+        user, user_created = permissions.ensure_portal_user(email, first_name, last_name, 0)
         permissions.add_role(user, permissions.PORTAL_ROLES[0])
 
+        permission_added = permissions.add_customer_permission(email, customer)
         contact, contact_created = permissions.ensure_customer_contact(user, customer)
 
         frappe.db.set_value("Client User", client_user, "portal_user", user.name)
@@ -359,6 +360,12 @@ class ExcelImportService:
             report["created"]["portal_users"] += 1
         if contact_created:
             report["created"]["portal_contacts"] += 1
+        if permission_added:
+            report["created"]["user_permissions"] += 1
+
+        if send_welcome_email and user_created:
+            permissions.send_portal_invitation(user, customer)
+            report["created"]["invitations_sent"] += 1
 
     @staticmethod
     def _create_assignments(record, customer, client_user, device, items, report):
