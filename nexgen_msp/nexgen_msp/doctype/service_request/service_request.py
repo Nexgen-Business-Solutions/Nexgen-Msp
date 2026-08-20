@@ -22,7 +22,16 @@ class ServiceRequest(Document):
 	def validate(self):
 		self.validate_has_lines()
 		self.validate_lines()
+		self.sync_request_type()
 		self.sync_status_with_lines()
+
+	def sync_request_type(self):
+		actions = {row.action for row in self.lines if row.action}
+
+		if not actions:
+			return
+
+		self.request_type = actions.pop() if len(actions) == 1 else "Mixed"
 
 	def validate_has_lines(self):
 		if not self.lines:
@@ -38,7 +47,10 @@ class ServiceRequest(Document):
 			if row.requested_quantity is not None and row.requested_quantity <= 0:
 				frappe.throw(_("Row {0}: quantity must be greater than zero.").format(row.idx))
 
-			key = (row.target_scope, row.get(SCOPE_FIELD.get(row.target_scope) or ""), row.requested_service)
+			target = row.get("new_user_full_name") if row.get("is_new_user") else row.get(
+				SCOPE_FIELD.get(row.target_scope) or ""
+			)
+			key = (row.target_scope, target, row.requested_service)
 			if key in seen:
 				frappe.throw(
 					_("Row {0}: the same service is already requested for this target.").format(row.idx)
@@ -46,6 +58,24 @@ class ServiceRequest(Document):
 			seen.add(key)
 
 	def validate_line_scope(self, row):
+		if row.get("is_new_device"):
+			if not row.get("new_device_label"):
+				frappe.throw(_("Row {0}: describe the device to be registered.").format(row.idx))
+			if row.get("managed_device"):
+				frappe.throw(
+					_("Row {0}: cannot select an existing device for a new device line.").format(row.idx)
+				)
+			return
+
+		if row.get("is_new_user"):
+			if not row.get("new_user_full_name"):
+				frappe.throw(_("Row {0}: full name is required for a new user.").format(row.idx))
+			if row.get("client_user"):
+				frappe.throw(_("Row {0}: cannot select an existing user for a new user line.").format(row.idx))
+			if row.get("needs_portal_access") and not row.get("new_user_email"):
+				frappe.throw(_("Row {0}: an email is required to grant portal access.").format(row.idx))
+			return
+
 		required = SCOPE_FIELD.get(row.target_scope)
 
 		for fieldname in SCOPE_FIELD.values():
@@ -64,6 +94,9 @@ class ServiceRequest(Document):
 			)
 
 	def validate_line_ownership(self, row):
+		if row.get("is_new_user"):
+			return
+
 		fieldname = SCOPE_FIELD.get(row.target_scope)
 		if not fieldname or not row.get(fieldname):
 			return

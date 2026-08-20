@@ -1,0 +1,592 @@
+import frappe
+
+from nexgen_msp.api.internal.services.request_service import RequestService
+from nexgen_msp.api.internal.services.user_service import UserService
+from nexgen_msp.utils.errors import NotFoundError, ValidationError
+
+SECURITY_ITEM = "SVC-SOPHOS"
+
+OPEN_ASSIGNMENT_STATUSES = ("Pending Setup", "Active", "Suspended", "Pending Removal")
+
+COVERAGE_FILTERS = ("no_security", "unassigned", "no_mac")
+
+MAX_PAGE_LENGTH = 200
+
+
+class DeviceService:
+    @staticmethod
+    def get_filter_options():
+        RequestService._guard_internal()
+
+        return {
+            "customers": frappe.get_all("Customer", pluck="name", order_by="name asc"),
+            "device_types": [
+                option
+                for option in (
+                    frappe.get_meta("Managed Device").get_field("device_type").options or ""
+                ).split("\n")
+                if option
+            ],
+            "statuses": [
+                option
+                for option in (
+                    frappe.get_meta("Managed Device").get_field("status").options or ""
+                ).split("\n")
+                if option
+            ],
+            "coverage": list(COVERAGE_FILTERS),
+        }
+
+    @staticmethod
+    def get_stats():
+        RequestService._guard_internal()
+
+        active = frappe.db.count("Managed Device", {"status": "Active"})
+
+        unprotected = frappe.db.sql(
+            """
+            select count(*) from `tabManaged Device` device
+            where device.status = 'Active'
+              and not exists (
+                  select 1 from `tabService Assignment` sa
+                  where sa.managed_device = device.name
+                    and sa.service_item = %(item)s
+                    and sa.operational_status in %(open)s
+              )
+            """,
+            {"item": SECURITY_ITEM, "open": OPEN_ASSIGNMENT_STATUSES},
+        )[0][0]
+
+        unassigned = frappe.db.sql(
+            """
+            select count(*) from `tabManaged Device`
+            where status = 'Active'
+              and (assigned_client_user is null or assigned_client_user = '')
+            """
+        )[0][0]
+
+        no_mac = frappe.db.sql(
+            """
+            select count(*) from `tabManaged Device` device
+            where device.status = 'Active'
+              and not exists (
+                  select 1 from `tabNetwork Interface` ni where ni.parent = device.name
+              )
+            """
+        )[0][0]
+
+        return {
+            "active_devices": active,
+            "unprotected_devices": unprotected,
+            "unassigned_devices": unassigned,
+            "devices_without_mac": no_mac,
+        }
+
+    @staticmethod
+    def _conditions(search, customer, status, device_type, coverage):
+        conditions = []
+        params = {"item": SECURITY_ITEM, "open": OPEN_ASSIGNMENT_STATUSES}
+
+        if customer:
+            conditions.append("device.customer = %(customer)s")
+            params["customer"] = customer
+
+        if status:
+            conditions.append("device.status = %(status)s")
+            params["status"] = status
+
+        if device_type:
+            conditions.append("device.device_type = %(device_type)s")
+            params["device_type"] = device_type
+
+        if coverage == "no_security":
+            conditions.append("device.status = 'Active'")
+            conditions.append(
+                """not exists (
+                    select 1 from `tabService Assignment` sa
+                    where sa.managed_device = device.name
+                      and sa.service_item = %(item)s
+                      and sa.operational_status in %(open)s
+                )"""
+            )
+        elif coverage == "unassigned":
+            conditions.append("device.status = 'Active'")
+            conditions.append(
+                "(device.assigned_client_user is null or device.assigned_client_user = '')"
+            )
+        elif coverage == "no_mac":
+            conditions.append("device.status = 'Active'")
+            conditions.append(
+                "not exists (select 1 from `tabNetwork Interface` ni where ni.parent = device.name)"
+            )
+
+        if search:
+            conditions.append(
+                """(
+                    device.hostname like %(search)s
+                    or device.serial_number like %(search)s
+                    or holder.full_name like %(search)s
+                    or exists (
+                        select 1 from `tabNetwork Interface` ni
+                        where ni.parent = device.name and ni.mac_address like %(search)s
+                    )
+                )"""
+            )
+            params["search"] = f"%{search}%"
+
+        return (" where " + " and ".join(conditions)) if conditions else "", params
+
+    @staticmethod
+    def list_devices(
+        search=None,
+        customer=None,
+        status=None,
+        device_type=None,
+        coverage=None,
+        start=0,
+        page_length=20,
+    ):
+        """The device register: hostname first, with the person currently holding it underneath."""
+        RequestService._guard_internal()
+
+        start = max(frappe.utils.cint(start), 0)
+        page_length = min(max(frappe.utils.cint(page_length) or 20, 1), MAX_PAGE_LENGTH)
+
+        where, params = DeviceService._conditions(search, customer, status, device_type, coverage)
+
+        base_from = """
+            from `tabManaged Device` device
+            left join `tabClient User` holder on holder.name = device.assigned_client_user
+        """
+
+        total = frappe.db.sql(f"select count(*) {base_from} {where}", params)[0][0]
+
+        rows = frappe.db.sql(
+            f"""
+            select
+                device.name, device.hostname, device.device_type, device.status,
+                device.assigned_date, device.serial_number, device.customer,
+                device.assigned_client_user,
+                holder.full_name as user_name,
+                holder.department as user_department,
+                holder.lifecycle_status as user_status,
+                (select count(*) from `tabService Assignment` sa
+                    where sa.managed_device = device.name
+                      and sa.operational_status = 'Active') as active_services,
+                (select count(*) from `tabService Assignment` sa
+                    where sa.managed_device = device.name
+                      and sa.operational_status != 'Active') as inactive_services,
+                exists (
+                    select 1 from `tabService Assignment` sa
+                    where sa.managed_device = device.name
+                      and sa.service_item = %(item)s
+                      and sa.operational_status in %(open)s
+                ) as protected
+            {base_from}
+            {where}
+            order by device.hostname asc
+            limit {page_length} offset {start}
+            """,
+            params,
+            as_dict=True,
+        )
+
+        if rows:
+            interfaces = frappe.get_all(
+                "Network Interface",
+                filters={"parent": ("in", [row.name for row in rows])},
+                fields=["parent", "interface_type", "mac_address"],
+            )
+            grouped = {}
+            for interface in interfaces:
+                grouped.setdefault(interface.parent, []).append(
+                    {
+                        "interface_type": interface.interface_type,
+                        "mac_address": interface.mac_address,
+                    }
+                )
+            for row in rows:
+                row["interfaces"] = grouped.get(row.name, [])
+
+        return {
+            "rows": rows,
+            "start": start,
+            "page_length": page_length,
+            "total": total,
+            "has_more": start + len(rows) < total,
+        }
+
+    @staticmethod
+    def get_device_context(device=None):
+        """What the "add a service to this device" modal needs."""
+        RequestService._guard_internal()
+
+        if not device:
+            raise ValidationError("device is required.", "VALIDATION_ERROR")
+
+        doc = frappe.db.get_value(
+            "Managed Device",
+            device,
+            ["name", "hostname", "device_type", "status", "customer", "assigned_client_user"],
+            as_dict=True,
+        )
+
+        if not doc:
+            raise NotFoundError(f"Managed Device {device} not found.", "NOT_FOUND")
+
+        open_items = frappe.db.sql_list(
+            """
+            select sa.service_item from `tabService Assignment` sa
+            where sa.managed_device = %(device)s and sa.operational_status in %(open)s
+            """,
+            {"device": device, "open": OPEN_ASSIGNMENT_STATUSES},
+        )
+
+        catalogue = [
+            {
+                "name": item.name,
+                "item_name": item.item_name,
+                "scope": RequestService._service_scope(item.name),
+                "already_open": item.name in open_items,
+            }
+            for item in frappe.get_all(
+                "Item",
+                filters={"disabled": 0, "is_stock_item": 0},
+                fields=["name", "item_name"],
+                order_by="item_name asc",
+            )
+        ]
+
+        return {
+            "device": doc,
+            "user_name": frappe.db.get_value("Client User", doc.assigned_client_user, "full_name")
+            if doc.assigned_client_user
+            else None,
+            "catalogue": [item for item in catalogue if item["scope"] in ("Device", "Both")],
+            "customer_requests": frappe.db.sql(
+                """
+                select sr.name, sr.request_type, sr.status, sr.priority, sr.source,
+                       coalesce(requester.full_name, sr.requester) as requester,
+                       sr.creation, sr.customer
+                from `tabService Request` sr
+                left join `tabUser` requester on requester.name = sr.requester
+                where sr.customer = %(customer)s
+                order by field(sr.status, 'Completed', 'Rejected', 'Cancelled') asc,
+                         sr.creation desc
+                limit 30
+                """,
+                {"customer": doc.customer},
+                as_dict=True,
+            ),
+        }
+
+    @staticmethod
+    def assign_device_service(
+        device=None, service_item=None, effective_date=None, notes=None, source_request=None
+    ):
+        """Open a device-scoped service straight on the machine."""
+        RequestService._guard_internal()
+
+        if not device or not service_item:
+            raise ValidationError("device and service_item are required.", "VALIDATION_ERROR")
+
+        doc = frappe.db.get_value(
+            "Managed Device", device, ["name", "customer", "status"], as_dict=True
+        )
+
+        if not doc:
+            raise NotFoundError(f"Managed Device {device} not found.", "NOT_FOUND")
+
+        if doc.status != "Active":
+            raise ValidationError(
+                f"{device} is {doc.status.lower()} — only an active device can take a service.",
+                "VALIDATION_ERROR",
+            )
+
+        scope = RequestService._service_scope(service_item)
+
+        if scope == "User":
+            raise ValidationError(
+                f"{service_item} is billed per user — assign it from the user's profile.",
+                "VALIDATION_ERROR",
+            )
+
+        existing = frappe.db.exists(
+            "Service Assignment",
+            {
+                "managed_device": device,
+                "service_item": service_item,
+                "operational_status": ("in", OPEN_ASSIGNMENT_STATUSES),
+            },
+        )
+
+        if existing:
+            raise ValidationError(
+                f"This device already holds an open {service_item} assignment ({existing}).",
+                "VALIDATION_ERROR",
+            )
+
+        source_request = UserService._checked_request(source_request, doc.customer)
+
+        assignment = frappe.get_doc(
+            {
+                "doctype": "Service Assignment",
+                "customer": doc.customer,
+                "service_item": service_item,
+                "assignment_scope": "Device",
+                "managed_device": device,
+                "quantity": 1,
+                "uom": frappe.db.get_value("Item", service_item, "stock_uom") or "Unit",
+                "operational_status": "Active",
+                "billing_status": "Billable",
+                "effective_start_date": effective_date or frappe.utils.today(),
+                "price_source": "Contract",
+                "source_request": source_request,
+                "internal_notes": notes or None,
+            }
+        ).insert()
+
+        reference = f" in reference to {source_request}" if source_request else ""
+        assignment.add_comment("Comment", f"Opened by {frappe.session.user}{reference}.")
+        frappe.db.commit()
+
+        return DeviceService.get_device_context(device)
+
+    @staticmethod
+    def update_device(
+        device=None,
+        hostname=None,
+        device_type=None,
+        serial_number=None,
+        assigned_client_user=None,
+        assigned_date=None,
+        interfaces=None,
+        remarks=None,
+    ):
+        """Edit the machine itself. Its services are managed separately."""
+        RequestService._guard_internal()
+
+        if not device:
+            raise ValidationError("device is required.", "VALIDATION_ERROR")
+
+        if not frappe.db.exists("Managed Device", device):
+            raise NotFoundError(f"Managed Device {device} not found.", "NOT_FOUND")
+
+        doc = frappe.get_doc("Managed Device", device)
+
+        if hostname:
+            doc.hostname = hostname
+        if device_type:
+            doc.device_type = device_type
+
+        doc.serial_number = serial_number or None
+        doc.remarks = remarks or None
+
+        if assigned_date:
+            doc.assigned_date = assigned_date
+
+        if assigned_client_user is not None:
+            if assigned_client_user:
+                owner = frappe.db.get_value("Client User", assigned_client_user, "customer")
+                if owner != doc.customer:
+                    raise ValidationError(
+                        f"{assigned_client_user} belongs to {owner}, not {doc.customer}.",
+                        "VALIDATION_ERROR",
+                    )
+            doc.assigned_client_user = assigned_client_user or None
+
+        interfaces = frappe.parse_json(interfaces) if isinstance(interfaces, str) else interfaces
+
+        if interfaces is not None:
+            doc.network_interfaces = []
+            for interface in interfaces:
+                mac = (interface.get("mac_address") or "").strip().upper()
+                if not mac:
+                    continue
+                doc.append(
+                    "network_interfaces",
+                    {
+                        "interface_type": interface.get("interface_type") or "Other",
+                        "mac_address": mac,
+                    },
+                )
+
+        doc.save()
+        doc.add_comment("Comment", f"Updated by {frappe.session.user}.")
+        frappe.db.commit()
+
+        return {"name": doc.name, "hostname": doc.hostname}
+
+    @staticmethod
+    def change_device_status(
+        device=None,
+        action=None,
+        status=None,
+        effective_date=None,
+        assigned_client_user=None,
+        notes=None,
+    ):
+        """Retire a machine or bring it back. Retiring also closes what it was still billing."""
+        RequestService._guard_internal()
+
+        if not device or action not in ("Retire", "Reinstate"):
+            raise ValidationError("device and a valid action are required.", "VALIDATION_ERROR")
+
+        if not frappe.db.exists("Managed Device", device):
+            raise NotFoundError(f"Managed Device {device} not found.", "NOT_FOUND")
+
+        doc = frappe.get_doc("Managed Device", device)
+        effective_date = effective_date or frappe.utils.today()
+        closed = []
+
+        if action == "Retire":
+            if doc.status != "Active":
+                raise ValidationError(
+                    f"{doc.hostname} is already {doc.status.lower()}.", "INVALID_TRANSITION"
+                )
+
+            target = status or "Retired"
+            if target not in ("Returned", "Damaged", "Retired", "Lost"):
+                raise ValidationError(f"'{target}' is not a retirement status.", "VALIDATION_ERROR")
+
+            for name in frappe.get_all(
+                "Service Assignment",
+                filters={
+                    "managed_device": device,
+                    "operational_status": ("in", OPEN_ASSIGNMENT_STATUSES),
+                },
+                pluck="name",
+            ):
+                assignment = frappe.get_doc("Service Assignment", name)
+                assignment.operational_status = "Ended"
+                assignment.billing_status = "Ended"
+                # a retirement backdated before the service started still ends it, on its own day
+                assignment.effective_end_date = max(
+                    frappe.utils.getdate(effective_date),
+                    frappe.utils.getdate(assignment.effective_start_date),
+                ) if assignment.effective_start_date else effective_date
+                assignment.save()
+                assignment.add_comment(
+                    "Comment", f"Ended with device {doc.hostname} by {frappe.session.user}."
+                )
+                closed.append(name)
+
+            doc.status = target
+            doc.retired_date = effective_date
+        else:
+            if doc.status == "Active":
+                raise ValidationError(f"{doc.hostname} is already active.", "INVALID_TRANSITION")
+
+            doc.status = "Active"
+            doc.retired_date = None
+            doc.assigned_date = effective_date
+
+            if assigned_client_user:
+                owner = frappe.db.get_value("Client User", assigned_client_user, "customer")
+                if owner != doc.customer:
+                    raise ValidationError(
+                        f"{assigned_client_user} belongs to {owner}, not {doc.customer}.",
+                        "VALIDATION_ERROR",
+                    )
+                doc.assigned_client_user = assigned_client_user
+
+        if notes:
+            doc.remarks = notes
+
+        doc.save()
+        doc.add_comment("Comment", f"{action} applied by {frappe.session.user}.")
+        frappe.db.commit()
+
+        return {
+            "name": doc.name,
+            "hostname": doc.hostname,
+            "status": doc.status,
+            "closed_assignments": closed,
+        }
+
+    @staticmethod
+    def create_device(
+        customer=None,
+        hostname=None,
+        device_type=None,
+        serial_number=None,
+        assigned_client_user=None,
+        assigned_date=None,
+        interfaces=None,
+        remarks=None,
+        source_request=None,
+    ):
+        """Register a machine for a customer, with or without a holder."""
+        RequestService._guard_internal()
+
+        if not hostname:
+            raise ValidationError("hostname is required.", "VALIDATION_ERROR")
+
+        if assigned_client_user and not customer:
+            customer = frappe.db.get_value("Client User", assigned_client_user, "customer")
+
+        if not customer:
+            raise ValidationError("customer is required.", "VALIDATION_ERROR")
+
+        if not frappe.db.exists("Customer", customer):
+            raise NotFoundError(f"Customer {customer} not found.", "NOT_FOUND")
+
+        if assigned_client_user:
+            owner = frappe.db.get_value("Client User", assigned_client_user, "customer")
+            if owner != customer:
+                raise ValidationError(
+                    f"{assigned_client_user} belongs to {owner}, not {customer}.",
+                    "VALIDATION_ERROR",
+                )
+
+        interfaces = frappe.parse_json(interfaces) if isinstance(interfaces, str) else interfaces
+        rows = []
+
+        for interface in interfaces or []:
+            mac = (interface.get("mac_address") or "").strip().upper()
+            if not mac:
+                continue
+            rows.append(
+                {
+                    "interface_type": interface.get("interface_type") or "Other",
+                    "mac_address": mac,
+                }
+            )
+
+        doc = frappe.get_doc(
+            {
+                "doctype": "Managed Device",
+                "customer": customer,
+                "assigned_client_user": assigned_client_user or None,
+                "hostname": hostname,
+                "device_type": device_type or "Other",
+                "status": "Active",
+                "assigned_date": assigned_date or frappe.utils.today(),
+                "serial_number": serial_number or None,
+                "network_interfaces": rows,
+                "remarks": remarks or None,
+            }
+        ).insert()
+
+        source_request = UserService._checked_request(source_request, customer)
+        reference = f" in reference to {source_request}" if source_request else ""
+        doc.add_comment("Comment", f"Registered by {frappe.session.user}{reference}.")
+        frappe.db.commit()
+
+        return {"name": doc.name, "hostname": doc.hostname, "customer": doc.customer}
+
+    @staticmethod
+    def list_customer_users(customer=None):
+        """Who a device can be handed to, inside its own customer."""
+        RequestService._guard_internal()
+
+        if not customer:
+            raise ValidationError("customer is required.", "VALIDATION_ERROR")
+
+        return frappe.get_all(
+            "Client User",
+            filters={"customer": customer, "lifecycle_status": ("in", ("Pending", "Active"))},
+            fields=["name", "full_name", "department"],
+            order_by="full_name asc",
+            limit_page_length=0,
+        )

@@ -9,7 +9,7 @@ export type ListFilters = {
   pageLength: number;
 };
 
-const emptyFilters: ListFilters = {
+export const emptyFilters: ListFilters = {
   search: '',
   status: '',
   start: 0,
@@ -19,6 +19,7 @@ const emptyFilters: ListFilters = {
 type PortalFiltersState = {
   customer: string | null;
   filters: Record<ListKey, ListFilters>;
+  serviceFilters: Record<string, ListFilters>;
   setCustomer: (customer: string | null) => void;
   setSearch: (key: ListKey, search: string) => void;
   setStatus: (key: ListKey, status: string) => void;
@@ -26,6 +27,12 @@ type PortalFiltersState = {
   setPageLength: (key: ListKey, pageLength: number) => void;
   nextPage: (key: ListKey) => void;
   previousPage: (key: ListKey) => void;
+  getServiceFilters: (serviceItem: string) => ListFilters;
+  setServiceSearch: (serviceItem: string, search: string) => void;
+  setServiceStatus: (serviceItem: string, status: string) => void;
+  setServicePageLength: (serviceItem: string, pageLength: number) => void;
+  nextServicePage: (serviceItem: string) => void;
+  previousServicePage: (serviceItem: string) => void;
   reset: (key: ListKey) => void;
   resetAll: () => void;
 };
@@ -37,11 +44,27 @@ const initialFilters = (): Record<ListKey, ListFilters> => ({
   requests: { ...emptyFilters },
 });
 
-export const usePortalFilters = create<PortalFiltersState>((set) => ({
+const patchService = (
+  state: PortalFiltersState,
+  serviceItem: string,
+  patch: Partial<ListFilters>
+) => ({
+  serviceFilters: {
+    ...state.serviceFilters,
+    [serviceItem]: {
+      ...(state.serviceFilters[serviceItem] ?? emptyFilters),
+      ...patch,
+    },
+  },
+});
+
+export const usePortalFilters = create<PortalFiltersState>((set, get) => ({
   customer: null,
   filters: initialFilters(),
+  serviceFilters: {},
 
-  setCustomer: (customer) => set({ customer, filters: initialFilters() }),
+  setCustomer: (customer) =>
+    set({ customer, filters: initialFilters(), serviceFilters: {} }),
 
   setSearch: (key, search) =>
     set((state) => ({
@@ -85,8 +108,32 @@ export const usePortalFilters = create<PortalFiltersState>((set) => ({
       },
     })),
 
-  reset: (key) =>
-    set((state) => ({ filters: { ...state.filters, [key]: { ...emptyFilters } } })),
+  getServiceFilters: (serviceItem) => get().serviceFilters[serviceItem] ?? emptyFilters,
 
-  resetAll: () => set({ filters: initialFilters() }),
+  setServiceSearch: (serviceItem, search) =>
+    set((state) => patchService(state, serviceItem, { search, start: 0 })),
+
+  setServiceStatus: (serviceItem, status) =>
+    set((state) => patchService(state, serviceItem, { status, start: 0 })),
+
+  setServicePageLength: (serviceItem, pageLength) =>
+    set((state) => patchService(state, serviceItem, { pageLength, start: 0 })),
+
+  nextServicePage: (serviceItem) =>
+    set((state) => {
+      const current = state.serviceFilters[serviceItem] ?? emptyFilters;
+      return patchService(state, serviceItem, { start: current.start + current.pageLength });
+    }),
+
+  previousServicePage: (serviceItem) =>
+    set((state) => {
+      const current = state.serviceFilters[serviceItem] ?? emptyFilters;
+      return patchService(state, serviceItem, {
+        start: Math.max(0, current.start - current.pageLength),
+      });
+    }),
+
+  reset: (key) => set((state) => ({ filters: { ...state.filters, [key]: { ...emptyFilters } } })),
+
+  resetAll: () => set({ filters: initialFilters(), serviceFilters: {} }),
 }));

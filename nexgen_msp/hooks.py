@@ -21,8 +21,29 @@ fixtures = [
 			]
 		],
 	},
-	{"dt": "Email Template", "filters": [["name", "in", ["MSP Portal Invitation"]]]},
+	{"dt": "Custom Field", "filters": [["name", "in", ["Item-msp_service_scope"]]]},
+	{
+		"dt": "Email Template",
+		"filters": [
+			[
+				"name",
+				"in",
+				[
+					"MSP Portal Invitation",
+					"MSP Password Reset",
+					"MSP Request Received",
+					"MSP Request Decision",
+					"MSP Request Completed",
+					"MSP Invoice Issued",
+				],
+			]
+		],
+	},
 ]
+
+override_doctype_class = {"User": "nexgen_msp.overrides.user.MSPUser"}
+
+after_migrate = ["nexgen_msp.utils.notifications.ensure_templates"]
 
 # Each item in the list will be shown as an app in the apps page
 # add_to_apps_screen = [
@@ -89,6 +110,12 @@ website_redirects = [
 	{
 		"source": "/login",
 		"target": "/msp/login",
+		"redirect_http_status": 302,
+		"forward_query_parameters": True,
+	},
+	{
+		"source": "/update-password",
+		"target": "/msp/reset-password",
 		"redirect_http_status": 302,
 		"forward_query_parameters": True,
 	},

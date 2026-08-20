@@ -60,8 +60,14 @@ REQUEST_FIELDS = [
 
 REQUEST_LINE_FIELDS = [
     "idx",
+    "action",
     "target_scope",
+    "is_new_user",
     "client_user",
+    "new_user_full_name",
+    "new_user_department",
+    "needs_portal_access",
+    "new_user_email",
     "managed_device",
     "customer_site",
     "requested_service",
@@ -73,6 +79,98 @@ REQUEST_LINE_FIELDS = [
 ]
 
 MAX_PAGE_LENGTH = 200
+
+SECURITY_ITEM = "SVC-SOPHOS"
+
+ASSIGNMENT_HOLDER_JOIN = """
+    from `tabService Assignment` sa
+    left join `tabItem` item on item.name = sa.service_item
+    left join `tabClient User` holder on holder.name = sa.client_user
+    left join `tabManaged Device` device on device.name = sa.managed_device
+    left join `tabClient User` device_holder on device_holder.name = device.assigned_client_user
+"""
+
+HOLDER_NAME = "coalesce(holder.full_name, device_holder.full_name)"
+HOLDER_STATUS = "coalesce(holder.lifecycle_status, device_holder.lifecycle_status)"
+
+KPI_SOURCES = {
+    "active_services": {
+        "title": "Active services",
+        "fields": [
+            ("user_name", "User", HOLDER_NAME),
+            ("service", "Service", "coalesce(item.item_name, sa.service_item)"),
+            ("hostname", "Device", "device.hostname"),
+            ("since", "Since", "sa.effective_start_date"),
+            ("status", "Status", "sa.operational_status"),
+        ],
+        "body": ASSIGNMENT_HOLDER_JOIN
+        + """
+            where sa.customer = %(customer)s
+              and sa.operational_status = 'Active'
+        """,
+        "order_by": "sa.effective_start_date desc, sa.name desc",
+        "key": "sa.name",
+    },
+    "open_requests": {
+        "title": "Open requests",
+        "fields": [
+            ("request", "Request", "sr.name"),
+            ("request_type", "Type", "sr.request_type"),
+            ("priority", "Priority", "sr.priority"),
+            ("created", "Created", "sr.creation"),
+            ("status", "Status", "sr.status"),
+        ],
+        "body": """
+            from `tabService Request` sr
+            where sr.customer = %(customer)s
+              and sr.status not in ('Completed', 'Rejected', 'Cancelled')
+        """,
+        "order_by": "sr.creation desc",
+        "key": "sr.name",
+    },
+    "reclaimable_licences": {
+        "title": "Licences to reclaim",
+        "fields": [
+            ("user_name", "User", HOLDER_NAME),
+            ("service", "Service", "coalesce(item.item_name, sa.service_item)"),
+            ("hostname", "Device", "device.hostname"),
+            ("left_on", "User disabled on", "coalesce(holder.disabled_date, device_holder.disabled_date)"),
+            ("status", "Status", "sa.operational_status"),
+        ],
+        "body": ASSIGNMENT_HOLDER_JOIN
+        + f"""
+            where sa.customer = %(customer)s
+              and sa.operational_status not in ('Ended', 'Cancelled')
+              and {HOLDER_STATUS} in ('Disabled', 'Archived')
+        """,
+        "order_by": "coalesce(holder.disabled_date, device_holder.disabled_date) desc",
+        "key": "sa.name",
+    },
+    "unprotected_devices": {
+        "title": "Unprotected devices",
+        "fields": [
+            ("hostname", "Device", "device.hostname"),
+            ("device_type", "Type", "device.device_type"),
+            ("user_name", "Assigned to", "holder.full_name"),
+            ("since", "In service since", "device.assigned_date"),
+            ("status", "Status", "device.status"),
+        ],
+        "body": """
+            from `tabManaged Device` device
+            left join `tabClient User` holder on holder.name = device.assigned_client_user
+            where device.customer = %(customer)s
+              and device.status = 'Active'
+              and not exists (
+                  select 1 from `tabService Assignment` sa
+                  where sa.managed_device = device.name
+                    and sa.service_item = %(security_item)s
+                    and sa.operational_status not in ('Ended', 'Cancelled')
+              )
+        """,
+        "order_by": "device.assigned_date desc, device.hostname asc",
+        "key": "device.name",
+    },
+}
 
 
 class PortalService:
@@ -114,16 +212,69 @@ class PortalService:
             "devices": frappe.db.count("Managed Device", base),
             "active_devices": frappe.db.count("Managed Device", {**base, "status": "Active"}),
             "service_assignments": frappe.db.count("Service Assignment", base),
-            "active_services": frappe.db.count(
-                "Service Assignment", {**base, "operational_status": "Active"}
-            ),
-            "open_requests": frappe.db.count(
+            "active_services": PortalService._count_kpi("active_services", customer),
+            "open_requests": PortalService._count_kpi("open_requests", customer),
+            "awaiting_approval": frappe.db.count(
                 "Service Request",
-                {
-                    **base,
-                    "status": ["not in", ["Completed", "Rejected", "Cancelled"]],
-                },
+                {**base, "status": ["in", ["Submitted", "Under Review"]]},
             ),
+            "reclaimable_licences": PortalService._count_kpi("reclaimable_licences", customer),
+            "unprotected_devices": PortalService._count_kpi("unprotected_devices", customer),
+            "catalogue_size": frappe.db.count("Item", {"disabled": 0, "is_stock_item": 0}),
+        }
+
+    @staticmethod
+    def _kpi_source(kpi):
+        source = KPI_SOURCES.get(kpi)
+
+        if not source:
+            raise ValidationError(f"Unknown KPI '{kpi}'.", "VALIDATION_ERROR")
+
+        return source
+
+    @staticmethod
+    def _count_kpi(kpi, customer):
+        source = PortalService._kpi_source(kpi)
+        rows = frappe.db.sql(
+            f"select count(*) {source['body']}",
+            {"customer": customer, "security_item": SECURITY_ITEM},
+        )
+        return rows[0][0] if rows else 0
+
+    @staticmethod
+    def list_kpi_rows(kpi=None, customer=None, start=0, page_length=20):
+        """Rows behind a dashboard KPI, using the very predicate that produced its number."""
+        source = PortalService._kpi_source(kpi)
+        customer = PortalService._resolve_customer(customer)
+
+        start = max(frappe.utils.cint(start), 0)
+        page_length = min(max(frappe.utils.cint(page_length) or 20, 1), MAX_PAGE_LENGTH)
+
+        selected = ", ".join(f"{expression} as `{key}`" for key, _label, expression in source["fields"])
+        params = {"customer": customer, "security_item": SECURITY_ITEM}
+
+        rows = frappe.db.sql(
+            f"""
+            select {source['key']} as `name`, {selected}
+            {source['body']}
+            order by {source['order_by']}
+            limit {page_length} offset {start}
+            """,
+            params,
+            as_dict=True,
+        )
+
+        total = PortalService._count_kpi(kpi, customer)
+
+        return {
+            "kpi": kpi,
+            "title": source["title"],
+            "columns": [{"key": key, "label": label} for key, label, _expression in source["fields"]],
+            "rows": rows,
+            "start": start,
+            "page_length": page_length,
+            "total": total,
+            "has_more": start + len(rows) < total,
         }
 
     @staticmethod
@@ -142,9 +293,28 @@ class PortalService:
         if status:
             filters["status"] = status
 
-        return PortalService._paginated(
+        result = PortalService._paginated(
             "Managed Device", DEVICE_FIELDS, filters, search, ["hostname", "serial_number"], start, page_length
         )
+
+        # a hostname means nothing to a customer — the type and who holds it do
+        holders = {row["assigned_client_user"] for row in result["rows"] if row.get("assigned_client_user")}
+
+        names = (
+            {
+                row.name: row.full_name
+                for row in frappe.get_all(
+                    "Client User", filters={"name": ("in", list(holders))}, fields=["name", "full_name"]
+                )
+            }
+            if holders
+            else {}
+        )
+
+        for row in result["rows"]:
+            row["assigned_user_name"] = names.get(row.get("assigned_client_user"))
+
+        return result
 
     @staticmethod
     def list_service_assignments(
@@ -172,6 +342,7 @@ class PortalService:
 
     @staticmethod
     def get_request(name=None):
+        """A customer sees their own request and the answer to it — never who internally decided."""
         if not name:
             raise ValidationError("name is required.", "VALIDATION_ERROR")
 
@@ -181,23 +352,218 @@ class PortalService:
         doc = frappe.get_doc("Service Request", name)
         doc.check_permission("read")
 
+        PortalService._resolve_customer(doc.customer)
+
+        lines = frappe.db.sql(
+            """
+            select
+                srl.idx, srl.action, srl.line_status, srl.rejection_reason,
+                srl.is_new_user, srl.new_user_full_name, srl.new_user_department,
+                srl.is_new_device, srl.new_device_label,
+                coalesce(cu.full_name, holder.full_name, srl.new_user_full_name) as user_name,
+                coalesce(cu.department, holder.department, srl.new_user_department) as department,
+                coalesce(item.item_name, srl.requested_service) as service_name,
+                device.hostname,
+                srl.requested_effective_date, srl.comment,
+                sa.operational_status as service_status,
+                sa.effective_start_date as service_start_date,
+                sa_device.hostname as delivered_on
+            from `tabService Request Line` srl
+            left join `tabClient User` cu on cu.name = srl.client_user
+            left join `tabManaged Device` device on device.name = srl.managed_device
+            left join `tabClient User` holder on holder.name = device.assigned_client_user
+            left join `tabItem` item on item.name = srl.requested_service
+            left join `tabService Assignment` sa
+                on sa.source_request = srl.parent
+               and sa.service_item = srl.requested_service
+               and (srl.client_user is null or srl.client_user = '' or sa.client_user = srl.client_user)
+            left join `tabManaged Device` sa_device on sa_device.name = sa.managed_device
+            where srl.parent = %(parent)s
+            order by srl.idx asc
+            """,
+            {"parent": name},
+            as_dict=True,
+        )
+
         return {
-            **{field: doc.get(field) for field in REQUEST_FIELDS},
-            "lines": [
-                {field: row.get(field) for field in REQUEST_LINE_FIELDS} for row in doc.lines
-            ],
+            "name": doc.name,
+            "customer": doc.customer,
+            "request_type": doc.request_type,
+            "status": doc.status,
+            "priority": doc.priority,
+            "source": doc.source,
+            "creation": doc.creation,
+            "modified": doc.modified,
+            "rejection_reason": doc.rejection_reason,
+            "reviewed_on": doc.technical_approved_at,
+            "lines": lines,
         }
+
+    @staticmethod
+    def get_user_detail(client_user=None):
+        """What one of our people actually uses: services, device, dates and billing."""
+        if not client_user:
+            raise ValidationError("client_user is required.", "VALIDATION_ERROR")
+
+        user = frappe.db.get_value(
+            "Client User",
+            client_user,
+            [
+                "name",
+                "full_name",
+                "department",
+                "customer",
+                "lifecycle_status",
+                "start_date",
+                "disabled_date",
+            ],
+            as_dict=True,
+        )
+
+        if not user:
+            raise NotFoundError(f"Client User {client_user} does not exist.", "NOT_FOUND")
+
+        PortalService._resolve_customer(user.customer)
+
+        devices = frappe.db.sql(
+            """
+            select hostname, device_type, status, assigned_date
+            from `tabManaged Device`
+            where assigned_client_user = %(user)s
+            order by field(status, 'Active') desc, hostname asc
+            """,
+            {"user": client_user},
+            as_dict=True,
+        )
+
+        services = frappe.db.sql(
+            """
+            select
+                coalesce(item.item_name, sa.service_item) as service_name,
+                device.hostname,
+                sa.operational_status,
+                sa.effective_start_date,
+                sa.effective_end_date,
+                sa.customer_visible_notes,
+                sa.source_request,
+                (
+                    select max(br.billing_period_end)
+                    from `tabBilling Run Line` brl
+                    join `tabBilling Run` br on br.name = brl.parent
+                    where brl.service_assignment = sa.name and br.docstatus = 1
+                ) as last_billed_on
+            from `tabService Assignment` sa
+            left join `tabItem` item on item.name = sa.service_item
+            left join `tabManaged Device` device on device.name = sa.managed_device
+            where sa.client_user = %(user)s
+               or device.assigned_client_user = %(user)s
+            order by field(sa.operational_status, 'Ended', 'Cancelled') asc,
+                     sa.effective_start_date desc
+            """,
+            {"user": client_user},
+            as_dict=True,
+        )
+
+        requests = frappe.db.sql(
+            """
+            select distinct sr.name, sr.status, sr.priority, sr.request_type, sr.creation
+            from `tabService Request` sr
+            join `tabService Request Line` srl on srl.parent = sr.name
+            where srl.client_user = %(user)s
+            order by sr.creation desc
+            limit 10
+            """,
+            {"user": client_user},
+            as_dict=True,
+        )
+
+        return {
+            "user": user,
+            "devices": devices,
+            "services": services,
+            "requests": requests,
+        }
+
+    @staticmethod
+    def _acknowledge(doc):
+        from nexgen_msp.utils import notifications
+
+        notifications.send(
+            "MSP Request Received",
+            [doc.requester],
+            {
+                "full_name": frappe.db.get_value("User", doc.requester, "full_name") or doc.requester,
+                "request": doc.name,
+                "summary": notifications.summary_table(
+                    [
+                        ("Request", doc.name),
+                        ("Services requested", str(len(doc.lines))),
+                        ("Priority", doc.priority or "Medium"),
+                    ]
+                ),
+                "link": notifications.portal_url(f"/requests/{doc.name}"),
+            },
+            reference_doctype="Service Request",
+            reference_name=doc.name,
+        )
+
+    @staticmethod
+    def _scoped_line(line, customer):
+        """A device service is requested against a device; a user service against a person."""
+        line = dict(line)
+        service = line.get("requested_service")
+        scope = frappe.db.get_value("Item", service, "msp_service_scope") or "User"
+        device = line.get("managed_device")
+
+        if line.get("is_new_device"):
+            if not (line.get("new_device_label") or "").strip():
+                raise ValidationError(
+                    "Describe the device you want registered.", "VALIDATION_ERROR"
+                )
+            line["target_scope"] = "User"
+            line["managed_device"] = None
+            return line
+
+        if line.get("is_new_user"):
+            line["target_scope"] = "User"
+            line["managed_device"] = None
+            return line
+
+        if scope == "Device" or (scope == "Both" and device):
+            if not device:
+                raise ValidationError(
+                    f"{service} applies to a device — pick which one.", "VALIDATION_ERROR"
+                )
+
+            owner = frappe.db.get_value(
+                "Managed Device", device, ["customer", "assigned_client_user"], as_dict=True
+            )
+
+            if not owner:
+                raise NotFoundError(f"Managed Device {device} not found.", "NOT_FOUND")
+
+            if owner.customer != customer:
+                raise ValidationError(
+                    f"Device {device} does not belong to {customer}.", "PERMISSION_DENIED", 403
+                )
+
+            line["target_scope"] = "Device"
+            line["client_user"] = None
+            return line
+
+        line["target_scope"] = "User"
+        line["managed_device"] = None
+        return line
 
     @staticmethod
     def create_request(customer=None, request_type=None, priority=None, lines=None):
         customer = PortalService._resolve_customer(customer)
 
-        if not request_type:
-            raise ValidationError("request_type is required.", "VALIDATION_ERROR")
-
         lines = frappe.parse_json(lines) if isinstance(lines, str) else lines
         if not lines:
             raise ValidationError("At least one line is required.", "VALIDATION_ERROR")
+
+        lines = [PortalService._scoped_line(line, customer) for line in lines]
 
         doc = frappe.get_doc(
             {
@@ -210,8 +576,16 @@ class PortalService:
                 "requester": frappe.session.user,
                 "lines": [
                     {
-                        "target_scope": line.get("target_scope"),
+                        "action": line.get("action") or request_type or "Add",
+                        "target_scope": line.get("target_scope") or "User",
+                        "is_new_user": 1 if line.get("is_new_user") else 0,
                         "client_user": line.get("client_user"),
+                        "new_user_full_name": line.get("new_user_full_name"),
+                        "new_user_department": line.get("new_user_department"),
+                        "needs_portal_access": 1 if line.get("needs_portal_access") else 0,
+                        "new_user_email": line.get("new_user_email"),
+                        "is_new_device": 1 if line.get("is_new_device") else 0,
+                        "new_device_label": line.get("new_device_label"),
                         "managed_device": line.get("managed_device"),
                         "customer_site": line.get("customer_site"),
                         "requested_service": line.get("requested_service"),
@@ -226,21 +600,218 @@ class PortalService:
 
         frappe.db.commit()
 
+        PortalService._acknowledge(doc)
+
         return PortalService.get_request(doc.name)
 
     @staticmethod
     def list_catalogue(customer=None):
-        PortalService._resolve_customer(customer)
+        """Only what the customer's live contract covers — they cannot order the rest."""
+        customer = PortalService._resolve_customer(customer)
+
+        covered = frappe.db.sql(
+            """
+            select distinct cs.service_item
+            from `tabMSP Contract` c
+            join `tabMSP Contract Service` cs on cs.parent = c.name
+            where c.customer = %(customer)s and c.status in ('Active', 'Suspended')
+            """,
+            {"customer": customer},
+            pluck=True,
+        )
+
+        if not covered:
+            return {"items": [], "count": 0}
 
         items = frappe.get_all(
             "Item",
-            filters={"disabled": 0, "is_stock_item": 0},
-            fields=["name", "item_name", "stock_uom", "description"],
+            filters={"disabled": 0, "is_stock_item": 0, "name": ["in", covered]},
+            fields=["name", "item_name", "stock_uom", "description", "msp_service_scope"],
             order_by="item_name asc",
             limit_page_length=0,
         )
 
+        for item in items:
+            item["scope"] = item.pop("msp_service_scope", None) or "User"
+
         return {"items": items, "count": len(items)}
+
+    @staticmethod
+    def list_users_with_services(customer=None, search=None, status=None, start=0, page_length=20):
+        customer = PortalService._resolve_customer(customer)
+
+        start = max(0, frappe.utils.cint(start))
+        page_length = min(MAX_PAGE_LENGTH, max(1, frappe.utils.cint(page_length) or 20))
+
+        conditions = ["cu.customer = %(customer)s"]
+        values = {"customer": customer, "start": start, "page_length": page_length}
+
+        if status:
+            conditions.append("cu.lifecycle_status = %(status)s")
+            values["status"] = status
+
+        if search:
+            conditions.append("(cu.full_name like %(search)s or cu.email like %(search)s)")
+            values["search"] = f"%{search}%"
+
+        where = " and ".join(conditions)
+
+        base_from = """
+            from `tabClient User` cu
+            left join `tabManaged Device` d
+                on d.assigned_client_user = cu.name and d.status = 'Active'
+            left join `tabService Assignment` sa
+                on (sa.client_user = cu.name or sa.managed_device = d.name)
+                and sa.operational_status not in ('Ended', 'Cancelled')
+        """
+
+        rows = frappe.db.sql(
+            f"""
+            select
+                cu.name as name,
+                cu.full_name as full_name,
+                cu.department as department,
+                cu.email as email,
+                cu.lifecycle_status as lifecycle_status,
+                cu.start_date as start_date,
+                max(d.hostname) as hostname,
+                max(d.device_type) as device_type,
+                count(distinct sa.name) as service_count
+            {base_from}
+            where {where}
+            group by cu.name
+            order by count(distinct sa.name) desc, cu.full_name asc
+            limit %(page_length)s offset %(start)s
+            """,
+            values,
+            as_dict=True,
+        )
+
+        counted = frappe.db.sql(
+            f"select count(distinct cu.name) from `tabClient User` cu where {where}", values
+        )
+        total = counted[0][0] if counted else 0
+
+        return {
+            "rows": rows,
+            "start": start,
+            "page_length": page_length,
+            "total": total,
+            "has_more": start + len(rows) < total,
+        }
+
+    @staticmethod
+    def list_subscribed_services(customer=None):
+        customer = PortalService._resolve_customer(customer)
+
+        rows = frappe.db.sql(
+            """
+            select
+                sa.service_item as service_item,
+                coalesce(i.item_name, sa.service_item) as item_name,
+                sa.assignment_scope as assignment_scope,
+                count(*) as total,
+                cast(sum(case when sa.operational_status = 'Active' then 1 else 0 end) as unsigned) as active,
+                cast(sum(case when sa.operational_status in ('Ended', 'Cancelled') then 1 else 0 end) as unsigned) as ended
+            from `tabService Assignment` sa
+            left join `tabItem` i on i.name = sa.service_item
+            where sa.customer = %s
+            group by sa.service_item, i.item_name, sa.assignment_scope
+            order by count(*) desc
+            """,
+            (customer,),
+            as_dict=True,
+        )
+
+        return {"services": rows, "count": len(rows)}
+
+    @staticmethod
+    def list_service_rows(
+        customer=None, service_item=None, search=None, status=None, start=0, page_length=20
+    ):
+        customer = PortalService._resolve_customer(customer)
+
+        if not service_item:
+            raise ValidationError("service_item is required.", "VALIDATION_ERROR")
+
+        start = max(0, frappe.utils.cint(start))
+        page_length = min(MAX_PAGE_LENGTH, max(1, frappe.utils.cint(page_length) or 20))
+
+        conditions = ["sa.customer = %(customer)s", "sa.service_item = %(service_item)s"]
+        values = {
+            "customer": customer,
+            "service_item": service_item,
+            "start": start,
+            "page_length": page_length,
+        }
+
+        if status:
+            conditions.append("sa.operational_status = %(status)s")
+            values["status"] = status
+
+        if search:
+            conditions.append(
+                "(cu.full_name like %(search)s or dcu.full_name like %(search)s or d.hostname like %(search)s"
+                " or own.hostname like %(search)s)"
+            )
+            values["search"] = f"%{search}%"
+
+        where = " and ".join(conditions)
+
+        base_from = """
+            from `tabService Assignment` sa
+            left join `tabClient User` cu on cu.name = sa.client_user
+            left join `tabManaged Device` d on d.name = sa.managed_device
+            left join `tabManaged Device` own on own.assigned_client_user = sa.client_user
+                and own.status = 'Active'
+            left join `tabClient User` dcu on dcu.name = d.assigned_client_user
+        """
+
+        rows = frappe.db.sql(
+            f"""
+            select
+                sa.name as name,
+                coalesce(sa.client_user, d.assigned_client_user) as client_user,
+                coalesce(cu.full_name, dcu.full_name) as user_name,
+                coalesce(cu.department, dcu.department) as department,
+                coalesce(cu.email, dcu.email) as email,
+                coalesce(cu.lifecycle_status, dcu.lifecycle_status) as user_status,
+                coalesce(d.hostname, own.hostname) as hostname,
+                coalesce(sa.managed_device, own.name) as device,
+                sa.quantity as quantity,
+                sa.uom as uom,
+                sa.operational_status as operational_status,
+                sa.billing_status as billing_status,
+                sa.effective_start_date as effective_start_date,
+                sa.effective_end_date as effective_end_date,
+                (
+                    select max(br.billing_period_end)
+                    from `tabBilling Run Line` brl
+                    join `tabBilling Run` br on br.name = brl.parent
+                    where brl.service_assignment = sa.name and br.docstatus = 1
+                ) as last_billed_on
+            {base_from}
+            where {where}
+            group by sa.name
+            order by coalesce(cu.full_name, dcu.full_name, d.hostname) asc
+            limit %(page_length)s offset %(start)s
+            """,
+            values,
+            as_dict=True,
+        )
+
+        counted = frappe.db.sql(
+            f"select count(distinct sa.name) {base_from} where {where}", values
+        )
+        total = counted[0][0] if counted else 0
+
+        return {
+            "rows": rows,
+            "start": start,
+            "page_length": page_length,
+            "total": total,
+            "has_more": start + len(rows) < total,
+        }
 
     @staticmethod
     def _resolve_customer(customer=None):
@@ -300,3 +871,188 @@ class PortalService:
             "total": total,
             "has_more": start + len(rows) < total,
         }
+
+
+    @staticmethod
+    def list_billing(customer=None):
+        """Every invoiced period this customer can review."""
+        customer = PortalService._resolve_customer(customer)
+
+        return frappe.db.sql(
+            """
+            select
+                br.name, br.billing_period_start, br.billing_period_end,
+                br.total_amount, br.currency, br.sales_invoice,
+                br.adjustment_of, br.approved_at,
+                si.status as invoice_status, si.docstatus as invoice_docstatus,
+                si.posting_date,
+                (select count(*) from `tabBilling Run Line` brl
+                    where brl.parent = br.name and (brl.exception_code is null or brl.exception_code = ''))
+                    as line_count
+            from `tabBilling Run` br
+            left join `tabSales Invoice` si on si.name = br.sales_invoice
+            where br.customer = %(customer)s
+              and br.status = 'Invoiced'
+            order by br.billing_period_end desc
+            """,
+            {"customer": customer},
+            as_dict=True,
+        )
+
+    @staticmethod
+    def get_billing_detail(name=None):
+        """What is behind an invoice: who, on which machine, and over which period."""
+        if not name:
+            raise ValidationError("name is required.", "VALIDATION_ERROR")
+
+        run = frappe.db.get_value(
+            "Billing Run",
+            name,
+            [
+                "name",
+                "customer",
+                "status",
+                "billing_period_start",
+                "billing_period_end",
+                "total_amount",
+                "currency",
+                "sales_invoice",
+                "adjustment_of",
+            ],
+            as_dict=True,
+        )
+
+        if not run:
+            raise NotFoundError(f"Billing Run {name} does not exist.", "NOT_FOUND")
+
+        PortalService._resolve_customer(run.customer)
+
+        if run.status != "Invoiced":
+            raise ValidationError(
+                "This period has not been invoiced yet.", "PERMISSION_DENIED", 403
+            )
+
+        rows = frappe.db.sql(
+            """
+            select
+                brl.service_item,
+                coalesce(item.item_name, brl.service_item) as service_name,
+                coalesce(cu.full_name, dcu.full_name) as user_name,
+                coalesce(cu.department, dcu.department) as department,
+                device.hostname,
+                device.device_type,
+                brl.quantity, brl.billable_days, brl.period_days, brl.billable_months,
+                brl.unit_rate, brl.amount, brl.proration_method,
+                sa.effective_start_date, sa.effective_end_date
+            from `tabBilling Run Line` brl
+            left join `tabItem` item on item.name = brl.service_item
+            left join `tabClient User` cu on cu.name = brl.client_user
+            left join `tabManaged Device` device on device.name = brl.managed_device
+            left join `tabClient User` dcu on dcu.name = device.assigned_client_user
+            left join `tabService Assignment` sa on sa.name = brl.service_assignment
+            where brl.parent = %(parent)s
+              and (brl.exception_code is null or brl.exception_code = '')
+            order by service_name asc, user_name asc
+            """,
+            {"parent": name},
+            as_dict=True,
+        )
+
+        groups = {}
+
+        for row in rows:
+            bucket = groups.setdefault(
+                row.service_name,
+                {
+                    "service_name": row.service_name,
+                    "lines": [],
+                    "quantity": 0,
+                    "months": 0.0,
+                    "amount": 0.0,
+                },
+            )
+            bucket["lines"].append(
+                {
+                    "user_name": row.user_name,
+                    "department": row.department,
+                    "hostname": row.hostname,
+                    "device_type": row.device_type,
+                    "started_on": row.effective_start_date,
+                    "stopped_on": row.effective_end_date,
+                    "state": "Ended" if row.effective_end_date else "Active",
+                    "billable_days": row.billable_days,
+                    "period_days": row.period_days,
+                    "billable_months": row.billable_months,
+                    "unit_rate": row.unit_rate,
+                    "amount": row.amount,
+                }
+            )
+            bucket["quantity"] += 1
+            bucket["months"] += frappe.utils.flt(row.billable_months)
+            bucket["amount"] += frappe.utils.flt(row.amount)
+
+        invoice = (
+            frappe.db.get_value(
+                "Sales Invoice",
+                run.sales_invoice,
+                ["name", "posting_date", "grand_total", "status", "docstatus"],
+                as_dict=True,
+            )
+            if run.sales_invoice
+            else None
+        )
+
+        return {
+            "run": run,
+            "invoice": invoice,
+            "services": sorted(groups.values(), key=lambda group: group["service_name"]),
+            "line_count": len(rows),
+        }
+
+    @staticmethod
+    def _billing_run_for_customer(name):
+        """Resolve a run the caller is actually entitled to see, or refuse."""
+        if not name:
+            raise ValidationError("name is required.", "VALIDATION_ERROR")
+
+        run = frappe.db.get_value(
+            "Billing Run", name, ["name", "customer", "status", "sales_invoice"], as_dict=True
+        )
+
+        if not run:
+            raise NotFoundError(f"Billing Run {name} does not exist.", "NOT_FOUND")
+
+        PortalService._resolve_customer(run.customer)
+
+        if run.status != "Invoiced":
+            raise ValidationError("This period has not been invoiced yet.", "PERMISSION_DENIED", 403)
+
+        return run
+
+    @staticmethod
+    def download_invoice(name=None):
+        """The printed invoice for a period, as a PDF the customer can save."""
+        run = PortalService._billing_run_for_customer(name)
+
+        if not run.sales_invoice:
+            raise NotFoundError("This period has no invoice document.", "NOT_FOUND")
+
+        from nexgen_msp.utils import invoice_pdf
+
+        invoice_pdf.respond(run.sales_invoice)
+
+    @staticmethod
+    def download_breakdown(name=None):
+        """The supporting detail behind the invoice, as a spreadsheet."""
+        from nexgen_msp.api.internal.services.billing_service import BillingService
+        from nexgen_msp.utils.billing_export import breakdown_workbook
+
+        run = PortalService._billing_run_for_customer(name)
+
+        data = BillingService.breakdown(run.name, guard=False)
+
+        frappe.local.response.filename = (
+            f"Breakdown-{data['customer']}-{data['period_label']}.xlsx".replace(" ", "-")
+        )
+        frappe.local.response.filecontent = breakdown_workbook(data)
+        frappe.local.response.type = "download"

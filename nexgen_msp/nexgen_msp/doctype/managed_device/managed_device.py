@@ -6,6 +6,7 @@ import re
 import frappe
 from frappe import _
 from frappe.model.document import Document
+from frappe.utils import getdate
 
 MAC_PATTERN = re.compile(r"^[0-9A-F]{2}([:-])(?:[0-9A-F]{2}\1){4}[0-9A-F]{2}$")
 CLOSED_STATUSES = ("Returned", "Damaged", "Retired", "Lost")
@@ -58,7 +59,7 @@ class ManagedDevice(Document):
 		if self.status not in CLOSED_STATUSES:
 			self.retired_date = None
 
-		if self.assigned_date and self.retired_date and self.retired_date < self.assigned_date:
+		if self.assigned_date and self.retired_date and getdate(self.retired_date) < getdate(self.assigned_date):
 			frappe.throw(_("Retired Date cannot be earlier than Assigned Date."))
 
 		if self.status == "Active" and not self.assigned_client_user and not self.assigned_date:

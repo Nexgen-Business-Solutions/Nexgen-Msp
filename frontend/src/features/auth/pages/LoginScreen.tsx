@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import {
   AlertCircleIcon,
   EyeIcon,
@@ -162,6 +162,15 @@ export default function LoginScreen() {
                     )}
                   </button>
                 </div>
+              </div>
+
+              <div className="flex justify-end">
+                <Link
+                  to="/msp/forgot-password"
+                  className="text-xs font-semibold text-blue-700 transition-colors hover:text-blue-900"
+                >
+                  Forgot password?
+                </Link>
               </div>
 
               <button

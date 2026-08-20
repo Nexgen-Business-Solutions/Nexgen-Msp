@@ -26,6 +26,11 @@ SERVICE_CATALOGUE = {
     },
 }
 
+ASSIGNMENT_STATUS = {
+    "Active": ("Active", "Billable"),
+    "Ended": ("Ended", "Ended"),
+}
+
 ITEM_GROUP = "Services"
 DEFAULT_UOM = "Unit"
 MIGRATION_TAG = "list of users.xlsx"
@@ -62,6 +67,8 @@ class ExcelImportService:
                 "managed_devices": 0,
                 "network_interfaces": 0,
                 "service_assignments": 0,
+                "assignments_active": 0,
+                "assignments_ended": 0,
                 "portal_users": 0,
                 "portal_contacts": 0,
                 "user_permissions": 0,
@@ -72,6 +79,7 @@ class ExcelImportService:
                 "devices_without_hostname": 0,
                 "duplicate_hostname": 0,
                 "invalid_macs": 0,
+                "inconsistent_dates": 0,
                 "rows_without_email": 0,
                 "invalid_emails": 0,
                 "duplicate_emails": 0,
@@ -238,16 +246,64 @@ class ExcelImportService:
         return items
 
     @staticmethod
+    def _assigned_services(record):
+        return [service for service in record["services"].values() if service["assigned"]]
+
+    @staticmethod
     def _lifecycle_status(record):
         if record["ad_disabled"]:
             return "Disabled"
         if record["ad_marked_active"] or record["ad_created"]:
             return "Active"
-        return "Pending"
+        return ExcelImportService._status_from_services(record)
+
+    @staticmethod
+    def _status_from_services(record):
+        """Fall back on the services held when the AD columns say nothing."""
+        statuses = {service["status"] for service in ExcelImportService._assigned_services(record)}
+
+        if not statuses:
+            return "Pending"
+
+        return "Active" if "Active" in statuses else "Disabled"
+
+    @staticmethod
+    def _lifecycle_dates(record, status):
+        """Borrow the service timeline when the AD columns carry no date."""
+        start = record["ad_created"]
+        end = record["ad_disabled"] if status == "Disabled" else None
+
+        services = ExcelImportService._assigned_services(record)
+
+        if not start:
+            starts = [service["start"] for service in services if service["start"]]
+            start = min(starts) if starts else None
+
+        if status == "Disabled" and not end:
+            ends = [service["end"] for service in services if service["end"]]
+            end = max(ends) if ends else None
+
+        return start, end
+
+    @staticmethod
+    def _reconcile_start(start, end, record, report, label):
+        """Drop a start date that sits after its end date so the row still imports."""
+        if not (start and end and end < start):
+            return start
+
+        report["skipped"]["inconsistent_dates"] += 1
+        report["exceptions"].append(
+            {
+                "row": record["row_number"],
+                "reason": f"{label}: end date precedes start date, start date dropped",
+            }
+        )
+        return None
 
     @staticmethod
     def _create_client_user(record, customer, report):
         status = ExcelImportService._lifecycle_status(record)
+        start_date, disabled_date = ExcelImportService._lifecycle_dates(record, status)
 
         doc = frappe.get_doc(
             {
@@ -257,8 +313,10 @@ class ExcelImportService:
                 "department": record["department"],
                 "email": record["email"],
                 "lifecycle_status": status,
-                "start_date": record["ad_created"],
-                "disabled_date": record["ad_disabled"] if status == "Disabled" else None,
+                "start_date": ExcelImportService._reconcile_start(
+                    start_date, disabled_date, record, report, "Client User"
+                ),
+                "disabled_date": disabled_date,
                 "ad_status": "Active" if record["ad_marked_active"] else "Not Managed",
                 "portal_visible": 1,
                 "remarks": record["remarks"],
@@ -297,6 +355,7 @@ class ExcelImportService:
             )
 
         status = "Retired" if record["device_disabled"] else "Active"
+        retired_date = record["device_disabled"] if status == "Retired" else None
 
         doc = frappe.get_doc(
             {
@@ -306,8 +365,10 @@ class ExcelImportService:
                 "hostname": record["hostname"],
                 "device_type": record["device_type"] or "Other",
                 "status": status,
-                "assigned_date": record["device_created"],
-                "retired_date": record["device_disabled"] if status == "Retired" else None,
+                "assigned_date": ExcelImportService._reconcile_start(
+                    record["device_created"], retired_date, record, report, "Managed Device"
+                ),
+                "retired_date": retired_date,
                 "network_interfaces": record["macs"],
                 "remarks": record["remarks"],
             }
@@ -369,8 +430,8 @@ class ExcelImportService:
 
     @staticmethod
     def _create_assignments(record, customer, client_user, device, items, report):
-        for key, active in record["services"].items():
-            if not active or key not in items:
+        for key, lifecycle in record["services"].items():
+            if not lifecycle["assigned"] or key not in items:
                 continue
 
             spec = SERVICE_CATALOGUE[key]
@@ -384,8 +445,16 @@ class ExcelImportService:
                 )
                 continue
 
-            start = record["nextcloud_activated"] if key == "nextcloud" else None
-            end = record["nextcloud_disabled"] if key == "nextcloud" else None
+            if lifecycle["inconsistent_start"]:
+                report["skipped"]["inconsistent_dates"] += 1
+                report["exceptions"].append(
+                    {
+                        "row": record["row_number"],
+                        "reason": f"{spec['item_name']}: end date precedes start date, start date dropped",
+                    }
+                )
+
+            operational_status, billing_status = ASSIGNMENT_STATUS[lifecycle["status"]]
 
             frappe.get_doc(
                 {
@@ -397,13 +466,14 @@ class ExcelImportService:
                     "managed_device": device if spec["scope"] == "Device" else None,
                     "quantity": 1,
                     "uom": DEFAULT_UOM,
-                    "operational_status": "Pending Setup",
-                    "billing_status": "Pending",
-                    "effective_start_date": start,
-                    "effective_end_date": end,
+                    "operational_status": operational_status,
+                    "billing_status": billing_status,
+                    "effective_start_date": lifecycle["start"],
+                    "effective_end_date": lifecycle["end"],
                     "price_source": "Contract",
                     "migration_source": MIGRATION_TAG,
                 }
             ).insert()
 
             report["created"]["service_assignments"] += 1
+            report["created"][f"assignments_{lifecycle['status'].lower()}"] += 1

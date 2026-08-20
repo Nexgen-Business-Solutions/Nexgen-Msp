@@ -6,7 +6,15 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, getdate, now_datetime
 
-BLOCKING_STATUSES = ("Draft", "Validating", "Exception", "Ready for Approval", "Approved", "Invoiced")
+BLOCKING_STATUSES = (
+	"Draft",
+	"Validating",
+	"Exception",
+	"Ready for Approval",
+	"Approved",
+	"Invoice Drafted",
+	"Invoiced",
+)
 
 
 class BillingRun(Document):
@@ -30,7 +38,8 @@ class BillingRun(Document):
 			frappe.throw(_("Billing Period End cannot be earlier than Billing Period Start."))
 
 	def validate_duplicate_run(self):
-		if self.adjustment_of:
+		# an adjustment or a credit note deliberately revisits a period already billed
+		if self.adjustment_of or self.credit_note_of:
 			return
 
 		duplicate = frappe.db.exists(
@@ -41,6 +50,7 @@ class BillingRun(Document):
 				"billing_period_start": self.billing_period_start,
 				"billing_period_end": self.billing_period_end,
 				"adjustment_of": ("is", "not set"),
+				"credit_note_of": ("is", "not set"),
 				"status": ("in", BLOCKING_STATUSES),
 				"docstatus": ("<", 2),
 			},
@@ -48,7 +58,7 @@ class BillingRun(Document):
 		if duplicate:
 			frappe.throw(
 				_("Billing Run {0} already covers this period for {1}. Use an adjustment run instead.").format(
-					frappe.bold(duplicate), frappe.bold(self.customer)
+					duplicate, self.customer
 				)
 			)
 
@@ -63,7 +73,7 @@ class BillingRun(Document):
 		if source_customer != self.customer:
 			frappe.throw(
 				_("Billing Run {0} belongs to customer {1}, not {2}.").format(
-					frappe.bold(self.adjustment_of), frappe.bold(source_customer), frappe.bold(self.customer)
+					self.adjustment_of, source_customer, self.customer
 				)
 			)
 

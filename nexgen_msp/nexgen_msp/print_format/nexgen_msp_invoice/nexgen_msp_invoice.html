@@ -1,0 +1,193 @@
+{#- issuer and bank details are fixed for now, to be driven from settings later -#}
+{%- macro money(value) -%}
+  {%- set formatted = frappe.format_value(value | abs, {"fieldtype": "Currency"}, doc) -%}
+  {%- if value < 0 -%}({{ formatted }}){%- else -%}{{ formatted }}{%- endif -%}
+{%- endmacro -%}
+
+<div class="msp-invoice">
+  <table class="head">
+    <tr>
+      <td class="issuer">
+        <p class="brand">Nexgen Business Solutions</p>
+      </td>
+      <td class="mark">
+        <img src="/assets/nexgen_msp/images/nexgen-logo.png" alt="Nexgen Business Solutions" />
+      </td>
+      <td class="title">INVOICE</td>
+    </tr>
+    <tr>
+      <td class="address" colspan="3">
+        <p>Office 115 - 1800 Boulevard Le Corbusier</p>
+        <p>Laval, H7S 2K1</p>
+        <p>Phone: +1 438 542 5757</p>
+        <p class="site">www.nxgensolutions.com</p>
+      </td>
+    </tr>
+  </table>
+
+  <table class="parties">
+    <tr>
+      <th class="band">BILL TO</th>
+      <td class="gap"></td>
+      <th class="band center">INVOICE #</th>
+      <th class="band center">DATE</th>
+    </tr>
+    <tr>
+      <td class="billto">
+        <p>{{ doc.customer_name or doc.customer }}</p>
+        {%- if doc.address_display %}{{ doc.address_display }}{% endif -%}
+      </td>
+      <td class="gap"></td>
+      <td class="value">{{ doc.name }}</td>
+      <td class="value">{{ frappe.utils.formatdate(doc.posting_date, "dd/MM/yyyy") }}</td>
+    </tr>
+  </table>
+
+  <table class="items grid">
+    <thead>
+      <tr>
+        <th class="band desc">DESCRIPTION</th>
+        <th class="band center qty">QTY</th>
+        <th class="band center price">UNIT PRICE</th>
+        <th class="band center amount">AMOUNT</th>
+      </tr>
+    </thead>
+    <tbody>
+      {%- for item in doc.items %}
+      <tr>
+        <td>{{ item.item_code }} - {{ item.description or item.item_name }}</td>
+        <td class="right">{{ item.qty }}</td>
+        <td class="right">{{ money(item.rate) }}</td>
+        <td class="right">{{ money(item.amount) }}</td>
+      </tr>
+      {%- endfor %}
+    </tbody>
+  </table>
+
+  <div class="bank">
+    <p class="bank-title">Bank details for wire transfer (USD)</p>
+    <table class="grid">
+      <tr>
+        <th>Beneficiary</th>
+        <th>Beneficiary Bank</th>
+        <th>Intermediary Bank (for USD wires)</th>
+      </tr>
+      <tr>
+        <td>
+          <p>Nexgen Business Solutions Inc.</p>
+          <p>115 - 1800 Boulevard Le Corbusier</p>
+          <p>Laval, QC H7S 2K1</p>
+          <p>Canada</p>
+        </td>
+        <td>
+          <p>RBC Royal Bank of Canada</p>
+          <p>Bank / Institution Number: 006</p>
+          <p>Branch / Transit Number: 05649</p>
+          <p>Account Number: 6549793</p>
+          <p>Currency: USD</p>
+          <p>SWIFT/BIC: ROYCCAT2</p>
+        </td>
+        <td>
+          <p>JPMorgan Chase Bank, New York</p>
+          <p>SWIFT/BIC: CHASUS33</p>
+          <p>ABA: 021000021</p>
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <table class="totals">
+    <tr>
+      <td class="thanks">Thank you for your business!</td>
+      <td class="label">SUBTOTAL</td>
+      <td class="figure">{{ money(doc.net_total) }}</td>
+    </tr>
+    {%- for tax in doc.taxes %}
+    <tr>
+      <td></td>
+      <td class="label">{{ tax.description }}</td>
+      <td class="figure">{{ money(tax.tax_amount) }}</td>
+    </tr>
+    {%- endfor %}
+    <tr class="grand">
+      <td class="empty"></td>
+      <td class="band">TOTAL</td>
+      <td class="band right">{{ money(doc.grand_total) }}</td>
+    </tr>
+    <tr>
+      <td></td>
+      <td class="words" colspan="2">
+        {{ doc.in_words or frappe.utils.money_in_words(doc.grand_total, doc.currency) }}
+      </td>
+    </tr>
+  </table>
+</div>
+
+<style>
+  .msp-invoice { font-family: Helvetica, Arial, sans-serif; font-size: 9.5pt; color: #1f2933; }
+  .msp-invoice table { width: 100%; border-collapse: collapse; }
+  .msp-invoice p { margin: 0 0 1px; }
+  /* the print stylesheet greys every th and draws its own cell borders */
+  .msp-invoice th { color: #1f2933; }
+  .msp-invoice td, .msp-invoice th { border: none; }
+
+  .msp-invoice .band,
+  .msp-invoice table th.band,
+  .msp-invoice table td.band {
+    background: #144572; color: #ffffff; font-weight: bold;
+    font-size: 8.5pt; padding: 5px 7px; text-align: left;
+  }
+  .msp-invoice .band.center { text-align: center; }
+  .msp-invoice .band.right { text-align: right; }
+
+  .head td { vertical-align: top; }
+  .head .issuer { width: 44%; }
+  .head .brand {
+    font-size: 12.5pt; font-weight: bold; color: #0e2e4b; white-space: nowrap;
+  }
+  .head .mark { width: 28%; text-align: center; }
+  .head .mark img { width: 140px; height: auto; }
+  .head .title {
+    width: 28%; text-align: right; vertical-align: top;
+    font-size: 21pt; font-weight: bold; color: #0e2e4b; letter-spacing: 1px;
+  }
+  .head .address { padding-top: 6px; padding-bottom: 14px; font-size: 8.5pt; font-weight: bold; }
+  .head .site { color: #1155cc; text-decoration: underline; font-weight: normal; }
+
+  .parties { margin-bottom: 18px; }
+  .parties .gap { width: 4%; }
+  .parties .band { width: 50%; }
+  .parties .band.center { width: 23%; }
+  .parties td { padding: 5px 7px; vertical-align: top; font-size: 8.5pt; line-height: 1.45; }
+  .parties .billto { border: 1px solid #144572; border-top: none; height: 52px; }
+  .parties .value { text-align: center; font-weight: bold; white-space: nowrap; }
+
+  .msp-invoice .grid td, .msp-invoice .grid th { border: 1px solid #b9c2cc; }
+  .items td { padding: 5px 7px; font-size: 8.5pt; }
+  .items .qty { width: 9%; }
+  .items .price { width: 15%; }
+  .items .amount { width: 16%; }
+  .items .right { text-align: right; white-space: nowrap; }
+
+  .bank { margin-top: 20px; }
+  .bank .bank-title {
+    text-align: center; font-weight: bold; font-size: 8.5pt;
+    border: 1px solid #b9c2cc; padding: 4px; width: 54%; margin-bottom: 0;
+  }
+  .bank th {
+    text-align: left; font-weight: bold; font-size: 8.5pt; padding: 4px 7px;
+    width: 33.33%; color: #1f2933;
+  }
+  .bank td { vertical-align: top; font-size: 8.5pt; line-height: 1.5; padding: 5px 7px; }
+
+  .totals { margin-top: 24px; }
+  .totals td { padding: 5px 7px; border: none; }
+  .totals .thanks {
+    width: 54%; font-style: italic; font-weight: bold; color: #0e2e4b; font-size: 9pt;
+  }
+  .totals .label { text-align: center; font-size: 8.5pt; }
+  .totals .figure { text-align: right; font-size: 8.5pt; white-space: nowrap; }
+  .totals .grand .band { font-size: 12pt; padding: 8px 7px; }
+  .totals .empty { border: none; }
+  .totals .words { text-align: right; font-weight: bold; font-size: 8.5pt; padding-top: 14px; }
+</style>

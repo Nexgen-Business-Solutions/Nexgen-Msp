@@ -49,6 +49,12 @@ DEVICE_TYPE_MAP = {
 
 MAC_PATTERN = re.compile(r"^[0-9A-F]{2}([:-])(?:[0-9A-F]{2}\1){4}[0-9A-F]{2}$")
 
+BIDI_PATTERN = re.compile(r"[‎‏‪-‮⁦-⁩]")
+
+TEXT_DATE_FORMATS = ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d")
+
+ACTIVE_TOKENS = {"active", "actif"}
+
 
 def is_blank(value):
     if value is None:
@@ -61,7 +67,7 @@ def is_blank(value):
 def as_text(value):
     if is_blank(value):
         return None
-    return " ".join(str(value).split())
+    return " ".join(BIDI_PATTERN.sub("", str(value)).split())
 
 
 def as_date(value):
@@ -69,7 +75,45 @@ def as_date(value):
         return value.date()
     if isinstance(value, datetime.date):
         return value
+
+    text = as_text(value)
+    if not text:
+        return None
+
+    for fmt in TEXT_DATE_FORMATS:
+        try:
+            return datetime.datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+
     return None
+
+
+def is_marked_active(value):
+    text = as_text(value)
+    return bool(text) and text.strip().lower() in ACTIVE_TOKENS
+
+
+def resolve_service(assigned, lifecycle_value, start_date, own_lifecycle=False):
+    """Turn an Excel service flag and its lifecycle column into an assignment state."""
+    end_date = as_date(lifecycle_value)
+    marked_active = is_marked_active(lifecycle_value)
+
+    if own_lifecycle and not assigned:
+        assigned = bool(end_date) or marked_active
+
+    if not assigned:
+        return {"assigned": False, "status": None, "start": None, "end": None, "inconsistent_start": False}
+
+    inconsistent = bool(start_date and end_date and end_date < start_date)
+
+    return {
+        "assigned": True,
+        "status": "Ended" if end_date else "Active",
+        "start": None if inconsistent else start_date,
+        "end": end_date,
+        "inconsistent_start": inconsistent,
+    }
 
 
 def is_yes(value):
@@ -131,7 +175,7 @@ def parse_row(row, row_number):
         "department": as_text(read(row, "department")),
         "ad_created": as_date(read(row, "ad_created")),
         "ad_disabled": as_date(read(row, "ad_disabled")),
-        "ad_marked_active": str(read(row, "ad_disabled")).strip().lower() == "active",
+        "ad_marked_active": is_marked_active(read(row, "ad_disabled")),
         "hostname": as_text(read(row, "hostname")),
         "device_type": normalize_device_type(read(row, "device_type")),
         "device_type_raw": as_text(read(row, "device_type")),
@@ -139,12 +183,23 @@ def parse_row(row, row_number):
         "device_disabled": as_date(read(row, "device_disabled")),
         "remarks": as_text(read(row, "remarks")),
         "services": {
-            "parallels": is_yes(read(row, "parallels")),
-            "nextcloud": is_yes(read(row, "nextcloud")),
-            "sophos": not is_blank(read(row, "sophos")),
+            "parallels": resolve_service(
+                is_yes(read(row, "parallels")),
+                read(row, "ad_disabled"),
+                as_date(read(row, "ad_created")),
+            ),
+            "nextcloud": resolve_service(
+                is_yes(read(row, "nextcloud")),
+                read(row, "nextcloud_disabled"),
+                as_date(read(row, "nextcloud_activated")),
+                own_lifecycle=True,
+            ),
+            "sophos": resolve_service(
+                not is_blank(read(row, "sophos")),
+                read(row, "device_disabled"),
+                as_date(read(row, "device_created")),
+            ),
         },
-        "nextcloud_activated": as_date(read(row, "nextcloud_activated")),
-        "nextcloud_disabled": as_date(read(row, "nextcloud_disabled")),
         "macs": [],
         "invalid_macs": [],
     }

@@ -167,25 +167,20 @@ def ensure_invitation_template():
 
 
 def send_portal_invitation(user_doc, customer):
-    ensure_invitation_template()
+    from nexgen_msp.utils import notifications
 
-    template = frappe.get_doc("Email Template", INVITATION_TEMPLATE)
     link = user_doc._reset_password(send_email=False)
 
-    context = {
-        "full_name": user_doc.full_name or user_doc.name,
-        "customer": customer,
-        "link": link,
-        "app_name": "Nexgen MSP",
-    }
-
-    frappe.sendmail(
-        recipients=[user_doc.name],
-        subject=frappe.render_template(template.subject, context),
-        message=frappe.render_template(template.response_html or template.response, context),
+    notifications.send(
+        "MSP Portal Invitation",
+        [user_doc.name],
+        {
+            "full_name": user_doc.full_name or user_doc.name,
+            "customer": customer,
+            "link": link,
+        },
         reference_doctype="User",
         reference_name=user_doc.name,
-        now=False,
     )
 
     return link

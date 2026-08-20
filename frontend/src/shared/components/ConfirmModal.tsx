@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { AlertTriangle, Info, X } from 'lucide-react';
 
 export type ConfirmTone = 'danger' | 'warning' | 'info';
@@ -15,22 +16,25 @@ export type ConfirmModalProps = {
   onCancel: () => void;
 };
 
-const toneStyles: Record<ConfirmTone, { icon: typeof AlertTriangle; iconBg: string; iconColor: string; button: string }> = {
+const toneStyles: Record<
+  ConfirmTone,
+  { icon: typeof AlertTriangle; gradient: string; iconColor: string; button: string }
+> = {
   danger: {
     icon: AlertTriangle,
-    iconBg: 'bg-red-50',
+    gradient: 'bg-red-50',
     iconColor: 'text-red-600',
     button: 'bg-red-600 hover:bg-red-700 shadow-red-600/20',
   },
   warning: {
     icon: AlertTriangle,
-    iconBg: 'bg-amber-50',
+    gradient: 'bg-amber-50',
     iconColor: 'text-amber-600',
     button: 'bg-amber-600 hover:bg-amber-700 shadow-amber-600/20',
   },
   info: {
     icon: Info,
-    iconBg: 'bg-blue-50',
+    gradient: 'bg-blue-50',
     iconColor: 'text-blue-600',
     button: 'bg-blue-600 hover:bg-blue-700 shadow-blue-600/20',
   },
@@ -60,20 +64,19 @@ const ConfirmModal: React.FC<ConfirmModalProps> = ({
 
   if (!open) return null;
 
-  const { icon: Icon, iconBg, iconColor, button } = toneStyles[tone];
+  const { icon: Icon, gradient, iconColor, button } = toneStyles[tone];
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      <div
-        className="absolute inset-0 bg-slate-900/40 backdrop-blur-[1px]"
-        onClick={() => !loading && onCancel()}
-      />
-
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-slate-900/40 p-4 backdrop-blur-[1px] sm:p-8"
+      onMouseDown={() => !loading && onCancel()}
+    >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="confirm-modal-title"
-        className="relative w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl"
+        className="relative my-auto w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+        onMouseDown={(event) => event.stopPropagation()}
       >
         <button
           type="button"
@@ -85,11 +88,13 @@ const ConfirmModal: React.FC<ConfirmModalProps> = ({
         </button>
 
         <div className="px-6 pb-2 pt-6">
-          <div className="flex items-start gap-4">
-            <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${iconBg}`}>
-              <Icon size={22} className={iconColor} />
+          <div className="flex items-start gap-3.5">
+            <span
+              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${gradient}`}
+            >
+              <Icon size={20} className={iconColor} strokeWidth={2.2} />
             </span>
-            <div className="min-w-0 pt-1">
+            <div className="min-w-0 pt-0.5">
               <h2 id="confirm-modal-title" className="text-base font-bold text-slate-900">
                 {title}
               </h2>
@@ -123,7 +128,8 @@ const ConfirmModal: React.FC<ConfirmModalProps> = ({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

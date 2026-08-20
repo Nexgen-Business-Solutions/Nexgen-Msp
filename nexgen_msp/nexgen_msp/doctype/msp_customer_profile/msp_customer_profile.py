@@ -10,7 +10,6 @@ from frappe.utils import getdate
 class MSPCustomerProfile(Document):
 	def validate(self):
 		self.validate_contract_dates()
-		self.validate_cutoff_day()
 		self.validate_eligibility_rows()
 
 	def validate_contract_dates(self):
@@ -20,9 +19,6 @@ class MSPCustomerProfile(Document):
 		if getdate(self.contract_end_date) < getdate(self.contract_start_date):
 			frappe.throw(_("Contract End Date cannot be earlier than Contract Start Date."))
 
-	def validate_cutoff_day(self):
-		if not 1 <= (self.billing_cutoff_day or 0) <= 28:
-			frappe.throw(_("Billing Cut-off Day must be between 1 and 28."))
 
 	def validate_eligibility_rows(self):
 		seen = set()

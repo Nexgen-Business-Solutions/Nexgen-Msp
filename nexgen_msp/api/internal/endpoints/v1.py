@@ -1,0 +1,683 @@
+import frappe
+
+from nexgen_msp.api.internal.services.request_service import RequestService
+from nexgen_msp.utils.errors import NotFoundError
+from nexgen_msp.utils.wrapper_error_decorator import handle_errors
+
+
+@frappe.whitelist()
+@handle_errors
+def get_request_filter_options():
+    return RequestService.get_filter_options()
+
+
+@frappe.whitelist()
+@handle_errors
+def get_request_stats():
+    return RequestService.get_stats()
+
+
+@frappe.whitelist()
+@handle_errors
+def list_requests(
+    search=None,
+    status=None,
+    priority=None,
+    request_type=None,
+    customer=None,
+    scope=None,
+    start=0,
+    page_length=20,
+):
+    return RequestService.list_requests(
+        search=search,
+        status=status,
+        priority=priority,
+        request_type=request_type,
+        customer=customer,
+        scope=scope,
+        start=start,
+        page_length=page_length,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def get_request(name=None):
+    return RequestService.get_request(name=name)
+
+
+@frappe.whitelist()
+@handle_errors
+def run_request_action(name=None, action=None, reason=None):
+    return RequestService.run_action(name=name, action=action, reason=reason)
+
+
+@frappe.whitelist()
+@handle_errors
+def set_request_line_status(name=None, idx=None, line_status=None, reason=None):
+    return RequestService.set_line_status(
+        name=name, idx=idx, line_status=line_status, reason=reason
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def get_dashboard():
+    from nexgen_msp.api.internal.services.dashboard_service import DashboardService
+
+    return DashboardService.get_dashboard()
+
+
+@frappe.whitelist()
+@handle_errors
+def get_user_filter_options():
+    from nexgen_msp.api.internal.services.user_service import UserService
+
+    return UserService.get_filter_options()
+
+
+@frappe.whitelist()
+@handle_errors
+def get_user_stats():
+    from nexgen_msp.api.internal.services.user_service import UserService
+
+    return UserService.get_stats()
+
+
+@frappe.whitelist()
+@handle_errors
+def list_users(
+    search=None,
+    customer=None,
+    status=None,
+    department=None,
+    service=None,
+    coverage=None,
+    start=0,
+    page_length=20,
+):
+    from nexgen_msp.api.internal.services.user_service import UserService
+
+    return UserService.list_users(
+        search=search,
+        customer=customer,
+        status=status,
+        department=department,
+        service=service,
+        coverage=coverage,
+        start=start,
+        page_length=page_length,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def get_user(name=None):
+    from nexgen_msp.api.internal.services.user_service import UserService
+
+    return UserService.get_user(name=name)
+
+
+@frappe.whitelist()
+@handle_errors
+def assign_user_service(
+    client_user=None,
+    service_item=None,
+    effective_date=None,
+    device_mode=None,
+    managed_device=None,
+    hostname=None,
+    device_type=None,
+    interfaces=None,
+    notes=None,
+    source_request=None,
+    target_scope=None,
+):
+    from nexgen_msp.api.internal.services.user_service import UserService
+
+    return UserService.assign_service(
+        client_user=client_user,
+        service_item=service_item,
+        effective_date=effective_date,
+        device_mode=device_mode,
+        managed_device=managed_device,
+        hostname=hostname,
+        device_type=device_type,
+        interfaces=interfaces,
+        notes=notes,
+        source_request=source_request,
+        target_scope=target_scope,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def change_user_service(
+    assignment=None, action=None, effective_date=None, notes=None, source_request=None
+):
+    from nexgen_msp.api.internal.services.user_service import UserService
+
+    return UserService.change_service(
+        assignment=assignment,
+        action=action,
+        effective_date=effective_date,
+        notes=notes,
+        source_request=source_request,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def get_contract_options():
+    from nexgen_msp.api.internal.services.contract_service import ContractService
+
+    return ContractService.get_options()
+
+
+@frappe.whitelist()
+@handle_errors
+def list_contracts():
+    from nexgen_msp.api.internal.services.contract_service import ContractService
+
+    return ContractService.list_contracts()
+
+
+@frappe.whitelist()
+@handle_errors
+def get_contract(customer=None):
+    from nexgen_msp.api.internal.services.contract_service import ContractService
+
+    return ContractService.get_contract(customer=customer)
+
+
+@frappe.whitelist()
+@handle_errors
+def save_contract(customer=None, profile=None, services=None):
+    from nexgen_msp.api.internal.services.contract_service import ContractService
+
+    return ContractService.save_contract(customer=customer, profile=profile, services=services)
+
+
+def _billing():
+    from nexgen_msp.api.internal.services.billing_service import BillingService
+
+    return BillingService
+
+
+@frappe.whitelist()
+@handle_errors
+def preview_billing_run(
+    contract=None, period_start=None, period_end=None, adjustment_of=None, filters=None
+):
+    return _billing().preview(
+        contract=contract,
+        period_start=period_start,
+        period_end=period_end,
+        adjustment_of=adjustment_of,
+        filters=filters,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def get_billing_filter_options(customer=None):
+    return _billing().filter_options(customer=customer)
+
+
+@frappe.whitelist()
+@handle_errors
+def generate_billing_run(
+    contract=None, period_start=None, period_end=None, adjustment_of=None, include=None
+):
+    return _billing().generate(
+        contract=contract,
+        period_start=period_start,
+        period_end=period_end,
+        adjustment_of=adjustment_of,
+        include=include,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def list_billing_runs(customer=None, status=None, start=0, page_length=20):
+    return _billing().list_runs(
+        customer=customer, status=status, start=start, page_length=page_length
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def get_billing_run(name=None):
+    return _billing().get_run(name=name)
+
+
+@frappe.whitelist()
+@handle_errors
+def revalidate_billing_run(name=None):
+    return _billing().revalidate(name=name)
+
+
+@frappe.whitelist()
+@handle_errors
+def approve_billing_run(name=None):
+    return _billing().approve(name=name)
+
+
+@frappe.whitelist()
+@handle_errors
+def cancel_billing_run(name=None):
+    return _billing().cancel(name=name)
+
+
+@frappe.whitelist()
+@handle_errors
+def invoice_billing_run(name=None):
+    return _billing().create_invoice(name=name)
+
+
+@frappe.whitelist()
+@handle_errors
+def add_user_device(
+    client_user=None,
+    hostname=None,
+    device_type=None,
+    interfaces=None,
+    assigned_date=None,
+    serial_number=None,
+    remarks=None,
+    source_request=None,
+):
+    from nexgen_msp.api.internal.services.user_service import UserService
+
+    return UserService.add_device(
+        client_user=client_user,
+        hostname=hostname,
+        device_type=device_type,
+        interfaces=interfaces,
+        assigned_date=assigned_date,
+        serial_number=serial_number,
+        remarks=remarks,
+        source_request=source_request,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def create_client_user(
+    customer=None,
+    full_name=None,
+    department=None,
+    email=None,
+    start_date=None,
+    remarks=None,
+    source_request=None,
+    request_line=None,
+):
+    from nexgen_msp.api.internal.services.user_service import UserService
+
+    return UserService.create_client_user(
+        customer=customer,
+        full_name=full_name,
+        department=department,
+        email=email,
+        start_date=start_date,
+        remarks=remarks,
+        source_request=source_request,
+        request_line=request_line,
+    )
+
+
+def _devices():
+    from nexgen_msp.api.internal.services.device_service import DeviceService
+
+    return DeviceService
+
+
+@frappe.whitelist()
+@handle_errors
+def get_device_filter_options():
+    return _devices().get_filter_options()
+
+
+@frappe.whitelist()
+@handle_errors
+def get_device_stats():
+    return _devices().get_stats()
+
+
+@frappe.whitelist()
+@handle_errors
+def list_devices(
+    search=None, customer=None, status=None, device_type=None, coverage=None, start=0, page_length=20
+):
+    return _devices().list_devices(
+        search=search,
+        customer=customer,
+        status=status,
+        device_type=device_type,
+        coverage=coverage,
+        start=start,
+        page_length=page_length,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def get_device_context(device=None):
+    return _devices().get_device_context(device=device)
+
+
+@frappe.whitelist()
+@handle_errors
+def assign_device_service(
+    device=None, service_item=None, effective_date=None, notes=None, source_request=None
+):
+    return _devices().assign_device_service(
+        device=device,
+        service_item=service_item,
+        effective_date=effective_date,
+        notes=notes,
+        source_request=source_request,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def update_managed_device(
+    device=None,
+    hostname=None,
+    device_type=None,
+    serial_number=None,
+    assigned_client_user=None,
+    assigned_date=None,
+    interfaces=None,
+    remarks=None,
+):
+    return _devices().update_device(
+        device=device,
+        hostname=hostname,
+        device_type=device_type,
+        serial_number=serial_number,
+        assigned_client_user=assigned_client_user,
+        assigned_date=assigned_date,
+        interfaces=interfaces,
+        remarks=remarks,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def change_device_status(
+    device=None, action=None, status=None, effective_date=None, assigned_client_user=None, notes=None
+):
+    return _devices().change_device_status(
+        device=device,
+        action=action,
+        status=status,
+        effective_date=effective_date,
+        assigned_client_user=assigned_client_user,
+        notes=notes,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def create_managed_device(
+    customer=None,
+    hostname=None,
+    device_type=None,
+    serial_number=None,
+    assigned_client_user=None,
+    assigned_date=None,
+    interfaces=None,
+    remarks=None,
+    source_request=None,
+):
+    return _devices().create_device(
+        customer=customer,
+        hostname=hostname,
+        device_type=device_type,
+        serial_number=serial_number,
+        assigned_client_user=assigned_client_user,
+        assigned_date=assigned_date,
+        interfaces=interfaces,
+        remarks=remarks,
+        source_request=source_request,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def list_customer_users(customer=None):
+    return _devices().list_customer_users(customer=customer)
+
+
+@frappe.whitelist()
+@handle_errors
+def list_dashboard_kpi_rows(kpi=None, start=0, page_length=20):
+    from nexgen_msp.api.internal.services.dashboard_service import DashboardService
+
+    return DashboardService.list_kpi_rows(kpi=kpi, start=start, page_length=page_length)
+
+
+def _catalogue():
+    from nexgen_msp.api.internal.services.catalogue_service import CatalogueService
+
+    return CatalogueService
+
+
+@frappe.whitelist()
+@handle_errors
+def get_catalogue_options():
+    return _catalogue().get_options()
+
+
+@frappe.whitelist()
+@handle_errors
+def list_services():
+    return _catalogue().list_services()
+
+
+@frappe.whitelist()
+@handle_errors
+def save_service(
+    name=None, item_code=None, item_name=None, scope=None, description=None, uom=None, disabled=None
+):
+    return _catalogue().save_service(
+        name=name,
+        item_code=item_code,
+        item_name=item_name,
+        scope=scope,
+        description=description,
+        uom=uom,
+        disabled=disabled,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def list_contract_rates(customer=None, service_item=None):
+    from nexgen_msp.api.internal.services.contract_service import ContractService
+
+    return ContractService.list_rates(customer=customer, service_item=service_item)
+
+
+@frappe.whitelist()
+@handle_errors
+def save_contract_rate(
+    customer=None, service_item=None, rate=None, valid_from=None, valid_upto=None, note=None, name=None
+):
+    from nexgen_msp.api.internal.services.contract_service import ContractService
+
+    return ContractService.save_rate(
+        customer=customer,
+        service_item=service_item,
+        rate=rate,
+        valid_from=valid_from,
+        valid_upto=valid_upto,
+        note=note,
+        name=name,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def delete_contract_rate(name=None):
+    from nexgen_msp.api.internal.services.contract_service import ContractService
+
+    return ContractService.delete_rate(name=name)
+
+
+@frappe.whitelist()
+@handle_errors
+def set_service_eligibility(customer=None, service_item=None, is_eligible=None):
+    from nexgen_msp.api.internal.services.contract_service import ContractService
+
+    return ContractService.set_eligibility(
+        customer=customer, service_item=service_item, is_eligible=is_eligible
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def submit_invoice_billing_run(name=None):
+    return _billing().submit_invoice(name=name)
+
+
+def _agreements():
+    from nexgen_msp.api.internal.services.msp_contract_service import MSPContractService
+
+    return MSPContractService
+
+
+@frappe.whitelist()
+@handle_errors
+def get_msp_contract_options():
+    return _agreements().options()
+
+
+@frappe.whitelist()
+@handle_errors
+def list_msp_contracts(customer=None, status=None, billable_only=0):
+    return _agreements().list_contracts(
+        customer=customer, status=status, billable_only=billable_only
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def get_msp_contract(name=None):
+    return _agreements().get_contract(name=name)
+
+
+@frappe.whitelist()
+@handle_errors
+def save_msp_contract(name=None, contract=None, services=None):
+    return _agreements().save_contract(name=name, contract=contract, services=services)
+
+
+@frappe.whitelist()
+@handle_errors
+def set_msp_contract_status(name=None, status=None):
+    return _agreements().set_status(name=name, status=status)
+
+
+@frappe.whitelist()
+@handle_errors
+def get_billing_breakdown(name=None):
+    return _billing().breakdown(name=name)
+
+
+@frappe.whitelist()
+@handle_errors
+def build_billing_breakdown_file(name=None):
+    from nexgen_msp.utils.billing_export import attach_breakdown
+
+    _billing()._guard_admin()
+
+    return attach_breakdown(name)
+
+
+@frappe.whitelist()
+@handle_errors
+def get_creditable_lines(name=None):
+    return _billing().creditable_lines(name=name)
+
+
+@frappe.whitelist()
+@handle_errors
+def create_credit_note(name=None, lines=None, reason=None):
+    return _billing().create_credit_note(name=name, lines=lines, reason=reason)
+
+
+@frappe.whitelist()
+@handle_errors
+def issue_credit_note(name=None):
+    return _billing().issue_credit_note(name=name)
+
+
+@frappe.whitelist()
+@handle_errors
+def download_billing_invoice(name=None):
+    from nexgen_msp.utils import invoice_pdf
+
+    _billing()._guard_admin()
+
+    run = _billing().get_run(name=name)
+
+    if not run["sales_invoice"]:
+        raise NotFoundError(f"Billing Run {name} has no invoice yet.", "NOT_FOUND")
+
+    invoice_pdf.respond(run["sales_invoice"])
+
+
+@frappe.whitelist()
+@handle_errors
+def download_billing_breakdown(name=None):
+    from nexgen_msp.utils.billing_export import breakdown_workbook
+
+    data = _billing().breakdown(name=name)
+
+    frappe.local.response.filename = (
+        f"Breakdown-{data['customer']}-{data['period_label']}.xlsx".replace(" ", "-")
+    )
+    frappe.local.response.filecontent = breakdown_workbook(data)
+    frappe.local.response.type = "download"
+
+
+@frappe.whitelist()
+@handle_errors
+def get_billing_due(horizon_days=30):
+    return _billing().due(horizon_days=horizon_days)
+
+
+@frappe.whitelist()
+@handle_errors
+def discard_billing_invoice(name=None):
+    return _billing().discard_invoice(name=name)
+
+
+def _customers():
+    from nexgen_msp.api.internal.services.customer_service import CustomerService
+
+    return CustomerService
+
+
+@frappe.whitelist()
+@handle_errors
+def get_customer_options():
+    return _customers().options()
+
+
+@frappe.whitelist()
+@handle_errors
+def get_customer_details(customer=None):
+    return _customers().get_customer(customer=customer)
+
+
+@frappe.whitelist()
+@handle_errors
+def save_customer_details(customer=None, details=None, address=None):
+    return _customers().save_customer(customer=customer, details=details, address=address)

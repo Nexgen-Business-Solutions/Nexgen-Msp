@@ -4,6 +4,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
+from frappe.utils import getdate
 
 LINKED_DOCTYPES = ("Managed Device",)
 
@@ -29,7 +30,7 @@ class ClientUser(Document):
 			self.disabled_date = None
 			self.disabled_reason = None
 
-		if self.start_date and self.disabled_date and self.disabled_date < self.start_date:
+		if self.start_date and self.disabled_date and getdate(self.disabled_date) < getdate(self.start_date):
 			frappe.throw(_("Disabled Date cannot be earlier than Start Date."))
 
 	def validate_unique_username(self):

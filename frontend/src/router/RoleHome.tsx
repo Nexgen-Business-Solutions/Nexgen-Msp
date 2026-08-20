@@ -1,7 +1,7 @@
 import { useSession } from '@/shared/hooks/useSession';
 import { isPortalOnly } from '@/shared/layout/navigation';
 import PortalDashboard from '@/features/portal/pages/PortalDashboard';
-import Dashboard from '@/pages/Dashboard';
+import InternalDashboard from '@/features/internal/pages/InternalDashboard';
 
 export default function RoleHome() {
   const { data: session, isLoading } = useSession();
@@ -14,5 +14,5 @@ export default function RoleHome() {
     );
   }
 
-  return isPortalOnly(session?.roles) ? <PortalDashboard /> : <Dashboard />;
+  return isPortalOnly(session?.roles) ? <PortalDashboard /> : <InternalDashboard />;
 }

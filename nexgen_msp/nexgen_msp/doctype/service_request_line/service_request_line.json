@@ -16,7 +16,16 @@
   "column_break_line",
   "comment",
   "line_status",
-  "rejection_reason"
+  "rejection_reason",
+  "fulfilled_assignment",
+  "is_new_user",
+  "new_user_full_name",
+  "new_user_department",
+  "new_user_email",
+  "is_new_device",
+  "new_device_label",
+  "action",
+  "needs_portal_access"
  ],
  "fields": [
   {
@@ -103,13 +112,75 @@
    "fieldtype": "Small Text",
    "label": "Rejection Reason",
    "mandatory_depends_on": "eval:doc.line_status==\"Rejected\""
+  },
+  {
+   "fieldname": "fulfilled_assignment",
+   "fieldtype": "Link",
+   "label": "Fulfilled Assignment",
+   "options": "Service Assignment",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "is_new_user",
+   "fieldtype": "Check",
+   "label": "New User"
+  },
+  {
+   "depends_on": "eval:doc.is_new_user",
+   "fieldname": "new_user_full_name",
+   "fieldtype": "Data",
+   "label": "New User Full Name",
+   "mandatory_depends_on": "eval:doc.is_new_user"
+  },
+  {
+   "depends_on": "eval:doc.is_new_user",
+   "fieldname": "new_user_department",
+   "fieldtype": "Data",
+   "label": "New User Department"
+  },
+  {
+   "depends_on": "eval:doc.is_new_user && doc.needs_portal_access",
+   "fieldname": "new_user_email",
+   "fieldtype": "Data",
+   "label": "New User Email",
+   "mandatory_depends_on": "eval:doc.is_new_user && doc.needs_portal_access",
+   "options": "Email"
+  },
+  {
+   "fieldname": "is_new_device",
+   "fieldtype": "Check",
+   "label": "Is New Device"
+  },
+  {
+   "fieldname": "new_device_label",
+   "fieldtype": "Data",
+   "label": "New Device Label"
+  },
+  {
+   "columns": 1,
+   "default": "Add",
+   "fieldname": "action",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Action",
+   "options": "Add\nChange\nSuspend\nResume\nRemove",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.is_new_user",
+   "fieldname": "needs_portal_access",
+   "fieldtype": "Check",
+   "label": "Needs Portal Access"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-08-12 06:41:04.431515",
+ "modified": "2026-08-17 14:21:39.898193",
  "modified_by": "Administrator",
  "module": "Nexgen MSP",
  "name": "Service Request Line",

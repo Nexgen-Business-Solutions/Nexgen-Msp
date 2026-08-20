@@ -15,13 +15,13 @@
   "section_billing",
   "billing_frequency",
   "billing_timing",
-  "billing_cutoff_day",
   "column_break_billing",
   "proration_method",
   "invoice_grouping",
   "customer_approval_required",
   "section_pricing",
   "price_list",
+  "price_list_valid_upto",
   "currency",
   "column_break_pricing",
   "default_cost_center",
@@ -91,12 +91,6 @@
    "reqd": 1
   },
   {
-   "fieldname": "billing_cutoff_day",
-   "fieldtype": "Int",
-   "label": "Billing Cut-off Day",
-   "reqd": 1
-  },
-  {
    "fieldname": "column_break_billing",
    "fieldtype": "Column Break"
   },
@@ -132,6 +126,11 @@
    "label": "Price List",
    "options": "Price List",
    "reqd": 1
+  },
+  {
+   "fieldname": "price_list_valid_upto",
+   "fieldtype": "Date",
+   "label": "Price List Valid Upto"
   },
   {
    "fieldname": "currency",

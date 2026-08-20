@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "yarn install && vite build --base=/assets/nexgen_msp/frontend/ && yarn copy-html-entry",
+    "build": "tsc -b && vite build && node sync-template.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "copy-html-entry": "cp ../nexgen_msp/public/frontend/index.html ../nexgen_msp/www/msp.html"

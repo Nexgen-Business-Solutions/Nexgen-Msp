@@ -1,0 +1,53 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-08-19 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series", "customer", "title", "status", "column_break_terms",
+  "start_date", "end_date",
+  "section_billing", "billing_frequency", "billing_timing", "proration_method",
+  "column_break_billing", "invoice_grouping", "price_list", "price_list_valid_upto",
+  "currency", "default_cost_center",
+  "section_services", "services", "billing_notes"
+ ],
+ "fields": [
+  {"fieldname": "naming_series", "fieldtype": "Select", "label": "Series", "options": "CON-.YYYY.-.####", "reqd": 1},
+  {"fieldname": "customer", "fieldtype": "Link", "in_list_view": 1, "in_standard_filter": 1, "label": "Customer", "options": "Customer", "reqd": 1},
+  {"fieldname": "title", "fieldtype": "Data", "in_list_view": 1, "label": "Title"},
+  {"default": "Active", "fieldname": "status", "fieldtype": "Select", "in_list_view": 1, "in_standard_filter": 1, "label": "Status", "options": "Draft\nActive\nSuspended\nEnded", "reqd": 1},
+  {"fieldname": "column_break_terms", "fieldtype": "Column Break"},
+  {"fieldname": "start_date", "fieldtype": "Date", "label": "Start Date", "reqd": 1},
+  {"fieldname": "end_date", "fieldtype": "Date", "label": "End Date"},
+  {"fieldname": "section_billing", "fieldtype": "Section Break", "label": "Billing Terms"},
+  {"default": "Monthly", "fieldname": "billing_frequency", "fieldtype": "Select", "label": "Billing Frequency", "options": "Monthly\nQuarterly\nAnnually", "reqd": 1},
+  {"default": "In Arrears", "fieldname": "billing_timing", "fieldtype": "Select", "label": "Billing Timing", "options": "In Advance\nIn Arrears", "reqd": 1},
+  {"default": "Daily Actual Days", "fieldname": "proration_method", "fieldtype": "Select", "label": "Proration Method", "options": "None\nDaily Actual Days\n30-Day Convention\nStart Next Month\nFull Activation Month\nEnd At Month End", "reqd": 1},
+  {"fieldname": "column_break_billing", "fieldtype": "Column Break"},
+  {"default": "One Invoice", "fieldname": "invoice_grouping", "fieldtype": "Select", "label": "Invoice Grouping", "options": "One Invoice\nBy Site\nBy PO or Cost Center", "reqd": 1},
+  {"fieldname": "price_list", "fieldtype": "Link", "label": "Price List", "options": "Price List", "reqd": 1},
+  {"fieldname": "price_list_valid_upto", "fieldtype": "Date", "label": "Price List Valid Upto"},
+  {"fieldname": "currency", "fieldtype": "Link", "label": "Currency", "options": "Currency", "reqd": 1},
+  {"fieldname": "default_cost_center", "fieldtype": "Link", "label": "Default Cost Center", "options": "Cost Center"},
+  {"fieldname": "section_services", "fieldtype": "Section Break", "label": "Services Covered"},
+  {"fieldname": "services", "fieldtype": "Table", "label": "Services", "options": "MSP Contract Service"},
+  {"fieldname": "billing_notes", "fieldtype": "Small Text", "label": "Billing Notes"}
+ ],
+ "links": [],
+ "modified": "2026-08-19 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nexgen MSP",
+ "name": "MSP Contract",
+ "owner": "Administrator",
+ "permissions": [
+  {"create": 1, "delete": 1, "email": 1, "print": 1, "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1},
+  {"create": 1, "delete": 1, "email": 1, "print": 1, "read": 1, "report": 1, "role": "MSP System Admin", "share": 1, "write": 1}
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "title"
+}

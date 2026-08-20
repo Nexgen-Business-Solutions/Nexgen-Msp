@@ -14,13 +14,15 @@
   "quantity",
   "billable_days",
   "period_days",
+  "billable_months",
   "unit_rate",
   "price_source",
   "proration_method",
   "amount",
   "section_exception",
   "exception_code",
-  "exception_detail"
+  "exception_detail",
+  "line_comment"
  ],
  "fields": [
   {
@@ -121,6 +123,17 @@
    "fieldname": "exception_detail",
    "fieldtype": "Small Text",
    "label": "Exception Detail"
+  },
+  {
+   "fieldname": "billable_months",
+   "fieldtype": "Float",
+   "label": "Billable Months",
+   "precision": "2"
+  },
+  {
+   "fieldname": "line_comment",
+   "fieldtype": "Small Text",
+   "label": "Comment"
   }
  ],
  "grid_page_length": 50,
