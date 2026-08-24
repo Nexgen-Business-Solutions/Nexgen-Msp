@@ -1,14 +1,14 @@
 [project]
 name = "nexgen_msp"
 authors = [
-    { name = "Nexgen", email = "ebenetv08@gmail.com"}
+    { name = "Nexgen", email = "devteam.1@nxgensolutions.com"}
 ]
 description = "MSP service, request, work order and billing management for Nexgen"
 requires-python = ">=3.14"
 readme = "README.md"
 dynamic = ["version"]
 dependencies = [
-    # "frappe~=16.0.0" # Installed and managed by bench.
+    "frappe~=16.0.0" # Installed and managed by bench.
 ]
 
 [build-system]
