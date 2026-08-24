@@ -185,7 +185,6 @@ const InvoiceSettingsForm: React.FC = () => {
             />
             <p className="mt-1.5 text-sm text-slate-500">
               Every invoice is booked against it, on the invoice and on each of its lines.
-              Without it, nothing can be invoiced.
             </p>
           </div>
           <div>
