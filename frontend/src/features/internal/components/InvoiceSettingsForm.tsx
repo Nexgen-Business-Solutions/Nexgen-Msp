@@ -223,8 +223,7 @@ const InvoiceSettingsForm: React.FC = () => {
             className={inputClass}
           />
           <p className="mt-1.5 text-sm text-slate-500">
-            Counted from the invoice date. Past it, the customer no longer sees the dispute
-            button and can only raise a request.
+            Past it, the customer no longer dispute the invoice.
           </p>
         </div>
       </div>
