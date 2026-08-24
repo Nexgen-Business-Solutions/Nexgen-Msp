@@ -222,6 +222,7 @@ const CustomerModal: React.FC<Props> = ({ open, customer, details, onClose }) =>
                 onChange={(value) => setAddr({ country: value })}
                 placeholder="Select a country"
                 options={toOptions(options.data?.countries)}
+                searchable
               />
             </div>
             <div>
@@ -269,6 +270,22 @@ const CustomerModal: React.FC<Props> = ({ open, customer, details, onClose }) =>
                 placeholder="From the contract"
                 options={toOptions(options.data?.price_lists)}
               />
+            </div>
+            <div className="flex items-end pb-1 sm:col-span-2 lg:col-span-1">
+              <label className="inline-flex cursor-pointer items-start gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={Boolean(form.msp_free_of_charge)}
+                  onChange={(event) => set({ msp_free_of_charge: event.target.checked ? 1 : 0 })}
+                  className="mt-0.5 h-4 w-4 rounded border-slate-300"
+                />
+                <span>
+                  Served free of charge
+                  <span className="block text-xs text-slate-400">
+                    Never billed — needs no contract and no rates.
+                  </span>
+                </span>
+              </label>
             </div>
             <div>
               <FieldLabel>Payment terms</FieldLabel>

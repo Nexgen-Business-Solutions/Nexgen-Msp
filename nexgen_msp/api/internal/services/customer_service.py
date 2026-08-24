@@ -13,6 +13,8 @@ CUSTOMER_FIELDS = (
     "default_price_list",
     "payment_terms",
     "website",
+    # only reachable through this service, which is administrator-only
+    "msp_free_of_charge",
 )
 
 ADDRESS_FIELDS = (
@@ -91,6 +93,7 @@ class CustomerService:
                 if address
                 else None
             ),
+            "last_billed_on": doc.get("msp_last_billed_on"),
             "counts": {
                 "users": frappe.db.count("Client User", {"customer": customer}),
                 "devices": frappe.db.count("Managed Device", {"customer": customer}),
@@ -112,7 +115,13 @@ class CustomerService:
         doc = frappe.get_doc("Customer", customer)
 
         for field in CUSTOMER_FIELDS:
-            if field in details:
+            if field not in details:
+                continue
+
+            # a cleared checkbox is a zero, not an absent value
+            if field == "msp_free_of_charge":
+                doc.set(field, frappe.utils.cint(details[field]))
+            else:
                 doc.set(field, details[field] or None)
 
         doc.save()

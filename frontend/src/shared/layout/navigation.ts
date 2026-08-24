@@ -6,8 +6,10 @@ import {
   Inbox,
   Laptop,
   LayoutDashboard,
+  History,
   Package,
   Receipt,
+  Settings2,
   Table2,
   Users,
   type LucideIcon,
@@ -37,16 +39,20 @@ export const INTERNAL_NAV: NavItem[] = [
   { id: 'devices', label: 'Devices', icon: Laptop, path: '/msp/devices' },
 ];
 
-export const ADMIN_NAV: NavItem[] = [
-  ...INTERNAL_NAV,
-  { id: 'services', label: 'Services', icon: Package, path: '/msp/services' },
-  { id: 'customers', label: 'Customers', icon: Building2, path: '/msp/customers' },
-  { id: 'billing', label: 'Billing', icon: Coins, path: '/msp/billing' },
-];
+// history sits at the very bottom, under whatever the role adds above it
+const ACTIVITY: NavItem = {
+  id: 'activity',
+  label: 'Activity',
+  icon: History,
+  path: '/msp/activity',
+};
+
+
 
 export const PORTAL_NAV: NavItem[] = [
   { id: 'portal-dashboard', label: 'Portal Dashboard', icon: LayoutDashboard, path: '/msp', end: true },
-  { id: 'portal-records', label: 'Records', icon: Table2, path: '/msp/records' },
+  { id: 'portal-reports', label: 'Reports', icon: Table2, path: '/msp/reports' },
+  { id: 'portal-requests', label: 'Requests', icon: Inbox, path: '/msp/requests' },
   { id: 'portal-invoices', label: 'Invoices', icon: Receipt, path: '/msp/invoices' },
 ];
 
@@ -66,10 +72,47 @@ export const isPortalOnly = (roles: string[] = []) =>
 
 export const isAdmin = (roles: string[] = []) => roles.some((role) => ADMIN_ROLES.includes(role));
 
-export const getNavForRoles = (roles: string[] = []) => {
-  if (isPortalOnly(roles)) return PORTAL_NAV;
-  return isAdmin(roles) ? ADMIN_NAV : INTERNAL_NAV;
+export type NavSection = { id: string; label: string | null; items: NavItem[] };
+
+const OPERATIONS = INTERNAL_NAV.slice(1);
+
+const COMMERCIAL: NavItem[] = [
+  { id: 'services', label: 'Services', icon: Package, path: '/msp/services' },
+  { id: 'customers', label: 'Customers', icon: Building2, path: '/msp/customers' },
+  { id: 'billing', label: 'Billing', icon: Coins, path: '/msp/billing' },
+];
+
+/** The sidebar, grouped. The first entry stands alone above the groups. */
+export const getSectionsForRoles = (roles: string[] = []): NavSection[] => {
+  if (isPortalOnly(roles)) {
+    return [
+      { id: 'top', label: null, items: PORTAL_NAV.slice(0, 1) },
+      { id: 'company', label: 'My company', items: PORTAL_NAV.slice(1) },
+    ];
+  }
+
+  const sections: NavSection[] = [
+    { id: 'top', label: null, items: INTERNAL_NAV.slice(0, 1) },
+    { id: 'operations', label: 'Operations', items: OPERATIONS },
+  ];
+
+  if (isAdmin(roles)) {
+    sections.push({ id: 'commercial', label: 'Commercial', items: COMMERCIAL });
+  }
+
+  const bottom: NavItem[] = [ACTIVITY];
+
+  if (isAdmin(roles)) {
+    bottom.push({ id: 'settings', label: 'Settings', icon: Settings2, path: '/msp/settings' });
+  }
+
+  sections.push({ id: 'system', label: 'System', items: bottom });
+
+  return sections;
 };
+
+export const getNavForRoles = (roles: string[] = []) =>
+  getSectionsForRoles(roles).flatMap((section) => section.items);
 
 export const getPagesForRoles = (roles: string[] = []) =>
   isPortalOnly(roles) ? [...PORTAL_NAV, ...PORTAL_PAGES] : getNavForRoles(roles);

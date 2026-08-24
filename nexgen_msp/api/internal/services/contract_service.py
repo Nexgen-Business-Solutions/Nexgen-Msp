@@ -105,7 +105,7 @@ class ContractService:
 
         found = frappe.db.sql(
             """
-            select name, price_list_rate, currency, valid_from, valid_upto
+            select name, price_list_rate, msp_discount_percent, currency, valid_from, valid_upto
             from `tabItem Price`
             where item_code = %(item)s
               and price_list = %(price_list)s
@@ -154,6 +154,7 @@ class ContractService:
                 "valid_from",
                 "valid_upto",
                 "note",
+                "msp_discount_percent",
             ],
             order_by="item_code asc, valid_from desc",
             limit_page_length=0,
@@ -231,6 +232,7 @@ class ContractService:
         valid_upto=None,
         note=None,
         name=None,
+        discount_percent=0,
     ):
         """Add a rate version, or correct one. Never overwrite the past."""
         ContractService._guard_admin()
@@ -268,6 +270,8 @@ class ContractService:
         doc.valid_from = valid_from or None
         doc.valid_upto = valid_upto or None
         doc.note = note or None
+        # the discount travels with the rate for as long as the rate is the one in force
+        doc.msp_discount_percent = frappe.utils.flt(discount_percent)
         doc.save()
         frappe.db.commit()
 
@@ -410,6 +414,9 @@ class ContractService:
         )
 
         used_items = {row.service_item for row in usage}
+        # a live contract listing a service is what puts it on offer; the profile only
+        # still speaks for customers who predate contracts
+        covered = ContractService._covered_services(customer)
 
         catalogue = frappe.get_all(
             "Item",
@@ -429,7 +436,10 @@ class ContractService:
                 {
                     "service_item": item.name,
                     "service_name": item.item_name,
-                    "is_eligible": frappe.utils.cint(row.is_eligible) if row else 0,
+                    "is_eligible": 1
+                    if item.name in covered
+                    else (frappe.utils.cint(row.is_eligible) if row else 0),
+                    "covered_by_contract": covered.get(item.name),
                     "negotiated_rate": price.price_list_rate if price else None,
                     "valid_from": price.valid_from if price else None,
                     "valid_upto": price.valid_upto if price else None,
@@ -445,20 +455,54 @@ class ContractService:
         return {
             "customer": customer,
             "profile": profile,
+            "price_list": ContractService._price_list(customer),
+            "currency": ContractService._currency(customer),
             "services": services,
             "readiness": ContractService._readiness(customer, profile, services),
         }
+
+    @staticmethod
+    def _live_contracts(customer):
+        """The contracts that govern this customer today — what the billing engine reads."""
+        return frappe.get_all(
+            "MSP Contract",
+            filters={"customer": customer},
+            fields=["name", "title", "status", "price_list_valid_upto"],
+            order_by="start_date desc",
+        )
+
+    @staticmethod
+    def _covered_services(customer):
+        """Which services a live contract puts on offer, and under which contract."""
+        rows = frappe.db.sql(
+            """
+            select cs.service_item, c.name as contract, c.title
+            from `tabMSP Contract` c
+            join `tabMSP Contract Service` cs on cs.parent = c.name
+            where c.customer = %(customer)s and c.status in %(live)s
+            order by c.start_date desc
+            """,
+            {"customer": customer, "live": LIVE_CONTRACT_STATUSES},
+            as_dict=True,
+        )
+
+        return {row.service_item: (row.title or row.contract) for row in rows}
 
     @staticmethod
     def _readiness(customer, profile, services):
         """What still stands between this customer and a first billing run."""
         blockers = []
 
-        if not profile:
-            blockers.append("No contract yet — create the customer profile first.")
-        elif profile.get("contract_status") != "Active":
+        contracts = ContractService._live_contracts(customer)
+        live = [row for row in contracts if row.status in LIVE_CONTRACT_STATUSES]
+
+        if not contracts and not profile:
+            blockers.append("No contract yet — create one before billing anything.")
+        elif not live:
             blockers.append(
-                f"Contract is {str(profile.get('contract_status') or 'unset').lower()}, not active."
+                "No live contract: "
+                + ", ".join(f"{row.title or row.name} is {row.status.lower()}" for row in contracts)
+                + "."
             )
 
         billable = sum(row["billable_assignments"] for row in services)
@@ -478,7 +522,9 @@ class ContractService:
         if unpriced:
             blockers.append("No rate set for: " + ", ".join(unpriced) + ".")
 
-        expiry = profile.get("price_list_valid_upto") if profile else None
+        expiry = next(
+            (row.price_list_valid_upto for row in live if row.price_list_valid_upto), None
+        ) or (profile.get("price_list_valid_upto") if profile else None)
         if expiry and frappe.utils.getdate(expiry) < frappe.utils.getdate(frappe.utils.today()):
             blockers.append(
                 f"The price list expired on {expiry}. Renew it before the next billing run."
@@ -488,7 +534,7 @@ class ContractService:
             "billable_assignments": billable,
             "priced_assignments": priced,
             "coverage": round(priced / billable * 100) if billable else 0,
-            "price_list_valid_upto": profile.get("price_list_valid_upto") if profile else None,
+            "price_list_valid_upto": expiry,
             "blockers": blockers,
             "ready": not blockers and billable > 0,
         }

@@ -3,6 +3,8 @@ import frappe
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 ADMIN_ROLES = ("MSP System Admin", "System Manager", "Administrator")
+
+DISPUTE_TYPE = "Billing Dispute"
 TECHNICIAN_ROLES = ("MSP Technician",) + ADMIN_ROLES
 
 OPEN_STATUSES = (
@@ -111,7 +113,12 @@ class RequestService:
             "customers": [customer for customer in customers if customer],
             "statuses": list(REQUEST_STATUSES),
             "open_statuses": list(OPEN_STATUSES),
-            "request_types": list(REQUEST_TYPES),
+            # only an administrator handles disputes, so only they can filter on them
+            "request_types": (
+                [*REQUEST_TYPES, DISPUTE_TYPE]
+                if RequestService._roles().intersection(ADMIN_ROLES)
+                else list(REQUEST_TYPES)
+            ),
             "priorities": list(PRIORITIES),
             "is_admin": bool(RequestService._roles().intersection(ADMIN_ROLES)),
         }
@@ -120,6 +127,11 @@ class RequestService:
     def _list_conditions(search, status, priority, request_type, customer, scope):
         conditions = []
         params = {}
+
+        # a billing dispute is a commercial matter, so it stays out of the technician queue
+        if not RequestService._roles().intersection(ADMIN_ROLES):
+            conditions.append("sr.request_type != %(dispute_type)s")
+            params["dispute_type"] = DISPUTE_TYPE
 
         if status:
             conditions.append("sr.status = %(status)s")
@@ -200,17 +212,22 @@ class RequestService:
                 sr.priority,
                 sr.source,
                 sr.requester,
+                sr.billing_run,
                 sr.creation,
                 sr.modified,
                 (select count(*) from `tabService Request Line` srl where srl.parent = sr.name)
                     as line_count,
                 (select count(*) from `tabService Request Line` srl
                     where srl.parent = sr.name and srl.line_status = 'Pending') as pending_lines,
-                (select group_concat(distinct coalesce(cu.full_name, srl.new_user_full_name)
-                    order by srl.idx separator ', ')
-                    from `tabService Request Line` srl
-                    left join `tabClient User` cu on cu.name = srl.client_user
-                    where srl.parent = sr.name) as users,
+                coalesce(
+                    (select group_concat(distinct coalesce(cu.full_name, srl.new_user_full_name)
+                        order by srl.idx separator ', ')
+                        from `tabService Request Line` srl
+                        left join `tabClient User` cu on cu.name = srl.client_user
+                        where srl.parent = sr.name),
+                    -- a dispute carries no service line, so whoever raised it is the person
+                    (select u.full_name from `tabUser` u where u.name = sr.requester)
+                ) as users,
                 timestampdiff(hour, sr.creation, now()) as age_hours
             from `tabService Request` sr
             {where}
@@ -283,7 +300,10 @@ class RequestService:
         lines = frappe.db.sql(
             """
             select
-                srl.idx, srl.action, srl.target_scope, srl.is_new_user,
+                srl.idx, srl.action, srl.request_action,
+                coalesce(ra.title, srl.action) as action_label,
+                ra.description as action_description,
+                srl.target_scope, srl.is_new_user,
                 srl.client_user,
                 coalesce(cu.full_name, holder.full_name) as client_user_name,
                 coalesce(cu.department, holder.department) as client_user_department,
@@ -299,6 +319,7 @@ class RequestService:
             left join `tabManaged Device` device on device.name = srl.managed_device
             left join `tabClient User` holder on holder.name = device.assigned_client_user
             left join `tabItem` item on item.name = srl.requested_service
+            left join `tabMSP Request Action` ra on ra.name = srl.request_action
             where srl.parent = %(parent)s
             order by srl.idx asc
             """,
@@ -309,6 +330,7 @@ class RequestService:
         return {
             "name": doc.name,
             "customer": doc.customer,
+            "billing_run": doc.billing_run,
             "request_type": doc.request_type,
             "status": doc.status,
             "priority": doc.priority,

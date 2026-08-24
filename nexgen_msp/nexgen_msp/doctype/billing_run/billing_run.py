@@ -6,21 +6,11 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, getdate, now_datetime
 
-BLOCKING_STATUSES = (
-	"Draft",
-	"Validating",
-	"Exception",
-	"Ready for Approval",
-	"Approved",
-	"Invoice Drafted",
-	"Invoiced",
-)
 
 
 class BillingRun(Document):
 	def validate(self):
 		self.validate_period()
-		self.validate_duplicate_run()
 		self.validate_adjustment()
 		self.set_totals()
 
@@ -31,36 +21,16 @@ class BillingRun(Document):
 		self.approved_at = now_datetime()
 
 	def on_cancel(self):
-		self.status = "Cancelled"
+		# on_cancel runs after the row is written, so the status needs writing on its own
+		self.db_set("status", "Cancelled")
 
 	def validate_period(self):
 		if getdate(self.billing_period_end) < getdate(self.billing_period_start):
 			frappe.throw(_("Billing Period End cannot be earlier than Billing Period Start."))
 
-	def validate_duplicate_run(self):
-		# an adjustment or a credit note deliberately revisits a period already billed
-		if self.adjustment_of or self.credit_note_of:
-			return
-
-		duplicate = frappe.db.exists(
-			"Billing Run",
-			{
-				"name": ("!=", self.name),
-				"customer": self.customer,
-				"billing_period_start": self.billing_period_start,
-				"billing_period_end": self.billing_period_end,
-				"adjustment_of": ("is", "not set"),
-				"credit_note_of": ("is", "not set"),
-				"status": ("in", BLOCKING_STATUSES),
-				"docstatus": ("<", 2),
-			},
-		)
-		if duplicate:
-			frappe.throw(
-				_("Billing Run {0} already covers this period for {1}. Use an adjustment run instead.").format(
-					duplicate, self.customer
-				)
-			)
+	# A period is deliberately open to several runs: a customer may be billed in passes,
+	# some people now and the rest later. What must never repeat is a single assignment,
+	# and that is checked line by line when a run is built.
 
 	def validate_adjustment(self):
 		if not self.adjustment_of:

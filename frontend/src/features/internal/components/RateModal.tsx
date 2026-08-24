@@ -35,6 +35,7 @@ const RateModal: React.FC<Props> = ({
   const [validFrom, setValidFrom] = useState('');
   const [validUpto, setValidUpto] = useState('');
   const [note, setNote] = useState('');
+  const [discount, setDiscount] = useState('');
 
   const datesInverted = Boolean(validFrom && validUpto && validUpto < validFrom);
 
@@ -42,6 +43,7 @@ const RateModal: React.FC<Props> = ({
     if (!open) return;
     setService(editing?.item_code ?? presetService ?? '');
     setRate(editing ? String(editing.price_list_rate) : '');
+    setDiscount(editing?.msp_discount_percent ? String(editing.msp_discount_percent) : '');
     setValidFrom((editing?.valid_from ?? '').slice(0, 10));
     setValidUpto((editing?.valid_upto ?? '').slice(0, 10));
     setNote(editing?.note ?? '');
@@ -57,6 +59,7 @@ const RateModal: React.FC<Props> = ({
         rate: Number(rate),
         valid_from: validFrom || undefined,
         valid_upto: validUpto || undefined,
+        discount_percent: Number(discount || 0),
         note: note.trim() || undefined,
         name: editing?.name,
       });
@@ -104,21 +107,23 @@ const RateModal: React.FC<Props> = ({
       }
     >
       <div className="space-y-4">
+        <div>
+          <FieldLabel required>Service</FieldLabel>
+          <Select
+            searchable
+            className="w-full"
+            value={service}
+            onChange={setService}
+            placeholder="Select a service"
+            options={services.map((item) => ({
+              value: item.service_item,
+              label: item.service_name,
+              description: item.is_eligible ? undefined : 'Not offered to this customer yet',
+            }))}
+          />
+        </div>
+
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <FieldLabel required>Service</FieldLabel>
-            <Select
-              className="w-full"
-              value={service}
-              onChange={setService}
-              placeholder="Select a service"
-              options={services.map((item) => ({
-                value: item.service_item,
-                label: item.service_name,
-                description: item.is_eligible ? undefined : 'Not offered to this customer yet',
-              }))}
-            />
-          </div>
           <div>
             <FieldLabel required>Rate {currency ? `(${currency})` : ''}</FieldLabel>
             <input
@@ -130,6 +135,21 @@ const RateModal: React.FC<Props> = ({
               placeholder="0.00"
               className={`${inputClass} text-right tabular-nums`}
             />
+          </div>
+          <div>
+            <FieldLabel>Discount</FieldLabel>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min="0"
+                max="100"
+                value={discount}
+                onChange={(event) => setDiscount(event.target.value)}
+                placeholder="0"
+                className={`${inputClass} text-right tabular-nums`}
+              />
+              <span className="text-sm text-slate-500">%</span>
+            </div>
           </div>
           <div>
             <FieldLabel>Applies from</FieldLabel>
@@ -161,12 +181,12 @@ const RateModal: React.FC<Props> = ({
 
         <div>
           <FieldLabel>Note</FieldLabel>
-          <input
-            type="text"
+          <textarea
+            rows={3}
             value={note}
             onChange={(event) => setNote(event.target.value)}
             placeholder="2026 increase, agreed by email"
-            className={inputClass}
+            className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
           />
         </div>
 

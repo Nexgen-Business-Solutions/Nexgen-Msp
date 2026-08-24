@@ -1,15 +1,12 @@
 import { useMemo, useState } from 'react';
 import type { NewRequestLine, ServiceRequestDetail } from '@/lib/api/portal';
-import { useCatalogue, useClientUsers, useCreateServiceRequest, useDevices } from './usePortal';
-
-// Backend values stay Add/Change/… — only what the user reads changes.
-const ACTION_OPTIONS = [
-  { value: 'Add', label: 'Grant access', description: 'New service' },
-  { value: 'Change', label: 'Change access', description: 'Modify existing' },
-  { value: 'Suspend', label: 'Suspend access', description: 'Temporary block' },
-  { value: 'Resume', label: 'Resume access', description: 'Lift suspension' },
-  { value: 'Remove', label: 'Remove access', description: 'Permanent revoke' },
-];
+import {
+  useCatalogue,
+  useClientUsers,
+  useCreateServiceRequest,
+  useDevices,
+  useRequestActions,
+} from './usePortal';
 
 const PRIORITY_OPTIONS = [
   { value: 'Low', label: 'Low', description: 'No rush' },
@@ -42,7 +39,7 @@ const emptyLine = (): FormLine => {
   lineCounter += 1;
   return {
     key: `line-${lineCounter}`,
-    action: 'Add',
+    action: '',
     isNewUser: false,
     client_user: '',
     new_user_full_name: '',
@@ -87,7 +84,7 @@ const toPayloadLines = (line: FormLine, deviceServices: Set<string>): NewRequest
     const onDevice = wantsDevice && !toRegister && !line.isNewUser;
 
     return {
-      action: line.action,
+      request_action: line.action || undefined,
       target_scope: onDevice ? 'Device' : 'User',
       is_new_user: line.isNewUser ? 1 : 0,
       is_new_device: toRegister ? 1 : 0,
@@ -107,6 +104,7 @@ const toPayloadLines = (line: FormLine, deviceServices: Set<string>): NewRequest
 export const useServiceRequestForm = (onCreated?: (request: ServiceRequestDetail) => void) => {
   const [priority, setPriority] = useState<string>('Medium');
   const [lines, setLines] = useState<FormLine[]>([emptyLine()]);
+  const actions = useRequestActions();
   const [touched, setTouched] = useState(false);
 
   const catalogue = useCatalogue();
@@ -224,7 +222,19 @@ export const useServiceRequestForm = (onCreated?: (request: ServiceRequestDetail
     submitting: mutation.isLoading,
     submitError: mutation.error,
     options: {
-      actions: ACTION_OPTIONS,
+      actions: (actions.data ?? []).map((entry) => ({
+        value: entry.name,
+        label: entry.title,
+        description: entry.description ?? undefined,
+      })),
+      // a brand new person has nothing to change, suspend or remove
+      actionsForNewUser: (actions.data ?? [])
+        .filter((entry) => entry.action_type === 'Add')
+        .map((entry) => ({
+          value: entry.name,
+          label: entry.title,
+          description: entry.description ?? undefined,
+        })),
       priorities: PRIORITY_OPTIONS,
       services: serviceOptions,
       users: userOptions,

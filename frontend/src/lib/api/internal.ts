@@ -31,6 +31,7 @@ export type RequestRow = {
   priority: string;
   source: string;
   requester: string | null;
+  billing_run: string | null;
   creation: string;
   modified: string;
   line_count: number;
@@ -73,6 +74,7 @@ export type RequestDetailLine = {
 export type RequestDetail = {
   name: string;
   customer: string;
+  billing_run: string | null;
   request_type: string;
   status: string;
   priority: string;
@@ -293,6 +295,7 @@ export type UserDetail = {
     disabled_date: string | null;
     portal_user: string | null;
     remarks: string | null;
+    covered_until: string | null;
   };
   devices: UserDevice[];
   services: UserServiceRow[];
@@ -303,6 +306,38 @@ export type UserDetail = {
   catalogue: { name: string; item_name: string; scope: string }[];
 };
 
+export type DeviceDetail = {
+  device: {
+    name: string;
+    hostname: string;
+    device_type: string;
+    status: string;
+    customer: string;
+    assigned_client_user: string | null;
+    user_name: string | null;
+    assigned_date: string | null;
+    retired_date: string | null;
+    serial_number: string | null;
+    asset_tag: string | null;
+    manufacturer: string | null;
+    model: string | null;
+    operating_system: string | null;
+    remarks: string | null;
+    last_billed_on: string | null;
+    covered_until: string | null;
+  };
+  interfaces: DeviceInterface[];
+  services: (UserServiceRow & { last_billed_on: string | null; internal_notes: string | null })[];
+  requests: { name: string; status: string; priority: string; request_type: string; creation: string }[];
+  catalogue: { name: string; item_name: string; scope: string; already_open: boolean }[];
+  customer_requests: CustomerRequestRef[];
+  device_types: string[];
+  interface_types: string[];
+};
+
+export const getDevice = (device: string, signal?: AbortSignal) =>
+  get<DeviceDetail>(`${BASE}.get_device`, { device }, signal);
+
 export type UserListParams = {
   search?: string;
   customer?: string;
@@ -310,6 +345,7 @@ export type UserListParams = {
   department?: string;
   service?: string;
   coverage?: string;
+  portal?: string;
   start?: number;
   page_length?: number;
 };
@@ -407,6 +443,7 @@ export type ContractServiceRow = {
   billable_assignments: number;
   in_use: boolean;
   rate_versions: number;
+  covered_by_contract: string | null;
 };
 
 export type ContractReadiness = {
@@ -421,6 +458,8 @@ export type ContractReadiness = {
 export type ContractDetail = {
   customer: string;
   profile: ContractProfile | null;
+  price_list: string | null;
+  currency: string | null;
   services: ContractServiceRow[];
   readiness: ContractReadiness;
 };
@@ -458,6 +497,7 @@ export type BillingRunRow = {
   sales_invoice: string | null;
   adjustment_of: string | null;
   credit_note_of: string | null;
+  disputed: number;
   creation: string;
   line_count: number;
 };
@@ -477,11 +517,17 @@ export type BillingRunLine = {
   billed_to: string | null;
   operational_status: string | null;
   effective_start_date: string | null;
+  last_billed_on: string | null;
   email: string | null;
   quantity: number;
   billable_days: number;
   period_days: number;
   billable_months: number;
+  covered_from: string | null;
+  covered_to: string | null;
+  gross_amount: number;
+  discount_percent: number;
+  discount_source: string | null;
   unit_rate: number | null;
   price_source: string;
   proration_method: string;
@@ -508,12 +554,20 @@ export type BillingRunDetail = {
   prepared_by: string | null;
   approved_by: string | null;
   approved_at: string | null;
+  sales_order: string | null;
   sales_invoice: string | null;
   invoice_status: string | null;
   invoice_submitted: boolean;
   adjustment_of: string | null;
   credit_note_of: string | null;
   credit_note_reason: string | null;
+  disputed: boolean;
+  dispute_reason: string | null;
+  disputed_on: string | null;
+  dispute_request: string | null;
+  can_resolve_dispute: boolean;
+  can_discount_lines: boolean;
+  discount_percent: number;
   is_credit_note: boolean;
   lines: BillingRunLine[];
   can_approve: boolean;
@@ -521,9 +575,9 @@ export type BillingRunDetail = {
   can_invoice: boolean;
   can_cancel: boolean;
   can_submit_invoice: boolean;
-  can_issue_credit_note: boolean;
   can_contest: boolean;
   can_discard_invoice: boolean;
+  can_reopen: boolean;
 };
 
 export type BillingFilters = {
@@ -535,6 +589,8 @@ export type BillingFilters = {
   user_statuses?: string[];
   started_after?: string;
   started_before?: string;
+  last_billed_after?: string;
+  last_billed_before?: string;
   only_billable?: number;
   search?: string;
 };
@@ -574,6 +630,7 @@ export const previewBillingRun = (payload: {
   period_end: string;
   adjustment_of?: string;
   filters?: BillingFilters;
+  discount_percent?: number;
 }) =>
   post<BillingPreview>(`${BASE}.preview_billing_run`, {
     ...payload,
@@ -589,28 +646,81 @@ export const generateBillingRun = (payload: {
   period_end: string;
   adjustment_of?: string;
   include?: string[];
+  discount_percent?: number;
 }) =>
   post<BillingRunDetail>(`${BASE}.generate_billing_run`, {
     ...payload,
     include: payload.include ? JSON.stringify(payload.include) : undefined,
   });
 
-export const listBillingRuns = (
-  params: { customer?: string; status?: string; start?: number; page_length?: number } = {},
+export type BillingRunQuery = {
+  customers?: string[];
+  statuses?: string[];
+  contract?: string;
+  period_from?: string;
+  period_to?: string;
+  search?: string;
+  start?: number;
+  page_length?: number;
+};
+
+export const listBillingRuns = (params: BillingRunQuery = {}, signal?: AbortSignal) =>
+  get<{ rows: BillingRunRow[]; total: number }>(
+    `${BASE}.list_billing_runs`,
+    {
+      ...params,
+      customers: params.customers?.length ? JSON.stringify(params.customers) : undefined,
+      statuses: params.statuses?.length ? JSON.stringify(params.statuses) : undefined,
+    },
+    signal
+  );
+
+export type BillingPeriodStatus = {
+  customer: string;
+  eligible: number;
+  already_billed: number;
+  remaining: number;
+  fully_billed: boolean;
+  runs: string[];
+};
+
+export const getBillingPeriodStatus = (
+  params: { contract: string; period_start: string; period_end: string },
   signal?: AbortSignal
-) => get<{ rows: BillingRunRow[]; total: number }>(`${BASE}.list_billing_runs`, params, signal);
+) => get<BillingPeriodStatus>(`${BASE}.billing_period_status`, params, signal);
 
 export const getBillingRun = (name: string, signal?: AbortSignal) =>
   get<BillingRunDetail>(`${BASE}.get_billing_run`, { name }, signal);
 
 const BILLING_ENDPOINTS: Record<string, string> = {
   submit_invoice: `${BASE}.submit_invoice_billing_run`,
-  issue_credit_note: `${BASE}.issue_credit_note`,
   discard_invoice: `${BASE}.discard_billing_invoice`,
+  reopen: `${BASE}.reopen_billing_run`,
+  resolve_dispute: `${BASE}.resolve_billing_dispute`,
 };
 
-export const runBillingAction = (action: string, name: string) =>
-  post<BillingRunDetail>(BILLING_ENDPOINTS[action] ?? `${BASE}.${action}_billing_run`, { name });
+export type InvoiceDimension = {
+  fieldname: string;
+  label: string;
+  document_type: string | null;
+  mandatory: boolean;
+  default: string | null;
+  options: string[];
+};
+
+export const getInvoiceDimensions = (signal?: AbortSignal) =>
+  get<InvoiceDimension[]>(`${BASE}.get_invoice_dimensions`, undefined, signal);
+
+export const createCostCenter = (cost_center_name: string) =>
+  post<{ name: string; cost_center_name: string }>(`${BASE}.create_cost_center`, {
+    cost_center_name,
+  });
+
+export const runBillingAction = (action: string, name: string, extra?: Record<string, unknown>) =>
+  post<BillingRunDetail>(BILLING_ENDPOINTS[action] ?? `${BASE}.${action}_billing_run`, {
+    name,
+    ...extra,
+  });
 
 export const addUserDevice = (payload: {
   client_user: string;
@@ -804,7 +914,39 @@ export type CatalogueRow = {
   open_assignments: number;
   customers: number;
   priced_contracts: number;
+  invoice_label: string | null;
 };
+
+export type ServiceDetail = {
+  service: {
+    name: string;
+    item_name: string;
+    invoice_label: string | null;
+    scope: string | null;
+    description: string | null;
+    uom: string | null;
+    disabled: number;
+  };
+  customers: {
+    customer: string;
+    open_assignments: number;
+    billable_assignments: number;
+    current_rate: number | null;
+    discount_percent: number | null;
+  }[];
+  contracts: {
+    name: string;
+    title: string | null;
+    customer: string;
+    status: string;
+    billing_frequency: string;
+  }[];
+  billed: { runs: number | null; months: number | null; amount: number | null };
+  scopes: string[];
+};
+
+export const getService = (name: string, signal?: AbortSignal) =>
+  get<ServiceDetail>(`${BASE}.get_service`, { name }, signal);
 
 export const getCatalogueOptions = (signal?: AbortSignal) =>
   get<CatalogueOptions>(`${BASE}.get_catalogue_options`, undefined, signal);
@@ -820,6 +962,7 @@ export const saveService = (payload: {
   description?: string;
   uom?: string;
   disabled?: number;
+  invoice_label?: string;
 }) => post<{ name: string; item_name: string; scope: string }>(`${BASE}.save_service`, payload);
 
 export type ContractRate = {
@@ -831,6 +974,7 @@ export type ContractRate = {
   valid_from: string | null;
   valid_upto: string | null;
   note: string | null;
+  msp_discount_percent: number;
   state: 'Active' | 'Scheduled' | 'Expired';
 };
 
@@ -845,6 +989,7 @@ export const saveContractRate = (payload: {
   valid_upto?: string;
   note?: string;
   name?: string;
+  discount_percent?: number;
 }) => post<{ name: string; item_code: string; rate: number }>(`${BASE}.save_contract_rate`, payload);
 
 export const deleteContractRate = (name: string) =>
@@ -906,7 +1051,9 @@ export type MspContractOptions = {
   proration_methods: string[];
   invoice_groupings: string[];
   price_lists: string[];
+  default_price_list: string | null;
   currencies: string[];
+  default_currency: string | null;
   services: { value: string; label: string }[];
 };
 
@@ -1061,6 +1208,8 @@ export type CustomerDetails = {
   default_price_list: string | null;
   payment_terms: string | null;
   website: string | null;
+  msp_free_of_charge: number;
+  last_billed_on: string | null;
   address: CustomerAddress | null;
   counts: { users: number; devices: number; contracts: number };
 };
@@ -1091,3 +1240,132 @@ export const saveCustomerDetails = (payload: {
     details: JSON.stringify(payload.details),
     address: payload.address ? JSON.stringify(payload.address) : undefined,
   });
+
+export const salesInvoiceDeskUrl = (invoice: string) =>
+  `/app/sales-invoice/${encodeURIComponent(invoice)}`;
+
+export type ActivityKind =
+  | 'invoice'
+  | 'credit_note'
+  | 'request'
+  | 'user'
+  | 'device'
+  | 'service_started'
+  | 'service_ended';
+
+export type ActivityEvent = {
+  kind: ActivityKind;
+  on: string;
+  customer: string;
+  title: string;
+  detail: string;
+  link: string | null;
+};
+
+export type ActivityOptions = {
+  kinds: { value: ActivityKind; label: string }[];
+  customers: string[];
+};
+
+export type ActivityQuery = {
+  customers?: string[];
+  kinds?: string[];
+  date_from?: string;
+  date_to?: string;
+  start?: number;
+  page_length?: number;
+};
+
+export const getActivityOptions = (signal?: AbortSignal) =>
+  get<ActivityOptions>(`${BASE}.get_activity_options`, undefined, signal);
+
+export const listActivity = (params: ActivityQuery = {}, signal?: AbortSignal) =>
+  get<{
+    rows: ActivityEvent[];
+    start: number;
+    page_length: number;
+    total: number;
+    has_more: boolean;
+    shows_billing: boolean;
+  }>(
+    `${BASE}.list_activity`,
+    {
+      ...params,
+      customers: params.customers?.length ? JSON.stringify(params.customers) : undefined,
+      kinds: params.kinds?.length ? JSON.stringify(params.kinds) : undefined,
+    },
+    signal
+  );
+
+export type RequestActionRow = {
+  name: string;
+  title: string;
+  action_type: string;
+  description: string | null;
+  enabled: number;
+  used: number;
+};
+
+export type SettingsOptions = { action_types: string[] };
+
+export const getSettingsOptions = (signal?: AbortSignal) =>
+  get<SettingsOptions>(`${BASE}.get_settings_options`, undefined, signal);
+
+export const listRequestActions = (signal?: AbortSignal) =>
+  get<RequestActionRow[]>(`${BASE}.list_request_actions`, undefined, signal);
+
+export const saveRequestAction = (payload: {
+  name?: string;
+  action: Partial<RequestActionRow>;
+}) =>
+  post<RequestActionRow[]>(`${BASE}.save_request_action`, {
+    name: payload.name,
+    action: JSON.stringify(payload.action),
+  });
+
+export const deleteRequestAction = (name: string) =>
+  post<RequestActionRow[]>(`${BASE}.delete_request_action`, { name });
+
+export type InvoiceSettings = {
+  issuer_name: string | null;
+  issuer_address: string | null;
+  issuer_phone: string | null;
+  issuer_website: string | null;
+  bank_currency: string | null;
+  beneficiary: string | null;
+  beneficiary_bank: string | null;
+  intermediary_bank: string | null;
+  footer_note: string | null;
+  dispute_window_days: number | null;
+  default_cost_center: string | null;
+  show_cost_center_on_invoice: number;
+};
+
+export const getInvoiceSettings = (signal?: AbortSignal) =>
+  get<InvoiceSettings>(`${BASE}.get_invoice_settings`, undefined, signal);
+
+export const saveInvoiceSettings = (settings: Partial<InvoiceSettings>) =>
+  post<InvoiceSettings>(`${BASE}.save_invoice_settings`, {
+    settings: JSON.stringify(settings),
+  });
+
+export const updateClientUser = (payload: {
+  name: string;
+  full_name?: string;
+  department?: string;
+  email?: string;
+  start_date?: string;
+  remarks?: string;
+}) => post<UserDetail>(`${BASE}.update_client_user`, payload);
+
+export const setBillingLineDiscount = (payload: {
+  name: string;
+  service_assignment: string;
+  discount_percent: number;
+}) => post<BillingRunDetail>(`${BASE}.set_billing_line_discount`, payload);
+
+export const inviteClientUserToPortal = (payload: { name: string; email?: string }) =>
+  post<UserDetail>(`${BASE}.invite_client_user_to_portal`, payload);
+
+export const revokeClientUserPortal = (name: string) =>
+  post<UserDetail>(`${BASE}.revoke_client_user_portal`, { name });

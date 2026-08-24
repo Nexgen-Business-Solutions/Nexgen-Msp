@@ -128,7 +128,9 @@ export type ListParams = {
 };
 
 export type NewRequestLine = {
-  action: string;
+  /** the chosen MSP Request Action; the server derives the mechanical action type */
+  request_action?: string;
+  action?: string;
   target_scope: string;
   is_new_user?: number;
   client_user?: string;
@@ -162,8 +164,10 @@ export const listServiceAssignments = (
   signal?: AbortSignal
 ) => get<Paginated<ServiceAssignment>>(`${BASE}.list_service_assignments`, params, signal);
 
-export const listRequests = (params: ListParams = {}, signal?: AbortSignal) =>
-  get<Paginated<ServiceRequest>>(`${BASE}.list_requests`, params, signal);
+export const listRequests = (
+  params: ListParams & { priority?: string; request_type?: string } = {},
+  signal?: AbortSignal
+) => get<Paginated<ServiceRequest>>(`${BASE}.list_requests`, params, signal);
 
 export type PortalRequestLine = {
   idx: number;
@@ -343,6 +347,9 @@ export type PortalBillingRow = {
   invoice_docstatus: number | null;
   posting_date: string | null;
   line_count: number;
+  disputed: number;
+  dispute_reason: string | null;
+  disputed_on: string | null;
 };
 
 export type PortalBillingLine = {
@@ -371,6 +378,9 @@ export type PortalBillingDetail = {
     currency: string | null;
     sales_invoice: string | null;
     adjustment_of: string | null;
+    disputed: number;
+    dispute_reason: string | null;
+    disputed_on: string | null;
   };
   invoice: {
     name: string;
@@ -387,6 +397,12 @@ export type PortalBillingDetail = {
     amount: number;
   }[];
   line_count: number;
+  dispute_window: {
+    days: number;
+    closes_on: string | null;
+    open: boolean;
+  };
+  can_dispute: boolean;
 };
 
 export const listBilling = (customer?: string, signal?: AbortSignal) =>
@@ -400,3 +416,98 @@ export const invoiceDownloadUrl = (name: string) =>
 
 export const breakdownDownloadUrl = (name: string) =>
   `/api/method/${BASE}.download_breakdown?name=${encodeURIComponent(name)}`;
+
+export type ReportFilterOptions = {
+  services: { value: string; label: string }[];
+  statuses: string[];
+  departments: string[];
+  user_statuses: string[];
+};
+
+export type ReportQuery = {
+  service_item?: string;
+  search?: string;
+  status?: string;
+  department?: string;
+  user_status?: string;
+  last_billed_after?: string;
+  last_billed_before?: string;
+  start?: number;
+  page_length?: number;
+};
+
+export const getReportFilterOptions = (customer?: string, signal?: AbortSignal) =>
+  get<ReportFilterOptions>(`${BASE}.get_report_filter_options`, { customer }, signal);
+
+export const listReportRows = (params: ReportQuery = {}, signal?: AbortSignal) =>
+  get<Paginated<ServiceRow & { service_item: string; service_name: string }>>(
+    `${BASE}.list_service_rows`,
+    params,
+    signal
+  );
+
+export type PortalRequestFilterOptions = {
+  statuses: string[];
+  priorities: string[];
+  request_types: string[];
+  used_types: string[];
+};
+
+export const getRequestFilterOptions = (customer?: string, signal?: AbortSignal) =>
+  get<PortalRequestFilterOptions>(`${BASE}.get_request_filter_options`, { customer }, signal);
+
+export const disputeInvoice = (payload: { name: string; reason: string }) =>
+  post<{ disputed: boolean; run: string }>(`${BASE}.dispute_invoice`, payload);
+
+export type ActivityKind =
+  | 'invoice'
+  | 'credit_note'
+  | 'request'
+  | 'user'
+  | 'device'
+  | 'service_started'
+  | 'service_ended';
+
+export type ActivityEvent = {
+  kind: ActivityKind;
+  on: string;
+  title: string;
+  detail: string;
+  link: string | null;
+};
+
+export const getRecentActivity = (customer?: string, limit = 12, signal?: AbortSignal) =>
+  get<{ rows: ActivityEvent[]; count: number }>(
+    `${BASE}.get_recent_activity`,
+    { customer, limit },
+    signal
+  );
+
+export type RequestAction = {
+  name: string;
+  title: string;
+  action_type: string;
+  description: string | null;
+};
+
+export type ServiceState = {
+  held: boolean;
+  live?: boolean;
+  status?: string;
+  billing_status?: string;
+  since?: string | null;
+  until?: string | null;
+  last_billed_on?: string | null;
+};
+
+export const listRequestActions = (forNewUser?: boolean, signal?: AbortSignal) =>
+  get<RequestAction[]>(
+    `${BASE}.list_request_actions`,
+    { for_new_user: forNewUser ? 1 : 0 },
+    signal
+  );
+
+export const getServiceState = (
+  params: { service_item: string; client_user?: string; managed_device?: string },
+  signal?: AbortSignal
+) => get<ServiceState>(`${BASE}.get_service_state`, params, signal);

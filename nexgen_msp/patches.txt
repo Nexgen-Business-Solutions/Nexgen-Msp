@@ -1,5 +1,17 @@
+[pre_model_sync]
 nexgen_msp.patches.profiles_to_contracts
 nexgen_msp.patches.billing_month_uom
 nexgen_msp.patches.backfill_billable_months
 nexgen_msp.patches.invoiced_means_posted
 nexgen_msp.patches.link_runs_to_contracts
+
+[post_model_sync]
+nexgen_msp.patches.seed_request_actions
+nexgen_msp.patches.seed_invoice_settings
+nexgen_msp.patches.stamp_last_billed
+nexgen_msp.patches.restate_last_billed
+nexgen_msp.patches.free_customer_flag
+nexgen_msp.patches.billing_discounts
+nexgen_msp.patches.backfill_covered_until
+nexgen_msp.patches.invoice_billed_count
+nexgen_msp.patches.service_invoice_label

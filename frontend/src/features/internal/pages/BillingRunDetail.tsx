@@ -9,21 +9,36 @@ import {
   Printer,
   Receipt,
   ReceiptText,
+  PencilLine,
   RefreshCw,
+  RotateCcw,
   Undo2,
   ShieldCheck,
   TriangleAlert,
   X,
 } from 'lucide-react';
+import Modal from '@/shared/components/Modal';
+import FieldLabel from '@/shared/components/FieldLabel';
 import StatusBadge from '@/shared/components/StatusBadge';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import CreditNoteModal from '../components/CreditNoteModal';
-import { breakdownFileUrl, invoicePdfUrl } from '@/lib/api/internal';
-import { useBillingRun, useRunAction } from '../hooks/useBilling';
+import { breakdownFileUrl, invoicePdfUrl, salesInvoiceDeskUrl } from '@/lib/api/internal';
+import { useBillingRun, useRunAction, useSetLineDiscount } from '../hooks/useBilling';
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
 
-const COLUMNS = ['Service', 'User', 'Device', 'Months', 'Days', 'Rate', 'Amount', 'Note', ''];
+const COLUMNS = [
+  'Service',
+  'User',
+  'Device',
+  'Covered',
+  'Months',
+  'Rate',
+  'Discount',
+  'Amount',
+  'Note',
+  '',
+];
 
 export default function BillingRunDetail() {
   const { name = '' } = useParams();
@@ -31,6 +46,10 @@ export default function BillingRunDetail() {
   const detail = useBillingRun(name);
   const action = useRunAction();
   const [contesting, setContesting] = useState(false);
+  const [notify, setNotify] = useState(true);
+  const [resolving, setResolving] = useState(false);
+  const [outcome, setOutcome] = useState('');
+  const setDiscount = useSetLineDiscount();
 
   const data = detail.data;
 
@@ -53,7 +72,19 @@ export default function BillingRunDetail() {
   }
 
   const currency = data.currency ?? '';
-  const run = (verb: string) => action.mutate({ action: verb, name });
+  const run = async (verb: string, extra?: Record<string, unknown>) => {
+    try {
+      const result = await action.mutateAsync({ action: verb, name: name as string, extra });
+
+      // reopening produces an amendment under a new name, so follow it
+      if (result.name !== name) navigate(`/msp/billing/${result.name}`);
+
+      return true;
+    } catch {
+      // shown by the error banner below
+      return false;
+    }
+  };
 
   return (
     <div className="space-y-5 px-6 pb-6 pt-4">
@@ -72,6 +103,11 @@ export default function BillingRunDetail() {
             <div className="flex flex-wrap items-center gap-2.5">
               <h1 className="text-lg font-bold text-slate-900">{data.name}</h1>
               <StatusBadge value={data.status} />
+              {data.disputed && (
+                <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
+                  DISPUTED
+                </span>
+              )}
               {data.credit_note_of && (
                 <span className="rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700">
                   CREDIT NOTE OF {data.credit_note_of}
@@ -95,6 +131,9 @@ export default function BillingRunDetail() {
                 Approved by {data.approved_by} on {fmtDate(data.approved_at)}
               </p>
             )}
+            {data.sales_order && (
+              <p className="mt-1 text-xs text-slate-400">Order {data.sales_order}</p>
+            )}
             {data.sales_invoice && (
               <p className="mt-1 text-sm font-medium text-emerald-600">
                 Invoiced as {data.sales_invoice}
@@ -115,6 +154,27 @@ export default function BillingRunDetail() {
             </p>
           </div>
         </div>
+
+        {data.disputed && (
+          <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <TriangleAlert size={16} className="mt-0.5 shrink-0 text-amber-600" />
+            <div className="text-sm text-amber-800">
+              <p className="font-semibold">
+                The customer disputed this invoice on {fmtDate(data.disputed_on)}
+              </p>
+              <p className="mt-1">{data.dispute_reason}</p>
+              {data.dispute_request && (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/msp/requests/${data.dispute_request}`)}
+                  className="mt-1.5 text-xs font-semibold underline underline-offset-2"
+                >
+                  Open request {data.dispute_request}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {data.exception_count > 0 && (
           <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
@@ -163,12 +223,45 @@ export default function BillingRunDetail() {
           {data.can_submit_invoice && (
             <button
               type="button"
-              onClick={() => run('submit_invoice')}
+              onClick={() => run('submit_invoice', { notify: notify ? 1 : 0 })}
               disabled={action.isLoading}
               className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:opacity-60"
             >
               <FileCheck2 size={15} />
-              Post the invoice
+              {data.is_credit_note ? 'Submit credit note' : 'Submit invoice'}
+            </button>
+          )}
+          {data.can_submit_invoice && (
+            <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-slate-600">
+              <input
+                type="checkbox"
+                checked={notify}
+                onChange={(event) => setNotify(event.target.checked)}
+                className="h-4 w-4 rounded border-slate-300"
+              />
+              Email the customer
+            </label>
+          )}
+          {data.can_discard_invoice && (
+            <a
+              href={salesInvoiceDeskUrl(data.sales_invoice as string)}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+            >
+              <PencilLine size={15} />
+              Edit invoice
+            </a>
+          )}
+          {data.can_reopen && (
+            <button
+              type="button"
+              onClick={() => run('reopen')}
+              disabled={action.isLoading}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60"
+            >
+              <RotateCcw size={15} />
+              Reopen run
             </button>
           )}
           {data.can_discard_invoice && (
@@ -198,15 +291,14 @@ export default function BillingRunDetail() {
             <FileSpreadsheet size={15} />
             Breakdown file
           </a>
-          {data.can_issue_credit_note && (
+          {data.can_resolve_dispute && (
             <button
               type="button"
-              onClick={() => run('issue_credit_note')}
-              disabled={action.isLoading}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:opacity-60"
+              onClick={() => setResolving(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-amber-700"
             >
-              <ReceiptText size={15} />
-              Issue credit note
+              <ShieldCheck size={15} />
+              Settle the dispute
             </button>
           )}
           {data.can_contest && (
@@ -284,16 +376,56 @@ export default function BillingRunDetail() {
                   <td className="whitespace-nowrap px-4 py-3 text-sm font-medium text-slate-700 tabular-nums">
                     {line.billable_months}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-500 tabular-nums">
-                    {line.billable_days}/{line.period_days}
+                  <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-500">
+                    {line.covered_from ? (
+                      <>
+                        {line.covered_from.slice(0, 10)}
+                        <span className="text-slate-300"> → </span>
+                        {line.covered_to?.slice(0, 10)}
+                      </>
+                    ) : (
+                      '—'
+                    )}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600 tabular-nums">
                     {line.exception_code || line.unit_rate === null
                       ? '—'
                       : line.unit_rate.toLocaleString()}
                   </td>
+                  <td className="whitespace-nowrap px-4 py-3">
+                    {data.can_discount_lines ? (
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="1"
+                        defaultValue={line.discount_percent || ''}
+                        onBlur={(event) => {
+                          const next = Number(event.target.value || 0);
+                          if (next !== line.discount_percent) {
+                            setDiscount.mutate({
+                              name: data.name,
+                              service_assignment: line.service_assignment,
+                              discount_percent: next,
+                            });
+                          }
+                        }}
+                        placeholder="0"
+                        className="h-8 w-16 rounded-md border border-slate-200 px-2 text-right text-sm tabular-nums outline-none focus:border-blue-500"
+                      />
+                    ) : (
+                      <span className="text-sm text-slate-600 tabular-nums">
+                        {line.discount_percent ? `${line.discount_percent}%` : '—'}
+                      </span>
+                    )}
+                  </td>
                   <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900 tabular-nums">
                     {line.amount.toLocaleString()}
+                    {line.discount_percent > 0 && (
+                      <span className="ml-1.5 text-xs font-normal text-slate-400 line-through">
+                        {line.gross_amount.toLocaleString()}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     {line.exception_code ? (
@@ -331,6 +463,66 @@ export default function BillingRunDetail() {
           </table>
         </div>
       </div>
+
+      <Modal
+        open={resolving}
+        onClose={() => setResolving(false)}
+        icon={ShieldCheck}
+        tone="amber"
+        title="Settle this dispute"
+        subtitle="Tell the customer what came of their dispute. The invoice itself is untouched."
+        widthClass="max-w-2xl"
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setResolving(false)}
+              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={action.isLoading}
+              onClick={async () => {
+                await run('resolve_dispute', { note: outcome || undefined });
+                setResolving(false);
+                setOutcome('');
+              }}
+              className="flex min-w-[8rem] items-center justify-center rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-amber-700 disabled:opacity-60"
+            >
+              {action.isLoading ? (
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+              ) : (
+                'Settle'
+              )}
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            <p className="font-semibold">What they told us</p>
+            <p className="mt-1">{data.dispute_reason}</p>
+          </div>
+
+          <div>
+            <FieldLabel>Outcome</FieldLabel>
+            <textarea
+              rows={4}
+              value={outcome}
+              onChange={(event) => setOutcome(event.target.value)}
+              placeholder="A credit note has been issued for the two people who left in May."
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+            />
+          </div>
+
+          <p className="text-sm text-slate-500">
+            If money is owed back, raise a credit note — settling the dispute does not move
+            any figures on its own.
+          </p>
+        </div>
+      </Modal>
 
       <CreditNoteModal
         open={contesting}

@@ -101,7 +101,7 @@ class UserService:
         }
 
     @staticmethod
-    def _conditions(search, customer, status, department, service, coverage):
+    def _conditions(search, customer, status, department, service, coverage, portal):
         conditions = []
         params = {"open": OPEN_ASSIGNMENT_STATUSES, "item": SECURITY_ITEM}
 
@@ -128,6 +128,11 @@ class UserService:
                 )"""
             )
             params["service"] = service
+
+        if portal == "yes":
+            conditions.append("ifnull(cu.portal_user, '') != ''")
+        elif portal == "no":
+            conditions.append("ifnull(cu.portal_user, '') = ''")
 
         if coverage == "no_device":
             conditions.append("cu.lifecycle_status = 'Active'")
@@ -186,6 +191,7 @@ class UserService:
         department=None,
         service=None,
         coverage=None,
+        portal=None,
         start=0,
         page_length=20,
     ):
@@ -196,7 +202,7 @@ class UserService:
         page_length = min(max(frappe.utils.cint(page_length) or 20, 1), MAX_PAGE_LENGTH)
 
         where, params = UserService._conditions(
-            search, customer, status, department, service, coverage
+            search, customer, status, department, service, coverage, portal
         )
 
         total = frappe.db.sql(f"select count(*) from `tabClient User` cu {where}", params)[0][0]
@@ -265,6 +271,7 @@ class UserService:
                 "disabled_date",
                 "portal_user",
                 "remarks",
+                "covered_until",
             ],
             as_dict=True,
         )
@@ -649,3 +656,124 @@ class UserService:
         frappe.db.commit()
 
         return {"name": doc.name, "full_name": doc.full_name, "customer": doc.customer}
+
+    @staticmethod
+    def update_client_user(
+        name=None,
+        full_name=None,
+        department=None,
+        email=None,
+        start_date=None,
+        remarks=None,
+    ):
+        """Correct what we hold about a person. Their customer and lifecycle never move here.
+
+        Moving someone between customers would orphan their services, and the lifecycle is
+        driven by the services themselves — both are deliberately out of reach.
+        """
+        RequestService._guard_internal()
+
+        if not name or not frappe.db.exists("Client User", name):
+            raise NotFoundError(f"Client User {name} not found.", "NOT_FOUND")
+
+        doc = frappe.get_doc("Client User", name)
+
+        if full_name is not None:
+            if not str(full_name).strip():
+                raise ValidationError("A person needs a name.", "VALIDATION_ERROR")
+            doc.full_name = str(full_name).strip()
+
+        for field, value in (
+            ("department", department),
+            ("email", email),
+            ("start_date", start_date),
+            ("remarks", remarks),
+        ):
+            if value is not None:
+                doc.set(field, value or None)
+
+        doc.save()
+        frappe.db.commit()
+
+        return UserService.get_user(name)
+
+    @staticmethod
+    def invite_to_portal(name=None, email=None):
+        """Give this person access to their company's portal, and mail them the link.
+
+        Re-inviting someone who already has access simply sends a fresh link: the reset
+        token is single use, so a lost invitation is a normal thing to replace.
+        """
+        from nexgen_msp.utils import permissions
+
+        permissions.guard_can_manage_access()
+
+        if not name or not frappe.db.exists("Client User", name):
+            raise NotFoundError(f"Client User {name} not found.", "NOT_FOUND")
+
+        doc = frappe.get_doc("Client User", name)
+
+        address = (email or doc.email or "").strip()
+
+        if not address:
+            raise ValidationError(
+                "This person has no email address, so there is nowhere to send the "
+                "invitation. Add one first.",
+                "VALIDATION_ERROR",
+            )
+
+        if doc.lifecycle_status in ("Disabled", "Archived"):
+            raise ValidationError(
+                f"{doc.full_name} is {doc.lifecycle_status.lower()} and should not be given "
+                "portal access.",
+                "VALIDATION_ERROR",
+            )
+
+        parts = (doc.full_name or address).split()
+        user_doc, created = permissions.ensure_portal_user(
+            address, first_name=parts[0], last_name=" ".join(parts[1:]) or None
+        )
+
+        for role in permissions.PORTAL_ROLES:
+            if not any(row.role == role for row in user_doc.roles):
+                user_doc.append("roles", {"role": role})
+
+        user_doc.save(ignore_permissions=True)
+
+        permissions.add_customer_permission(user_doc.name, doc.customer)
+
+        if doc.email != address:
+            doc.db_set("email", address)
+
+        doc.db_set("portal_user", user_doc.name)
+        doc.db_set("portal_visible", 1)
+        frappe.db.commit()
+
+        permissions.send_portal_invitation(user_doc, doc.customer)
+
+        return UserService.get_user(name)
+
+    @staticmethod
+    def revoke_portal_access(name=None):
+        """Take the portal away without deleting the account or its history."""
+        from nexgen_msp.utils import permissions
+
+        permissions.guard_can_manage_access()
+
+        if not name or not frappe.db.exists("Client User", name):
+            raise NotFoundError(f"Client User {name} not found.", "NOT_FOUND")
+
+        doc = frappe.get_doc("Client User", name)
+
+        if not doc.portal_user:
+            raise ValidationError(
+                f"{doc.full_name} has no portal access.", "INVALID_TRANSITION"
+            )
+
+        permissions.remove_customer_permission(doc.portal_user, doc.customer)
+        frappe.db.set_value("User", doc.portal_user, "enabled", 0)
+
+        doc.db_set("portal_user", None)
+        frappe.db.commit()
+
+        return UserService.get_user(name)

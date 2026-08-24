@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   AlertCircle,
@@ -43,6 +43,11 @@ export default function RequestDetail() {
 
   const data = detail.data;
   const actionError = (runAction.error ?? setLine.error) as Error | undefined;
+
+  // a dispute is handled on the invoice it contests, so a direct link lands there
+  useEffect(() => {
+    if (data?.billing_run) navigate(`/msp/billing/${data.billing_run}`, { replace: true });
+  }, [data?.billing_run, navigate]);
 
   const openPrompt = (next: ReasonPrompt) => {
     setReason('');

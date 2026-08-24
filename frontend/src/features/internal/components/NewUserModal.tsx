@@ -87,6 +87,7 @@ const NewUserModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
           <div>
             <FieldLabel required>Customer</FieldLabel>
             <Select
+              searchable
               className="w-full"
               value={customer}
               onChange={setCustomer}

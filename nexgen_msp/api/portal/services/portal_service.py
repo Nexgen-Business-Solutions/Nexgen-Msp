@@ -331,14 +331,53 @@ class PortalService:
         )
 
     @staticmethod
-    def list_requests(customer=None, search=None, status=None, start=0, page_length=20):
+    def list_requests(
+        customer=None,
+        search=None,
+        status=None,
+        priority=None,
+        request_type=None,
+        start=0,
+        page_length=20,
+    ):
         filters = PortalService._base_filters(customer)
+
         if status:
             filters["status"] = status
+
+        if priority:
+            filters["priority"] = priority
+
+        if request_type:
+            filters["request_type"] = request_type
 
         return PortalService._paginated(
             "Service Request", REQUEST_FIELDS, filters, search, ["name"], start, page_length
         )
+
+    @staticmethod
+    def request_filter_options(customer=None):
+        """The axes the customer can narrow their own request queue on."""
+        customer = PortalService._resolve_customer(customer)
+        meta = frappe.get_meta("Service Request")
+
+        def select(fieldname):
+            field = meta.get_field(fieldname)
+            return [value for value in (field.options or "").split("\n") if value]
+
+        return {
+            "statuses": select("status"),
+            "priorities": select("priority"),
+            "request_types": select("request_type"),
+            "used_types": frappe.db.sql_list(
+                """
+                select distinct request_type from `tabService Request`
+                where customer = %(customer)s and request_type is not null
+                order by request_type asc
+                """,
+                {"customer": customer},
+            ),
+        }
 
     @staticmethod
     def get_request(name=None):
@@ -556,6 +595,34 @@ class PortalService:
         return line
 
     @staticmethod
+    def _resolved_action(line):
+        """Take the mechanical action type from the chosen action record.
+
+        A new person can only be granted something, whatever was sent.
+        """
+        chosen = line.get("request_action")
+
+        if chosen:
+            action = frappe.db.get_value(
+                "MSP Request Action", chosen, ["action_type", "enabled"], as_dict=True
+            )
+
+            if not action or not action.enabled:
+                raise ValidationError(
+                    f"'{chosen}' is not an action you can ask for.", "VALIDATION_ERROR"
+                )
+
+            line["action"] = action.action_type
+
+        if line.get("is_new_user") and line.get("action") not in (None, "", "Add"):
+            raise ValidationError(
+                "A new person can only be granted a service, not have one changed or removed.",
+                "VALIDATION_ERROR",
+            )
+
+        return line
+
+    @staticmethod
     def create_request(customer=None, request_type=None, priority=None, lines=None):
         customer = PortalService._resolve_customer(customer)
 
@@ -564,6 +631,7 @@ class PortalService:
             raise ValidationError("At least one line is required.", "VALIDATION_ERROR")
 
         lines = [PortalService._scoped_line(line, customer) for line in lines]
+        lines = [PortalService._resolved_action(line) for line in lines]
 
         doc = frappe.get_doc(
             {
@@ -576,6 +644,7 @@ class PortalService:
                 "requester": frappe.session.user,
                 "lines": [
                     {
+                        "request_action": line.get("request_action"),
                         "action": line.get("action") or request_type or "Add",
                         "target_scope": line.get("target_scope") or "User",
                         "is_new_user": 1 if line.get("is_new_user") else 0,
@@ -727,27 +796,62 @@ class PortalService:
 
     @staticmethod
     def list_service_rows(
-        customer=None, service_item=None, search=None, status=None, start=0, page_length=20
+        customer=None,
+        service_item=None,
+        search=None,
+        status=None,
+        department=None,
+        user_status=None,
+        last_billed_after=None,
+        last_billed_before=None,
+        start=0,
+        page_length=20,
     ):
+        """Every service line the customer holds, on one axis or all of them."""
         customer = PortalService._resolve_customer(customer)
-
-        if not service_item:
-            raise ValidationError("service_item is required.", "VALIDATION_ERROR")
 
         start = max(0, frappe.utils.cint(start))
         page_length = min(MAX_PAGE_LENGTH, max(1, frappe.utils.cint(page_length) or 20))
 
-        conditions = ["sa.customer = %(customer)s", "sa.service_item = %(service_item)s"]
+        conditions = ["sa.customer = %(customer)s"]
         values = {
             "customer": customer,
-            "service_item": service_item,
             "start": start,
             "page_length": page_length,
         }
 
+        if service_item:
+            conditions.append("sa.service_item = %(service_item)s")
+            values["service_item"] = service_item
+
         if status:
             conditions.append("sa.operational_status = %(status)s")
             values["status"] = status
+
+        if department:
+            conditions.append("coalesce(cu.department, dcu.department) = %(department)s")
+            values["department"] = department
+
+        if user_status:
+            conditions.append("coalesce(cu.lifecycle_status, dcu.lifecycle_status) = %(user_status)s")
+            values["user_status"] = user_status
+
+        billed = """
+            (
+                select max(br.billing_period_end)
+                from `tabBilling Run Line` brl
+                join `tabBilling Run` br on br.name = brl.parent
+                where brl.service_assignment = sa.name and br.docstatus = 1
+            )
+        """
+
+        if last_billed_after:
+            conditions.append(f"{billed} >= %(last_billed_after)s")
+            values["last_billed_after"] = last_billed_after
+
+        if last_billed_before:
+            conditions.append(f"{billed} <= %(last_billed_before)s")
+            values["last_billed_before"] = last_billed_before
 
         if search:
             conditions.append(
@@ -765,6 +869,7 @@ class PortalService:
             left join `tabManaged Device` own on own.assigned_client_user = sa.client_user
                 and own.status = 'Active'
             left join `tabClient User` dcu on dcu.name = d.assigned_client_user
+            left join `tabItem` item on item.name = sa.service_item
         """
 
         rows = frappe.db.sql(
@@ -784,12 +889,9 @@ class PortalService:
                 sa.billing_status as billing_status,
                 sa.effective_start_date as effective_start_date,
                 sa.effective_end_date as effective_end_date,
-                (
-                    select max(br.billing_period_end)
-                    from `tabBilling Run Line` brl
-                    join `tabBilling Run` br on br.name = brl.parent
-                    where brl.service_assignment = sa.name and br.docstatus = 1
-                ) as last_billed_on
+                sa.service_item as service_item,
+                coalesce(item.item_name, sa.service_item) as service_name,
+                {billed} as last_billed_on
             {base_from}
             where {where}
             group by sa.name
@@ -884,6 +986,7 @@ class PortalService:
                 br.name, br.billing_period_start, br.billing_period_end,
                 br.total_amount, br.currency, br.sales_invoice,
                 br.adjustment_of, br.approved_at,
+                br.disputed, br.dispute_reason, br.disputed_on,
                 si.status as invoice_status, si.docstatus as invoice_docstatus,
                 si.posting_date,
                 (select count(*) from `tabBilling Run Line` brl
@@ -918,6 +1021,9 @@ class PortalService:
                 "currency",
                 "sales_invoice",
                 "adjustment_of",
+                "disputed",
+                "dispute_reason",
+                "disputed_on",
             ],
             as_dict=True,
         )
@@ -1002,11 +1108,37 @@ class PortalService:
             else None
         )
 
+        window = PortalService._dispute_window(invoice)
+
         return {
             "run": run,
             "invoice": invoice,
             "services": sorted(groups.values(), key=lambda group: group["service_name"]),
             "line_count": len(rows),
+            "dispute_window": window,
+            "can_dispute": bool(window["open"]) and not run.disputed,
+        }
+
+    @staticmethod
+    def _dispute_window(invoice):
+        """When the right to contest an invoice runs out, counted from its own date.
+
+        The clock starts on the invoice date rather than the day it was drafted, which is
+        the date the customer sees and the only one they can check against.
+        """
+        from nexgen_msp.api.internal.services.settings_service import SettingsService
+
+        days = SettingsService.dispute_window()
+
+        if not invoice or not invoice.get("posting_date"):
+            return {"days": days, "closes_on": None, "open": True}
+
+        closes_on = frappe.utils.add_days(frappe.utils.getdate(invoice["posting_date"]), days)
+
+        return {
+            "days": days,
+            "closes_on": closes_on,
+            "open": frappe.utils.getdate() <= closes_on,
         }
 
     @staticmethod
@@ -1039,20 +1171,413 @@ class PortalService:
 
         from nexgen_msp.utils import invoice_pdf
 
-        invoice_pdf.respond(run.sales_invoice)
+        # _billing_run_for_customer has already proved this invoice is theirs
+        invoice_pdf.respond(run.sales_invoice, elevated=True)
 
     @staticmethod
     def download_breakdown(name=None):
-        """The supporting detail behind the invoice, as a spreadsheet."""
+        """The supporting detail behind the invoice, as a spreadsheet.
+
+        Built under an administrator like the PDF is: the figures are read across Billing
+        Run, Sales Invoice and Service Assignment, none of which a portal contact may open.
+        _billing_run_for_customer has already proved the run is theirs.
+        """
         from nexgen_msp.api.internal.services.billing_service import BillingService
         from nexgen_msp.utils.billing_export import breakdown_workbook
 
         run = PortalService._billing_run_for_customer(name)
 
-        data = BillingService.breakdown(run.name, guard=False)
+        asking = frappe.session.user
+
+        try:
+            frappe.set_user("Administrator")
+            data = BillingService.breakdown(run.name, guard=False)
+            content = breakdown_workbook(data)
+        finally:
+            frappe.set_user(asking)
 
         frappe.local.response.filename = (
             f"Breakdown-{data['customer']}-{data['period_label']}.xlsx".replace(" ", "-")
         )
-        frappe.local.response.filecontent = breakdown_workbook(data)
+        frappe.local.response.filecontent = content
         frappe.local.response.type = "download"
+
+    @staticmethod
+    def report_filter_options(customer=None):
+        """The axes the report table can be narrowed on, for this customer alone."""
+        customer = PortalService._resolve_customer(customer)
+
+        return {
+            "services": frappe.db.sql(
+                """
+                select distinct sa.service_item as value,
+                       coalesce(item.item_name, sa.service_item) as label
+                from `tabService Assignment` sa
+                left join `tabItem` item on item.name = sa.service_item
+                where sa.customer = %(customer)s
+                order by label asc
+                """,
+                {"customer": customer},
+                as_dict=True,
+            ),
+            "statuses": frappe.db.sql_list(
+                """
+                select distinct operational_status from `tabService Assignment`
+                where customer = %(customer)s and operational_status is not null
+                order by operational_status asc
+                """,
+                {"customer": customer},
+            ),
+            "departments": frappe.db.sql_list(
+                """
+                select distinct department from `tabClient User`
+                where customer = %(customer)s and department is not null and department != ''
+                order by department asc
+                """,
+                {"customer": customer},
+            ),
+            "user_statuses": frappe.db.sql_list(
+                """
+                select distinct lifecycle_status from `tabClient User`
+                where customer = %(customer)s and lifecycle_status is not null
+                order by lifecycle_status asc
+                """,
+                {"customer": customer},
+            ),
+        }
+
+    @staticmethod
+    def dispute_invoice(name=None, reason=None):
+        """Raise a dispute on an issued invoice, and tell the team about it.
+
+        Nothing is reversed here: the invoice stands until someone reviews it and decides
+        whether a credit note is due.
+        """
+        from nexgen_msp.utils import notifications
+
+        if not reason or not str(reason).strip():
+            raise ValidationError(
+                "Tell us what is wrong with this invoice.", "VALIDATION_ERROR"
+            )
+
+        run = PortalService._billing_run_for_customer(name)
+        doc = frappe.get_doc("Billing Run", run.name)
+
+        if doc.disputed:
+            raise ValidationError(
+                "This invoice has already been disputed and is being reviewed.",
+                "INVALID_TRANSITION",
+            )
+
+        invoice = (
+            frappe.db.get_value(
+                "Sales Invoice", doc.sales_invoice, ["posting_date"], as_dict=True
+            )
+            if doc.sales_invoice
+            else None
+        )
+        window = PortalService._dispute_window(invoice)
+
+        if not window["open"]:
+            raise ValidationError(
+                f"This invoice could be contested until {window['closes_on']}, "
+                f"{window['days']} days after its date. Raise a request instead.",
+                "INVALID_TRANSITION",
+            )
+
+        # a dispute travels as a request, so it lands in the same queue as everything else
+        request = frappe.get_doc(
+            {
+                "doctype": "Service Request",
+                "customer": doc.customer,
+                "request_type": "Billing Dispute",
+                "priority": "High",
+                "source": "Portal",
+                "status": "Submitted",
+                "requester": frappe.session.user,
+                "billing_run": doc.name,
+            }
+        ).insert(ignore_permissions=True)
+
+        doc.db_set("disputed", 1)
+        doc.db_set("dispute_reason", reason)
+        doc.db_set("disputed_on", frappe.utils.now())
+        doc.db_set("disputed_by", frappe.session.user)
+        doc.db_set("dispute_request", request.name)
+        frappe.db.commit()
+
+        period = frappe.utils.formatdate(doc.billing_period_end, "MMMM yyyy")
+        context = {
+            "customer": doc.customer,
+            "invoice": doc.sales_invoice or doc.name,
+            "period": period,
+            "reason": reason,
+            "request": request.name,
+        }
+
+        admins = frappe.db.sql_list(
+            """
+            select distinct u.name
+            from `tabHas Role` r
+            join `tabUser` u on u.name = r.parent
+            where r.role = 'MSP System Admin' and u.enabled = 1
+            """
+        )
+
+        if admins:
+            notifications.send(
+                "MSP Invoice Disputed",
+                admins,
+                {**context, "link": f"/msp/requests/{request.name}"},
+                reference_doctype="Billing Run",
+                reference_name=doc.name,
+            )
+
+        notifications.send(
+            "MSP Dispute Acknowledged",
+            [frappe.session.user],
+            {
+                **context,
+                "full_name": frappe.db.get_value("User", frappe.session.user, "full_name") or "there",
+                "link": notifications.portal_url(f"/invoices/{doc.name}"),
+            },
+            reference_doctype="Billing Run",
+            reference_name=doc.name,
+        )
+
+        return {"disputed": True, "run": doc.name}
+
+    @staticmethod
+    def recent_activity(customer=None, limit=12):
+        """What actually happened lately: joiners, leavers, machines, requests, invoices.
+
+        Each source is capped on its own before the merge, so one noisy month of one kind
+        cannot crowd the others out of the feed.
+        """
+        customer = PortalService._resolve_customer(customer)
+        limit = min(50, max(1, frappe.utils.cint(limit) or 12))
+        per_source = limit
+
+        params = {"customer": customer, "cap": per_source}
+        events = []
+
+        def collect(kind, rows, title, detail, link=None):
+            for row in rows:
+                events.append(
+                    {
+                        "kind": kind,
+                        "on": row.get("on"),
+                        "title": title(row),
+                        "detail": detail(row),
+                        "link": link(row) if link else None,
+                    }
+                )
+
+        invoices = frappe.db.sql(
+            """
+            select br.name, br.total_amount, br.currency, br.sales_invoice,
+                   br.billing_period_start, br.billing_period_end, br.credit_note_of,
+                   br.disputed, br.modified as `on`
+            from `tabBilling Run` br
+            where br.customer = %(customer)s and br.status = 'Invoiced'
+            order by br.modified desc limit %(cap)s
+            """,
+            params,
+            as_dict=True,
+        )
+
+        for row in invoices:
+            events.append(
+                {
+                    "kind": "credit_note" if row.credit_note_of else "invoice",
+                    "on": row.get("on"),
+                    "title": (
+                        f"Credit note {row.sales_invoice or row.name} issued"
+                        if row.credit_note_of
+                        else f"Invoice {row.sales_invoice or row.name} issued"
+                    ),
+                    "detail": (
+                        f"{frappe.utils.fmt_money(abs(row.total_amount or 0), currency=row.currency)}"
+                        f" for {row.billing_period_start} → {row.billing_period_end}"
+                        + (" · disputed" if row.disputed else "")
+                    ),
+                    "link": f"/invoices/{row.name}",
+                }
+            )
+
+        collect(
+            "request",
+            frappe.db.sql(
+                """
+                select name, request_type, status, modified as `on`
+                from `tabService Request`
+                where customer = %(customer)s
+                order by modified desc limit %(cap)s
+                """,
+                params,
+                as_dict=True,
+            ),
+            lambda row: f"Request {row.name} is {row.status.lower()}",
+            lambda row: f"{row.request_type} request",
+            lambda row: f"/requests/{row.name}",
+        )
+
+        collect(
+            "user",
+            frappe.db.sql(
+                """
+                select name, full_name, department, start_date, creation as `on`
+                from `tabClient User`
+                where customer = %(customer)s
+                order by creation desc limit %(cap)s
+                """,
+                params,
+                as_dict=True,
+            ),
+            lambda row: f"{row.full_name} joined",
+            lambda row: row.department or "No department recorded",
+            lambda row: f"/users/{row.name}",
+        )
+
+        collect(
+            "device",
+            frappe.db.sql(
+                """
+                select name, hostname, device_type, creation as `on`
+                from `tabManaged Device`
+                where customer = %(customer)s
+                order by creation desc limit %(cap)s
+                """,
+                params,
+                as_dict=True,
+            ),
+            lambda row: f"{row.hostname} added",
+            lambda row: row.device_type or "Device",
+        )
+
+        collect(
+            "service_started",
+            frappe.db.sql(
+                """
+                select sa.name, sa.effective_start_date as `on`,
+                       coalesce(item.item_name, sa.service_item) as service_name,
+                       coalesce(cu.full_name, d.hostname) as holder
+                from `tabService Assignment` sa
+                left join `tabItem` item on item.name = sa.service_item
+                left join `tabClient User` cu on cu.name = sa.client_user
+                left join `tabManaged Device` d on d.name = sa.managed_device
+                where sa.customer = %(customer)s and sa.effective_start_date is not null
+                order by sa.effective_start_date desc limit %(cap)s
+                """,
+                params,
+                as_dict=True,
+            ),
+            lambda row: f"{row.service_name} activated",
+            lambda row: row.holder or "Unassigned",
+        )
+
+        collect(
+            "service_ended",
+            frappe.db.sql(
+                """
+                select sa.name, sa.effective_end_date as `on`,
+                       coalesce(item.item_name, sa.service_item) as service_name,
+                       coalesce(cu.full_name, d.hostname) as holder
+                from `tabService Assignment` sa
+                left join `tabItem` item on item.name = sa.service_item
+                left join `tabClient User` cu on cu.name = sa.client_user
+                left join `tabManaged Device` d on d.name = sa.managed_device
+                where sa.customer = %(customer)s and sa.effective_end_date is not null
+                order by sa.effective_end_date desc limit %(cap)s
+                """,
+                params,
+                as_dict=True,
+            ),
+            lambda row: f"{row.service_name} ended",
+            lambda row: row.holder or "Unassigned",
+        )
+
+        events = [event for event in events if event["on"]]
+        events.sort(key=lambda event: str(event["on"]), reverse=True)
+
+        return {"rows": events[:limit], "count": len(events[:limit])}
+
+    @staticmethod
+    def list_request_actions(for_new_user=None):
+        """The actions a customer may ask for.
+
+        A brand new person has nothing to change, suspend or remove, so only the actions
+        that grant something make sense for them.
+        """
+        filters = {"enabled": 1}
+
+        if frappe.utils.cint(for_new_user):
+            filters["action_type"] = "Add"
+
+        return frappe.get_all(
+            "MSP Request Action",
+            filters=filters,
+            fields=["name", "title", "action_type", "description"],
+            order_by="action_type asc, title asc",
+        )
+
+    @staticmethod
+    def service_state(service_item=None, client_user=None, managed_device=None, customer=None):
+        """What this service already looks like for that person or machine.
+
+        Shown as soon as the service is picked, so nobody asks for something they have.
+        """
+        customer = PortalService._resolve_customer(customer)
+
+        if not service_item:
+            raise ValidationError("service_item is required.", "VALIDATION_ERROR")
+
+        if not client_user and not managed_device:
+            return {"held": False}
+
+        conditions = ["sa.customer = %(customer)s", "sa.service_item = %(service_item)s"]
+        values = {"customer": customer, "service_item": service_item}
+
+        if client_user:
+            conditions.append("sa.client_user = %(client_user)s")
+            values["client_user"] = client_user
+        else:
+            conditions.append("sa.managed_device = %(managed_device)s")
+            values["managed_device"] = managed_device
+
+        row = frappe.db.sql(
+            f"""
+            select
+                sa.name, sa.operational_status, sa.billing_status,
+                sa.effective_start_date, sa.effective_end_date,
+                (
+                    select max(br.billing_period_end)
+                    from `tabBilling Run Line` brl
+                    join `tabBilling Run` br on br.name = brl.parent
+                    where brl.service_assignment = sa.name and br.docstatus = 1
+                ) as last_billed_on
+            from `tabService Assignment` sa
+            where {" and ".join(conditions)}
+            order by (sa.operational_status not in ('Ended', 'Cancelled')) desc,
+                     sa.effective_start_date desc
+            limit 1
+            """,
+            values,
+            as_dict=True,
+        )
+
+        if not row:
+            return {"held": False}
+
+        found = row[0]
+        live = found.operational_status not in ("Ended", "Cancelled")
+
+        return {
+            "held": True,
+            "live": live,
+            "status": found.operational_status,
+            "billing_status": found.billing_status,
+            "since": found.effective_start_date,
+            "until": found.effective_end_date,
+            "last_billed_on": found.last_billed_on,
+        }

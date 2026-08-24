@@ -37,6 +37,9 @@ MIGRATION_TAG = "list of users.xlsx"
 
 
 class ExcelImportService:
+    # filled per import so the check below costs one query per customer
+    _billed_customers = {}
+
     @staticmethod
     def import_users(
         file_url=None,
@@ -53,6 +56,8 @@ class ExcelImportService:
 
         if not frappe.has_permission("Client User", "create"):
             raise ValidationError("You are not allowed to import client users.", "PERMISSION_DENIED", 403)
+
+        ExcelImportService._billed_customers = {}
 
         path = ExcelImportService._resolve_path(file_url)
         rows = excel_parser.load_rows(path)
@@ -73,11 +78,18 @@ class ExcelImportService:
                 "portal_contacts": 0,
                 "user_permissions": 0,
                 "invitations_sent": 0,
+                "customers_stamped": 0,
+            },
+            "updated": {
+                "client_users": 0,
+                "managed_devices": 0,
+                "network_interfaces": 0,
             },
             "skipped": {
                 "rows_failed": 0,
                 "devices_without_hostname": 0,
                 "duplicate_hostname": 0,
+                "assignments_existing": 0,
                 "invalid_macs": 0,
                 "inconsistent_dates": 0,
                 "rows_without_email": 0,
@@ -115,7 +127,7 @@ class ExcelImportService:
 
                 savepoint = f"row_{record['row_number']}"
                 frappe.db.savepoint(savepoint)
-                counters_before = dict(report["created"])
+                counters_before = (dict(report["created"]), dict(report["updated"]))
 
                 try:
                     customer = customers.get(record["company"].lower())
@@ -149,7 +161,7 @@ class ExcelImportService:
                 except Exception as e:
                     frappe.db.rollback(save_point=savepoint)
                     frappe.clear_messages()
-                    report["created"] = counters_before
+                    report["created"], report["updated"] = counters_before
                     report["skipped"]["rows_failed"] += 1
                     report["exceptions"].append(
                         {
@@ -158,6 +170,8 @@ class ExcelImportService:
                             "reason": ExcelImportService._clean_message(e),
                         }
                     )
+
+            ExcelImportService._stamp_customers(records, customers, report)
 
             if dry_run:
                 frappe.db.rollback()
@@ -169,6 +183,30 @@ class ExcelImportService:
             raise
 
         return report
+
+    @staticmethod
+    def _stamp_customers(records, customers, report):
+        """Carry the latest imported billing date up onto the customer."""
+        latest = {}
+
+        for record in records:
+            billed = record.get("last_billed_on")
+            customer = customers.get((record["company"] or "").lower())
+
+            if not billed or not customer:
+                continue
+
+            billed = frappe.utils.getdate(billed)
+
+            if customer not in latest or billed > latest[customer]:
+                latest[customer] = billed
+
+        for customer, billed in latest.items():
+            if ExcelImportService._has_own_billing(customer):
+                continue
+
+            frappe.db.set_value("Customer", customer, "msp_last_billed_on", billed)
+            report["created"]["customers_stamped"] += 1
 
     @staticmethod
     def _clean_message(exception):
@@ -305,8 +343,7 @@ class ExcelImportService:
         status = ExcelImportService._lifecycle_status(record)
         start_date, disabled_date = ExcelImportService._lifecycle_dates(record, status)
 
-        doc = frappe.get_doc(
-            {
+        values = {
                 "doctype": "Client User",
                 "full_name": record["full_name"],
                 "customer": customer,
@@ -320,11 +357,72 @@ class ExcelImportService:
                 "ad_status": "Active" if record["ad_marked_active"] else "Not Managed",
                 "portal_visible": 1,
                 "remarks": record["remarks"],
-            }
-        ).insert()
+                **ExcelImportService._imported_billing(record, customer, dates_only=True),
+        }
+
+        existing = frappe.db.get_value(
+            "Client User", {"customer": customer, "full_name": record["full_name"]}, "name"
+        )
+
+        if existing:
+            ExcelImportService._refresh(existing, values, report, "client_users")
+            return existing
+
+        doc = frappe.get_doc(values).insert()
 
         report["created"]["client_users"] += 1
         return doc.name
+
+    @staticmethod
+    def _refresh(name, values, report, counter):
+        """Fill in what the record is still missing, and restate the billing dates.
+
+        A spreadsheet re-import must not undo what the app or a person has since decided,
+        so a field that already holds something is left alone. The billing dates are the
+        exception: they are what the sheet is authoritative about, and `_imported_billing`
+        has already withheld them for a customer this app bills itself.
+        """
+        doc = frappe.get_doc(values["doctype"], name)
+        touched = False
+
+        for field, value in values.items():
+            if field == "doctype" or value in (None, "", []):
+                continue
+
+            if field in ("covered_until", "last_billed_on") or not doc.get(field):
+                if doc.get(field) != value:
+                    doc.set(field, value)
+                    touched = True
+
+        if touched:
+            doc.save()
+            report["updated"][counter] += 1
+
+        return doc
+
+    @staticmethod
+    def _imported_billing(record, customer, dates_only=False):
+        """What the spreadsheet knows about billing, kept only while this app has billed nothing
+        itself — once a run is invoiced the engine restates these from its own records."""
+        if ExcelImportService._has_own_billing(customer):
+            return {}
+
+        values = {"covered_until": record.get("covered_until")}
+
+        if not dates_only:
+            values["last_billed_on"] = record.get("last_billed_on")
+
+        return values
+
+    @staticmethod
+    def _has_own_billing(customer):
+        """Whether this app has billed the customer itself, in which case it knows better."""
+        if customer not in ExcelImportService._billed_customers:
+            ExcelImportService._billed_customers[customer] = bool(
+                frappe.db.exists("Billing Run", {"customer": customer, "status": "Invoiced"})
+            )
+
+        return ExcelImportService._billed_customers[customer]
 
     @staticmethod
     def _create_device(record, customer, client_user, hostname_seen, report):
@@ -357,8 +455,7 @@ class ExcelImportService:
         status = "Retired" if record["device_disabled"] else "Active"
         retired_date = record["device_disabled"] if status == "Retired" else None
 
-        doc = frappe.get_doc(
-            {
+        values = {
                 "doctype": "Managed Device",
                 "customer": customer,
                 "assigned_client_user": client_user,
@@ -371,12 +468,45 @@ class ExcelImportService:
                 "retired_date": retired_date,
                 "network_interfaces": record["macs"],
                 "remarks": record["remarks"],
-            }
-        ).insert()
+                **ExcelImportService._imported_billing(record, customer),
+        }
+
+        existing = frappe.db.get_value(
+            "Managed Device", {"customer": customer, "hostname": record["hostname"]}, "name"
+        )
+
+        if existing:
+            macs = values.pop("network_interfaces")
+            ExcelImportService._refresh(existing, values, report, "managed_devices")
+            ExcelImportService._add_interfaces(existing, macs, report)
+            return existing
+
+        doc = frappe.get_doc(values).insert()
 
         report["created"]["managed_devices"] += 1
         report["created"]["network_interfaces"] += len(record["macs"])
         return doc.name
+
+    @staticmethod
+    def _add_interfaces(device, macs, report):
+        """Append the MAC addresses the device does not already carry."""
+        doc = frappe.get_doc("Managed Device", device)
+        held = {(row.mac_address or "").lower() for row in doc.network_interfaces}
+        added = 0
+
+        for mac in macs:
+            address = (mac.get("mac_address") or "").lower()
+
+            if not address or address in held:
+                continue
+
+            doc.append("network_interfaces", mac)
+            held.add(address)
+            added += 1
+
+        if added:
+            doc.save()
+            report["updated"]["network_interfaces"] += added
 
     @staticmethod
     def _create_portal_access(record, customer, client_user, email_seen, send_welcome_email, report):
@@ -455,6 +585,17 @@ class ExcelImportService:
                 )
 
             operational_status, billing_status = ASSIGNMENT_STATUS[lifecycle["status"]]
+
+            held = {
+                "customer": customer,
+                "service_item": items[key],
+                "client_user": client_user if spec["scope"] == "User" else None,
+                "managed_device": device if spec["scope"] == "Device" else None,
+            }
+
+            if frappe.db.exists("Service Assignment", held):
+                report["skipped"]["assignments_existing"] += 1
+                continue
 
             frappe.get_doc(
                 {

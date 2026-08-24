@@ -19,6 +19,7 @@ export type UserFilterState = {
   department: string;
   service: string;
   coverage: string;
+  portal: string;
   start: number;
   pageLength: number;
 };
@@ -30,6 +31,7 @@ const DEFAULTS: UserFilterState = {
   department: '',
   service: '',
   coverage: '',
+  portal: '',
   start: 0,
   pageLength: 20,
 };
@@ -41,6 +43,7 @@ const PARAMS: Record<string, string> = {
   department: 'dept',
   service: 'service',
   coverage: 'coverage',
+  portal: 'portal',
   start: 'start',
   pageLength: 'rows',
 };
@@ -56,6 +59,7 @@ export const useUserFilters = () => {
       department: searchParams.get('dept') ?? DEFAULTS.department,
       service: searchParams.get('service') ?? DEFAULTS.service,
       coverage: searchParams.get('coverage') ?? DEFAULTS.coverage,
+      portal: searchParams.get('portal') ?? DEFAULTS.portal,
       start: Number(searchParams.get('start') ?? DEFAULTS.start),
       pageLength: Number(searchParams.get('rows') ?? DEFAULTS.pageLength),
     }),
@@ -95,6 +99,7 @@ export const useUserFilters = () => {
     filters.department,
     filters.service,
     filters.coverage,
+    filters.portal,
   ].filter(Boolean).length;
 
   return { filters, patch, clear, activeCount };
@@ -124,6 +129,7 @@ export const useUserList = (filters: UserFilterState) => {
     department: filters.department || undefined,
     service: filters.service || undefined,
     coverage: filters.coverage || undefined,
+    portal: filters.portal || undefined,
     start: filters.start,
     page_length: filters.pageLength,
   };
@@ -155,6 +161,8 @@ const useUserMutation = <TVariables>(
       queryClient.invalidateQueries({ queryKey: [...userKeys.all, 'list'] });
       queryClient.invalidateQueries({ queryKey: userKeys.stats() });
       queryClient.invalidateQueries({ queryKey: ['internal', 'dashboard'] });
+      // a service change moves the machine's row too, wherever it is being watched from
+      queryClient.invalidateQueries({ queryKey: ['internal', 'devices'] });
     },
   });
 };
@@ -177,3 +185,35 @@ export const useAddDevice = (clientUser: string) => {
     },
   });
 };
+
+export const useUpdateClientUser = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: internal.updateClientUser,
+    onSuccess: (detail) => {
+      queryClient.setQueryData(userKeys.detail(detail.user.name), detail);
+      queryClient.invalidateQueries({ queryKey: [...userKeys.all, 'list'] });
+    },
+  });
+};
+
+const usePortalAccessMutation = <TVariables>(
+  mutationFn: (variables: TVariables) => Promise<internal.UserDetail>
+) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn,
+    onSuccess: (detail) => {
+      queryClient.setQueryData(userKeys.detail(detail.user.name), detail);
+      queryClient.invalidateQueries({ queryKey: [...userKeys.all, 'list'] });
+    },
+  });
+};
+
+export const useInviteToPortal = () =>
+  usePortalAccessMutation(internal.inviteClientUserToPortal);
+
+export const useRevokePortalAccess = () =>
+  usePortalAccessMutation((name: string) => internal.revokeClientUserPortal(name));

@@ -1,12 +1,27 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, CircleX, Eye, Laptop, PauseCircle, PlayCircle, Plus, ShieldCheck } from 'lucide-react';
+import {
+  ArrowLeft,
+  CircleX,
+  Eye,
+  Laptop,
+  PauseCircle,
+  Pencil,
+  PlayCircle,
+  Send,
+  Plus,
+  ShieldCheck,
+} from 'lucide-react';
 import StatusBadge from '@/shared/components/StatusBadge';
+import { useSession } from '@/shared/hooks/useSession';
+import { isAdmin as hasAdminRole } from '@/shared/layout/navigation';
 import RowActionsMenu, { type RowAction } from '@/shared/components/RowActionsMenu';
 import AssignServiceModal from '../components/AssignServiceModal';
 import ServiceActionModal, { type ServiceAction } from '../components/ServiceActionModal';
 import DeviceServiceModal from '../components/DeviceServiceModal';
 import AddDeviceModal from '../components/AddDeviceModal';
+import EditClientUserModal from '../components/EditClientUserModal';
+import PortalInviteModal from '../components/PortalInviteModal';
 import { useUserDetail } from '../hooks/useUsers';
 
 import type { UserServiceRow as UserServiceRowType } from '@/lib/api/internal';
@@ -62,6 +77,12 @@ export default function UserDetail() {
   const wantsNewDevice = searchParams.get('device') === 'new';
   const detail = useUserDetail(name);
   const [assignOpen, setAssignOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState(false);
+  const [inviting, setInviting] = useState(false);
+
+  const { data: session } = useSession();
+  // only an administrator hands out portal access
+  const isAdmin = hasAdminRole(session?.roles);
   const [deviceOpen, setDeviceOpen] = useState(false);
   const [deviceService, setDeviceService] = useState<string | null>(null);
 
@@ -126,7 +147,30 @@ export default function UserDetail() {
             <div className="flex flex-wrap items-center gap-2.5">
               <h1 className="text-lg font-bold text-slate-900">{user.full_name}</h1>
               <StatusBadge value={user.lifecycle_status} />
+              <button
+                type="button"
+                onClick={() => setEditingUser(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+              >
+                <Pencil size={13} />
+                Edit details
+              </button>
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => setInviting(true)}
+                  disabled={['Disabled', 'Archived'].includes(user.lifecycle_status)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-40"
+                >
+                  <Send size={13} />
+                  {user.portal_user ? 'Resend invitation' : 'Invite to portal'}
+                </button>
+              )}
             </div>
+
+            {user.remarks && (
+              <p className="mt-2 max-w-2xl text-sm text-slate-600">{user.remarks}</p>
+            )}
             <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-4">
               <div>
                 <p className="text-xs font-medium text-slate-400">Customer</p>
@@ -141,8 +185,16 @@ export default function UserDetail() {
                 <p className="mt-0.5 text-sm text-slate-700">{fmtDate(user.start_date)}</p>
               </div>
               <div>
+                <p className="text-xs font-medium text-slate-400">Billed up to</p>
+                <p className="mt-0.5 text-sm text-slate-700">
+                  {user.covered_until ? fmtDate(user.covered_until) : 'Never billed'}
+                </p>
+              </div>
+              <div>
                 <p className="text-xs font-medium text-slate-400">Portal access</p>
-                <p className="mt-0.5 text-sm text-slate-700">{user.portal_user ? 'Yes' : 'No'}</p>
+                <p className="mt-0.5 text-sm text-slate-700">
+                  {user.portal_user ? user.portal_user : 'No'}
+                </p>
               </div>
             </div>
             {user.remarks && (
@@ -242,7 +294,7 @@ export default function UserDetail() {
           <button
             type="button"
             onClick={() => setDeviceOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
           >
             <Plus size={14} />
             Add device
@@ -396,6 +448,18 @@ export default function UserDetail() {
       </Panel>
 
       <DeviceServiceModal device={deviceService} onClose={() => setDeviceService(null)} />
+
+      <PortalInviteModal
+        open={inviting}
+        user={user}
+        onClose={() => setInviting(false)}
+      />
+
+      <EditClientUserModal
+        open={editingUser}
+        user={user}
+        onClose={() => setEditingUser(false)}
+      />
 
       <AddDeviceModal
         open={deviceOpen}

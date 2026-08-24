@@ -5,7 +5,9 @@ import ResetPassword from '@/features/auth/pages/ResetPassword';
 import AppLayout from '@/shared/layout/AppLayout';
 import AuthGuard from './guards/AuthGuard';
 import RoleHome from './RoleHome';
-import PortalRecords from '@/features/portal/pages/PortalRecords';
+import PortalReports from '@/features/portal/pages/PortalReports';
+import PortalRequests from '@/features/portal/pages/PortalRequests';
+import PortalInvoiceDetail from '@/features/portal/pages/PortalInvoiceDetail';
 import PortalBilling from '@/features/portal/pages/PortalBilling';
 import NewServiceRequest from '@/features/portal/pages/NewServiceRequest';
 import InternalGuard from './guards/InternalGuard';
@@ -13,7 +15,11 @@ import RequestsList from '@/features/internal/pages/RequestsList';
 import RequestDetail from '@/features/internal/pages/RequestDetail';
 import UsersList from '@/features/internal/pages/UsersList';
 import UserDetail from '@/features/internal/pages/UserDetail';
+import DeviceDetail from '@/features/internal/pages/DeviceDetail';
+import ServiceDetail from '@/features/internal/pages/ServiceDetail';
 import DevicesList from '@/features/internal/pages/DevicesList';
+import ActivityLog from '@/features/internal/pages/ActivityLog';
+import Settings from '@/features/internal/pages/Settings';
 import PortalRequestDetail from '@/features/portal/pages/PortalRequestDetail';
 import PortalUserDetail from '@/features/portal/pages/PortalUserDetail';
 import RoleDetail from './RoleDetail';
@@ -47,16 +53,13 @@ export const router = createBrowserRouter([
     ),
     children: [
       { index: true, element: <RoleHome /> },
-      { path: 'records', element: <PortalRecords /> },
+      { path: 'reports', element: <PortalReports /> },
       { path: 'invoices', element: <PortalBilling /> },
+      { path: 'invoices/:name', element: <PortalInvoiceDetail /> },
       { path: 'requests/new', element: <NewServiceRequest /> },
       {
         path: 'requests',
-        element: (
-          <InternalGuard>
-            <RequestsList />
-          </InternalGuard>
-        ),
+        element: <RoleDetail portal={<PortalRequests />} internal={<RequestsList />} />,
       },
       {
         path: 'users',
@@ -79,10 +82,42 @@ export const router = createBrowserRouter([
         ),
       },
       {
+        path: 'devices/:name',
+        element: (
+          <InternalGuard>
+            <DeviceDetail />
+          </InternalGuard>
+        ),
+      },
+      {
+        path: 'activity',
+        element: (
+          <InternalGuard>
+            <ActivityLog />
+          </InternalGuard>
+        ),
+      },
+      {
+        path: 'settings',
+        element: (
+          <AdminGuard>
+            <Settings />
+          </AdminGuard>
+        ),
+      },
+      {
         path: 'services',
         element: (
           <AdminGuard>
             <ServicesList />
+          </AdminGuard>
+        ),
+      },
+      {
+        path: 'services/:name',
+        element: (
+          <AdminGuard>
+            <ServiceDetail />
           </AdminGuard>
         ),
       },

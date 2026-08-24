@@ -1,5 +1,7 @@
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Building2, CircleAlert, Coins, Eye, FileCheck2, Layers } from 'lucide-react';
+import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
 import KpiCard from '@/shared/components/KpiCard';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import StatusBadge from '@/shared/components/StatusBadge';
@@ -11,15 +13,38 @@ const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) :
 
 export default function CustomersList() {
   const navigate = useNavigate();
-  const { data, isLoading, error } = useContractList();
+  const { data, isLoading, error, refetch } = useContractList();
 
-  const rows = data ?? [];
-  const withContract = rows.filter((row) => row.profile).length;
-  const active = rows.filter((row) => row.contract_status === 'Active').length;
-  const fullyPriced = rows.filter(
+  const [filters, setFilters] = useState<FilterState>({ contract_status: '', priced: '' });
+  const [search, setSearch] = useState('');
+
+  const all = data ?? [];
+
+  const rows = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+
+    return all.filter((row) => {
+      if (needle && !row.customer.toLowerCase().includes(needle)) return false;
+
+      if (filters.contract_status && row.contract_status !== filters.contract_status) return false;
+
+      if (filters.priced === 'complete') {
+        return row.services_used > 0 && row.services_priced >= row.services_used;
+      }
+
+      if (filters.priced === 'incomplete') {
+        return row.services_used === 0 || row.services_priced < row.services_used;
+      }
+
+      return true;
+    });
+  }, [all, filters, search]);
+  const withContract = all.filter((row) => row.profile).length;
+  const active = all.filter((row) => row.contract_status === 'Active').length;
+  const fullyPriced = all.filter(
     (row) => row.services_used > 0 && row.services_priced >= row.services_used
   ).length;
-  const billable = rows.reduce((sum, row) => sum + row.billable_assignments, 0);
+  const billable = all.reduce((sum, row) => sum + row.billable_assignments, 0);
 
   return (
     <div className="space-y-5 px-6 pb-6 pt-4">
@@ -28,7 +53,7 @@ export default function CustomersList() {
           icon={Building2}
           accent="indigo"
           label="Customers"
-          value={rows.length}
+          value={all.length}
           caption={`${withContract} with a contract`}
           loading={isLoading}
         />
@@ -53,11 +78,48 @@ export default function CustomersList() {
           tone="alert"
           accent="slate"
           label="Missing rates"
-          value={rows.length - fullyPriced}
+          value={all.length - fullyPriced}
           caption="Customers with unpriced services"
           loading={isLoading}
         />
       </div>
+
+      <FilterBar
+        values={filters}
+        search={search}
+        searchPlaceholder="Search a customer…"
+        subtitle="Narrow the customer register."
+        onSearch={setSearch}
+        onApply={setFilters}
+        onClear={() => setFilters({ contract_status: '', priced: '' })}
+        onRefresh={() => refetch()}
+        fields={[
+          {
+            key: 'contract_status',
+            label: 'Contract',
+            kind: 'select',
+            allLabel: 'Any contract state',
+            options: ['Draft', 'Active', 'Suspended', 'Ended'].map((value) => ({
+              value,
+              label: value,
+            })),
+          },
+          {
+            key: 'priced',
+            label: 'Pricing',
+            kind: 'select',
+            allLabel: 'Any pricing state',
+            options: [
+              { value: 'complete', label: 'Fully priced', description: 'Every service has a rate' },
+              {
+                value: 'incomplete',
+                label: 'Rates missing',
+                description: 'Cannot be billed as it stands',
+              },
+            ],
+          },
+        ]}
+      />
 
       <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
         <div className="px-5 py-4">

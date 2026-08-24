@@ -1,8 +1,8 @@
 import React from 'react';
 import { ShieldCheckIcon } from 'lucide-react';
+import { AppLogo } from '@/shared/components/appLogo';
 
-const APP_NAME = 'Nexgen MSP';
-const APP_TAGLINE = 'Service and billing portal';
+
 
 type Props = {
   eyebrow: string;
@@ -21,12 +21,7 @@ const AuthShell: React.FC<Props> = ({ eyebrow, title, description, children, foo
 
     <div className="relative flex min-h-screen items-center justify-center px-4 py-10">
       <div className="w-full max-w-sm rounded-2xl border border-white/60 bg-white shadow-2xl shadow-blue-950/10">
-        <div className="flex items-center gap-3 px-7 pt-7 pb-5">
-          <div className="min-w-0">
-            <p className="truncate text-base font-bold text-gray-900">{APP_NAME}</p>
-            <p className="truncate text-xs text-blue-700">{APP_TAGLINE}</p>
-          </div>
-        </div>
+        <AppLogo />
 
         <div className="border-t border-gray-100" />
 

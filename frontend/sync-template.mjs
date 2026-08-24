@@ -6,37 +6,22 @@ const here = dirname(fileURLToPath(import.meta.url));
 const built = resolve(here, '../nexgen_msp/public/frontend/index.html');
 const target = resolve(here, '../nexgen_msp/www/msp.html');
 
+// The page Frappe serves is the built one, verbatim. Anything added to index.html —
+// a favicon, a meta tag, a font — therefore reaches production without touching this file.
 const html = readFileSync(built, 'utf8');
 
-const script = html.match(/<script[^>]*src="([^"]+)"[^>]*><\/script>/);
-const style = html.match(/<link[^>]*rel="stylesheet"[^>]*href="([^"]+)"[^>]*>/);
+const asset = html.match(/src="([^"]*\/assets\/index-[^"]+\.js)"/);
 
-if (!script || !style) {
-  console.error('sync-template: could not find the built asset tags');
+if (!asset) {
+  console.error('sync-template: the built index.html carries no bundle — did the build run?');
   process.exit(1);
 }
 
-const asset = (path) => `/assets/nexgen_msp/frontend${path.replace(/^\.?\//, '/')}`;
+if (!html.includes('frappe.session.csrf_token')) {
+  console.error('sync-template: index.html no longer injects the CSRF token');
+  process.exit(1);
+}
 
-writeFileSync(
-  target,
-  `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/assets/nexgen_msp/frontend/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Nexgen MSP</title>
-    <meta name="csrf-token" content="{{ frappe.session.csrf_token }}" />
-    <script type="module" crossorigin src="${asset(script[1])}"></script>
-    <link rel="stylesheet" crossorigin href="${asset(style[1])}">
-  </head>
-  <body>
-    <div id="root"></div>
-    <script>window.csrf_token = '{{ frappe.session.csrf_token }}';</script>
-  </body>
-</html>
-`
-);
+writeFileSync(target, html);
 
-console.log(`sync-template: msp.html now points at ${asset(script[1])}`);
+console.log(`sync-template: msp.html now points at ${asset[1]}`);

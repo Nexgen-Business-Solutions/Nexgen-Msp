@@ -4,7 +4,7 @@ import KpiCard from '@/shared/components/KpiCard';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import StatusBadge from '@/shared/components/StatusBadge';
 import TablePagination from '@/shared/components/TablePagination';
-import RequestFilterBar from '../components/RequestFilterBar';
+import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
 import {
   useRequestFilterOptions,
   useRequestFilters,
@@ -21,9 +21,12 @@ const formatAge = (hours: number) => {
   return `${Math.floor(hours / 24)}d`;
 };
 
+const openPath = (row: { name: string; billing_run: string | null }) =>
+  row.billing_run ? `/msp/billing/${row.billing_run}` : `/msp/requests/${row.name}`;
+
 export default function RequestsList() {
   const navigate = useNavigate();
-  const { filters, patch, clear, activeCount } = useRequestFilters();
+  const { filters, patch, clear } = useRequestFilters();
   const options = useRequestFilterOptions();
   const stats = useRequestStats();
   const list = useRequestList(filters);
@@ -77,13 +80,71 @@ export default function RequestsList() {
         />
       </div>
 
-      <RequestFilterBar
-        filters={filters}
-        options={options.data}
-        activeCount={activeCount}
-        onPatch={patch}
+      <FilterBar
+        values={filters as unknown as FilterState}
+        search={filters.search}
+        searchPlaceholder="Search a request, a customer or a requester…"
+        subtitle="Narrow the request queue."
+        onSearch={(value) => patch({ search: value })}
+        onApply={(values) =>
+          patch({
+            status: (values.status as string) ?? '',
+            priority: (values.priority as string) ?? '',
+            request_type: (values.request_type as string) ?? '',
+            customer: (values.customer as string) ?? '',
+            scope: (values.scope as string) ?? '',
+          })
+        }
         onClear={clear}
         onRefresh={() => list.refetch()}
+        fields={[
+          {
+            key: 'customer',
+            label: 'Customer',
+            kind: 'select',
+            allLabel: 'All customers',
+            options: (options.data?.customers ?? []).map((value) => ({ value, label: value })),
+          },
+          {
+            key: 'status',
+            label: 'Status',
+            kind: 'select',
+            allLabel: 'All statuses',
+            options: (options.data?.statuses ?? []).map((value) => ({ value, label: value })),
+          },
+          {
+            key: 'priority',
+            label: 'Priority',
+            kind: 'select',
+            allLabel: 'Any priority',
+            options: (options.data?.priorities ?? []).map((value) => ({ value, label: value })),
+          },
+          {
+            key: 'request_type',
+            label: 'Type',
+            kind: 'select',
+            allLabel: 'Any type',
+            options: (options.data?.request_types ?? []).map((value) => ({
+              value,
+              label: value,
+              description:
+                value === 'Billing Dispute' ? 'An invoice the customer contests' : undefined,
+            })),
+          },
+          {
+            key: 'scope',
+            label: 'Queue',
+            kind: 'select',
+            // 'open' is the landing state, so 'all' is what "no filter" means here
+            clearValue: 'all',
+            options: [
+              { value: 'all', label: 'Everything' },
+              { value: 'open', label: 'Open only', description: 'Still awaiting a decision' },
+              { value: 'closed', label: 'Closed only', description: 'Already decided' },
+              { value: 'mine', label: 'Assigned to me', description: 'Open and mine' },
+            ],
+          },
+        ]}
       />
 
       <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
@@ -133,7 +194,7 @@ export default function RequestsList() {
                 rows.map((row) => (
                   <tr
                     key={row.name}
-                    onClick={() => navigate(`/msp/requests/${row.name}`)}
+                    onClick={() => navigate(openPath(row))}
                     className="cursor-pointer transition-colors hover:bg-slate-50"
                   >
                     <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
@@ -176,7 +237,7 @@ export default function RequestsList() {
                             {
                               label: 'View request',
                               icon: Eye,
-                              onClick: () => navigate(`/msp/requests/${row.name}`),
+                              onClick: () => navigate(openPath(row)),
                             },
                           ]}
                         />

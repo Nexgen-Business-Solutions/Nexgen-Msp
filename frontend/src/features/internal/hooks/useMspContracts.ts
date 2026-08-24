@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as internal from '@/lib/api/internal';
+import { contractKeys } from './useContracts';
 
 export const mspContractKeys = {
   all: ['internal', 'mspContracts'] as const,
@@ -39,6 +40,8 @@ export const useSaveMspContract = () => {
     onSuccess: (detail) => {
       queryClient.setQueryData(mspContractKeys.detail(detail.name), detail);
       queryClient.invalidateQueries({ queryKey: mspContractKeys.all });
+      // the contract now decides what is offered and priced, so its page must follow
+      queryClient.invalidateQueries({ queryKey: contractKeys.all });
     },
   });
 };
@@ -52,6 +55,8 @@ export const useSetMspContractStatus = () => {
     onSuccess: (detail) => {
       queryClient.setQueryData(mspContractKeys.detail(detail.name), detail);
       queryClient.invalidateQueries({ queryKey: mspContractKeys.all });
+      // the contract now decides what is offered and priced, so its page must follow
+      queryClient.invalidateQueries({ queryKey: contractKeys.all });
     },
   });
 };

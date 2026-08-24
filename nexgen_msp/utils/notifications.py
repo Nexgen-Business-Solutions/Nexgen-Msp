@@ -112,6 +112,33 @@ TEMPLATES = {
             text="The detail of every user and device behind these figures is available in your portal."
         ),
     },
+    "MSP Invoice Disputed": {
+        "subject": "Invoice {{ invoice }} disputed by {{ customer }} - {{ app_name }}",
+        "body": HEADING.format(text="An invoice has been disputed")
+        + "<p><strong>{{ customer }}</strong> disputes invoice {{ invoice }} "
+        "for {{ period }}.</p>"
+        + "<p><strong>Reason given</strong></p><p>{{ reason }}</p>"
+        + BUTTON.format(url="link", label="Review the billing run"),
+    },
+    "MSP Dispute Settled": {
+        "subject": "Your dispute on {{ invoice }} has been reviewed - {{ app_name }}",
+        "body": HEADING.format(text="Your dispute has been reviewed")
+        + "<p>Hello {{ full_name }},</p>"
+        + "<p>We have finished reviewing your dispute on invoice {{ invoice }} "
+        "for {{ period }}.</p>"
+        + "<p><strong>Outcome</strong></p><p>{{ outcome }}</p>"
+        + BUTTON.format(url="link", label="See the invoice"),
+    },
+    "MSP Dispute Acknowledged": {
+        "subject": "We received your dispute on {{ invoice }} - {{ app_name }}",
+        "body": HEADING.format(text="Your dispute has been recorded")
+        + "<p>Hello {{ full_name }},</p>"
+        + "<p>We have recorded your dispute on invoice {{ invoice }} for {{ period }} and our "
+        "team is reviewing it.</p>"
+        + "<p><strong>What you told us</strong></p><p>{{ reason }}</p>"
+        + BUTTON.format(url="link", label="See the invoice")
+        + MUTED.format(text="We will come back to you once the review is complete."),
+    },
 }
 
 

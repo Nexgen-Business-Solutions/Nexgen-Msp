@@ -24,6 +24,7 @@
   "new_user_email",
   "is_new_device",
   "new_device_label",
+  "request_action",
   "action",
   "needs_portal_access"
  ],
@@ -174,6 +175,12 @@
    "fieldname": "needs_portal_access",
    "fieldtype": "Check",
    "label": "Needs Portal Access"
+  },
+  {
+   "fieldname": "request_action",
+   "fieldtype": "Link",
+   "label": "Action",
+   "options": "MSP Request Action"
   }
  ],
  "grid_page_length": 50,

@@ -16,6 +16,7 @@ const RequestReferenceField: React.FC<Props> = ({ requests, value, onChange }) =
     <span className="mb-1.5 block text-xs font-semibold text-slate-700">Related request</span>
     <Select
       className="w-full"
+      searchable
       value={value}
       onChange={onChange}
       placeholder={requests.length ? 'None — acting on our own initiative' : 'No request for this customer'}

@@ -3,7 +3,6 @@ import frappe
 from nexgen_msp.utils.errors import ValidationError
 from nexgen_msp.api.internal.services.request_service import (
     ADMIN_ROLES,
-    CLOSED_STATUSES,
     OPEN_STATUSES,
     RequestService,
 )

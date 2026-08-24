@@ -1,4 +1,17 @@
-{#- issuer and bank details are fixed for now, to be driven from settings later -#}
+{%- set msp = frappe.get_doc("MSP Invoice Settings") -%}
+{%- macro lines(text) -%}
+  {%- for entry in (text or "").split("\n") -%}
+    {%- if entry.strip() %}<p>{{ entry.strip() }}</p>{% endif -%}
+  {%- endfor -%}
+{%- endmacro -%}
+{%- set gross_total = doc.items | map(attribute="amount") | sum -%}
+{%- set list_total = [] -%}
+{%- for item in doc.items -%}
+  {%- if list_total.append((item.price_list_rate or item.rate) * item.qty) -%}{%- endif -%}
+{%- endfor -%}
+{%- set subtotal = list_total | sum -%}
+{%- set discount_amount = subtotal - doc.net_total -%}
+{%- set show_centre = msp.show_cost_center_on_invoice and doc.cost_center -%}
 {%- macro money(value) -%}
   {%- set formatted = frappe.format_value(value | abs, {"fieldtype": "Currency"}, doc) -%}
   {%- if value < 0 -%}({{ formatted }}){%- else -%}{{ formatted }}{%- endif -%}
@@ -8,29 +21,27 @@
   <table class="head">
     <tr>
       <td class="issuer">
-        <p class="brand">Nexgen Business Solutions</p>
+        <img width="200" src="/assets/nexgen_msp/images/nexgen-logo.png" alt="{{ msp.issuer_name }}" />
       </td>
-      <td class="mark">
-        <img src="/assets/nexgen_msp/images/nexgen-logo.png" alt="Nexgen Business Solutions" />
-      </td>
+      
       <td class="title">INVOICE</td>
     </tr>
     <tr>
       <td class="address" colspan="3">
-        <p>Office 115 - 1800 Boulevard Le Corbusier</p>
-        <p>Laval, H7S 2K1</p>
-        <p>Phone: +1 438 542 5757</p>
-        <p class="site">www.nxgensolutions.com</p>
+        {{ lines(msp.issuer_address) }}
+        {%- if msp.issuer_phone %}<p>Phone: {{ msp.issuer_phone }}</p>{% endif -%}
+        {%- if msp.issuer_website %}<p class="site">{{ msp.issuer_website }}</p>{% endif -%}
       </td>
     </tr>
   </table>
 
-  <table class="parties">
+  <table class="parties{% if show_centre %} with-centre{% endif %}">
     <tr>
       <th class="band">BILL TO</th>
       <td class="gap"></td>
       <th class="band center">INVOICE #</th>
       <th class="band center">DATE</th>
+      {%- if show_centre %}<th class="band center">COST CENTER</th>{% endif -%}
     </tr>
     <tr>
       <td class="billto">
@@ -40,6 +51,7 @@
       <td class="gap"></td>
       <td class="value">{{ doc.name }}</td>
       <td class="value">{{ frappe.utils.formatdate(doc.posting_date, "dd/MM/yyyy") }}</td>
+      {%- if show_centre %}<td class="value">{{ doc.cost_center }}</td>{% endif -%}
     </tr>
   </table>
 
@@ -47,6 +59,7 @@
     <thead>
       <tr>
         <th class="band desc">DESCRIPTION</th>
+        <th class="band center billed">BILLED</th>
         <th class="band center qty">QTY</th>
         <th class="band center price">UNIT PRICE</th>
         <th class="band center amount">AMOUNT</th>
@@ -55,53 +68,69 @@
     <tbody>
       {%- for item in doc.items %}
       <tr>
-        <td>{{ item.item_code }} - {{ item.description or item.item_name }}</td>
+        <td>{{ item.item_name }}{% if item.description %} — {{ item.description }}{% endif %}</td>
+        <td class="right">{{ item.msp_billed_count or "—" }}</td>
         <td class="right">{{ item.qty }}</td>
-        <td class="right">{{ money(item.rate) }}</td>
-        <td class="right">{{ money(item.amount) }}</td>
+        <td class="right">{{ money(item.price_list_rate or item.rate) }}</td>
+        <td class="right">{{ money((item.price_list_rate or item.rate) * item.qty) }}</td>
       </tr>
       {%- endfor %}
     </tbody>
   </table>
 
-  <div class="bank">
-    <p class="bank-title">Bank details for wire transfer (USD)</p>
-    <table class="grid">
-      <tr>
-        <th>Beneficiary</th>
-        <th>Beneficiary Bank</th>
-        <th>Intermediary Bank (for USD wires)</th>
-      </tr>
-      <tr>
-        <td>
-          <p>Nexgen Business Solutions Inc.</p>
-          <p>115 - 1800 Boulevard Le Corbusier</p>
-          <p>Laval, QC H7S 2K1</p>
-          <p>Canada</p>
-        </td>
-        <td>
-          <p>RBC Royal Bank of Canada</p>
-          <p>Bank / Institution Number: 006</p>
-          <p>Branch / Transit Number: 05649</p>
-          <p>Account Number: 6549793</p>
-          <p>Currency: USD</p>
-          <p>SWIFT/BIC: ROYCCAT2</p>
-        </td>
-        <td>
-          <p>JPMorgan Chase Bank, New York</p>
-          <p>SWIFT/BIC: CHASUS33</p>
-          <p>ABA: 021000021</p>
-        </td>
-      </tr>
-    </table>
-  </div>
+  {#- two blocks side by side: who is paid and through whom, kept visually apart -#}
+  <table class="bank">
+    <tr>
+      <td class="bank-main">
+        <table class="grid">
+          <tr>
+            <th class="bank-title" colspan="2">
+              Bank details for wire transfer{% if msp.bank_currency %} ({{ msp.bank_currency }}){% endif %}
+            </th>
+          </tr>
+          <tr>
+            <th>Beneficiary</th>
+            <th>Beneficiary Bank</th>
+          </tr>
+          <tr>
+            <td>{{ lines(msp.beneficiary) }}</td>
+            <td>{{ lines(msp.beneficiary_bank) }}</td>
+          </tr>
+        </table>
+      </td>
+      <td class="bank-gap"></td>
+      <td class="bank-side">
+        <table class="grid">
+          {#- keeps this header level with the two on the left, under their title -#}
+          <tr class="bank-spacer">
+            <td>&nbsp;</td>
+          </tr>
+          <tr>
+            <th>
+              Intermediary Bank{% if msp.bank_currency %} (for {{ msp.bank_currency }} wires){% endif %}
+            </th>
+          </tr>
+          <tr>
+            <td>{{ lines(msp.intermediary_bank) }}</td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
 
   <table class="totals">
     <tr>
-      <td class="thanks">Thank you for your business!</td>
+      <td class="thanks">{{ msp.footer_note }}</td>
       <td class="label">SUBTOTAL</td>
-      <td class="figure">{{ money(doc.net_total) }}</td>
+      <td class="figure">{{ money(subtotal) }}</td>
     </tr>
+    {%- if discount_amount %}
+    <tr>
+      <td></td>
+      <td class="label">DISCOUNT</td>
+      <td class="figure">({{ frappe.format_value(discount_amount | abs, {"fieldtype": "Currency"}, doc) }})</td>
+    </tr>
+    {%- endif %}
     {%- for tax in doc.taxes %}
     <tr>
       <td></td>
@@ -134,7 +163,7 @@
   .msp-invoice .band,
   .msp-invoice table th.band,
   .msp-invoice table td.band {
-    background: #144572; color: #ffffff; font-weight: bold;
+    background: #2f82f8; color: #ffffff; font-weight: bold;
     font-size: 8.5pt; padding: 5px 7px; text-align: left;
   }
   .msp-invoice .band.center { text-align: center; }
@@ -152,38 +181,50 @@
     font-size: 21pt; font-weight: bold; color: #0e2e4b; letter-spacing: 1px;
   }
   .head .address { padding-top: 6px; padding-bottom: 14px; font-size: 8.5pt; font-weight: bold; }
-  .head .site { color: #1155cc; text-decoration: underline; font-weight: normal; }
+  .head .site { color: #1155cc; text-decoration: none; font-weight: normal; }
 
   .parties { margin-bottom: 18px; }
   .parties .gap { width: 4%; }
   .parties .band { width: 50%; }
   .parties .band.center { width: 23%; }
+  /* the cost center adds a fourth column, so the row shares its width differently */
+  .parties.with-centre .band { width: 40%; }
+  .parties.with-centre .band.center { width: 18.66%; }
   .parties td { padding: 5px 7px; vertical-align: top; font-size: 8.5pt; line-height: 1.45; }
-  .parties .billto { border: 1px solid #144572; border-top: none; height: 52px; }
+  .parties .billto { border: 1px solid #2f82f8; border-top: none; height: 52px; }
   .parties .value { text-align: center; font-weight: bold; white-space: nowrap; }
 
   .msp-invoice .grid td, .msp-invoice .grid th { border: 1px solid #b9c2cc; }
   .items td { padding: 5px 7px; font-size: 8.5pt; }
+  .items .billed { width: 9%; }
   .items .qty { width: 9%; }
   .items .price { width: 15%; }
   .items .amount { width: 16%; }
   .items .right { text-align: right; white-space: nowrap; }
 
   .bank { margin-top: 20px; }
-  .bank .bank-title {
-    text-align: center; font-weight: bold; font-size: 8.5pt;
-    border: 1px solid #b9c2cc; padding: 4px; width: 54%; margin-bottom: 0;
+  /* the print stylesheet pads every cell with !important, which would indent this block */
+  .msp-invoice .bank > tbody > tr > td {
+    vertical-align: top; padding: 0 !important; border: none;
   }
+  .bank .bank-main { width: 64%; }
+  .bank .bank-gap { width: 3%; }
+  .bank .bank-side { width: 33%; }
+  .bank .bank-title { text-align: center; }
+  .msp-invoice .bank .bank-spacer td { border: none; padding: 4px 7px; font-size: 8.5pt; }
   .bank th {
     text-align: left; font-weight: bold; font-size: 8.5pt; padding: 4px 7px;
-    width: 33.33%; color: #1f2933;
+    color: #1f2933;
   }
-  .bank td { vertical-align: top; font-size: 8.5pt; line-height: 1.5; padding: 5px 7px; }
+  .bank .bank-main th { width: 50%; }
+  .bank .grid td {
+    vertical-align: top; font-size: 8.5pt; line-height: 1.5; padding: 5px 7px;
+  }
 
   .totals { margin-top: 24px; }
   .totals td { padding: 5px 7px; border: none; }
   .totals .thanks {
-    width: 54%; font-style: italic; font-weight: bold; color: #0e2e4b; font-size: 9pt;
+    width: 54%; font-style: italic; font-weight: bold; color: #184570; font-size: 9pt;
   }
   .totals .label { text-align: center; font-size: 8.5pt; }
   .totals .figure { text-align: right; font-size: 8.5pt; white-space: nowrap; }

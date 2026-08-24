@@ -281,6 +281,141 @@ class DeviceService:
         }
 
     @staticmethod
+    def get_device(device=None):
+        """Everything known about one machine: what runs on it, and what can be done to it."""
+        RequestService._guard_internal()
+
+        if not device:
+            raise ValidationError("device is required.", "VALIDATION_ERROR")
+
+        doc = frappe.db.get_value(
+            "Managed Device",
+            device,
+            [
+                "name",
+                "hostname",
+                "device_type",
+                "status",
+                "customer",
+                "assigned_client_user",
+                "assigned_date",
+                "retired_date",
+                "serial_number",
+                "asset_tag",
+                "manufacturer",
+                "model",
+                "operating_system",
+                "remarks",
+                "last_billed_on",
+                "covered_until",
+            ],
+            as_dict=True,
+        )
+
+        if not doc:
+            raise NotFoundError(f"Managed Device {device} not found.", "NOT_FOUND")
+
+        doc["user_name"] = (
+            frappe.db.get_value("Client User", doc.assigned_client_user, "full_name")
+            if doc.assigned_client_user
+            else None
+        )
+
+        interfaces = frappe.get_all(
+            "Network Interface",
+            filters={"parent": device},
+            fields=["interface_type", "mac_address"],
+            order_by="idx asc",
+        )
+
+        services = frappe.db.sql(
+            """
+            select
+                sa.name, sa.service_item,
+                coalesce(item.item_name, sa.service_item) as service_name,
+                sa.assignment_scope, sa.operational_status, sa.billing_status,
+                sa.effective_start_date, sa.effective_end_date,
+                sa.internal_notes, sa.source_request,
+                (
+                    select max(br.billing_period_end)
+                    from `tabBilling Run Line` brl
+                    join `tabBilling Run` br on br.name = brl.parent
+                    where brl.service_assignment = sa.name and br.docstatus = 1
+                ) as last_billed_on
+            from `tabService Assignment` sa
+            left join `tabItem` item on item.name = sa.service_item
+            where sa.managed_device = %(device)s
+            order by field(sa.operational_status, 'Ended', 'Cancelled') asc,
+                     sa.effective_start_date desc
+            """,
+            {"device": device},
+            as_dict=True,
+        )
+
+        requests = frappe.db.sql(
+            """
+            select distinct sr.name, sr.status, sr.priority, sr.request_type, sr.creation
+            from `tabService Request` sr
+            join `tabService Request Line` srl on srl.parent = sr.name
+            where srl.managed_device = %(device)s
+            order by sr.creation desc
+            limit 10
+            """,
+            {"device": device},
+            as_dict=True,
+        )
+
+        open_items = {
+            row.service_item
+            for row in services
+            if row.operational_status in OPEN_ASSIGNMENT_STATUSES
+        }
+
+        catalogue = [
+            {
+                "name": item.name,
+                "item_name": item.item_name,
+                "scope": RequestService._service_scope(item.name),
+                "already_open": item.name in open_items,
+            }
+            for item in frappe.get_all(
+                "Item",
+                filters={"disabled": 0, "is_stock_item": 0},
+                fields=["name", "item_name"],
+                order_by="item_name asc",
+            )
+        ]
+
+        return {
+            "device": doc,
+            "interfaces": interfaces,
+            "services": services,
+            "requests": requests,
+            "catalogue": [item for item in catalogue if item["scope"] in ("Device", "Both")],
+            "customer_requests": frappe.db.sql(
+                """
+                select sr.name, sr.request_type, sr.status, sr.priority, sr.source,
+                       coalesce(requester.full_name, sr.requester) as requester,
+                       sr.creation, sr.customer
+                from `tabService Request` sr
+                left join `tabUser` requester on requester.name = sr.requester
+                where sr.customer = %(customer)s
+                order by field(sr.status, 'Completed', 'Rejected', 'Cancelled') asc,
+                         sr.creation desc
+                limit 30
+                """,
+                {"customer": doc.customer},
+                as_dict=True,
+            ),
+            "device_types": frappe.get_meta("Managed Device")
+            .get_field("device_type")
+            .options.split("\n"),
+            "interface_types": frappe.get_meta("Network Interface")
+            .get_field("interface_type")
+            .options.split("\n"),
+        }
+
+    @staticmethod
     def assign_device_service(
         device=None, service_item=None, effective_date=None, notes=None, source_request=None
     ):

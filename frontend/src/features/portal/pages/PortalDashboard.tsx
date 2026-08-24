@@ -1,6 +1,19 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, FilePlus2, Inbox, Layers, ShieldAlert, UserMinus } from 'lucide-react';
+import {
+  Eye,
+  FilePlus2,
+  Inbox,
+  Laptop,
+  Layers,
+  PlugZap,
+  PowerOff,
+  Receipt,
+  ReceiptText,
+  ShieldAlert,
+  UserMinus,
+  UserPlus,
+} from 'lucide-react';
 import KpiCard from '@/shared/components/KpiCard';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import KpiDetailPanel from '@/shared/components/KpiDetailPanel';
@@ -10,9 +23,8 @@ import {
   useKpiRows,
   usePortalSummary,
   useServiceRequests,
-  useUsersWithServices,
+  useRecentActivity,
 } from '../hooks/usePortal';
-import { usePortalFilters } from '../store/usePortalFilters';
 
 const KPI_DESCRIPTIONS: Record<KpiName, string> = {
   active_services: 'Every service currently running for your company.',
@@ -22,7 +34,15 @@ const KPI_DESCRIPTIONS: Record<KpiName, string> = {
 };
 
 const REQUEST_COLUMNS = ['Request', 'Type', 'Priority', 'Status', 'Created', ''];
-const USER_COLUMNS = ['User', 'Department', 'Device', 'Services', 'Status', ''];
+const ACTIVITY = {
+  invoice: { icon: Receipt, surround: 'bg-emerald-50', color: 'text-emerald-600' },
+  credit_note: { icon: ReceiptText, surround: 'bg-rose-50', color: 'text-rose-600' },
+  request: { icon: Inbox, surround: 'bg-blue-50', color: 'text-blue-600' },
+  user: { icon: UserPlus, surround: 'bg-indigo-50', color: 'text-indigo-600' },
+  device: { icon: Laptop, surround: 'bg-slate-100', color: 'text-slate-600' },
+  service_started: { icon: PlugZap, surround: 'bg-emerald-50', color: 'text-emerald-600' },
+  service_ended: { icon: PowerOff, surround: 'bg-amber-50', color: 'text-amber-600' },
+} as const;
 
 const statusBadge: Record<string, string> = {
   Draft: 'bg-slate-100 text-slate-600',
@@ -45,10 +65,8 @@ export default function PortalDashboard() {
   const navigate = useNavigate();
   const summary = usePortalSummary();
   const requests = useServiceRequests(5);
-  const nextPage = usePortalFilters((state) => state.nextPage);
-  const previousPage = usePortalFilters((state) => state.previousPage);
-  const setPageLength = usePortalFilters((state) => state.setPageLength);
-  const users = useUsersWithServices();
+  const activity = useRecentActivity();
+  const events = activity.data?.rows ?? [];
 
   const [kpi, setKpi] = useState<KpiName | null>(null);
   const [kpiStart, setKpiStart] = useState(0);
@@ -61,7 +79,6 @@ export default function PortalDashboard() {
   };
 
   const requestRows = requests.data?.rows ?? [];
-  const userRows = users.data?.rows ?? [];
 
   return (
     <div className="space-y-6 px-6 pb-6 pt-4">
@@ -161,68 +178,57 @@ export default function PortalDashboard() {
         ))}
       </DataTable>
 
-      <DataTable
-        title="Users and services"
-        columns={USER_COLUMNS}
-        rowCount={userRows.length}
-        isLoading={users.isLoading}
-        error={users.error}
-        emptyLabel="No users yet."
-        showToolbar={false}
-        start={users.filters.start}
-        pageLength={users.filters.pageLength}
-        total={users.data?.total ?? 0}
-        onPrevious={() => previousPage('clientUsers')}
-        onNext={() => nextPage('clientUsers')}
-        onPageLengthChange={(size) => setPageLength('clientUsers', size)}
-      >
-        {userRows.map((row) => (
-          <tr
-            key={row.name}
-            onClick={() => navigate(`/msp/users/${row.name}`)}
-            className="cursor-pointer transition-colors hover:bg-slate-50"
-          >
-            <td className="whitespace-nowrap px-4 py-3">
-              <p className="text-sm font-semibold text-slate-900">{row.full_name}</p>
-              {row.email && <p className="text-xs text-slate-400">{row.email}</p>}
-            </td>
-            <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-700">
-              {row.department || 'N/A'}
-            </td>
-            <td className="whitespace-nowrap px-4 py-3">
-              <p className="text-sm text-slate-700">{row.device_type || 'N/A'}</p>
-              {row.hostname && <p className="text-xs text-slate-400">{row.hostname}</p>}
-            </td>
-            <td className="whitespace-nowrap px-4 py-3">
-              <span className="inline-flex min-w-[2rem] justify-center rounded-lg bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 tabular-nums">
-                {row.service_count}
-              </span>
-            </td>
-            <td className="px-4 py-3">
-              <span
-                className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-                  statusBadge[row.lifecycle_status] || 'bg-slate-100 text-slate-600'
-                }`}
-              >
-                {String(row.lifecycle_status).toUpperCase()}
-              </span>
-            </td>
-            <td className="whitespace-nowrap px-4 py-3">
-              <div className="flex justify-end">
-                <RowActionsMenu
-                  actions={[
-                    {
-                      label: 'View profile',
-                      icon: Eye,
-                      onClick: () => navigate(`/msp/users/${row.name}`),
-                    },
-                  ]}
-                />
-              </div>
-            </td>
-          </tr>
-        ))}
-      </DataTable>
+      <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
+        <div className="px-5 py-4">
+          <h2 className="text-base font-semibold text-slate-900">Recent activity</h2>
+          <p className="mt-0.5 text-sm text-slate-400">
+            What changed lately across your services, people and invoices.
+          </p>
+        </div>
+
+        <div className="px-5 pb-5">
+          {activity.isLoading && <p className="py-8 text-center text-sm text-slate-500">Loading…</p>}
+
+          {activity.error instanceof Error && (
+            <p className="py-8 text-center text-sm text-red-600">{activity.error.message}</p>
+          )}
+
+          {!activity.isLoading && !activity.error && events.length === 0 && (
+            <p className="py-8 text-center text-sm text-slate-500">Nothing has happened yet.</p>
+          )}
+
+          <ol className="space-y-1">
+            {events.map((event, index) => {
+              const tone = ACTIVITY[event.kind] ?? ACTIVITY.request;
+              const Icon = tone.icon;
+
+              return (
+                <li key={`${event.kind}-${event.on}-${index}`}>
+                  <button
+                    type="button"
+                    disabled={!event.link}
+                    onClick={() => event.link && navigate(`/msp${event.link}`)}
+                    className="flex w-full items-start gap-3 rounded-lg px-2 py-2.5 text-left transition-colors enabled:hover:bg-slate-50 disabled:cursor-default"
+                  >
+                    <span
+                      className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${tone.surround}`}
+                    >
+                      <Icon size={15} className={tone.color} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-slate-800">
+                        {event.title}
+                      </span>
+                      <span className="block truncate text-xs text-slate-500">{event.detail}</span>
+                    </span>
+                    <span className="shrink-0 text-xs text-slate-400">{fmtDate(event.on)}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+      </div>
 
       <KpiDetailPanel
         open={Boolean(kpi)}

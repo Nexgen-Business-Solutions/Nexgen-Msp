@@ -7,14 +7,11 @@ export const billingKeys = {
   detail: (name: string) => [...billingKeys.all, 'detail', name] as const,
 };
 
-export const useBillingRuns = (customer?: string, status?: string) =>
+export const useBillingRuns = (query: internal.BillingRunQuery = {}) =>
   useQuery({
-    queryKey: billingKeys.list({ customer, status }),
-    queryFn: ({ signal }) =>
-      internal.listBillingRuns(
-        { customer: customer || undefined, status: status || undefined, page_length: 100 },
-        signal
-      ),
+    queryKey: billingKeys.list(query as Record<string, unknown>),
+    queryFn: ({ signal }) => internal.listBillingRuns({ ...query, page_length: 100 }, signal),
+    keepPreviousData: true,
     staleTime: 30 * 1000,
   });
 
@@ -41,8 +38,11 @@ export const useRunAction = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (variables: { action: string; name: string }) =>
-      internal.runBillingAction(variables.action, variables.name),
+    mutationFn: (variables: {
+      action: string;
+      name: string;
+      extra?: Record<string, unknown>;
+    }) => internal.runBillingAction(variables.action, variables.name, variables.extra),
     onSuccess: (detail) => {
       queryClient.setQueryData(billingKeys.detail(detail.name), detail);
       queryClient.invalidateQueries({ queryKey: [...billingKeys.all, 'list'] });
@@ -86,4 +86,53 @@ export const useBillingDue = (horizonDays = 30) =>
     queryKey: [...billingKeys.all, 'due', horizonDays] as const,
     queryFn: ({ signal }) => internal.getBillingDue(horizonDays, signal),
     staleTime: 60 * 1000,
+  });
+
+export const useSetLineDiscount = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: internal.setBillingLineDiscount,
+    onSuccess: (detail) => {
+      queryClient.setQueryData(billingKeys.detail(detail.name), detail);
+      queryClient.invalidateQueries({ queryKey: [...billingKeys.all, 'list'] });
+    },
+  });
+};
+
+export const useInvoiceDimensions = (enabled = true) =>
+  useQuery({
+    queryKey: [...billingKeys.all, 'dimensions'] as const,
+    queryFn: ({ signal }) => internal.getInvoiceDimensions(signal),
+    staleTime: 5 * 60 * 1000,
+    enabled,
+  });
+
+export const useCreateCostCenter = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: internal.createCostCenter,
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: [...billingKeys.all, 'dimensions'] }),
+  });
+};
+
+export const useBillingPeriodStatus = (
+  contract: string,
+  periodStart: string,
+  periodEnd: string,
+  enabled = true
+) =>
+  useQuery({
+    queryKey: [...billingKeys.all, 'period', contract, periodStart, periodEnd] as const,
+    queryFn: ({ signal }) =>
+      internal.getBillingPeriodStatus(
+        { contract, period_start: periodStart, period_end: periodEnd },
+        signal
+      ),
+    enabled: enabled && Boolean(contract && periodStart && periodEnd),
+    // an already-covered period is a warning, not a blocker: a failure stays silent
+    retry: false,
+    staleTime: 30 * 1000,
   });

@@ -18,6 +18,9 @@ SCOPE_DOCTYPE = {
 }
 
 
+DISPUTE_TYPE = "Billing Dispute"
+
+
 class ServiceRequest(Document):
 	def validate(self):
 		self.validate_has_lines()
@@ -26,6 +29,9 @@ class ServiceRequest(Document):
 		self.sync_status_with_lines()
 
 	def sync_request_type(self):
+		if self.request_type == DISPUTE_TYPE:
+			return
+
 		actions = {row.action for row in self.lines if row.action}
 
 		if not actions:
@@ -34,6 +40,12 @@ class ServiceRequest(Document):
 		self.request_type = actions.pop() if len(actions) == 1 else "Mixed"
 
 	def validate_has_lines(self):
+		# a dispute is about an invoice, not about services to grant or remove
+		if self.request_type == DISPUTE_TYPE:
+			if not self.billing_run:
+				frappe.throw(_("A billing dispute must point at the run it disputes."))
+			return
+
 		if not self.lines:
 			frappe.throw(_("A service request must contain at least one line."))
 
@@ -116,6 +128,9 @@ class ServiceRequest(Document):
 			)
 
 	def sync_status_with_lines(self):
+		if self.request_type == DISPUTE_TYPE:
+			return
+
 		if self.status not in ("Approved", "Rejected"):
 			return
 

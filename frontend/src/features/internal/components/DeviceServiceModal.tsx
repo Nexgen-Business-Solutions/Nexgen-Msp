@@ -106,6 +106,7 @@ const DeviceServiceModal: React.FC<Props> = ({ device, onClose }) => {
             <div>
               <FieldLabel required>Service</FieldLabel>
               <Select
+                searchable
                 className="w-full"
                 value={service}
                 onChange={setService}

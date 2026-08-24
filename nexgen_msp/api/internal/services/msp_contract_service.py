@@ -39,18 +39,26 @@ class MSPContractService:
             field = meta.get_field(fieldname)
             return [value for value in (field.options or "").split("\n") if value]
 
+        company = frappe.defaults.get_global_default("company")
+        price_lists = frappe.get_all(
+            "Price List", filters={"selling": 1, "enabled": 1}, pluck="name", order_by="name"
+        )
+
         return {
             "statuses": select("status"),
             "billing_frequencies": select("billing_frequency"),
             "billing_timings": select("billing_timing"),
             "proration_methods": select("proration_method"),
             "invoice_groupings": select("invoice_grouping"),
-            "price_lists": frappe.get_all(
-                "Price List", filters={"selling": 1, "enabled": 1}, pluck="name", order_by="name"
+            "price_lists": price_lists,
+            "default_price_list": (
+                frappe.db.get_single_value("Selling Settings", "selling_price_list")
+                or (price_lists[0] if len(price_lists) == 1 else None)
             ),
             "currencies": frappe.get_all(
                 "Currency", filters={"enabled": 1}, pluck="name", order_by="name"
             ),
+            "default_currency": frappe.db.get_value("Company", company, "default_currency"),
             "services": frappe.get_all(
                 "Item",
                 filters={"disabled": 0, "is_stock_item": 0},
@@ -77,6 +85,10 @@ class MSPContractService:
 
         if frappe.utils.cint(billable_only):
             conditions.append("c.status = 'Active'")
+            conditions.append(
+                "ifnull((select cust.msp_free_of_charge from `tabCustomer` cust"
+                " where cust.name = c.customer), 0) = 0"
+            )
 
         where = (" where " + " and ".join(conditions)) if conditions else ""
 
@@ -166,6 +178,9 @@ class MSPContractService:
     @staticmethod
     def _blockers(doc, services):
         """What still stands between this contract and a billing run."""
+        if frappe.db.get_value("Customer", doc.customer, "msp_free_of_charge"):
+            return []
+
         blockers = []
 
         if doc.status != "Active":

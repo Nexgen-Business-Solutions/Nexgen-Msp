@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Ban, CircleCheck, Package, Pencil, Plus, Users } from 'lucide-react';
 import KpiCard from '@/shared/components/KpiCard';
 import RowActionsMenu, { type RowAction } from '@/shared/components/RowActionsMenu';
@@ -16,6 +17,7 @@ const SCOPE_LABEL: Record<string, string> = {
 };
 
 export default function ServicesList() {
+  const navigate = useNavigate();
   const { data, isLoading, error } = useServiceCatalogue();
   const save = useSaveService();
 
@@ -136,7 +138,13 @@ export default function ServicesList() {
                 rows.map((row) => (
                   <tr key={row.name} className="transition-colors hover:bg-slate-50">
                     <td className="px-4 py-3">
-                      <p className="text-sm font-semibold text-slate-900">{row.item_name}</p>
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/msp/services/${row.name}`)}
+                        className="text-sm font-semibold text-slate-900 transition-colors hover:text-blue-700"
+                      >
+                        {row.item_name}
+                      </button>
                       <p className="text-xs text-slate-400">{row.name}</p>
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">

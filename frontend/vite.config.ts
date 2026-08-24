@@ -7,7 +7,9 @@ import proxyOptions from './proxyOptions';
 const workspaceRoot = path.resolve(__dirname, '../../..');
 
 // https://vitejs.dev/config/
-export default defineConfig({
+// the build is served from the app's asset folder, the dev server from the root
+export default defineConfig(({ command }) => ({
+	base: command === 'build' ? '/assets/nexgen_msp/frontend/' : '/',
 	plugins: [react(), tailwindcss()],
 	server: {
 		port: 8085,
@@ -27,4 +29,4 @@ export default defineConfig({
 		emptyOutDir: true,
 		target: 'es2015',
 	},
-});
+}));

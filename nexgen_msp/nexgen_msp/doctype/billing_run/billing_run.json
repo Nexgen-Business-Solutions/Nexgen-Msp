@@ -18,6 +18,7 @@
   "section_lines",
   "lines",
   "section_totals",
+  "discount_percent",
   "currency",
   "exception_count",
   "column_break_totals",
@@ -29,13 +30,19 @@
   "approved_by",
   "approved_at",
   "section_output",
+  "sales_order",
   "sales_invoice",
   "generation_version",
   "column_break_output",
   "adjustment_of",
   "credit_note_of",
   "credit_note_reason",
-  "amended_from"
+  "amended_from",
+  "disputed",
+  "disputed_on",
+  "disputed_by",
+  "dispute_request",
+  "dispute_reason"
  ],
  "fields": [
   {
@@ -231,6 +238,50 @@
    "fieldname": "credit_note_reason",
    "fieldtype": "Small Text",
    "label": "Credit Note Reason"
+  },
+  {
+   "fieldname": "sales_order",
+   "fieldtype": "Link",
+   "label": "Sales Order",
+   "options": "Sales Order",
+   "read_only": 1
+  },
+  {
+   "fieldname": "disputed",
+   "fieldtype": "Check",
+   "label": "Disputed by the customer",
+   "read_only": 1
+  },
+  {
+   "fieldname": "disputed_on",
+   "fieldtype": "Datetime",
+   "label": "Disputed On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "disputed_by",
+   "fieldtype": "Link",
+   "label": "Disputed By",
+   "read_only": 1,
+   "options": "User"
+  },
+  {
+   "fieldname": "dispute_reason",
+   "fieldtype": "Small Text",
+   "label": "Dispute Reason",
+   "read_only": 1
+  },
+  {
+   "fieldname": "dispute_request",
+   "fieldtype": "Link",
+   "label": "Dispute Request",
+   "options": "Service Request",
+   "read_only": 1
+  },
+  {
+   "fieldname": "discount_percent",
+   "fieldtype": "Percent",
+   "label": "Run Discount %"
   }
  ],
  "grid_page_length": 50,

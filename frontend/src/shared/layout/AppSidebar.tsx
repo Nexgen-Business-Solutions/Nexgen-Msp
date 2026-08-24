@@ -2,13 +2,13 @@ import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { X } from 'lucide-react';
 import { useSession } from '@/shared/hooks/useSession';
-import { getNavForRoles } from './navigation';
+import { getSectionsForRoles } from './navigation';
 
 const SidebarNav: React.FC<{ onNavigate?: () => void }> = ({ onNavigate }) => {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { data: session } = useSession();
-  const navItems = getNavForRoles(session?.roles);
+  const sections = getSectionsForRoles(session?.roles);
 
   const go = (path: string) => {
     navigate(path);
@@ -19,27 +19,34 @@ const SidebarNav: React.FC<{ onNavigate?: () => void }> = ({ onNavigate }) => {
     end ? pathname === path : pathname === path || pathname.startsWith(`${path}/`);
 
   return (
-    <nav className="flex flex-1 flex-col overflow-y-auto px-3 py-4">
-      <div className="space-y-1">
-        {navItems.map(({ id, label, icon: Icon, path, end }) => {
-          const active = isActive(path, end);
-          return (
-            <button
-              key={id}
-              type="button"
-              onClick={() => go(path)}
-              className={`flex h-11 w-full items-center gap-3 rounded-xl px-4 text-sm transition-all duration-200 ease-out ${
-                active
-                  ? 'bg-linear-to-r from-blue-600 to-blue-700 font-semibold text-white shadow-md shadow-blue-600/20'
-                  : 'font-medium text-slate-700 hover:bg-slate-100'
-              }`}
-            >
-              <Icon size={18} className={active ? 'text-white' : 'text-slate-500'} />
-              <span className="truncate text-left">{label}</span>
-            </button>
-          );
-        })}
-      </div>
+    <nav className="flex flex-1 flex-col gap-5 overflow-y-auto px-3 py-4">
+      {sections.map((section) => (
+        <div key={section.id} className="space-y-1">
+          {section.label && (
+            <p className="px-4 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              {section.label}
+            </p>
+          )}
+          {section.items.map(({ id, label, icon: Icon, path, end }) => {
+            const active = isActive(path, end);
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => go(path)}
+                className={`flex h-11 w-full items-center gap-3 rounded-xl px-4 text-sm transition-all duration-200 ease-out ${
+                  active
+                    ? 'bg-linear-to-r from-blue-600 to-blue-700 font-semibold text-white shadow-md shadow-blue-600/20'
+                    : 'font-medium text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <Icon size={18} className={active ? 'text-white' : 'text-slate-500'} />
+                <span className="truncate text-left">{label}</span>
+              </button>
+            );
+          })}
+        </div>
+      ))}
     </nav>
   );
 };

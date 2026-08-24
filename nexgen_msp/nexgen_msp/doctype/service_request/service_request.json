@@ -26,7 +26,8 @@
   "column_break_approval",
   "technical_approved_by",
   "technical_approved_at",
-  "rejection_reason"
+  "rejection_reason",
+  "billing_run"
  ],
  "fields": [
   {
@@ -44,7 +45,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Request Type",
-   "options": "Add\nChange\nSuspend\nResume\nRemove\nMixed",
+   "options": "Add\nChange\nSuspend\nResume\nRemove\nMixed\nBilling Dispute",
    "read_only": 1
   },
   {
@@ -158,8 +159,14 @@
    "fieldname": "lines",
    "fieldtype": "Table",
    "label": "Lines",
-   "options": "Service Request Line",
-   "reqd": 1
+   "options": "Service Request Line"
+  },
+  {
+   "fieldname": "billing_run",
+   "fieldtype": "Link",
+   "label": "Disputed Billing Run",
+   "options": "Billing Run",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,

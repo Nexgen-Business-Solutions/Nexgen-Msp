@@ -30,14 +30,16 @@ def _generator():
     return None
 
 
-def render(invoice):
-    """The printed invoice as PDF bytes, or a message naming what the server is missing."""
-    # the caller has already established the invoice belongs to whoever is asking, so the
-    # document is handed over ready-made rather than re-read under the portal's permissions
-    doc = frappe.get_doc("Sales Invoice", invoice)
+def render(invoice, elevated=False):
+    """The printed invoice as PDF bytes, or a message naming what the server is missing.
 
+    Frappe's print view demands the print permission on the Sales Invoice, which a portal
+    contact does not hold. `elevated` renders under an administrator for the length of the
+    call — the caller must already have established that the invoice belongs to whoever is
+    asking, because this bypasses the document's own check.
+    """
     kwargs = {
-        "doc": doc,
+        "doc": frappe.get_doc("Sales Invoice", invoice),
         "print_format": PRINT_FORMAT,
         "as_pdf": True,
         "no_letterhead": 1,
@@ -48,18 +50,26 @@ def render(invoice):
     if generator:
         kwargs["pdf_generator"] = generator
 
+    asking = frappe.session.user
+
     try:
+        if elevated:
+            frappe.set_user("Administrator")
+
         return frappe.get_print("Sales Invoice", invoice, **kwargs)
     except OSError as exception:
         raise ValidationError(MISSING_RENDERER, "VALIDATION_ERROR") from exception
+    finally:
+        if elevated:
+            frappe.set_user(asking)
 
 
-def respond(invoice):
+def respond(invoice, elevated=False):
     """Hand the PDF to the browser as a download.
 
     "download" makes Frappe read the mime type off the file name and send it as an
     attachment, so the file lands in the user's downloads whatever the browser.
     """
     frappe.local.response.filename = f"{invoice}.pdf"
-    frappe.local.response.filecontent = render(invoice)
+    frappe.local.response.filecontent = render(invoice, elevated=elevated)
     frappe.local.response.type = "download"

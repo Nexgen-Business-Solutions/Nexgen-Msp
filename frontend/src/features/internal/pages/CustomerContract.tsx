@@ -70,6 +70,18 @@ export default function CustomerContract() {
   const profileDetails = useCustomerDetails(customer);
   const [editingCustomer, setEditingCustomer] = useState(false);
 
+  const address = profileDetails.data?.address ?? null;
+
+  // an empty grid of "N/A" says nothing — only show what is actually recorded
+  const customerFacts = [
+    { label: 'Tax ID', value: profileDetails.data?.tax_id },
+    { label: 'Phone', value: address?.phone },
+    { label: 'Email', value: address?.email_id },
+    { label: 'Website', value: profileDetails.data?.website },
+  ].filter((fact): fact is { label: string; value: string } => Boolean(fact.value));
+
+  const hasCustomerDetails = Boolean(address) || customerFacts.length > 0;
+
   const agreements = useMspContracts({ customer });
   const setContractStatus = useSetMspContractStatus();
   const [ending, setEnding] = useState<string | null>(null);
@@ -101,7 +113,7 @@ export default function CustomerContract() {
     );
   }
 
-  const { profile, services, readiness } = detail.data;
+  const { profile, services, readiness, price_list: priceList } = detail.data;
   const rateRows = rates.data ?? [];
 
   const openRate = (service?: string, rate?: ContractRate) => {
@@ -128,69 +140,66 @@ export default function CustomerContract() {
               <h1 className="text-lg font-bold text-slate-900">
                 {profileDetails.data?.customer_name || customer}
               </h1>
+              {Boolean(profileDetails.data?.msp_free_of_charge) && (
+                <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
+                  FREE OF CHARGE
+                </span>
+              )}
               <button
                 type="button"
                 onClick={() => setEditingCustomer(true)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
               >
                 <Pencil size={13} />
                 Edit details
               </button>
             </div>
 
-            <div className="mt-3 grid grid-cols-1 gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
-              <div>
-                <p className="text-xs font-medium text-slate-400">Billing address</p>
-                {profileDetails.data?.address ? (
-                  <div className="mt-0.5 leading-relaxed text-slate-700">
-                    <p>{profileDetails.data.address.address_line1}</p>
-                    {profileDetails.data.address.address_line2 && (
-                      <p>{profileDetails.data.address.address_line2}</p>
-                    )}
-                    <p>
-                      {[
-                        profileDetails.data.address.pincode,
-                        profileDetails.data.address.city,
-                        profileDetails.data.address.state,
-                      ]
-                        .filter(Boolean)
-                        .join(' ')}
-                    </p>
-                    <p>{profileDetails.data.address.country}</p>
+            <p className="mt-1 text-sm text-slate-500">
+              {profileDetails.data?.counts.users ?? 0} users ·{' '}
+              {profileDetails.data?.counts.devices ?? 0} devices ·{' '}
+              {profileDetails.data?.counts.contracts ?? 0} contract
+              {(profileDetails.data?.counts.contracts ?? 0) === 1 ? '' : 's'}
+            </p>
+
+            {hasCustomerDetails ? (
+              <div className="mt-3 grid grid-cols-1 gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
+                {address && (
+                  <div>
+                    <p className="text-xs font-medium text-slate-400">Billing address</p>
+                    <div className="mt-0.5 leading-relaxed text-slate-700">
+                      <p>{address.address_line1}</p>
+                      {address.address_line2 && <p>{address.address_line2}</p>}
+                      {[address.pincode, address.city, address.state].some(Boolean) && (
+                        <p>
+                          {[address.pincode, address.city, address.state]
+                            .filter(Boolean)
+                            .join(' ')}
+                        </p>
+                      )}
+                      <p>{address.country}</p>
+                    </div>
                   </div>
-                ) : (
-                  <p className="mt-0.5 text-slate-400">
-                    None yet — the invoice will show the name alone.
-                  </p>
+                )}
+
+                {customerFacts.length > 0 && (
+                  <dl className="space-y-1.5">
+                    {customerFacts.map((fact) => (
+                      <div key={fact.label} className="flex gap-2">
+                        <dt className="w-24 shrink-0 text-xs font-medium text-slate-400">
+                          {fact.label}
+                        </dt>
+                        <dd className="truncate text-slate-700">{fact.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
                 )}
               </div>
-
-              <dl className="space-y-1.5">
-                <div className="flex gap-2">
-                  <dt className="w-24 shrink-0 text-xs font-medium text-slate-400">Tax ID</dt>
-                  <dd className="text-slate-700">{profileDetails.data?.tax_id || 'N/A'}</dd>
-                </div>
-                <div className="flex gap-2">
-                  <dt className="w-24 shrink-0 text-xs font-medium text-slate-400">Phone</dt>
-                  <dd className="text-slate-700">
-                    {profileDetails.data?.address?.phone || 'N/A'}
-                  </dd>
-                </div>
-                <div className="flex gap-2">
-                  <dt className="w-24 shrink-0 text-xs font-medium text-slate-400">Email</dt>
-                  <dd className="truncate text-slate-700">
-                    {profileDetails.data?.address?.email_id || 'N/A'}
-                  </dd>
-                </div>
-                <div className="flex gap-2">
-                  <dt className="w-24 shrink-0 text-xs font-medium text-slate-400">Users</dt>
-                  <dd className="text-slate-700">
-                    {profileDetails.data?.counts.users ?? 0} ·{' '}
-                    {profileDetails.data?.counts.devices ?? 0} devices
-                  </dd>
-                </div>
-              </dl>
-            </div>
+            ) : (
+              <p className="mt-2 text-sm text-slate-400">
+                No details recorded yet — invoices will show the name alone.
+              </p>
+            )}
           </div>
           <div className="text-right">
             <p className="text-xs font-medium text-slate-400">Billing readiness</p>
@@ -208,7 +217,14 @@ export default function CustomerContract() {
           </div>
         </div>
 
-        {readiness.ready ? (
+        {profileDetails.data?.msp_free_of_charge ? (
+          <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-emerald-100 bg-emerald-50 p-3">
+            <CircleCheck size={16} className="mt-0.5 shrink-0 text-emerald-600" />
+            <p className="text-sm text-emerald-800">
+              This customer is served free of charge — no contract, no rates, never billed.
+            </p>
+          </div>
+        ) : readiness.ready ? (
           <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-emerald-100 bg-emerald-50 p-3">
             <CircleCheck size={16} className="mt-0.5 shrink-0 text-emerald-600" />
             <p className="text-sm text-emerald-800">
@@ -360,7 +376,7 @@ export default function CustomerContract() {
           <button
             type="button"
             onClick={() => openRate()}
-            disabled={!profile?.price_list}
+            disabled={!priceList}
             className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Plus size={15} />
@@ -396,7 +412,9 @@ export default function CustomerContract() {
                     <input
                       type="checkbox"
                       checked={Boolean(service.is_eligible)}
-                      disabled={!profile || eligibility.isLoading}
+                      disabled={
+                        Boolean(service.covered_by_contract) || !profile || eligibility.isLoading
+                      }
                       onChange={(event) =>
                         eligibility.mutate({
                           customer,
@@ -406,8 +424,19 @@ export default function CustomerContract() {
                       }
                       className="h-4 w-4 rounded border-slate-300"
                     />
-                    <span className="text-xs text-slate-500">
-                      {service.is_eligible ? 'Offered' : 'Not offered'}
+                    <span
+                      className="text-xs text-slate-500"
+                      title={
+                        service.covered_by_contract
+                          ? `Covered by ${service.covered_by_contract}. Change the contract to stop offering it.`
+                          : undefined
+                      }
+                    >
+                      {service.covered_by_contract
+                        ? `Under ${service.covered_by_contract}`
+                        : service.is_eligible
+                          ? 'Offered'
+                          : 'Not offered'}
                     </span>
                   </label>
                 );
@@ -444,7 +473,7 @@ export default function CustomerContract() {
                                 label: 'Add a rate',
                                 icon: Coins,
                                 onClick: () => openRate(service.service_item),
-                                disabled: !profile?.price_list,
+                                disabled: !priceList,
                               },
                             ]}
                           />
@@ -505,7 +534,7 @@ export default function CustomerContract() {
                                 label: 'Add a rate',
                                 icon: Coins,
                                 onClick: () => openRate(service.service_item),
-                                disabled: !profile?.price_list,
+                                disabled: !priceList,
                               },
                               {
                                 label: 'Correct this rate',

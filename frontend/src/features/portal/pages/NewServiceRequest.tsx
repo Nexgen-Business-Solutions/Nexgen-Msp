@@ -1,8 +1,8 @@
 import { useNavigate } from 'react-router-dom';
 import { AlertCircle, Copy, Plus, Trash2, UserPlus, Users } from 'lucide-react';
 import Select from '@/shared/components/Select';
-import MultiSelect from '@/shared/components/MultiSelect';
-import { useServiceRequestForm } from '../hooks/useServiceRequestForm';
+import ServiceStateHint from '../components/ServiceStateHint';
+import { NEW_DEVICE, useServiceRequestForm } from '../hooks/useServiceRequestForm';
 
 const labelClass = 'mb-1.5 block text-xs font-semibold text-slate-700';
 const inputClass =
@@ -56,13 +56,7 @@ export default function NewServiceRequest() {
                     <span className="flex h-6 w-6 items-center justify-center rounded-md bg-slate-200 text-xs font-bold text-slate-600 tabular-nums">
                       {index + 1}
                     </span>
-                    <Select
-                      className="w-52"
-                      // label="Action"
-                      value={line.action}
-                      onChange={(value) => form.updateLine(line.key, 'action', value)}
-                      options={form.options.actions}
-                    />
+
                     {line.services.length > 0 && (
                       <span className="hidden text-xs font-medium text-slate-500 sm:inline">
                         {line.services.length} service{line.services.length > 1 ? 's' : ''}
@@ -98,11 +92,10 @@ export default function NewServiceRequest() {
                     <button
                       type="button"
                       onClick={() => form.updateLine(line.key, 'isNewUser', false)}
-                      className={`inline-flex items-center gap-1.5 rounded-md px-3 py-2.5 text-xs font-semibold transition-all ${
-                        line.isNewUser
+                      className={`inline-flex items-center gap-1.5 rounded-md px-3 py-2.5 text-xs font-semibold transition-all ${line.isNewUser
                           ? 'text-slate-500 hover:text-slate-700'
                           : 'bg-white text-slate-900 shadow-sm'
-                      }`}
+                        }`}
                     >
                       <Users size={13} />
                       Existing user
@@ -110,11 +103,10 @@ export default function NewServiceRequest() {
                     <button
                       type="button"
                       onClick={() => form.updateLine(line.key, 'isNewUser', true)}
-                      className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
-                        line.isNewUser
+                      className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${line.isNewUser
                           ? 'bg-white text-slate-900 shadow-sm'
                           : 'text-slate-500 hover:text-slate-700'
-                      }`}
+                        }`}
                     >
                       <UserPlus size={13} />
                       New user
@@ -168,20 +160,50 @@ export default function NewServiceRequest() {
                   )}
 
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                    <div className="sm:col-span-2">
-                      <span className={labelClass}>Services</span>
-                      <MultiSelect
-                        values={line.services}
-                        onChange={(values) => form.updateLine(line.key, 'services', values)}
+                    <div >
+                      <span className={labelClass}>Service</span>
+                      <Select
+                        className="w-full"
+                        searchable
+                        value={line.services[0] ?? ''}
+                        onChange={(value) => form.updateLine(line.key, 'services', value ? [value] : [])}
                         options={form.options.services}
-                        placeholder="Select one or more services"
+                        placeholder="Select a service"
                       />
                       {showErrors && errors.services && (
                         <p className="mt-1 text-xs text-red-600">{errors.services}</p>
                       )}
+                      {!line.isNewUser && (
+                        <ServiceStateHint
+                          serviceItem={line.services[0]}
+                          clientUser={line.client_user || undefined}
+                          managedDevice={
+                            line.managed_device && line.managed_device !== NEW_DEVICE
+                              ? line.managed_device
+                              : undefined
+                          }
+                        />
+                      )}
+                    </div>
+                    <div >
+                      <span className={labelClass}>Action</span>
+                      <Select
+                        className="w-full"
+                        // label="Action"
+                        searchable
+                        value={line.action}
+                        placeholder="Choose an action"
+                        onChange={(value) => form.updateLine(line.key, 'action', value)}
+                        options={
+                          line.isNewUser ? form.options.actionsForNewUser : form.options.actions
+                        }
+                      />
+                      {showErrors && errors.action && (
+                        <p className="mt-1 text-xs text-red-600">{errors.action}</p>
+                      )}
                     </div>
                     <div>
-                      <span className={labelClass}>Requested date</span>
+                      <span className={labelClass}>Wanted modification date</span>
                       <input
                         type="date"
                         value={line.requested_effective_date}

@@ -4,7 +4,9 @@ import { CalendarClock, Eye, FileText, Play, Plus, Receipt, TriangleAlert, Walle
 import KpiCard from '@/shared/components/KpiCard';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import StatusBadge from '@/shared/components/StatusBadge';
+import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
 import { useBillingDue, useBillingRuns } from '../hooks/useBilling';
+import { useMspContracts } from '../hooks/useMspContracts';
 
 const COLUMNS = ['Run', 'Customer', 'Period', 'Lines', 'Exceptions', 'Total', 'Invoice', 'Status', ''];
 
@@ -13,6 +15,17 @@ const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) :
 type Range = { label: string; from: Date | null };
 
 // a run belongs to the window its period ends in, which is when it was actually billed
+const RUN_STATUSES = [
+  'Draft',
+  'Validating',
+  'Exception',
+  'Ready for Approval',
+  'Approved',
+  'Invoice Drafted',
+  'Invoiced',
+  'Cancelled',
+];
+
 const RANGES: Range[] = [
   { label: 'This month', from: new Date(new Date().getFullYear(), new Date().getMonth(), 1) },
   {
@@ -27,9 +40,30 @@ export default function BillingRuns() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const customerFilter = searchParams.get('customer') ?? undefined;
-  const { data, isLoading, error } = useBillingRuns(customerFilter);
+  const [filters, setFilters] = useState<FilterState>({
+    customers: customerFilter ? [customerFilter] : [],
+    statuses: [],
+    period_from: '',
+    period_to: '',
+  });
+  const [search, setSearch] = useState('');
+
+  const query = {
+    customers: filters.customers as string[],
+    statuses: filters.statuses as string[],
+    period_from: (filters.period_from as string) || undefined,
+    period_to: (filters.period_to as string) || undefined,
+    search: search || undefined,
+  };
+
+  const { data, isLoading, error, refetch } = useBillingRuns(query);
   const due = useBillingDue();
+  const contracts = useMspContracts({});
   const [range, setRange] = useState(RANGES[0].label);
+
+  const customerOptions = [...new Set((contracts.data ?? []).map((row) => row.customer))]
+    .sort()
+    .map((value) => ({ value, label: value }));
 
   // a contract already covered well into the future needs no attention today
   const dueRows = (due.data?.rows ?? []).filter((row) => row.state !== 'Scheduled');
@@ -49,13 +83,47 @@ export default function BillingRuns() {
 
   return (
     <div className="space-y-5 px-6 pb-6 pt-4">
+      <FilterBar
+        values={filters}
+        search={search}
+        searchPlaceholder="Search a run, a customer or an invoice…"
+        subtitle="Narrow the billing runs."
+        onSearch={setSearch}
+        onApply={setFilters}
+        onClear={() =>
+          setFilters({ customers: [], statuses: [], period_from: '', period_to: '' })
+        }
+        onRefresh={() => refetch()}
+        fields={[
+          {
+            key: 'customers',
+            label: 'Customers',
+            kind: 'multiselect',
+            options: customerOptions,
+          },
+          {
+            key: 'statuses',
+            label: 'Status',
+            kind: 'multiselect',
+            options: RUN_STATUSES.map((value) => ({ value, label: value })),
+          },
+          {
+            key: 'period',
+            label: 'Period ends between',
+            kind: 'daterange',
+            fromKey: 'period_from',
+            toKey: 'period_to',
+          },
+        ]}
+      />
+
       <div className="flex flex-wrap items-center gap-1.5">
         {RANGES.map((entry) => (
           <button
             key={entry.label}
             type="button"
             onClick={() => setRange(entry.label)}
-            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+            className={`rounded-lg px-3 py-2.5 text-xs font-semibold transition-colors ${
               entry.label === range
                 ? 'bg-blue-600 text-white shadow-sm'
                 : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
@@ -180,7 +248,7 @@ export default function BillingRuns() {
                                 `&start=${row.next_period_start}&end=${row.next_period_end}`
                             )
                           }
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
                         >
                           <Play size={13} />
                           Bill this period
@@ -200,9 +268,7 @@ export default function BillingRuns() {
           <div>
             <h2 className="text-base font-semibold text-slate-900">Billing runs</h2>
             <p className="mt-0.5 text-sm text-slate-400">
-              {customerFilter
-                ? `Runs for ${customerFilter}.`
-                : 'Each run freezes the quantities and rates of its period.'}
+              Each run freezes the quantities and rates of its period.
             </p>
           </div>
           <button
@@ -266,6 +332,11 @@ export default function BillingRuns() {
                   >
                     <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
                       {row.name}
+                      {Boolean(row.disputed) && (
+                        <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-amber-800">
+                          disputed
+                        </span>
+                      )}
                       {row.adjustment_of && (
                         <span className="ml-1.5 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-indigo-700">
                           adj

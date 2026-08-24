@@ -30,7 +30,8 @@
   "section_portal",
   "portal_visible",
   "portal_user",
-  "remarks"
+  "remarks",
+  "covered_until"
  ],
  "fields": [
   {
@@ -175,6 +176,12 @@
    "label": "Portal User",
    "no_copy": 1,
    "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "covered_until",
+   "fieldtype": "Date",
+   "label": "Billed Up To",
    "read_only": 1
   }
  ],

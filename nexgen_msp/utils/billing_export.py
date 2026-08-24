@@ -25,11 +25,19 @@ DETAIL_COLUMNS = (
     ("creation_date", "Creation Date", 14),
     ("reference", "Reference", 22),
     ("status", "Status", 14),
+    ("covered_from", "Billed From", 14),
+    ("covered_to", "Billed To", 14),
     ("monthly", "Monthly", 12),
     ("months", "Months", 9),
+    ("discount_percent", "Discount %", 11),
+    ("gross", "Before Discount", 16),
     ("total", "Total", 14),
     ("comments", "Comments", 34),
 )
+
+
+# the subtotal row has to follow the columns, not a position typed once
+COLUMN_AT = {key: index for index, (key, _label, _width) in enumerate(DETAIL_COLUMNS, start=1)}
 
 
 def money_format(currency):
@@ -120,20 +128,20 @@ def breakdown_workbook(data):
                 cell = sheet.cell(row=row, column=index, value=_as_text(values.get(key)))
                 cell.font = BODY
                 cell.border = BOX
-                if key in ("monthly", "total"):
+                if key in ("monthly", "total", "gross"):
                     cell.number_format = money
                 if key == "months":
                     cell.number_format = MONTHS
-                if key in ("count", "months"):
+                if key in ("count", "months", "discount_percent"):
                     cell.alignment = Alignment(horizontal="center")
             row += 1
 
-        sheet.cell(row=row, column=10, value="Subtotal").font = BOLD
-        months = sheet.cell(row=row, column=12, value=flt(block["months"], 2))
+        sheet.cell(row=row, column=COLUMN_AT["status"], value="Subtotal").font = BOLD
+        months = sheet.cell(row=row, column=COLUMN_AT["months"], value=flt(block["months"], 2))
         months.font = BOLD
         months.number_format = MONTHS
         months.alignment = Alignment(horizontal="center")
-        subtotal = sheet.cell(row=row, column=13, value=flt(block["total"], 2))
+        subtotal = sheet.cell(row=row, column=COLUMN_AT["total"], value=flt(block["total"], 2))
         subtotal.font = BOLD
         subtotal.number_format = money
         for column in range(1, len(DETAIL_COLUMNS) + 1):

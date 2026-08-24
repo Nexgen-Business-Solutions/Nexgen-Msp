@@ -115,6 +115,7 @@ const NewDeviceModal: React.FC<Props> = ({ open, onClose }) => {
           <div>
             <FieldLabel required>Customer</FieldLabel>
             <Select
+              searchable
               className="w-full"
               value={customer}
               onChange={(value) => {

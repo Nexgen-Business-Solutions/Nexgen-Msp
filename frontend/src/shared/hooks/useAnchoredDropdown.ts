@@ -69,7 +69,17 @@ export const useAnchoredDropdown = (
       const target = event.target as Node;
       if (anchorRef.current?.contains(target)) return;
       if (panelRef.current?.contains(target)) return;
+
       close();
+
+      // dismissing the panel must not also dismiss the dialog behind it, or the click
+      // that closes a dropdown would throw away everything the user has typed
+      const dialog = document.querySelector('[role="dialog"]');
+
+      if (dialog && target instanceof Element && !dialog.contains(target)) {
+        event.stopPropagation();
+        event.preventDefault();
+      }
     };
 
     const onKey = (event: KeyboardEvent) => {
@@ -78,13 +88,14 @@ export const useAnchoredDropdown = (
 
     const onReflow = () => measure();
 
-    document.addEventListener('mousedown', onDown);
+    // capture, so a container that stops propagation cannot keep the panel open
+    document.addEventListener('mousedown', onDown, true);
     document.addEventListener('keydown', onKey);
     window.addEventListener('resize', onReflow);
     window.addEventListener('scroll', onReflow, true);
 
     return () => {
-      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('mousedown', onDown, true);
       document.removeEventListener('keydown', onKey);
       window.removeEventListener('resize', onReflow);
       window.removeEventListener('scroll', onReflow, true);

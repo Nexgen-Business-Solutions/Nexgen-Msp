@@ -5,6 +5,7 @@ export const catalogueKeys = {
   all: ['internal', 'catalogue'] as const,
   options: () => [...catalogueKeys.all, 'options'] as const,
   list: () => [...catalogueKeys.all, 'list'] as const,
+  detail: (name: string) => [...catalogueKeys.all, 'detail', name] as const,
 };
 
 export const useCatalogueOptions = () =>
@@ -32,3 +33,10 @@ export const useSaveService = () => {
     },
   });
 };
+
+export const useServiceDetail = (name?: string) =>
+  useQuery({
+    queryKey: catalogueKeys.detail(name || ''),
+    queryFn: ({ signal }) => internal.getService(name as string, signal),
+    enabled: Boolean(name),
+  });

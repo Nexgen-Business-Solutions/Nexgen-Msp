@@ -220,3 +220,86 @@ export const usePortalBillingDetail = (name?: string) =>
     queryFn: ({ signal }) => portal.getBillingDetail(name as string, signal),
     enabled: Boolean(name),
   });
+
+export const useReportFilterOptions = () => {
+  const customer = usePortalFilters((state) => state.customer);
+
+  return useQuery({
+    queryKey: [...portalKeys.all, 'reportOptions', customer] as const,
+    queryFn: ({ signal }) => portal.getReportFilterOptions(customer || undefined, signal),
+    staleTime: 5 * 60 * 1000,
+  });
+};
+
+export const useReportRows = (query: portal.ReportQuery) => {
+  const customer = usePortalFilters((state) => state.customer);
+
+  return useQuery({
+    queryKey: [...portalKeys.all, 'reportRows', customer, query] as const,
+    queryFn: ({ signal }) => portal.listReportRows({ ...query, customer } as never, signal),
+    keepPreviousData: true,
+  });
+};
+
+export const usePortalRequestOptions = () => {
+  const customer = usePortalFilters((state) => state.customer);
+
+  return useQuery({
+    queryKey: [...portalKeys.all, 'requestOptions', customer] as const,
+    queryFn: ({ signal }) => portal.getRequestFilterOptions(customer || undefined, signal),
+    staleTime: 5 * 60 * 1000,
+  });
+};
+
+export const usePortalRequestList = (
+  query: portal.ListParams & { priority?: string; request_type?: string }
+) => {
+  const customer = usePortalFilters((state) => state.customer);
+
+  return useQuery({
+    queryKey: [...portalKeys.all, 'requestList', customer, query] as const,
+    queryFn: ({ signal }) => portal.listRequests({ ...query, customer: customer || undefined }, signal),
+    keepPreviousData: true,
+  });
+};
+
+export const useDisputeInvoice = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: portal.disputeInvoice,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: portalKeys.all }),
+  });
+};
+
+export const useRecentActivity = (limit = 12) => {
+  const customer = usePortalFilters((state) => state.customer);
+
+  return useQuery({
+    queryKey: [...portalKeys.all, 'activity', customer, limit] as const,
+    queryFn: ({ signal }) => portal.getRecentActivity(customer || undefined, limit, signal),
+    staleTime: 30 * 1000,
+  });
+};
+
+export const useRequestActions = () =>
+  useQuery({
+    queryKey: [...portalKeys.all, 'requestActions'] as const,
+    queryFn: ({ signal }) => portal.listRequestActions(false, signal),
+    staleTime: 10 * 60 * 1000,
+  });
+
+export const useServiceState = (
+  serviceItem?: string,
+  clientUser?: string,
+  managedDevice?: string
+) =>
+  useQuery({
+    queryKey: [...portalKeys.all, 'serviceState', serviceItem, clientUser, managedDevice] as const,
+    queryFn: ({ signal }) =>
+      portal.getServiceState(
+        { service_item: serviceItem as string, client_user: clientUser, managed_device: managedDevice },
+        signal
+      ),
+    enabled: Boolean(serviceItem && (clientUser || managedDevice)),
+  });

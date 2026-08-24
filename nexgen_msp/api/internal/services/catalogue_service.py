@@ -58,6 +58,7 @@ class CatalogueService:
             select
                 item.name, item.item_name, item.disabled, item.stock_uom,
                 item.msp_service_scope as scope, item.description,
+                item.msp_invoice_label as invoice_label,
                 (select count(*) from `tabService Assignment` sa
                     where sa.service_item = item.name
                       and sa.operational_status in %(open)s) as open_assignments,
@@ -84,6 +85,7 @@ class CatalogueService:
         description=None,
         uom=None,
         disabled=None,
+        invoice_label=None,
     ):
         """Create or update a service. Its code never changes once assignments point at it."""
         CatalogueService._guard_admin()
@@ -104,20 +106,24 @@ class CatalogueService:
             if not code:
                 raise ValidationError("item_code is required for a new service.", "VALIDATION_ERROR")
 
+            # reusing a code means editing that service, not colliding with it
             if frappe.db.exists("Item", code):
-                raise ValidationError(f"A service already uses the code {code}.", "VALIDATION_ERROR")
-
-            doc = frappe.new_doc("Item")
-            doc.item_code = code
-            doc.item_group = CatalogueService._ensure_group()
-            doc.is_stock_item = 0
-            doc.is_sales_item = 1
-            doc.is_purchase_item = 0
-            doc.stock_uom = uom or DEFAULT_UOM
+                doc = frappe.get_doc("Item", code)
+            else:
+                doc = frappe.new_doc("Item")
+                doc.item_code = code
+                doc.item_group = CatalogueService._ensure_group()
+                doc.is_stock_item = 0
+                doc.is_sales_item = 1
+                doc.is_purchase_item = 0
+                doc.stock_uom = uom or DEFAULT_UOM
 
         doc.item_name = item_name
         doc.description = description or item_name
         doc.msp_service_scope = scope or "User"
+
+        if invoice_label is not None:
+            doc.msp_invoice_label = (invoice_label or "").strip() or None
 
         if disabled is not None:
             wanted = frappe.utils.cint(disabled)
@@ -143,3 +149,88 @@ class CatalogueService:
         frappe.db.commit()
 
         return {"name": doc.name, "item_name": doc.item_name, "scope": doc.msp_service_scope}
+
+    @staticmethod
+    def get_service(name=None):
+        """One service: how it is sold, who runs it, and what it earns."""
+        CatalogueService._guard_admin()
+
+        if not name or not frappe.db.exists("Item", name):
+            raise NotFoundError(f"Service {name} not found.", "NOT_FOUND")
+
+        doc = frappe.db.get_value(
+            "Item",
+            name,
+            [
+                "name",
+                "item_name",
+                "msp_invoice_label as invoice_label",
+                "msp_service_scope as scope",
+                "description",
+                "stock_uom as uom",
+                "disabled",
+            ],
+            as_dict=True,
+        )
+
+        customers = frappe.db.sql(
+            """
+            select
+                sa.customer,
+                count(*) as open_assignments,
+                sum(sa.billing_status = 'Billable') as billable_assignments,
+                (select price.price_list_rate from `tabItem Price` price
+                    where price.item_code = %(item)s and price.customer = sa.customer
+                      and price.selling = 1
+                      and (price.valid_from is null or price.valid_from <= curdate())
+                      and (price.valid_upto is null or price.valid_upto >= curdate())
+                    order by price.valid_from desc limit 1) as current_rate,
+                (select price.msp_discount_percent from `tabItem Price` price
+                    where price.item_code = %(item)s and price.customer = sa.customer
+                      and price.selling = 1
+                      and (price.valid_from is null or price.valid_from <= curdate())
+                      and (price.valid_upto is null or price.valid_upto >= curdate())
+                    order by price.valid_from desc limit 1) as discount_percent
+            from `tabService Assignment` sa
+            where sa.service_item = %(item)s
+              and sa.operational_status in %(open)s
+            group by sa.customer
+            order by open_assignments desc
+            """,
+            {"item": name, "open": OPEN_ASSIGNMENT_STATUSES},
+            as_dict=True,
+        )
+
+        contracts = frappe.db.sql(
+            """
+            select c.name, c.title, c.customer, c.status, c.billing_frequency
+            from `tabMSP Contract` c
+            join `tabMSP Contract Service` cs on cs.parent = c.name
+            where cs.service_item = %(item)s
+            order by c.status asc, c.start_date desc
+            """,
+            {"item": name},
+            as_dict=True,
+        )
+
+        billed = frappe.db.sql(
+            """
+            select
+                count(distinct brl.parent) as runs,
+                sum(brl.billable_months) as months,
+                sum(brl.amount) as amount
+            from `tabBilling Run Line` brl
+            join `tabBilling Run` br on br.name = brl.parent
+            where brl.service_item = %(item)s and br.docstatus = 1
+            """,
+            {"item": name},
+            as_dict=True,
+        )
+
+        return {
+            "service": doc,
+            "customers": customers,
+            "contracts": contracts,
+            "billed": billed[0] if billed else {},
+            "scopes": list(SCOPES),
+        }

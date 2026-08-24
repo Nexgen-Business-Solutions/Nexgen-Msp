@@ -161,6 +161,7 @@ const ContractModal: React.FC<Props> = ({ open, customer, profile, onClose }) =>
               onChange={(value) => set({ price_list: value })}
               placeholder="Select a price list"
               options={toOptions(options.data?.price_lists)}
+              searchable
             />
           </div>
           <div>
@@ -171,6 +172,7 @@ const ContractModal: React.FC<Props> = ({ open, customer, profile, onClose }) =>
               onChange={(value) => set({ currency: value })}
               placeholder="Select a currency"
               options={toOptions(options.data?.currencies)}
+              searchable
             />
           </div>
         </div>

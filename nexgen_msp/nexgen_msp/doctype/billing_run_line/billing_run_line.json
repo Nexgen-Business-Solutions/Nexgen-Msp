@@ -14,10 +14,15 @@
   "quantity",
   "billable_days",
   "period_days",
+  "covered_from",
+  "covered_to",
   "billable_months",
   "unit_rate",
   "price_source",
   "proration_method",
+  "gross_amount",
+  "discount_percent",
+  "discount_source",
   "amount",
   "section_exception",
   "exception_code",
@@ -134,6 +139,32 @@
    "fieldname": "line_comment",
    "fieldtype": "Small Text",
    "label": "Comment"
+  },
+  {
+   "fieldname": "gross_amount",
+   "fieldtype": "Currency",
+   "label": "Gross Amount"
+  },
+  {
+   "fieldname": "discount_percent",
+   "fieldtype": "Percent",
+   "label": "Discount %"
+  },
+  {
+   "fieldname": "discount_source",
+   "fieldtype": "Select",
+   "label": "Discount From",
+   "options": "\nRate\nRun\nRate + Run\nManual"
+  },
+  {
+   "fieldname": "covered_from",
+   "fieldtype": "Date",
+   "label": "Covered From"
+  },
+  {
+   "fieldname": "covered_to",
+   "fieldtype": "Date",
+   "label": "Covered To"
   }
  ],
  "grid_page_length": 50,

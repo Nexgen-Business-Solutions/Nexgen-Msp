@@ -29,7 +29,43 @@ COLUMN_INDEX = {
     "remarks": 20,
 }
 
+
 EXPECTED_HEADERS = ("full name", "user", "password", "email")
+
+# Columns the sheet may or may not carry. Each is found by its header wherever it sits,
+# so a file written to the older layout imports exactly as before. Add or reword an entry
+# here if a workbook names a column differently — anything not matched is simply left empty.
+OPTIONAL_COLUMNS = {
+    "last_billed_on": (
+        "dernier date de facturation",
+        "derniere date de facturation",
+        "dernière date de facturation",
+        "derniere facturation",
+        "dernière facturation",
+        "last billing",
+        "last billed",
+        "last billing date",
+    ),
+    "covered_until": (
+        "periode facturation",
+        "période facturation",
+        "billing period",
+        "covered until",
+    ),
+    "has_export_link": ("has export link",),
+    "export_link": ("link",),
+}
+
+# "jusqu'a 31-07-2026" says the same thing as a bare date; "N/A" and "never invoiced" say
+# there is nothing to record.
+COVERED_PREFIXES = ("jusqu'a", "jusqu'à", "jusquà", "until", "up to")
+
+NOT_COVERED_TOKENS = {"n/a", "na", "never invoiced", "never", "-", ""}
+
+# the optional columns are appended after the fixed block by load_rows, in this order
+OPTIONAL_INDEX = {
+    key: len(COLUMN_INDEX) + offset for offset, key in enumerate(OPTIONAL_COLUMNS)
+}
 
 BLANK_TOKENS = {"", "n/a", "na", "none", "-", "null"}
 
@@ -146,24 +182,83 @@ def load_rows(file_path):
         raise ValidationError(f"Cannot read the workbook: {e}", "INVALID_FILE")
 
     sheet = workbook[workbook.sheetnames[0]]
-    rows = [row[: len(COLUMN_INDEX)] for row in sheet.iter_rows(values_only=True)]
+    rows = list(sheet.iter_rows(values_only=True))
 
     if not rows:
         raise ValidationError("The workbook is empty.", "INVALID_FILE")
 
     header = [str(cell).strip().lower() if cell is not None else "" for cell in rows[0]]
+
     for expected in EXPECTED_HEADERS:
         if expected not in header:
             raise ValidationError(
                 f"Column '{expected}' is missing from the workbook.", "MISSING_COLUMN"
             )
 
-    return [row for row in rows[1:] if any(not is_blank(cell) for cell in row)]
+    # a header may be worded loosely, so match on how it starts as well as in full
+    def locate(names):
+        for name in names:
+            if name in header:
+                return header.index(name)
+
+        for index, cell in enumerate(header):
+            if any(cell.startswith(name) for name in names if cell):
+                return index
+
+        return None
+
+    found = {key: locate(names) for key, names in OPTIONAL_COLUMNS.items()}
+
+    # The rest of the sheet is read by position, so the optional columns are lifted out of
+    # the row and appended at the end — they can then sit anywhere without shifting the
+    # columns that follow them.
+    lifted = sorted((index for index in found.values() if index is not None), reverse=True)
+    keep = len(COLUMN_INDEX)
+    trimmed = []
+
+    for row in rows[1:]:
+        if not any(not is_blank(cell) for cell in row):
+            continue
+
+        cells = list(row)
+        extras = {key: (cells[index] if index is not None and index < len(cells) else None)
+                  for key, index in found.items()}
+
+        for index in lifted:
+            if index < len(cells):
+                cells.pop(index)
+
+        block = cells[:keep]
+        block.extend([None] * (keep - len(block)))
+        block.extend(extras[key] for key in OPTIONAL_COLUMNS)
+        trimmed.append(tuple(block))
+
+    return trimmed
 
 
 def read(row, key):
-    index = COLUMN_INDEX[key]
+    index = OPTIONAL_INDEX[key] if key in OPTIONAL_INDEX else COLUMN_INDEX[key]
     return row[index] if index < len(row) else None
+
+
+def as_covered_until(value):
+    """A coverage cell: a date, a "jusqu'a <date>" phrase, or a way of saying "none"."""
+    if isinstance(value, (datetime.datetime, datetime.date)):
+        return as_date(value)
+
+    text = (as_text(value) or "").strip()
+
+    if text.lower() in NOT_COVERED_TOKENS:
+        return None
+
+    lowered = text.lower()
+
+    for prefix in COVERED_PREFIXES:
+        if lowered.startswith(prefix):
+            text = text[len(prefix) :].strip()
+            break
+
+    return as_date(text)
 
 
 def parse_row(row, row_number):
@@ -182,6 +277,11 @@ def parse_row(row, row_number):
         "device_created": as_date(read(row, "device_created")),
         "device_disabled": as_date(read(row, "device_disabled")),
         "remarks": as_text(read(row, "remarks")),
+        # absent from older sheets, so these stay empty rather than being invented
+        "last_billed_on": as_date(read(row, "last_billed_on")),
+        "covered_until": as_covered_until(read(row, "covered_until")),
+        "has_export_link": is_yes(read(row, "has_export_link")),
+        "export_link": as_text(read(row, "export_link")),
         "services": {
             "parallels": resolve_service(
                 is_yes(read(row, "parallels")),

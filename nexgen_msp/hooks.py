@@ -21,7 +21,21 @@ fixtures = [
 			]
 		],
 	},
-	{"dt": "Custom Field", "filters": [["name", "in", ["Item-msp_service_scope"]]]},
+	{
+		"dt": "Custom Field",
+		"filters": [
+			[
+				"name",
+				"in",
+				[
+					"Item-msp_service_scope",
+					"Customer-msp_last_billed_on",
+					"Customer-msp_free_of_charge",
+					"Item Price-msp_discount_percent",
+				],
+			]
+		],
+	},
 	{
 		"dt": "Email Template",
 		"filters": [

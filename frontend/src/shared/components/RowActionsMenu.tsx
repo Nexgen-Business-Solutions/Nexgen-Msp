@@ -47,13 +47,13 @@ const RowActionsMenu: React.FC<{ actions: RowAction[] }> = ({ actions }) => {
     window.addEventListener('scroll', close, true);
     window.addEventListener('resize', close);
     document.addEventListener('keydown', onKey);
-    document.addEventListener('mousedown', onDown);
+    document.addEventListener('mousedown', onDown, true);
 
     return () => {
       window.removeEventListener('scroll', close, true);
       window.removeEventListener('resize', close);
       document.removeEventListener('keydown', onKey);
-      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('mousedown', onDown, true);
     };
   }, [open]);
 

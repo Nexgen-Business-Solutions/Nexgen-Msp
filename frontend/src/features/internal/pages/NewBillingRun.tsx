@@ -6,6 +6,7 @@ import {
   ArrowRight,
   Check,
   ChevronDown,
+  Info,
   Receipt,
   Search,
   SlidersHorizontal,
@@ -17,7 +18,12 @@ import MultiSelect from '@/shared/components/MultiSelect';
 import StatusBadge from '@/shared/components/StatusBadge';
 import type { BillingFilters } from '@/lib/api/internal';
 import { useMspContracts } from '../hooks/useMspContracts';
-import { useBillingFilterOptions, useGenerateRun, usePreviewRun } from '../hooks/useBilling';
+import {
+  useBillingFilterOptions,
+  useBillingPeriodStatus,
+  useGenerateRun,
+  usePreviewRun,
+} from '../hooks/useBilling';
 
 const inputClass =
   'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
@@ -73,12 +79,31 @@ const nextMonth = () => {
   };
 };
 
+const thisYear = () => {
+  const now = new Date();
+  return {
+    start: iso(new Date(now.getFullYear(), 0, 1)),
+    end: iso(new Date(now.getFullYear(), 11, 31)),
+  };
+};
+
+const nextTwelveMonths = () => {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+  return {
+    start: iso(start),
+    end: iso(new Date(start.getFullYear() + 1, start.getMonth(), 0)),
+  };
+};
+
 const PRESETS = [
   { label: 'Rest of this month', build: restOfThisMonth },
   { label: 'Next month', build: nextMonth },
   { label: 'Last month', build: previousMonth },
   { label: 'Last quarter', build: previousQuarter },
   { label: 'This quarter', build: currentQuarter },
+  { label: 'This year', build: thisYear },
+  { label: 'One year ahead', build: nextTwelveMonths },
 ];
 
 export default function NewBillingRun() {
@@ -96,6 +121,7 @@ export default function NewBillingRun() {
   const [end, setEnd] = useState(searchParams.get('end') ?? defaults.end);
   const [filters, setFilters] = useState<BillingFilters>({ only_billable: 1 });
   const [advanced, setAdvanced] = useState(false);
+  const [discount, setDiscount] = useState('');
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
 
   const chosen = (contracts.data ?? []).find((row) => row.name === contract);
@@ -112,14 +138,25 @@ export default function NewBillingRun() {
       ((windowStart && start && start < windowStart) || (windowEnd && end && end > windowEnd))
   );
 
+  // asked as soon as a period is set, so an already-covered stretch shows before generating
+  const coverage = useBillingPeriodStatus(contract, start, end, step === 0 && !outsideWindow);
+
+  // a discount can come from the rate as well as from this run, so the column shows
+  // whenever a line actually carries one
+  const hasDiscount =
+    Number(discount || 0) > 0 ||
+    (preview.data?.lines ?? []).some((line) => Number(line.discount_percent || 0) > 0);
+
   const resultColumns = [
     '',
     'User',
     'Service',
     ...(scopes.length > 1 ? ['Billed to'] : []),
     'Device',
+    'Last billed',
     'Months',
     'Rate',
+    ...(hasDiscount ? ['Discount'] : []),
     'Amount',
   ];
 
@@ -134,8 +171,13 @@ export default function NewBillingRun() {
     setFilters((current) => ({ ...current, ...patch }));
 
   const run = useMemo(
-    () => ({ contract, period_start: start, period_end: end }),
-    [contract, start, end]
+    () => ({
+      contract,
+      period_start: start,
+      period_end: end,
+      discount_percent: Number(discount || 0),
+    }),
+    [contract, start, end, discount]
   );
 
   useEffect(() => {
@@ -172,8 +214,8 @@ export default function NewBillingRun() {
     filters.device_types?.length,
     filters.departments?.length,
     filters.user_statuses?.length,
-    filters.started_after ? 1 : 0,
-    filters.started_before ? 1 : 0,
+    filters.started_after || filters.started_before ? 1 : 0,
+    filters.last_billed_after || filters.last_billed_before ? 1 : 0,
   ].reduce<number>((sum, value) => sum + (value ? 1 : 0), 0);
 
   return (
@@ -195,7 +237,7 @@ export default function NewBillingRun() {
               type="button"
               disabled={index > 0 && !canContinue}
               onClick={() => setStep(index)}
-              className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+              className={`inline-flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                 index === step
                   ? 'bg-blue-600 text-white'
                   : index < step
@@ -234,6 +276,7 @@ export default function NewBillingRun() {
               <FieldLabel required>Contract</FieldLabel>
               <Select
                 className="w-full"
+                searchable
                 value={contract}
                 onChange={setContract}
                 placeholder="Select a contract"
@@ -271,6 +314,34 @@ export default function NewBillingRun() {
             </div>
           </div>
 
+          {!outsideWindow && coverage.data?.fully_billed && (
+            <div className="mx-5 mt-3 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <TriangleAlert size={16} className="mt-0.5 shrink-0 text-amber-600" />
+              <p className="text-sm text-amber-800">
+                <span className="font-semibold">
+                  {coverage.data.customer} is already billed for this whole period.
+                </span>{' '}
+                All {coverage.data.eligible} eligible line(s) sit on{' '}
+                {coverage.data.runs.join(', ')}. Generating again would produce a run with
+                nothing on it.
+              </p>
+            </div>
+          )}
+
+          {!outsideWindow &&
+            coverage.data &&
+            !coverage.data.fully_billed &&
+            coverage.data.already_billed > 0 && (
+              <div className="mx-5 mt-3 flex items-start gap-2.5 rounded-lg border border-blue-100 bg-blue-50/70 p-3">
+                <Info size={16} className="mt-0.5 shrink-0 text-blue-600" />
+                <p className="text-sm text-blue-800">
+                  {coverage.data.already_billed} of {coverage.data.eligible} line(s) are already
+                  billed for this period on {coverage.data.runs.join(', ')}.{' '}
+                  <span className="font-semibold">{coverage.data.remaining} remain</span> to bill.
+                </p>
+              </div>
+            )}
+
           {outsideWindow && (
             <div className="mx-5 mt-3 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
               <TriangleAlert size={16} className="mt-0.5 shrink-0 text-amber-600" />
@@ -291,7 +362,7 @@ export default function NewBillingRun() {
                   setStart(range.start);
                   setEnd(range.end);
                 }}
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+                className="rounded-lg border border-slate-200 px-3 py-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
               >
                 {preset.label}
               </button>
@@ -360,6 +431,7 @@ export default function NewBillingRun() {
               <div>
                 <FieldLabel>Service</FieldLabel>
                 <MultiSelect
+                  searchable
                   values={filters.services ?? []}
                   onChange={(values) => set({ services: values })}
                   options={options.data?.services ?? []}
@@ -388,6 +460,21 @@ export default function NewBillingRun() {
                   options={(options.data?.statuses ?? []).map((v) => ({ value: v, label: v }))}
                   placeholder="Any status"
                 />
+              </div>
+              <div>
+                <FieldLabel>Discount on this run</FieldLabel>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={discount}
+                    onChange={(event) => setDiscount(event.target.value)}
+                    placeholder="0"
+                    className={`${inputClass} text-right tabular-nums`}
+                  />
+                  <span className="text-sm text-slate-500">%</span>
+                </div>
               </div>
               <div className="flex items-end pb-1">
                 <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-slate-700">
@@ -427,6 +514,7 @@ export default function NewBillingRun() {
                   <div>
                     <FieldLabel>Department</FieldLabel>
                     <MultiSelect
+                      searchable
                       values={filters.departments ?? []}
                       onChange={(values) => set({ departments: values })}
                       options={(options.data?.departments ?? []).map((v) => ({
@@ -439,6 +527,7 @@ export default function NewBillingRun() {
                   <div>
                     <FieldLabel>Device type</FieldLabel>
                     <MultiSelect
+                      searchable
                       values={filters.device_types ?? []}
                       onChange={(values) => set({ device_types: values })}
                       options={(options.data?.device_types ?? []).map((v) => ({
@@ -460,23 +549,51 @@ export default function NewBillingRun() {
                       placeholder="Any"
                     />
                   </div>
-                  <div>
-                    <FieldLabel>In service since</FieldLabel>
-                    <input
-                      type="date"
-                      value={filters.started_after ?? ''}
-                      onChange={(event) => set({ started_after: event.target.value || undefined })}
-                      className={inputClass}
-                    />
+                  <div className="sm:col-span-2">
+                    <FieldLabel>In service between</FieldLabel>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="date"
+                        value={filters.started_after ?? ''}
+                        max={filters.started_before || undefined}
+                        onChange={(event) => set({ started_after: event.target.value || undefined })}
+                        className={inputClass}
+                      />
+                      <span className="text-sm text-slate-400">→</span>
+                      <input
+                        type="date"
+                        value={filters.started_before ?? ''}
+                        min={filters.started_after || undefined}
+                        onChange={(event) =>
+                          set({ started_before: event.target.value || undefined })
+                        }
+                        className={inputClass}
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <FieldLabel>In service before</FieldLabel>
-                    <input
-                      type="date"
-                      value={filters.started_before ?? ''}
-                      onChange={(event) => set({ started_before: event.target.value || undefined })}
-                      className={inputClass}
-                    />
+                  <div className="sm:col-span-2">
+                    <FieldLabel>Last billed between</FieldLabel>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="date"
+                        value={filters.last_billed_after ?? ''}
+                        max={filters.last_billed_before || undefined}
+                        onChange={(event) =>
+                          set({ last_billed_after: event.target.value || undefined })
+                        }
+                        className={inputClass}
+                      />
+                      <span className="text-sm text-slate-400">→</span>
+                      <input
+                        type="date"
+                        value={filters.last_billed_before ?? ''}
+                        min={filters.last_billed_after || undefined}
+                        onChange={(event) =>
+                          set({ last_billed_before: event.target.value || undefined })
+                        }
+                        className={inputClass}
+                      />
+                    </div>
                   </div>
                   <div className="flex items-end pb-1">
                     <button
@@ -607,12 +724,31 @@ export default function NewBillingRun() {
                       <td className="whitespace-nowrap px-3 py-2.5 text-sm text-slate-600">
                         {line.hostname || '—'}
                       </td>
+                      <td className="whitespace-nowrap px-3 py-2.5 text-sm text-slate-500">
+                        {line.last_billed_on ? line.last_billed_on.slice(0, 10) : 'Never'}
+                      </td>
                       <td className="whitespace-nowrap px-3 py-2.5 text-right text-sm text-slate-700 tabular-nums">
                         {line.billable_months}
                       </td>
                       <td className="whitespace-nowrap px-3 py-2.5 text-right text-sm text-slate-500 tabular-nums">
                         {(line.unit_rate ?? 0).toLocaleString()}
                       </td>
+                      {hasDiscount && (
+                        <td className="whitespace-nowrap px-3 py-2.5 text-right text-sm text-slate-600 tabular-nums">
+                          {line.discount_percent ? (
+                            <div className="flex flex-col items-end">
+                              <span>{line.discount_percent}%</span>
+                              {line.discount_source && (
+                                <span className="text-xs font-medium text-slate-400">
+                                  {line.discount_source.toLowerCase()}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                      )}
                       <td className="whitespace-nowrap px-3 py-2.5 text-right text-sm font-semibold text-slate-900 tabular-nums">
                         {line.amount.toLocaleString()}
                       </td>

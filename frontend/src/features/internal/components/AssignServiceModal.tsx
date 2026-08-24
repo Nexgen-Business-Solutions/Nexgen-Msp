@@ -142,6 +142,7 @@ const AssignServiceModal: React.FC<Props> = ({ open, detail, defaultRequest, onC
           <div>
             <FieldLabel required>Service</FieldLabel>
             <Select
+              searchable
               className="w-full"
               value={service}
               onChange={setService}
@@ -178,7 +179,7 @@ const AssignServiceModal: React.FC<Props> = ({ open, detail, defaultRequest, onC
                   key={choice}
                   type="button"
                   onClick={() => setTargetScope(choice)}
-                  className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
+                  className={`rounded-md px-3 py-2.5 text-xs font-semibold transition-all ${
                     targetScope === choice
                       ? 'bg-white text-slate-900 shadow-sm'
                       : 'text-slate-500 hover:text-slate-700'
@@ -204,7 +205,7 @@ const AssignServiceModal: React.FC<Props> = ({ open, detail, defaultRequest, onC
               <button
                 type="button"
                 onClick={() => setMode('existing')}
-                className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
+                className={`rounded-md px-3 py-2.5 text-xs font-semibold transition-all ${
                   mode === 'existing' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
                 }`}
               >
@@ -213,7 +214,7 @@ const AssignServiceModal: React.FC<Props> = ({ open, detail, defaultRequest, onC
               <button
                 type="button"
                 onClick={() => setMode('new')}
-                className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
+                className={`rounded-md px-3 py-2.5 text-xs font-semibold transition-all ${
                   mode === 'new' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
                 }`}
               >
@@ -223,6 +224,7 @@ const AssignServiceModal: React.FC<Props> = ({ open, detail, defaultRequest, onC
 
             {mode === 'existing' ? (
               <Select
+                searchable
                 className="w-full"
                 value={device}
                 onChange={setDevice}

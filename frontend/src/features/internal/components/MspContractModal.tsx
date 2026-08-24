@@ -48,8 +48,9 @@ const MspContractModal: React.FC<Props> = ({ open, customer, contract, onClose }
       ...EMPTY,
       ...(contract ?? {}),
       customer,
-      price_list: contract?.price_list ?? options.data?.price_lists?.[0],
-      currency: contract?.currency ?? options.data?.currencies?.[0],
+      price_list: contract?.price_list ?? options.data?.default_price_list ?? undefined,
+      // the company's own currency, not whatever comes first alphabetically
+      currency: contract?.currency ?? options.data?.default_currency ?? undefined,
     });
     setServices((contract?.services ?? []).map((row) => row.service_item));
     save.reset();
@@ -92,7 +93,7 @@ const MspContractModal: React.FC<Props> = ({ open, customer, contract, onClose }
           <button
             type="button"
             onClick={submit}
-            disabled={save.isLoading}
+            disabled={!draft.title?.trim() || save.isLoading}
             className="flex min-w-[7rem] items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {save.isLoading ? (
@@ -107,7 +108,7 @@ const MspContractModal: React.FC<Props> = ({ open, customer, contract, onClose }
       <div className="space-y-5">
         <div className="grid grid-cols-1 gap-x-4 gap-y-5 sm:grid-cols-2 lg:grid-cols-3">
           <div className="sm:col-span-2 lg:col-span-1">
-            <FieldLabel>Title</FieldLabel>
+            <FieldLabel required>Title</FieldLabel>
             <input
               type="text"
               value={draft.title ?? ''}
@@ -186,6 +187,7 @@ const MspContractModal: React.FC<Props> = ({ open, customer, contract, onClose }
               onChange={(value) => set({ price_list: value })}
               placeholder="Select a price list"
               options={toOptions(options.data?.price_lists)}
+              searchable
             />
           </div>
           <div>
@@ -205,6 +207,7 @@ const MspContractModal: React.FC<Props> = ({ open, customer, contract, onClose }
               onChange={(value) => set({ currency: value })}
               placeholder="Select a currency"
               options={toOptions(options.data?.currencies)}
+              searchable
             />
           </div>
         </div>

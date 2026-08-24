@@ -10,6 +10,7 @@ export const deviceKeys = {
   stats: () => [...deviceKeys.all, 'stats'] as const,
   list: (params: internal.DeviceListParams) => [...deviceKeys.all, 'list', params] as const,
   context: (device: string) => [...deviceKeys.all, 'context', device] as const,
+  detail: (device: string) => [...deviceKeys.all, 'detail', device] as const,
 };
 
 export type DeviceFilterState = {
@@ -174,3 +175,10 @@ export const useCustomerUsers = (customer?: string | null) =>
   });
 
 export const useCreateDevice = () => useDeviceMutation(internal.createManagedDevice);
+
+export const useDeviceDetail = (device?: string) =>
+  useQuery({
+    queryKey: deviceKeys.detail(device || ''),
+    queryFn: ({ signal }) => internal.getDevice(device as string, signal),
+    enabled: Boolean(device),
+  });

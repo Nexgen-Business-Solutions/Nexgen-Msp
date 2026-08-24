@@ -4,16 +4,35 @@ import { Eye, Laptop, Plus, ShieldAlert, UserMinus, Users } from 'lucide-react';
 import KpiCard from '@/shared/components/KpiCard';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import TablePagination from '@/shared/components/TablePagination';
-import UserFilterBar from '../components/UserFilterBar';
+import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
 import NewUserModal from '../components/NewUserModal';
 import { useUserFilterOptions, useUserFilters, useUserList, useUserStats } from '../hooks/useUsers';
+
+const COVERAGE_OPTIONS = [
+  { value: 'no_device', label: 'No device', description: 'Active users with no active device' },
+  {
+    value: 'no_security',
+    label: 'No endpoint protection',
+    description: 'Active users whose device has no security service',
+  },
+  {
+    value: 'disabled_with_services',
+    label: 'Disabled with open services',
+    description: 'Offboarding never completed',
+  },
+];
+
+const PORTAL_OPTIONS = [
+  { value: 'yes', label: 'Has portal access', description: 'Can sign in to the customer portal' },
+  { value: 'no', label: 'No portal access', description: 'Never invited, or access revoked' },
+];
 
 const COLUMNS = ['User', 'Department', 'Customer', 'Device', 'Active services', 'Inactive services', ''];
 
 export default function UsersList() {
   const navigate = useNavigate();
   const [newUserOpen, setNewUserOpen] = useState(false);
-  const { filters, patch, clear, activeCount } = useUserFilters();
+  const { filters, patch, clear } = useUserFilters();
   const options = useUserFilterOptions();
   const stats = useUserStats();
   const list = useUserList(filters);
@@ -78,13 +97,68 @@ export default function UsersList() {
         </button>
       </div>
 
-      <UserFilterBar
-        filters={filters}
-        options={options.data}
-        activeCount={activeCount}
-        onPatch={patch}
+      <FilterBar
+        values={filters as unknown as FilterState}
+        search={filters.search}
+        searchPlaceholder="Search name, department or hostname…"
+        subtitle="Narrow the user register."
+        onSearch={(value) => patch({ search: value })}
+        onApply={(values) =>
+          patch({
+            customer: (values.customer as string) ?? '',
+            status: (values.status as string) ?? '',
+            department: (values.department as string) ?? '',
+            service: (values.service as string) ?? '',
+            coverage: (values.coverage as string) ?? '',
+            portal: (values.portal as string) ?? '',
+          })
+        }
         onClear={clear}
         onRefresh={() => list.refetch()}
+        fields={[
+          {
+            key: 'customer',
+            label: 'Customer',
+            kind: 'select',
+            allLabel: 'All customers',
+            options: (options.data?.customers ?? []).map((value) => ({ value, label: value })),
+          },
+          {
+            key: 'status',
+            label: 'Status',
+            kind: 'select',
+            allLabel: 'All statuses',
+            options: (options.data?.statuses ?? []).map((value) => ({ value, label: value })),
+          },
+          {
+            key: 'department',
+            label: 'Department',
+            kind: 'select',
+            allLabel: 'All departments',
+            options: (options.data?.departments ?? []).map((value) => ({ value, label: value })),
+          },
+          {
+            key: 'service',
+            label: 'Subscribed service',
+            kind: 'select',
+            allLabel: 'Any service',
+            options: options.data?.services ?? [],
+          },
+          {
+            key: 'coverage',
+            label: 'Coverage',
+            kind: 'select',
+            allLabel: 'Any coverage',
+            options: COVERAGE_OPTIONS,
+          },
+          {
+            key: 'portal',
+            label: 'Portal access',
+            kind: 'select',
+            allLabel: 'With or without',
+            options: PORTAL_OPTIONS,
+          },
+        ]}
       />
 
       <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">

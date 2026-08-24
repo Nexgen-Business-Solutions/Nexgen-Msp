@@ -1,0 +1,166 @@
+{
+ "actions": [],
+ "creation": "2026-08-21 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "issingle": 1,
+ "field_order": [
+  "section_issuer",
+  "issuer_name",
+  "issuer_address",
+  "column_break_issuer",
+  "issuer_phone",
+  "issuer_website",
+  "section_bank",
+  "bank_currency",
+  "beneficiary",
+  "column_break_bank",
+  "beneficiary_bank",
+  "column_break_bank_two",
+  "intermediary_bank",
+  "section_footer",
+  "footer_note",
+  "section_dispute",
+  "dispute_window_days",
+  "section_accounting",
+  "default_cost_center",
+  "show_cost_center_on_invoice"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_issuer",
+   "fieldtype": "Section Break",
+   "label": "Invoice Issuer"
+  },
+  {
+   "fieldname": "issuer_name",
+   "fieldtype": "Data",
+   "label": "Name"
+  },
+  {
+   "fieldname": "issuer_address",
+   "fieldtype": "Small Text",
+   "label": "Address"
+  },
+  {
+   "fieldname": "column_break_issuer",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "issuer_phone",
+   "fieldtype": "Data",
+   "label": "Phone"
+  },
+  {
+   "fieldname": "issuer_website",
+   "fieldtype": "Data",
+   "label": "Website"
+  },
+  {
+   "fieldname": "section_bank",
+   "fieldtype": "Section Break",
+   "label": "Bank Details"
+  },
+  {
+   "fieldname": "bank_currency",
+   "fieldtype": "Data",
+   "label": "Wire Currency"
+  },
+  {
+   "fieldname": "beneficiary",
+   "fieldtype": "Small Text",
+   "label": "Beneficiary"
+  },
+  {
+   "fieldname": "column_break_bank",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "beneficiary_bank",
+   "fieldtype": "Small Text",
+   "label": "Beneficiary Bank"
+  },
+  {
+   "fieldname": "column_break_bank_two",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "intermediary_bank",
+   "fieldtype": "Small Text",
+   "label": "Intermediary Bank"
+  },
+  {
+   "fieldname": "section_footer",
+   "fieldtype": "Section Break",
+   "label": "Footer"
+  },
+  {
+   "fieldname": "footer_note",
+   "fieldtype": "Data",
+   "label": "Closing Line"
+  },
+  {
+   "fieldname": "section_dispute",
+   "fieldtype": "Section Break",
+   "label": "Dispute"
+  },
+  {
+   "fieldname": "dispute_window_days",
+   "fieldtype": "Int",
+   "label": "Dispute Window (Days)",
+   "default": "10",
+   "non_negative": 1
+  },
+  {
+   "fieldname": "section_accounting",
+   "fieldtype": "Section Break",
+   "label": "Accounting"
+  },
+  {
+   "fieldname": "default_cost_center",
+   "fieldtype": "Link",
+   "label": "Default Cost Center",
+   "options": "Cost Center"
+  },
+  {
+   "fieldname": "show_cost_center_on_invoice",
+   "fieldtype": "Check",
+   "label": "Show Cost Center On The Customer Invoice",
+   "default": "0"
+  }
+ ],
+ "links": [],
+ "modified": "2026-08-21 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nexgen MSP",
+ "name": "MSP Invoice Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "MSP System Admin",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
