@@ -296,6 +296,7 @@ export type UserDetail = {
     portal_user: string | null;
     remarks: string | null;
     covered_until: string | null;
+    last_billed_on: string | null;
   };
   devices: UserDevice[];
   services: UserServiceRow[];
@@ -1336,6 +1337,7 @@ export type InvoiceSettings = {
   beneficiary_bank: string | null;
   intermediary_bank: string | null;
   footer_note: string | null;
+  payment_terms_days: number | null;
   dispute_window_days: number | null;
   default_cost_center: string | null;
   show_cost_center_on_invoice: number;

@@ -191,6 +191,12 @@ export default function UserDetail() {
                 </p>
               </div>
               <div>
+                <p className="text-xs font-medium text-slate-400">Last billed on</p>
+                <p className="mt-0.5 text-sm text-slate-700">
+                  {user.last_billed_on ? fmtDate(user.last_billed_on) : 'Never'}
+                </p>
+              </div>
+              <div>
                 <p className="text-xs font-medium text-slate-400">Portal access</p>
                 <p className="mt-0.5 text-sm text-slate-700">
                   {user.portal_user ? user.portal_user : 'No'}

@@ -193,6 +193,10 @@ export default function DeviceDetail() {
                 label="Billed up to"
                 value={device.covered_until ? fmtDate(device.covered_until) : 'Never billed'}
               />
+              <Fact
+                label="Last billed on"
+                value={device.last_billed_on ? fmtDate(device.last_billed_on) : 'Never'}
+              />
               {retired && <Fact label="Retired on" value={fmtDate(device.retired_date)} />}
             </div>
 

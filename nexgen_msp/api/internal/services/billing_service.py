@@ -1434,6 +1434,40 @@ class BillingService:
         return [label for field, label in needed.items() if not values.get(field)]
 
     @staticmethod
+    def _payment_terms_template():
+        """A template ERPNext can date the invoice from, kept in step with the setting.
+
+        Without one the due date falls back to the posting date and every invoice reads as
+        overdue the day after it is issued.
+        """
+        from nexgen_msp.api.internal.services.settings_service import SettingsService
+
+        days = SettingsService.payment_terms_days()
+        name = f"Net {days} Days"
+
+        if not frappe.db.exists("Payment Term", name):
+            frappe.get_doc(
+                {
+                    "doctype": "Payment Term",
+                    "payment_term_name": name,
+                    "due_date_based_on": "Day(s) after invoice date",
+                    "credit_days": days,
+                    "invoice_portion": 100,
+                }
+            ).insert(ignore_permissions=True)
+
+        if not frappe.db.exists("Payment Terms Template", name):
+            frappe.get_doc(
+                {
+                    "doctype": "Payment Terms Template",
+                    "template_name": name,
+                    "terms": [{"payment_term": name, "invoice_portion": 100, "credit_days": days}],
+                }
+            ).insert(ignore_permissions=True)
+
+        return name
+
+    @staticmethod
     def submit_invoice(name=None, notify=1):
         """Post the invoice to the ledger. The run only becomes final once this succeeds."""
         BillingService._guard_admin()
@@ -1468,8 +1502,16 @@ class BillingService:
         # stranded in the past and refusing the submit
         invoice.set_posting_time = 1
 
-        if invoice.due_date and getdate(invoice.due_date) < getdate(invoice.posting_date):
-            invoice.due_date = invoice.posting_date
+        # ERPNext recomputes the due date from the payment terms at validate, so setting the
+        # date directly would be overwritten: the template is what actually grants the delay
+        template = BillingService._payment_terms_template()
+
+        if template:
+            invoice.payment_terms_template = template
+            # both are cleared so ERPNext derives them from the template rather than
+            # keeping the posting date it fell back on when the draft was made
+            invoice.payment_schedule = []
+            invoice.due_date = None
 
         invoice.submit()
 

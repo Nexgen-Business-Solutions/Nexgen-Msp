@@ -43,6 +43,7 @@ KPI_SOURCES = {
         """,
         "order_by": "coalesce(holder.disabled_date, device_holder.disabled_date) desc",
         "key": "sa.name",
+        "route": "concat('/msp/users/', coalesce(holder.name, device_holder.name))",
     },
     "unprotected_devices": {
         "title": "Unprotected devices",
@@ -68,6 +69,7 @@ KPI_SOURCES = {
         """,
         "order_by": "device.customer asc, device.hostname asc",
         "key": "device.name",
+        "route": "concat('/msp/devices/', device.name)",
     },
     "billable_services": {
         "title": "Billable services",
@@ -83,6 +85,7 @@ KPI_SOURCES = {
         "body": ASSIGNMENT_JOIN + " where sa.billing_status = 'Billable' ",
         "order_by": "sa.customer asc, sa.effective_start_date desc",
         "key": "sa.name",
+        "route": "concat('/msp/users/', coalesce(holder.name, device_holder.name))",
     },
     "services_added": {
         "title": "Services started this month",
@@ -102,6 +105,7 @@ KPI_SOURCES = {
         """,
         "order_by": "sa.effective_start_date desc",
         "key": "sa.name",
+        "route": "concat('/msp/users/', coalesce(holder.name, device_holder.name))",
     },
     "services_removed": {
         "title": "Services ended this month",
@@ -117,6 +121,7 @@ KPI_SOURCES = {
         "body": ASSIGNMENT_JOIN + " where sa.effective_end_date >= %(month_start)s ",
         "order_by": "sa.effective_end_date desc",
         "key": "sa.name",
+        "route": "concat('/msp/users/', coalesce(holder.name, device_holder.name))",
     },
 }
 
@@ -361,6 +366,9 @@ class DashboardService:
         selected = ", ".join(
             f"{expression} as `{key}`" for key, _label, expression in source["fields"]
         )
+
+        if source.get("route"):
+            selected += f", {source['route']} as `route`"
 
         rows = frappe.db.sql(
             f"""

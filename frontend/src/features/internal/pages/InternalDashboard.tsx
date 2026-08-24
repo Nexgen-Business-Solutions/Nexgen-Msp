@@ -412,6 +412,10 @@ export default function InternalDashboard() {
           setKpiStart(0);
         }}
         onClose={() => setKpi(null)}
+        onOpenRow={(route) => {
+          setKpi(null);
+          navigate(route);
+        }}
       />
     </div>
   );

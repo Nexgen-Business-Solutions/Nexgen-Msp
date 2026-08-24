@@ -20,6 +20,7 @@ export type KpiDetailPanelProps = {
   onNext: () => void;
   onPageLengthChange: (pageLength: number) => void;
   onClose: () => void;
+  onOpenRow?: (route: string) => void;
 };
 
 const statusBadge: Record<string, string> = {
@@ -68,6 +69,7 @@ const KpiDetailPanel: React.FC<KpiDetailPanelProps> = ({
   onNext,
   onPageLengthChange,
   onClose,
+  onOpenRow,
 }) => {
   useEffect(() => {
     if (!open) return;
@@ -152,8 +154,19 @@ const KpiDetailPanel: React.FC<KpiDetailPanelProps> = ({
 
               {!error &&
                 !isLoading &&
-                rows.map((row) => (
-                  <tr key={row.name} className="transition-colors hover:bg-slate-50">
+                rows.map((row) => {
+                  // every row here stands for something with a page of its own
+                  const route = typeof row.route === 'string' ? row.route : null;
+                  const openable = Boolean(route && onOpenRow);
+
+                  return (
+                  <tr
+                    key={row.name}
+                    onClick={() => openable && onOpenRow?.(route as string)}
+                    className={`transition-colors hover:bg-slate-50 ${
+                      openable ? 'cursor-pointer' : ''
+                    }`}
+                  >
                     {columns.map((column) => (
                       <td key={column.key} className="whitespace-nowrap px-4 py-3">
                         {column.key === 'status' ? (
@@ -181,7 +194,8 @@ const KpiDetailPanel: React.FC<KpiDetailPanelProps> = ({
                       </td>
                     ))}
                   </tr>
-                ))}
+                  );
+                })}
             </tbody>
           </table>
         </div>

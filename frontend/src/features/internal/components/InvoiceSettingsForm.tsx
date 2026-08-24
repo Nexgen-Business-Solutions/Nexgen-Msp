@@ -22,6 +22,7 @@ const EMPTY: InvoiceSettings = {
   beneficiary_bank: '',
   intermediary_bank: '',
   footer_note: '',
+  payment_terms_days: 30,
   dispute_window_days: 10,
   default_cost_center: '',
   show_cost_center_on_invoice: 0,
@@ -210,9 +211,23 @@ const InvoiceSettingsForm: React.FC = () => {
 
       <div>
         <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
-          Dispute
+          Terms
         </p>
-        <div className="sm:max-w-xs">
+        <div className="grid grid-cols-1 gap-x-4 gap-y-5 sm:max-w-2xl sm:grid-cols-2">
+          <div>
+            <FieldLabel required>Days to pay</FieldLabel>
+            <input
+              type="number"
+              min={0}
+              value={form.payment_terms_days ?? 30}
+              onChange={(event) => set({ payment_terms_days: Number(event.target.value) })}
+              className={inputClass}
+            />
+            <p className="mt-1.5 text-sm text-slate-500">
+              Counted from the invoice date. At zero, an invoice is overdue the next day.
+            </p>
+          </div>
+          <div>
           <FieldLabel required>Days to contest</FieldLabel>
           <input
             type="number"
@@ -224,6 +239,7 @@ const InvoiceSettingsForm: React.FC = () => {
           <p className="mt-1.5 text-sm text-slate-500">
             Past it, the customer no longer dispute the invoice.
           </p>
+          </div>
         </div>
       </div>
 

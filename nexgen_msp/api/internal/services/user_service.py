@@ -276,6 +276,19 @@ class UserService:
             as_dict=True,
         )
 
+        # what a submitted run actually covered, which is the date that can be defended
+        user["last_billed_on"] = frappe.db.sql(
+            """
+            select max(br.billing_period_end)
+            from `tabBilling Run Line` brl
+            join `tabBilling Run` br on br.name = brl.parent
+            left join `tabManaged Device` device on device.name = brl.managed_device
+            where br.docstatus = 1
+              and (brl.client_user = %(user)s or device.assigned_client_user = %(user)s)
+            """,
+            {"user": name},
+        )[0][0]
+
         devices = frappe.db.sql(
             """
             select name, hostname, device_type, status, assigned_date, retired_date

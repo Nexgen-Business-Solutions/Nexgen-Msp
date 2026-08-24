@@ -16,12 +16,16 @@ INVOICE_FIELDS = (
     "intermediary_bank",
     "footer_note",
     "dispute_window_days",
+    "payment_terms_days",
     "default_cost_center",
     "show_cost_center_on_invoice",
 )
 
 # how long a customer keeps the right to contest, when the setting has never been saved
 DEFAULT_DISPUTE_WINDOW = 10
+
+# how long they have to pay, counted from the invoice date
+DEFAULT_PAYMENT_TERMS = 30
 
 
 class SettingsService:
@@ -133,6 +137,13 @@ class SettingsService:
         return frappe.utils.cint(days) or DEFAULT_DISPUTE_WINDOW
 
     @staticmethod
+    def payment_terms_days():
+        """How many days after its date an invoice falls due."""
+        days = frappe.db.get_single_value("MSP Invoice Settings", "payment_terms_days")
+
+        return frappe.utils.cint(days) or DEFAULT_PAYMENT_TERMS
+
+    @staticmethod
     def get_invoice_settings():
         """What the printed invoice says about us, and where the money should be wired."""
         SettingsService._guard_admin()
@@ -161,6 +172,13 @@ class SettingsService:
         if doc.default_cost_center and not frappe.db.exists("Cost Center", doc.default_cost_center):
             raise ValidationError(
                 f"Cost Center {doc.default_cost_center} does not exist.", "VALIDATION_ERROR"
+            )
+
+        if doc.payment_terms_days in (None, ""):
+            doc.payment_terms_days = DEFAULT_PAYMENT_TERMS
+        elif frappe.utils.cint(doc.payment_terms_days) < 0:
+            raise ValidationError(
+                "A payment delay cannot be negative.", "VALIDATION_ERROR"
             )
 
         # an untouched setting falls back rather than blocking the save of everything else
