@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, Clock, Eye, Inbox, Wrench } from 'lucide-react';
+import { AlertTriangle, Clock, Eye, Inbox, Plus, Wrench } from 'lucide-react';
 import KpiCard from '@/shared/components/KpiCard';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import StatusBadge from '@/shared/components/StatusBadge';
@@ -35,6 +35,17 @@ export default function RequestsList() {
 
   return (
     <div className="space-y-5 px-6 pb-6 pt-4">
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => navigate('/msp/requests/new')}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
+        >
+          <Plus size={15} />
+          New request
+        </button>
+      </div>
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard
           icon={Inbox}

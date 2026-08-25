@@ -1,0 +1,69 @@
+{
+ "customer_mappings": [
+  {
+   "excel_label": "sonecomx",
+   "customer_id": "SUPPLY SOLUTIONS WEST AFRICA LIMITED - SX",
+   "create_as": null,
+   "department_prefix": null
+  },
+  {
+   "excel_label": "SICG",
+   "customer_id": "SUPPLY SOLUTIONS WEST AFRICA LIMITED - SICG",
+   "create_as": null,
+   "department_prefix": null
+  },
+  {
+   "excel_label": "kakivu",
+   "customer_id": "Kakivu Mousse USD",
+   "create_as": null,
+   "department_prefix": null
+  },
+  {
+   "excel_label": "Avittal",
+   "customer_id": "Kakivu Mousse USD",
+   "create_as": null,
+   "department_prefix": "Avittal"
+  },
+  {
+   "excel_label": "ACI",
+   "customer_id": "Assurances Cameroun International (ACI)",
+   "create_as": null,
+   "department_prefix": null
+  },
+  {
+   "excel_label": "Miral",
+   "customer_id": "Miral Construction",
+   "create_as": null,
+   "department_prefix": null
+  },
+  {
+   "excel_label": "nexgen",
+   "customer_id": "Nexgen Business Solutions",
+   "create_as": "Nexgen Business Solutions",
+   "department_prefix": null
+  },
+  {
+   "excel_label": "Clever Pays",
+   "customer_id": "Clever Pays",
+   "create_as": "Clever Pays",
+   "department_prefix": null
+  }
+ ],
+ "service_mappings": [
+  {
+   "service_key": "nextcloud",
+   "item_id": "9000-0012-Month",
+   "scope": "User"
+  },
+  {
+   "service_key": "parallels",
+   "item_id": "9000-0004-Month",
+   "scope": "User"
+  },
+  {
+   "service_key": "sophos",
+   "item_id": "9000-0007",
+   "scope": "Device"
+  }
+ ]
+}

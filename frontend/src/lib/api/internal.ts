@@ -1343,6 +1343,74 @@ export type InvoiceSettings = {
   show_cost_center_on_invoice: number;
 };
 
+export type CustomerMapping = {
+  excel_label: string;
+  customer_id: string;
+  create_as: string | null;
+  department_prefix: string | null;
+  exists?: boolean;
+};
+
+export type ServiceMapping = {
+  service_key: string;
+  item_id: string;
+  scope: string;
+  exists?: boolean;
+};
+
+export type ImportMappings = {
+  customers: CustomerMapping[];
+  services: ServiceMapping[];
+};
+
+export type ImportReport = {
+  dry_run: boolean;
+  rows_read: number;
+  created: Record<string, number>;
+  updated: Record<string, number>;
+  skipped: Record<string, number>;
+  exceptions: { row: number; name?: string; reason: string }[];
+};
+
+export const getImportMappings = (signal?: AbortSignal) =>
+  get<ImportMappings>(`${BASE}.get_import_mappings`, undefined, signal);
+
+export const saveImportMappings = (payload: ImportMappings) =>
+  post<ImportMappings>(`${BASE}.save_import_mappings`, {
+    customers: JSON.stringify(payload.customers),
+    services: JSON.stringify(payload.services),
+  });
+
+/** The file goes up as multipart, which the JSON transport cannot carry. */
+export const uploadUserList = async (file: File) => {
+  const body = new FormData();
+  body.append('file', file);
+
+  const token =
+    window.csrf_token ||
+    document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
+    '';
+
+  const response = await fetch(`/api/method/${BASE}.upload_user_list`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: token ? { 'X-Frappe-CSRF-Token': token } : {},
+    body,
+  });
+
+  const payload = await response.json().catch(() => null);
+  const message = payload?.message ?? payload;
+
+  if (!response.ok || message?.success === false) {
+    throw new Error(message?.error || payload?.message || 'The file could not be uploaded.');
+  }
+
+  return message as { file_url: string; file_name: string };
+};
+
+export const runUserImport = (file_url: string, dry_run: number) =>
+  post<ImportReport>(`${BASE}.run_user_import`, { file_url, dry_run });
+
 export const getInvoiceSettings = (signal?: AbortSignal) =>
   get<InvoiceSettings>(`${BASE}.get_invoice_settings`, undefined, signal);
 

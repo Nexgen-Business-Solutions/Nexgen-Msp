@@ -55,3 +55,27 @@ export const useSaveInvoiceSettings = () => {
       queryClient.setQueryData([...settingsKeys.all, 'invoice'], data),
   });
 };
+
+export const useImportMappings = () =>
+  useQuery({
+    queryKey: [...settingsKeys.all, 'import-mappings'] as const,
+    queryFn: ({ signal }) => internal.getImportMappings(signal),
+  });
+
+export const useSaveImportMappings = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: internal.saveImportMappings,
+    onSuccess: (data) =>
+      queryClient.setQueryData([...settingsKeys.all, 'import-mappings'], data),
+  });
+};
+
+export const useRunUserImport = () =>
+  useMutation({
+    mutationFn: async (variables: { file: File; dryRun: boolean }) => {
+      const uploaded = await internal.uploadUserList(variables.file);
+      return internal.runUserImport(uploaded.file_url, variables.dryRun ? 1 : 0);
+    },
+  });

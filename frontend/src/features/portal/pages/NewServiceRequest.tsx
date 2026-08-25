@@ -3,6 +3,10 @@ import { AlertCircle, Copy, Plus, Trash2, UserPlus, Users } from 'lucide-react';
 import Select from '@/shared/components/Select';
 import ServiceStateHint from '../components/ServiceStateHint';
 import { NEW_DEVICE, useServiceRequestForm } from '../hooks/useServiceRequestForm';
+import { useSession } from '@/shared/hooks/useSession';
+import { isPortalOnly } from '@/shared/layout/navigation';
+import { useUserFilterOptions } from '@/features/internal/hooks/useUsers';
+import { usePortalFilters } from '../store/usePortalFilters';
 
 const labelClass = 'mb-1.5 block text-xs font-semibold text-slate-700';
 const inputClass =
@@ -11,6 +15,38 @@ const inputClass =
 export default function NewServiceRequest() {
   const navigate = useNavigate();
   const form = useServiceRequestForm(() => navigate('/msp'));
+
+  // staff serve every customer, so they must say who they are acting for; a contact
+  // has only their own and never sees this
+  const { data: session } = useSession();
+  const onBehalf = !isPortalOnly(session?.roles);
+  const customer = usePortalFilters((state) => state.customer);
+  const setCustomer = usePortalFilters((state) => state.setCustomer);
+  const options = useUserFilterOptions();
+
+  if (onBehalf && !customer) {
+    return (
+      <div className="px-6 pb-6 pt-4">
+        <div className="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
+          <h2 className="text-base font-semibold text-slate-900">Who is this request for?</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Pick the customer you are raising it on behalf of. Only what their contract covers
+            can be requested.
+          </p>
+          <div className="mt-4 sm:max-w-sm">
+            <Select
+              searchable
+              className="w-full"
+              value=""
+              onChange={setCustomer}
+              placeholder="Pick a customer"
+              options={(options.data?.customers ?? []).map((value) => ({ value, label: value }))}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="px-6 pb-6 pt-4">
@@ -28,6 +64,18 @@ export default function NewServiceRequest() {
               <p className="mt-1 text-sm text-slate-500">
                 Create your request and set descrition of what you need for each case.
               </p>
+              {onBehalf && customer && (
+                <p className="mt-2 inline-flex items-center gap-2 text-sm text-slate-600">
+                  On behalf of <span className="font-semibold text-slate-900">{customer}</span>
+                  <button
+                    type="button"
+                    onClick={() => setCustomer(null)}
+                    className="font-medium text-blue-600 transition-colors hover:text-blue-700"
+                  >
+                    change
+                  </button>
+                </p>
+              )}
             </div>
 
             <div className="w-full sm:w-48">

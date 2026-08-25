@@ -1,0 +1,22 @@
+{
+ "app": "nexgen_msp",
+ "bg_color": "blue",
+ "creation": "2026-08-25 00:00:00.000000",
+ "docstatus": 0,
+ "doctype": "Desktop Icon",
+ "hidden": 0,
+ "icon": "tool",
+ "icon_type": "Link",
+ "idx": 1,
+ "label": "Nexgen MSP",
+ "link": "/msp",
+ "link_type": "External",
+ "modified": "2026-08-25 15:00:00.000000",
+ "modified_by": "Administrator",
+ "name": "Nexgen MSP",
+ "owner": "Administrator",
+ "restrict_removal": 0,
+ "roles": [],
+ "standard": 1,
+ "logo_url": "/assets/nexgen_msp/images/nexgen-icon.png"
+}

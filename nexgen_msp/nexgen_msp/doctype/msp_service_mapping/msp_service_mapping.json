@@ -1,0 +1,24 @@
+{
+ "actions": [],
+ "creation": "2026-08-25 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": ["service_key", "item_id", "scope"],
+ "fields": [
+  {"fieldname": "service_key", "fieldtype": "Select", "in_list_view": 1, "label": "Service In File", "options": "nextcloud\nparallels\nsophos", "reqd": 1},
+  {"fieldname": "item_id", "fieldtype": "Data", "in_list_view": 1, "label": "Item Id", "reqd": 1},
+  {"fieldname": "scope", "fieldtype": "Select", "in_list_view": 1, "label": "Attached To", "options": "User\nDevice", "reqd": 1}
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-25 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nexgen MSP",
+ "name": "MSP Service Mapping",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

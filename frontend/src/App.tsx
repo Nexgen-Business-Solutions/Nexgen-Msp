@@ -5,8 +5,14 @@ import { router } from './router';
 import { initializeTheme } from './theme';
 import { FrappeError } from './lib/api/client';
 
+/** Only a lost session sends anyone back to the login screen.
+ *
+ * A 403 means the opposite: the session is valid, this account simply may not have that.
+ * Treating it as an auth failure bounced a portal user with no customer between the app
+ * and the login form for ever.
+ */
 const isAuthError = (error: unknown) =>
-  error instanceof FrappeError && (error.status === 401 || error.status === 403);
+  error instanceof FrappeError && error.status === 401;
 
 const queryClient = new QueryClient({
   queryCache: new QueryCache({

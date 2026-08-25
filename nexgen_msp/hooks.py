@@ -57,7 +57,10 @@ fixtures = [
 
 override_doctype_class = {"User": "nexgen_msp.overrides.user.MSPUser"}
 
-after_migrate = ["nexgen_msp.utils.notifications.ensure_templates"]
+after_migrate = [
+	"nexgen_msp.utils.notifications.ensure_templates",
+	"nexgen_msp.utils.import_mappings.ensure_mappings",
+]
 
 # Each item in the list will be shown as an app in the apps page
 # add_to_apps_screen = [

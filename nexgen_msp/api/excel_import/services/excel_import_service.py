@@ -8,30 +8,11 @@ from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[a-zA-Z]{2,}$")
 
-SERVICE_CATALOGUE = {
-    "parallels": {
-        "item_code": "SVC-PARALLELS",
-        "item_name": "Parallels User License",
-        "scope": "User",
-    },
-    "nextcloud": {
-        "item_code": "SVC-NEXTCLOUD",
-        "item_name": "Nextcloud User Account",
-        "scope": "User",
-    },
-    "sophos": {
-        "item_code": "SVC-SOPHOS",
-        "item_name": "Sophos Endpoint Protection",
-        "scope": "Device",
-    },
-}
-
 ASSIGNMENT_STATUS = {
     "Active": ("Active", "Billable"),
     "Ended": ("Ended", "Ended"),
 }
 
-ITEM_GROUP = "Services"
 DEFAULT_UOM = "Unit"
 MIGRATION_TAG = "list of users.xlsx"
 
@@ -87,6 +68,7 @@ class ExcelImportService:
             },
             "skipped": {
                 "rows_failed": 0,
+                "rows_unmapped": 0,
                 "devices_without_hostname": 0,
                 "duplicate_hostname": 0,
                 "assignments_existing": 0,
@@ -108,11 +90,10 @@ class ExcelImportService:
             report["rows_read"] = len(records)
 
         try:
-            customers = ExcelImportService._ensure_customers(records, report)
-
-            items = {}
-            if create_items:
-                items = ExcelImportService._ensure_items(report)
+            customer_map, service_map = ExcelImportService._mapping()
+            customers = ExcelImportService._ensure_customers(records, report, customer_map)
+            items = ExcelImportService._ensure_items(service_map, report)
+            scopes = {key: (row.scope or "User") for key, row in service_map.items()}
 
             hostname_seen = {}
             email_seen = {}
@@ -125,18 +106,33 @@ class ExcelImportService:
                     report["skipped"]["rows_failed"] += 1
                     continue
 
+                if record["company"].lower() not in customers:
+                    report["exceptions"].append(
+                        {
+                            "row": record["row_number"],
+                            "name": record["full_name"],
+                            "reason": f"No customer mapped for '{record['company']}' — "
+                            "add it in Settings before importing.",
+                        }
+                    )
+                    report["skipped"]["rows_unmapped"] += 1
+                    continue
+
                 savepoint = f"row_{record['row_number']}"
                 frappe.db.savepoint(savepoint)
                 counters_before = (dict(report["created"]), dict(report["updated"]))
 
                 try:
                     customer = customers.get(record["company"].lower())
-                    client_user = ExcelImportService._create_client_user(record, customer, report)
+                    prefix = customer_map[record["company"].lower()].department_prefix
+                    client_user = ExcelImportService._create_client_user(
+                        record, customer, report, prefix
+                    )
                     device = ExcelImportService._create_device(
                         record, customer, client_user, hostname_seen, report
                     )
                     ExcelImportService._create_assignments(
-                        record, customer, client_user, device, items, report
+                        record, customer, client_user, device, items, scopes, report
                     )
 
                     if create_portal_users:
@@ -227,59 +223,85 @@ class ExcelImportService:
         return frappe.get_doc("File", name).get_full_path()
 
     @staticmethod
-    def _ensure_customers(records, report):
+    def _mapping():
+        """What the file calls a company or a service, and what it is on this site.
+
+        The site was populated long before this app existed, so nothing here is matched on
+        a label: a row reaches a customer by its id or it does not reach one at all.
+        """
+        doc = frappe.get_single("MSP Import Settings")
+
+        return (
+            {
+                (row.excel_label or "").strip().lower(): row
+                for row in doc.customer_mappings
+                if row.excel_label
+            },
+            {
+                (row.service_key or "").strip().lower(): row
+                for row in doc.service_mappings
+                if row.service_key
+            },
+        )
+
+    @staticmethod
+    def _ensure_customers(records, report, mapping):
+        """Resolve every company in the file to a customer that already exists.
+
+        A company with no mapping is left unresolved on purpose: the rows that carry it are
+        rejected and named in the report, rather than quietly opening a second customer next
+        to the real one.
+        """
         customers = {}
 
         for record in records:
-            company = record["company"]
-            if not company or company.lower() in customers:
+            company = (record["company"] or "").strip()
+            key = company.lower()
+
+            if not company or key in customers:
                 continue
 
-            existing = frappe.db.get_value("Customer", {"customer_name": company}, "name")
-            if existing:
-                customers[company.lower()] = existing
+            row = mapping.get(key)
+
+            if not row:
                 continue
 
-            doc = frappe.get_doc({"doctype": "Customer", "customer_name": company}).insert()
-            customers[company.lower()] = doc.name
+            if frappe.db.exists("Customer", row.customer_id):
+                customers[key] = row.customer_id
+                continue
+
+            if not row.create_as:
+                continue
+
+            doc = frappe.get_doc(
+                {"doctype": "Customer", "customer_name": row.create_as}
+            ).insert()
+            customers[key] = doc.name
             report["created"]["customers"] += 1
 
         return customers
 
     @staticmethod
-    def _ensure_items(report):
+    def _ensure_items(mapping, report):
+        """The item each service column stands for, taken from the mapping and never created.
+
+        The catalogue on this site predates the app, so an unmapped service is skipped for
+        every row rather than opening a fourth article next to the three real ones.
+        """
         items = {}
 
-        if not frappe.db.exists("Item Group", ITEM_GROUP):
-            frappe.get_doc(
-                {
-                    "doctype": "Item Group",
-                    "item_group_name": ITEM_GROUP,
-                    "parent_item_group": "All Item Groups",
-                    "is_group": 0,
-                }
-            ).insert()
-
-        for key, spec in SERVICE_CATALOGUE.items():
-            code = spec["item_code"]
-            if frappe.db.exists("Item", code):
-                items[key] = code
+        for key, row in mapping.items():
+            if row.item_id and frappe.db.exists("Item", row.item_id):
+                items[key] = row.item_id
                 continue
 
-            frappe.get_doc(
+            report["exceptions"].append(
                 {
-                    "doctype": "Item",
-                    "item_code": code,
-                    "item_name": spec["item_name"],
-                    "item_group": ITEM_GROUP,
-                    "stock_uom": DEFAULT_UOM,
-                    "is_stock_item": 0,
-                    "is_sales_item": 1,
-                    "is_purchase_item": 0,
+                    "row": 0,
+                    "reason": f"Service '{key}' maps to item '{row.item_id}', which does not "
+                    "exist here — nothing was assigned for it.",
                 }
-            ).insert()
-            items[key] = code
-            report["created"]["items"] += 1
+            )
 
         return items
 
@@ -339,7 +361,21 @@ class ExcelImportService:
         return None
 
     @staticmethod
-    def _create_client_user(record, customer, report):
+    def _department(record, prefix):
+        """A sub-account keeps its own department behind the entity it belongs to.
+
+        Its people are billed on the parent's contract, so the company they answer to would
+        otherwise be lost the moment the two are merged under one customer.
+        """
+        department = (record["department"] or "").strip()
+
+        if not prefix:
+            return department or None
+
+        return f"{prefix} — {department}" if department else prefix
+
+    @staticmethod
+    def _create_client_user(record, customer, report, prefix=None):
         status = ExcelImportService._lifecycle_status(record)
         start_date, disabled_date = ExcelImportService._lifecycle_dates(record, status)
 
@@ -347,7 +383,7 @@ class ExcelImportService:
                 "doctype": "Client User",
                 "full_name": record["full_name"],
                 "customer": customer,
-                "department": record["department"],
+                "department": ExcelImportService._department(record, prefix),
                 "email": record["email"],
                 "lifecycle_status": status,
                 "start_date": ExcelImportService._reconcile_start(
@@ -559,18 +595,18 @@ class ExcelImportService:
             report["created"]["invitations_sent"] += 1
 
     @staticmethod
-    def _create_assignments(record, customer, client_user, device, items, report):
+    def _create_assignments(record, customer, client_user, device, items, scopes, report):
         for key, lifecycle in record["services"].items():
             if not lifecycle["assigned"] or key not in items:
                 continue
 
-            spec = SERVICE_CATALOGUE[key]
+            scope = scopes.get(key, "User")
 
-            if spec["scope"] == "Device" and not device:
+            if scope == "Device" and not device:
                 report["exceptions"].append(
                     {
                         "row": record["row_number"],
-                        "reason": f"{spec['item_name']} skipped: no device on this row",
+                        "reason": f"{key.title()} skipped: no device on this row",
                     }
                 )
                 continue
@@ -580,7 +616,7 @@ class ExcelImportService:
                 report["exceptions"].append(
                     {
                         "row": record["row_number"],
-                        "reason": f"{spec['item_name']}: end date precedes start date, start date dropped",
+                        "reason": f"{key.title()}: end date precedes start date, start date dropped",
                     }
                 )
 
@@ -589,8 +625,8 @@ class ExcelImportService:
             held = {
                 "customer": customer,
                 "service_item": items[key],
-                "client_user": client_user if spec["scope"] == "User" else None,
-                "managed_device": device if spec["scope"] == "Device" else None,
+                "client_user": client_user if scope == "User" else None,
+                "managed_device": device if scope == "Device" else None,
             }
 
             if frappe.db.exists("Service Assignment", held):
@@ -602,9 +638,9 @@ class ExcelImportService:
                     "doctype": "Service Assignment",
                     "customer": customer,
                     "service_item": items[key],
-                    "assignment_scope": spec["scope"],
-                    "client_user": client_user if spec["scope"] == "User" else None,
-                    "managed_device": device if spec["scope"] == "Device" else None,
+                    "assignment_scope": scope,
+                    "client_user": client_user if scope == "User" else None,
+                    "managed_device": device if scope == "Device" else None,
                     "quantity": 1,
                     "uom": DEFAULT_UOM,
                     "operational_status": operational_status,

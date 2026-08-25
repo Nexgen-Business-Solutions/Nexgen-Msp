@@ -1,0 +1,25 @@
+{
+ "actions": [],
+ "creation": "2026-08-25 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": ["excel_label", "customer_id", "create_as", "department_prefix"],
+ "fields": [
+  {"fieldname": "excel_label", "fieldtype": "Data", "in_list_view": 1, "label": "Company In File", "reqd": 1},
+  {"fieldname": "customer_id", "fieldtype": "Data", "in_list_view": 1, "label": "Customer Id", "reqd": 1},
+  {"fieldname": "create_as", "fieldtype": "Data", "in_list_view": 1, "label": "Create As"},
+  {"fieldname": "department_prefix", "fieldtype": "Data", "in_list_view": 1, "label": "Department Prefix"}
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-25 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nexgen MSP",
+ "name": "MSP Customer Mapping",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -639,7 +639,8 @@ class PortalService:
                 "customer": customer,
                 "request_type": request_type,
                 "priority": priority or "Medium",
-                "source": "Portal",
+                # a request opened by the team is not a request from the customer
+                "source": "Internal" if permissions.is_internal() else "Portal",
                 "status": "Submitted",
                 "requester": frappe.session.user,
                 "lines": [
@@ -925,6 +926,13 @@ class PortalService:
             )
 
         if not customer:
+            # a contact has exactly one; staff serve them all, so picking the first would
+            # silently act on whoever sorts first
+            if permissions.is_internal():
+                raise ValidationError(
+                    "Say which customer you are acting for.", "VALIDATION_ERROR"
+                )
+
             return allowed[0]
 
         if customer not in allowed:

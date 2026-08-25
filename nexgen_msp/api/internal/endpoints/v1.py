@@ -838,6 +838,30 @@ def get_invoice_settings():
 
 @frappe.whitelist()
 @handle_errors
+def get_import_mappings():
+    return _settings().get_import_mappings()
+
+
+@frappe.whitelist()
+@handle_errors
+def save_import_mappings(customers=None, services=None):
+    return _settings().save_import_mappings(customers=customers, services=services)
+
+
+@frappe.whitelist()
+@handle_errors
+def upload_user_list():
+    return _settings().upload_user_list()
+
+
+@frappe.whitelist()
+@handle_errors
+def run_user_import(file_url=None, dry_run=1):
+    return _settings().run_user_import(file_url=file_url, dry_run=dry_run)
+
+
+@frappe.whitelist()
+@handle_errors
 def save_invoice_settings(settings=None):
     return _settings().save_invoice_settings(settings=settings)
 

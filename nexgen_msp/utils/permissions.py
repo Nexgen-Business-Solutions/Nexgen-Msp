@@ -26,10 +26,26 @@ def has_customer_permission(user, customer):
     )
 
 
-def get_allowed_customers(user=None):
+def is_internal(user=None):
+    """Nexgen staff, who serve every customer rather than belonging to one."""
     user = user or frappe.session.user
 
     if user == "Administrator":
+        return True
+
+    return bool(set(frappe.get_roles(user)).intersection(INTERNAL_ROLES + MANAGE_ACCESS_ROLES))
+
+
+def get_allowed_customers(user=None):
+    """Which customers this account may act for.
+
+    A portal contact is bound to their own by a User Permission. Staff are bound to none:
+    they work across the whole book, which is what lets a technician raise a request on a
+    customer's behalf.
+    """
+    user = user or frappe.session.user
+
+    if is_internal(user):
         return frappe.db.get_all("Customer", pluck="name")
 
     return frappe.db.get_all(

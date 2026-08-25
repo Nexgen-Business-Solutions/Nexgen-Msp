@@ -3,7 +3,7 @@ import frappe
 from nexgen_msp.api.internal.services.request_service import RequestService
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
-SECURITY_ITEM = "SVC-SOPHOS"
+SECURITY_ITEM = "9000-0007"
 
 OPEN_ASSIGNMENT_STATUSES = ("Pending Setup", "Active", "Suspended", "Pending Removal")
 
@@ -114,8 +114,10 @@ class UserService:
             params["status"] = status
 
         if department:
-            conditions.append("cu.department = %(department)s")
-            params["department"] = department
+            # a sub-account carries its entity as a prefix, so "Avittal" has to reach
+            # "Avittal — Accounting" as well
+            conditions.append("cu.department like %(department)s")
+            params["department"] = f"%{department}%"
 
         if service:
             conditions.append(

@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { FileText, ListChecks, Pencil, Plus, Trash2 } from 'lucide-react';
+import { FileText, ListChecks, Pencil, Plus, Trash2, Upload } from 'lucide-react';
 import ConfirmModal from '@/shared/components/ConfirmModal';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import StatusBadge from '@/shared/components/StatusBadge';
 import RequestActionModal from '../components/RequestActionModal';
 import InvoiceSettingsForm from '../components/InvoiceSettingsForm';
+import UserImportPanel from '../components/UserImportPanel';
 import type { RequestActionRow } from '@/lib/api/internal';
 import { useDeleteRequestAction, useRequestActionList } from '../hooks/useSettings';
 
@@ -15,6 +16,12 @@ const SECTIONS = [
     label: 'Invoice',
     icon: FileText,
     blurb: 'The issuer block and the wire details printed on every invoice.',
+  },
+  {
+    id: 'import',
+    icon: Upload,
+    label: 'Import',
+    blurb: 'Drop the user list and see what it would change before it changes anything.',
   },
   {
     id: 'request-actions',
@@ -88,6 +95,8 @@ export default function Settings() {
           </div>
 
           {section === 'invoice' && <InvoiceSettingsForm />}
+
+          {section === 'import' && <UserImportPanel />}
 
           {section === 'request-actions' && (
           <div className="overflow-x-auto px-5 pb-4">
