@@ -28,10 +28,13 @@ fixtures = [
 				"name",
 				"in",
 				[
-					"Item-msp_service_scope",
-					"Customer-msp_last_billed_on",
 					"Customer-msp_free_of_charge",
+					"Customer-msp_last_billed_on",
+					"Item-msp_invoice_label",
+					"Item-msp_service_scope",
 					"Item Price-msp_discount_percent",
+					"Sales Invoice Item-msp_billed_count",
+					"Sales Order Item-msp_billed_count",
 				],
 			]
 		],
