@@ -858,6 +858,33 @@ class BillingService:
         return BillingService.get_run(name)
 
     @staticmethod
+    def finalise(name=None, dimensions=None):
+        """Freeze the run and draw its invoice in one go.
+
+        Between the two there is nothing left to decide: freezing is what forbids changing
+        the lines, so the confirmation in the middle only ever asked again about numbers
+        already reviewed. They are joined here, and joined atomically — if ERPNext refuses
+        the invoice, the run is not left frozen with nothing to show for it.
+        """
+        BillingService._guard_admin()
+
+        # settled before anything is written, so a missing dimension never freezes a run
+        AccountingDimensionService.resolve(dimensions)
+
+        doc = BillingService._open_run(name)
+        savepoint = "msp_finalise"
+        frappe.db.savepoint(savepoint)
+
+        try:
+            doc.submit()
+            BillingService.create_invoice(name, dimensions)
+        except Exception:
+            frappe.db.rollback(save_point=savepoint)
+            raise
+
+        return BillingService.get_run(name)
+
+    @staticmethod
     def cancel(name=None):
         BillingService._guard_admin()
 
@@ -1082,6 +1109,120 @@ class BillingService:
         frappe.db.commit()
 
         return BillingService.get_run(name)
+
+    @staticmethod
+    def invoice_view(name=None):
+        """The invoice as ERPNext holds it, for a run that has one.
+
+        Everything here is read back from the Sales Invoice rather than recomputed: taxes,
+        totals, what is still outstanding and whether it is paid are ERPNext's answers, not
+        ours. The run only supplies the business context around them.
+        """
+        BillingService._guard_admin()
+
+        if not name or not frappe.db.exists("Billing Run", name):
+            raise NotFoundError(f"Billing Run {name} not found.", "NOT_FOUND")
+
+        run = frappe.get_doc("Billing Run", name)
+
+        if not run.sales_invoice:
+            return {"run": run.name, "invoice": None}
+
+        doc = frappe.get_doc("Sales Invoice", run.sales_invoice)
+        catalogue = AccountingDimensionService.catalogue(doc.company)
+
+        # which people and machines stand behind each line, at the granularity the invoice
+        # groups them: one line covers a service at a rate, not a single device
+        targets = {}
+
+        for row in run.lines:
+            if row.exception_code:
+                continue
+
+            key = (row.service_item, flt(row.unit_rate, 2), flt(row.discount_percent, 2))
+            targets.setdefault(key, []).append(
+                {
+                    "user_name": frappe.db.get_value("Client User", row.client_user, "full_name")
+                    if row.client_user
+                    else None,
+                    "hostname": frappe.db.get_value(
+                        "Managed Device", row.managed_device, "hostname"
+                    )
+                    if row.managed_device
+                    else None,
+                    "serial_number": frappe.db.get_value(
+                        "Managed Device", row.managed_device, "serial_number"
+                    )
+                    if row.managed_device
+                    else None,
+                    "covered_from": row.covered_from,
+                    "covered_to": row.covered_to,
+                    "months": flt(row.billable_months),
+                    "amount": flt(row.amount),
+                }
+            )
+
+        items = []
+
+        for row in doc.items:
+            key = (row.item_code, flt(row.price_list_rate or row.rate, 2), flt(row.discount_percentage, 2))
+            items.append(
+                {
+                    "idx": row.idx,
+                    "item_code": row.item_code,
+                    "item_name": row.item_name,
+                    "description": row.description,
+                    "qty": flt(row.qty),
+                    "uom": row.uom,
+                    "rate": flt(row.rate),
+                    "price_list_rate": flt(row.price_list_rate),
+                    "discount_percentage": flt(row.discount_percentage),
+                    "amount": flt(row.amount),
+                    "income_account": row.income_account,
+                    "billed_count": row.get("msp_billed_count"),
+                    "dimensions": AccountingDimensionService.on(row, catalogue),
+                    "targets": targets.get(key, []),
+                }
+            )
+
+        return {
+            "run": run.name,
+            "contract": run.contract,
+            "contract_title": frappe.db.get_value("MSP Contract", run.contract, "title")
+            if run.contract
+            else None,
+            "period_label": BillingService._period_label(run),
+            "invoice": {
+                "name": doc.name,
+                "status": doc.status,
+                "docstatus": doc.docstatus,
+                "company": doc.company,
+                "customer": doc.customer,
+                "customer_name": doc.customer_name,
+                "posting_date": doc.posting_date,
+                "due_date": doc.due_date,
+                "payment_terms_template": doc.payment_terms_template,
+                "currency": doc.currency,
+                "conversion_rate": flt(doc.conversion_rate),
+                "debit_to": doc.debit_to,
+                "net_total": flt(doc.net_total),
+                "total_taxes_and_charges": flt(doc.total_taxes_and_charges),
+                "grand_total": flt(doc.grand_total),
+                "outstanding_amount": flt(doc.outstanding_amount),
+                "is_return": bool(doc.is_return),
+                "return_against": doc.return_against,
+            },
+            "dimensions": AccountingDimensionService.on(doc, catalogue),
+            "items": items,
+            "taxes": [
+                {
+                    "description": tax.description,
+                    "rate": flt(tax.rate),
+                    "tax_amount": flt(tax.tax_amount),
+                }
+                for tax in doc.taxes
+            ],
+        }
 
     @staticmethod
     def discard_invoice(name=None):

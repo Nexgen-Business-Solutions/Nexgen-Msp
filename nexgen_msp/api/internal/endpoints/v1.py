@@ -307,10 +307,22 @@ def cancel_billing_run(name=None):
 
 @frappe.whitelist()
 @handle_errors
+def get_billing_invoice(name=None):
+    return _billing().invoice_view(name=name)
+
+
+@frappe.whitelist()
+@handle_errors
 def billing_period_status(contract=None, period_start=None, period_end=None):
     return _billing().period_status(
         contract=contract, period_start=period_start, period_end=period_end
     )
+
+
+@frappe.whitelist()
+@handle_errors
+def finalise_billing_run(name=None, dimensions=None):
+    return _billing().finalise(name=name, dimensions=dimensions)
 
 
 @frappe.whitelist()
@@ -644,8 +656,8 @@ def _agreements():
 
 @frappe.whitelist()
 @handle_errors
-def get_msp_contract_options():
-    return _agreements().options()
+def get_msp_contract_options(customer=None):
+    return _agreements().options(customer=customer)
 
 
 @frappe.whitelist()

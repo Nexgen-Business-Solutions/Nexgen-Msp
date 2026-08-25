@@ -7,7 +7,6 @@ import {
   FileCheck2,
   FileSpreadsheet,
   Printer,
-  Receipt,
   ReceiptText,
   PencilLine,
   RefreshCw,
@@ -22,6 +21,8 @@ import FieldLabel from '@/shared/components/FieldLabel';
 import StatusBadge from '@/shared/components/StatusBadge';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import CreditNoteModal from '../components/CreditNoteModal';
+import InvoiceAccountingModal from '../components/InvoiceAccountingModal';
+import InvoicePanel from '../components/InvoicePanel';
 import { breakdownFileUrl, invoicePdfUrl, salesInvoiceDeskUrl } from '@/lib/api/internal';
 import { useBillingRun, useRunAction, useSetLineDiscount } from '../hooks/useBilling';
 
@@ -48,6 +49,7 @@ export default function BillingRunDetail() {
   const [contesting, setContesting] = useState(false);
   const [notify, setNotify] = useState(true);
   const [resolving, setResolving] = useState(false);
+  const [invoicing, setInvoicing] = useState(false);
   const [outcome, setOutcome] = useState('');
   const setDiscount = useSetLineDiscount();
 
@@ -198,28 +200,18 @@ export default function BillingRunDetail() {
               Revalidate
             </button>
           )}
-          {data.can_approve && (
+          {(data.can_approve || data.can_invoice) && (
             <button
               type="button"
-              onClick={() => run('approve')}
+              onClick={() => setInvoicing(true)}
               disabled={action.isLoading}
               className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:opacity-60"
             >
               <ShieldCheck size={15} />
-              Approve and freeze
+              {data.can_approve ? 'Approve and invoice' : 'Create invoice'}
             </button>
           )}
-          {data.can_invoice && (
-            <button
-              type="button"
-              onClick={() => run('invoice')}
-              disabled={action.isLoading}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:opacity-60"
-            >
-              <Receipt size={15} />
-              Create invoice
-            </button>
-          )}
+
           {data.can_submit_invoice && (
             <button
               type="button"
@@ -331,6 +323,8 @@ export default function BillingRunDetail() {
           </div>
         )}
       </div>
+
+      {data.sales_invoice && <InvoicePanel run={data.name} isAdmin />}
 
       <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
         <div className="px-5 py-4">
@@ -523,6 +517,21 @@ export default function BillingRunDetail() {
           </p>
         </div>
       </Modal>
+
+      <InvoiceAccountingModal
+        open={invoicing}
+        run={data}
+        loading={action.isLoading}
+        error={action.error as Error | undefined}
+        onClose={() => setInvoicing(false)}
+        onConfirm={async (dimensions) => {
+          // a refusal keeps the dialog up with the values typed, so nothing is retyped
+          const step = data.can_approve ? 'finalise' : 'invoice';
+          if (await run(step, { dimensions: JSON.stringify(dimensions) })) {
+            setInvoicing(false);
+          }
+        }}
+      />
 
       <CreditNoteModal
         open={contesting}

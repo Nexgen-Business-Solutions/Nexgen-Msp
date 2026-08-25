@@ -35,7 +35,7 @@ const EMPTY: Partial<MspContract> = {
 const toOptions = (values: string[] = []) => values.map((value) => ({ value, label: value }));
 
 const MspContractModal: React.FC<Props> = ({ open, customer, contract, onClose }) => {
-  const options = useMspContractOptions();
+  const options = useMspContractOptions(customer);
   const save = useSaveMspContract();
 
   const [draft, setDraft] = useState<Partial<MspContract>>(EMPTY);

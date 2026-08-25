@@ -403,14 +403,14 @@ export type ContractOptions = {
 
 export type ContractRow = {
   customer: string;
-  profile: string | null;
+  last_billed_on: string | null;
+  contract: string | null;
+  contract_title: string | null;
   contract_status: string | null;
   contract_start_date: string | null;
   contract_end_date: string | null;
-  proration_method: string | null;
-  billing_timing: string | null;
+  billing_frequency: string | null;
   currency: string | null;
-  price_list_valid_upto: string | null;
   billable_assignments: number;
   services_used: number;
   services_priced: number;
@@ -685,6 +685,66 @@ export type BillingPeriodStatus = {
   runs: string[];
 };
 
+export type InvoiceDimensionValue = { fieldname: string; label: string; value: string | null };
+
+export type InvoiceViewItem = {
+  idx: number;
+  item_code: string;
+  item_name: string;
+  description: string | null;
+  qty: number;
+  uom: string | null;
+  rate: number;
+  price_list_rate: number;
+  discount_percentage: number;
+  amount: number;
+  income_account: string | null;
+  billed_count: number | null;
+  dimensions: InvoiceDimensionValue[];
+  targets: {
+    user_name: string | null;
+    hostname: string | null;
+    serial_number: string | null;
+    covered_from: string | null;
+    covered_to: string | null;
+    months: number;
+    amount: number;
+  }[];
+};
+
+export type InvoiceView = {
+  run: string;
+  contract?: string | null;
+  contract_title?: string | null;
+  period_label?: string;
+  invoice: {
+    name: string;
+    status: string;
+    docstatus: number;
+    company: string;
+    customer: string;
+    customer_name: string | null;
+    posting_date: string;
+    due_date: string | null;
+    payment_terms_template: string | null;
+    currency: string;
+    conversion_rate: number;
+    debit_to: string | null;
+    net_total: number;
+    total_taxes_and_charges: number;
+    grand_total: number;
+    outstanding_amount: number;
+    is_return: boolean;
+    return_against: string | null;
+  } | null;
+  dimensions?: InvoiceDimensionValue[];
+  items?: InvoiceViewItem[];
+  taxes?: { description: string; rate: number; tax_amount: number }[];
+};
+
+export const getBillingInvoice = (name: string, signal?: AbortSignal) =>
+  get<InvoiceView>(`${BASE}.get_billing_invoice`, { name }, signal);
+
 export const getBillingPeriodStatus = (
   params: { contract: string; period_start: string; period_end: string },
   signal?: AbortSignal
@@ -694,6 +754,7 @@ export const getBillingRun = (name: string, signal?: AbortSignal) =>
   get<BillingRunDetail>(`${BASE}.get_billing_run`, { name }, signal);
 
 const BILLING_ENDPOINTS: Record<string, string> = {
+  finalise: `${BASE}.finalise_billing_run`,
   submit_invoice: `${BASE}.submit_invoice_billing_run`,
   discard_invoice: `${BASE}.discard_billing_invoice`,
   reopen: `${BASE}.reopen_billing_run`,
@@ -1058,8 +1119,8 @@ export type MspContractOptions = {
   services: { value: string; label: string }[];
 };
 
-export const getMspContractOptions = (signal?: AbortSignal) =>
-  get<MspContractOptions>(`${BASE}.get_msp_contract_options`, undefined, signal);
+export const getMspContractOptions = (customer?: string, signal?: AbortSignal) =>
+  get<MspContractOptions>(`${BASE}.get_msp_contract_options`, { customer }, signal);
 
 export const listMspContracts = (
   params: { customer?: string; status?: string; billable_only?: number } = {},

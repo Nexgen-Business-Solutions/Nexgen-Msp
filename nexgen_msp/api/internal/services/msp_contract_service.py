@@ -30,7 +30,7 @@ class MSPContractService:
         ContractService._guard_admin()
 
     @staticmethod
-    def options():
+    def options(customer=None):
         MSPContractService._guard_admin()
 
         meta = frappe.get_meta("MSP Contract")
@@ -58,7 +58,12 @@ class MSPContractService:
             "currencies": frappe.get_all(
                 "Currency", filters={"enabled": 1}, pluck="name", order_by="name"
             ),
-            "default_currency": frappe.db.get_value("Company", company, "default_currency"),
+            # what the customer is billed in comes before what the company keeps its books
+            # in: a contract signed in USD must not open on the company's XAF
+            "default_currency": (
+                (customer and frappe.db.get_value("Customer", customer, "default_currency"))
+                or frappe.db.get_value("Company", company, "default_currency")
+            ),
             "services": frappe.get_all(
                 "Item",
                 filters={"disabled": 0, "is_stock_item": 0},

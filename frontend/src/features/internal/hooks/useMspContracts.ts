@@ -9,10 +9,10 @@ export const mspContractKeys = {
   detail: (name: string) => [...mspContractKeys.all, 'detail', name] as const,
 };
 
-export const useMspContractOptions = () =>
+export const useMspContractOptions = (customer?: string) =>
   useQuery({
-    queryKey: mspContractKeys.options(),
-    queryFn: ({ signal }) => internal.getMspContractOptions(signal),
+    queryKey: [...mspContractKeys.options(), customer ?? ''] as const,
+    queryFn: ({ signal }) => internal.getMspContractOptions(customer, signal),
     staleTime: 10 * 60 * 1000,
   });
 

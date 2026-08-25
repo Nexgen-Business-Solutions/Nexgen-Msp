@@ -7,7 +7,7 @@ import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import StatusBadge from '@/shared/components/StatusBadge';
 import { useContractList } from '../hooks/useContracts';
 
-const COLUMNS = ['Customer', 'Contract', 'Billing', 'Proration', 'Billable services', 'Rates set', 'Status', ''];
+const COLUMNS = ['Customer', 'Contract', 'Frequency', 'Billable services', 'Rates set', 'Last billed', 'Status', ''];
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
 
@@ -39,7 +39,7 @@ export default function CustomersList() {
       return true;
     });
   }, [all, filters, search]);
-  const withContract = all.filter((row) => row.profile).length;
+  const withContract = all.filter((row) => row.contract).length;
   const active = all.filter((row) => row.contract_status === 'Active').length;
   const fullyPriced = all.filter(
     (row) => row.services_used > 0 && row.services_priced >= row.services_used
@@ -176,13 +176,19 @@ export default function CustomersList() {
                         {row.customer}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                        {row.profile ? fmtDate(row.contract_start_date) : 'Not set up'}
+                        {row.contract ? (
+                          <>
+                            {row.contract_title || row.contract}<br />
+                            <span className="ml-1.5 text-xs text-slate-400">
+                              since {fmtDate(row.contract_start_date)}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-amber-600">No contract</span>
+                        )}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                        {row.billing_timing || 'N/A'}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                        {row.proration_method || 'N/A'}
+                        {row.billing_frequency || 'N/A'}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3">
                         <span className="inline-flex min-w-[2rem] justify-center rounded-lg bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 tabular-nums">
@@ -197,6 +203,13 @@ export default function CustomersList() {
                         >
                           {row.services_priced} / {row.services_used}
                         </span>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                        {row.last_billed_on ? (
+                          fmtDate(row.last_billed_on)
+                        ) : (
+                          <span className="text-slate-400">Never</span>
+                        )}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3">
                         {row.contract_status ? (

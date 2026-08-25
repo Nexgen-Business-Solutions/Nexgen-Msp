@@ -232,12 +232,21 @@ class AccountingDimensionService:
         return {"name": doc.name, "cost_center_name": doc.cost_center_name}
 
     @staticmethod
-    def of(doctype, name):
-        """What a posted document ended up carrying, for display."""
-        doc = frappe.get_doc(doctype, name)
+    def on(doc, catalogue=None):
+        """What a document actually carries, read back from the fields themselves.
+
+        Works for the invoice and for one of its lines: they are separate fields at two
+        levels, and this reports whichever level it is handed rather than assuming the two
+        agree.
+        """
+        entries = catalogue if catalogue is not None else AccountingDimensionService.catalogue()
 
         return [
-            {"label": entry["label"], "value": doc.get(entry["fieldname"])}
-            for entry in AccountingDimensionService.catalogue(doc.get("company"))
-            if doc.get(entry["fieldname"])
+            {
+                "fieldname": entry["fieldname"],
+                "label": entry["label"],
+                "value": doc.get(entry["fieldname"]),
+            }
+            for entry in entries
+            if doc.meta.get_field(entry["fieldname"]) and doc.get(entry["fieldname"])
         ]

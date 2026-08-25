@@ -136,3 +136,10 @@ export const useBillingPeriodStatus = (
     retry: false,
     staleTime: 30 * 1000,
   });
+
+export const useBillingInvoice = (run?: string, enabled = true) =>
+  useQuery({
+    queryKey: [...billingKeys.detail(run || ''), 'invoice'] as const,
+    queryFn: ({ signal }) => internal.getBillingInvoice(run as string, signal),
+    enabled: enabled && Boolean(run),
+  });

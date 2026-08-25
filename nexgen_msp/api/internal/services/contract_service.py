@@ -341,21 +341,26 @@ class ContractService:
 
     @staticmethod
     def list_contracts():
-        """One row per customer: does a contract exist, and can its services be priced?"""
+        """One row per customer: which contract governs it, and can it be billed?
+
+        Read from the contract, not from the legacy profile: the profile no longer exists
+        for a customer created since, which left the columns empty and the rate count at
+        zero even when rates were set.
+        """
         ContractService._guard_admin()
 
         return frappe.db.sql(
             """
             select
                 c.name as customer,
-                profile.name as profile,
-                profile.contract_status,
-                profile.contract_start_date,
-                profile.contract_end_date,
-                profile.proration_method,
-                profile.billing_timing,
-                profile.currency,
-                profile.price_list_valid_upto,
+                c.msp_last_billed_on as last_billed_on,
+                live.name as contract,
+                live.title as contract_title,
+                live.status as contract_status,
+                live.start_date as contract_start_date,
+                live.end_date as contract_end_date,
+                live.billing_frequency,
+                live.currency,
                 (select count(*) from `tabService Assignment` sa
                     where sa.customer = c.name and sa.billing_status = 'Billable'
                       and sa.operational_status in %(open)s) as billable_assignments,
@@ -363,14 +368,19 @@ class ContractService:
                     where sa.customer = c.name
                       and sa.operational_status in %(open)s) as services_used,
                 (select count(distinct ip.item_code) from `tabItem Price` ip
-                    where ip.price_list = profile.price_list and ip.customer = c.name
-                      and ip.selling = 1 and ip.price_list_rate > 0
+                    where ip.customer = c.name and ip.selling = 1 and ip.price_list_rate > 0
+                      and (ip.valid_from is null or ip.valid_from <= curdate())
                       and (ip.valid_upto is null or ip.valid_upto >= curdate())) as services_priced
             from `tabCustomer` c
-            left join `tabMSP Customer Profile` profile on profile.customer = c.name
+            left join `tabMSP Contract` live
+                on live.name = (
+                    select inner_c.name from `tabMSP Contract` inner_c
+                    where inner_c.customer = c.name and inner_c.status in %(live)s
+                    order by inner_c.start_date desc limit 1
+                )
             order by c.name asc
             """,
-            {"open": OPEN_ASSIGNMENT_STATUSES},
+            {"open": OPEN_ASSIGNMENT_STATUSES, "live": LIVE_CONTRACT_STATUSES},
             as_dict=True,
         )
 
@@ -512,12 +522,28 @@ class ContractService:
             if row["is_eligible"] and (row["negotiated_rate"] or 0) > 0
         )
 
+        # two different causes that used to read the same: a service nobody put on the
+        # contract, and a service on the contract that carries no rate
+        uncovered = [
+            row["service_name"]
+            for row in services
+            if row["billable_assignments"] and not row["is_eligible"]
+        ]
+
         unpriced = [
             row["service_name"]
             for row in services
             if row["billable_assignments"]
-            and not (row["is_eligible"] and (row["negotiated_rate"] or 0) > 0)
+            and row["is_eligible"]
+            and not (row["negotiated_rate"] or 0) > 0
         ]
+
+        if uncovered:
+            blockers.append(
+                "No contract covers: "
+                + ", ".join(uncovered)
+                + " — add the service to the contract."
+            )
 
         if unpriced:
             blockers.append("No rate set for: " + ", ".join(unpriced) + ".")
