@@ -13,8 +13,17 @@ def get_request_filter_options():
 
 @frappe.whitelist()
 @handle_errors
-def get_request_stats():
-    return RequestService.get_stats()
+def get_request_stats(
+    search=None, status=None, priority=None, request_type=None, customer=None, scope=None
+):
+    return RequestService.get_stats(
+        search=search,
+        status=status,
+        priority=priority,
+        request_type=request_type,
+        customer=customer,
+        scope=scope,
+    )
 
 
 @frappe.whitelist()
@@ -77,12 +86,134 @@ def get_user_filter_options():
     return UserService.get_filter_options()
 
 
+EXPORT_COLUMNS = {
+    "users": [
+        ("full_name", "User"),
+        ("email", "Email"),
+        ("department", "Department"),
+        ("customer", "Customer"),
+        ("lifecycle_status", "Status"),
+        ("hostnames", "Devices"),
+        ("device_type", "Device type"),
+        # each side reads count, then names, then the date it started or ended
+        ("active_services", "Active services"),
+        ("services", "Services"),
+        ("start_date", "In service since"),
+        ("inactive_services", "Inactive services"),
+        ("inactive_service_names", "Ended services"),
+        ("disabled_date", "Disabled on"),
+        ("remarks", "Remarks"),
+    ],
+    "devices": [
+        ("hostname", "Device"),
+        ("device_type", "Type"),
+        ("customer", "Customer"),
+        ("user_name", "Held by"),
+        ("user_department", "Department"),
+        ("status", "Status"),
+        ("serial_number", "Serial number"),
+        ("assigned_date", "In service since"),
+        ("services", "Services"),
+        ("inactive_service_names", "Ended services"),
+        ("active_services", "Active services"),
+        ("inactive_services", "Inactive services"),
+    ],
+    "requests": [
+        ("name", "Request"),
+        ("customer", "Customer"),
+        ("request_type", "Type"),
+        ("status", "Status"),
+        ("priority", "Priority"),
+        ("source", "Source"),
+        ("requester", "Raised by"),
+        ("users", "People"),
+        ("line_count", "Lines"),
+        ("pending_lines", "Pending"),
+        ("creation", "Raised on"),
+    ],
+}
+
+# a sheet is read once and kept, so it carries the whole filtered set, not one page.
+# The listing services cap a page on purpose, so the export walks the pages instead of
+# asking for a size they would clamp back down.
+EXPORT_LIMIT = 20000
+EXPORT_PAGE = 200
+
+
+def _collect(fetch, **filters):
+    rows = []
+
+    while len(rows) < EXPORT_LIMIT:
+        page = fetch(start=len(rows), page_length=EXPORT_PAGE, **filters)
+        batch = page["rows"]
+        rows.extend(batch)
+
+        if len(batch) < EXPORT_PAGE or not page.get("has_more"):
+            break
+
+    return rows
+
+
 @frappe.whitelist()
 @handle_errors
-def get_user_stats():
+def export_users(
+    search=None, customer=None, status=None, department=None, service=None, coverage=None,
+    portal=None,
+):
+    from nexgen_msp.api.internal.services.user_service import UserService
+    from nexgen_msp.utils import listing_export
+
+    rows = _collect(
+        UserService.list_users, search=search, customer=customer, status=status,
+        department=department, service=service, coverage=coverage, portal=portal,
+    )
+
+    return listing_export.respond(
+        "users.xlsx", "Users", EXPORT_COLUMNS["users"], rows
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def export_devices(search=None, customer=None, status=None, device_type=None, coverage=None):
+    from nexgen_msp.utils import listing_export
+
+    rows = _collect(
+        _devices().list_devices, search=search, customer=customer, status=status,
+        device_type=device_type, coverage=coverage,
+    )
+
+    return listing_export.respond(
+        "devices.xlsx", "Devices", EXPORT_COLUMNS["devices"], rows
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def export_requests(
+    search=None, status=None, priority=None, request_type=None, customer=None, scope=None
+):
+    from nexgen_msp.utils import listing_export
+
+    rows = _collect(
+        RequestService.list_requests, search=search, status=status, priority=priority,
+        request_type=request_type, customer=customer, scope=scope,
+    )
+
+    return listing_export.respond(
+        "requests.xlsx", "Requests", EXPORT_COLUMNS["requests"], rows
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def get_user_stats(search=None, customer=None, status=None, department=None, service=None,
+                   coverage=None, portal=None):
     from nexgen_msp.api.internal.services.user_service import UserService
 
-    return UserService.get_stats()
+    return UserService.get_stats(search=search, customer=customer, status=status,
+                                 department=department, service=service, coverage=coverage,
+                                 portal=portal)
 
 
 @frappe.whitelist()
@@ -417,8 +548,14 @@ def get_device_filter_options():
 
 @frappe.whitelist()
 @handle_errors
-def get_device_stats():
-    return _devices().get_stats()
+def get_device_stats(search=None, customer=None, status=None, device_type=None, coverage=None):
+    return _devices().get_stats(
+        search=search,
+        customer=customer,
+        status=status,
+        device_type=device_type,
+        coverage=coverage,
+    )
 
 
 @frappe.whitelist()

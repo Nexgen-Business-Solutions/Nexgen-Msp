@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { RefreshCw, Search, SlidersHorizontal, X } from 'lucide-react';
+import { Download, RefreshCw, Search, SlidersHorizontal, X } from 'lucide-react';
 import Select, { type SelectOption } from './Select';
 import MultiSelect from './MultiSelect';
 import Modal from './Modal';
@@ -44,6 +44,8 @@ type Props = {
   onApply: (values: FilterState) => void;
   onClear: () => void;
   onRefresh?: () => void;
+  /** Where the sheet of the current selection is served from. */
+  exportUrl?: string;
 };
 
 const inputClass =
@@ -76,6 +78,7 @@ const FilterBar: React.FC<Props> = ({
   onApply,
   onClear,
   onRefresh,
+  exportUrl,
 }) => {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<FilterState>(values);
@@ -168,6 +171,13 @@ const FilterBar: React.FC<Props> = ({
               </span>
             )}
           </button>
+        )}
+
+        {exportUrl && (
+          <a href={exportUrl} className={ghost} title="Download what is shown, as a sheet">
+            <Download size={16} />
+            <span className="hidden lg:inline">Export</span>
+          </a>
         )}
 
         {onRefresh && (

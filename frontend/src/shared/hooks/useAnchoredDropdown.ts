@@ -106,7 +106,11 @@ export const useAnchoredDropdown = (
     ? {
         position: 'fixed' as const,
         left: position.left,
-        width: position.width,
+        // the trigger sets the floor, the option labels set the width: a customer id can
+        // run far longer than the control it is picked from
+        minWidth: position.width,
+        width: 'max-content' as const,
+        maxWidth: Math.max(position.width, window.innerWidth - position.left - MARGIN),
         maxHeight: position.maxHeight,
         ...(position.placement === 'bottom'
           ? { top: position.top }

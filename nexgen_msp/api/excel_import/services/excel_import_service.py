@@ -2,6 +2,8 @@ import re
 
 import frappe
 
+from nexgen_msp.utils.catalogue import BILLING_UOM
+
 from nexgen_msp.api.excel_import.services import excel_parser
 from nexgen_msp.utils import permissions
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
@@ -13,8 +15,6 @@ ASSIGNMENT_STATUS = {
     "Ended": ("Ended", "Ended"),
 }
 
-DEFAULT_UOM = "Unit"
-MIGRATION_TAG = "list of users.xlsx"
 
 
 class ExcelImportService:
@@ -642,13 +642,12 @@ class ExcelImportService:
                     "client_user": client_user if scope == "User" else None,
                     "managed_device": device if scope == "Device" else None,
                     "quantity": 1,
-                    "uom": DEFAULT_UOM,
+                    "uom": BILLING_UOM,
                     "operational_status": operational_status,
                     "billing_status": billing_status,
                     "effective_start_date": lifecycle["start"],
                     "effective_end_date": lifecycle["end"],
                     "price_source": "Contract",
-                    "migration_source": MIGRATION_TAG,
                 }
             ).insert()
 

@@ -1,6 +1,6 @@
 import frappe
 
-MONTH = "Month"
+from nexgen_msp.utils.catalogue import BILLING_UOM as MONTH
 
 
 def execute():

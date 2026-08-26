@@ -53,17 +53,20 @@
   {
    "service_key": "nextcloud",
    "item_id": "9000-0012-Month",
-   "scope": "User"
+   "scope": "User",
+   "is_endpoint_protection": 0
   },
   {
    "service_key": "parallels",
    "item_id": "9000-0004-Month",
-   "scope": "User"
+   "scope": "User",
+   "is_endpoint_protection": 0
   },
   {
    "service_key": "sophos",
    "item_id": "9000-0007",
-   "scope": "Device"
+   "scope": "Device",
+   "is_endpoint_protection": 1
   }
  ]
 }

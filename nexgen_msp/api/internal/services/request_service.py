@@ -1,5 +1,7 @@
 import frappe
 
+from nexgen_msp.utils.meta import select_options
+
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 ADMIN_ROLES = ("MSP System Admin", "System Manager", "Administrator")
@@ -111,7 +113,7 @@ class RequestService:
 
         return {
             "customers": [customer for customer in customers if customer],
-            "statuses": list(REQUEST_STATUSES),
+            "statuses": select_options("Service Request", "status"),
             "open_statuses": list(OPEN_STATUSES),
             # only an administrator handles disputes, so only they can filter on them
             "request_types": (
@@ -119,7 +121,7 @@ class RequestService:
                 if RequestService._roles().intersection(ADMIN_ROLES)
                 else list(REQUEST_TYPES)
             ),
-            "priorities": list(PRIORITIES),
+            "priorities": select_options("Service Request", "priority"),
             "is_admin": bool(RequestService._roles().intersection(ADMIN_ROLES)),
         }
 
@@ -247,17 +249,25 @@ class RequestService:
         }
 
     @staticmethod
-    def get_stats():
-        """Counters for the request queue header."""
+    def get_stats(
+        search=None, status=None, priority=None, request_type=None, customer=None, scope=None
+    ):
+        """Counters for the queue header, over the same scope the list is showing."""
         RequestService._guard_internal()
 
+        where, params = RequestService._list_conditions(
+            search, status, priority, request_type, customer, scope
+        )
+
         rows = frappe.db.sql(
-            """
-            select status, priority, count(*) as total,
-                   sum(timestampdiff(hour, creation, now()) > 48) as ageing
-            from `tabService Request`
-            group by status, priority
+            f"""
+            select sr.status, sr.priority, count(*) as total,
+                   sum(timestampdiff(hour, sr.creation, now()) > 48) as ageing
+            from `tabService Request` sr
+            {where}
+            group by sr.status, sr.priority
             """,
+            params,
             as_dict=True,
         )
 

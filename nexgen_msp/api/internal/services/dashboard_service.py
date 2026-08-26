@@ -1,5 +1,7 @@
 import frappe
 
+from nexgen_msp.utils.catalogue import security_item
+
 from nexgen_msp.utils.errors import ValidationError
 from nexgen_msp.api.internal.services.request_service import (
     ADMIN_ROLES,
@@ -7,7 +9,6 @@ from nexgen_msp.api.internal.services.request_service import (
     RequestService,
 )
 
-SECURITY_ITEM = "SVC-SOPHOS"
 
 ACTIONABLE_STATUSES = ("Submitted", "Under Review", "Approved", "In Progress")
 
@@ -271,7 +272,7 @@ class DashboardService:
                     and sa.operational_status not in ('Ended', 'Cancelled')
               )
             """,
-            {"item": SECURITY_ITEM},
+            {"item": security_item()},
         )[0][0]
 
         reclaimable = frappe.db.sql(
@@ -357,7 +358,7 @@ class DashboardService:
         page_length = min(max(frappe.utils.cint(page_length) or 20, 1), 200)
 
         params = {
-            "security_item": SECURITY_ITEM,
+            "security_item": security_item(),
             "month_start": frappe.utils.get_first_day(frappe.utils.today()),
         }
 

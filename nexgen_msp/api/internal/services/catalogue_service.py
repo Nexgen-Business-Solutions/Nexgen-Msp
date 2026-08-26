@@ -5,7 +5,9 @@ from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 ITEM_GROUP = "Services"
 
-DEFAULT_UOM = "Unit"
+# a service is billed in months, and a month can be a half: an integer-only
+# unit would make the first half-month invoice fail
+from nexgen_msp.utils.catalogue import BILLING_UOM
 
 OPEN_ASSIGNMENT_STATUSES = ("Pending Setup", "Active", "Suspended", "Pending Removal")
 
@@ -116,7 +118,7 @@ class CatalogueService:
                 doc.is_stock_item = 0
                 doc.is_sales_item = 1
                 doc.is_purchase_item = 0
-                doc.stock_uom = uom or DEFAULT_UOM
+                doc.stock_uom = uom or BILLING_UOM
 
         doc.item_name = item_name
         doc.description = description or item_name

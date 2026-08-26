@@ -1,5 +1,7 @@
 import frappe
 
+from nexgen_msp.utils.meta import select_options
+
 from nexgen_msp.api.internal.services.contract_service import ContractService
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
@@ -39,7 +41,7 @@ class CustomerService:
         CustomerService._guard_admin()
 
         return {
-            "customer_types": ["Company", "Individual", "Partnership"],
+            "customer_types": select_options("Customer", "customer_type"),
             "customer_groups": frappe.get_all("Customer Group", pluck="name", order_by="name"),
             "territories": frappe.get_all("Territory", pluck="name", order_by="name"),
             "countries": frappe.get_all("Country", pluck="name", order_by="name"),

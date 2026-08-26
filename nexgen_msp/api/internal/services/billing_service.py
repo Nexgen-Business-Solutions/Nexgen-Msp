@@ -8,6 +8,7 @@ from nexgen_msp.api.internal.services.accounting_dimension_service import (
     AccountingDimensionService,
 )
 from nexgen_msp.api.internal.services.contract_service import ContractService
+from nexgen_msp.utils.catalogue import BILLING_UOM
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 OPEN_ASSIGNMENT_STATUSES = ("Pending Setup", "Active", "Suspended", "Pending Removal", "Ended")
@@ -19,7 +20,6 @@ LIVE_CONTRACT_STATUSES = ("Active", "Suspended")
 MONTHS_PER_PERIOD = {"Monthly": 1, "Quarterly": 3, "Annually": 12}
 
 # the invoiced quantity is a number of months, and half months are routine
-BILLING_UOM = "Month"
 
 DISPLAY_ONLY = (
     "service_name",

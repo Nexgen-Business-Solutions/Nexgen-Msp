@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import * as internal from '@/lib/api/internal';
 import { Eye, Laptop, Plus, ShieldAlert, UserMinus, Users } from 'lucide-react';
 import KpiCard from '@/shared/components/KpiCard';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
@@ -34,7 +35,16 @@ export default function UsersList() {
   const [newUserOpen, setNewUserOpen] = useState(false);
   const { filters, patch, clear } = useUserFilters();
   const options = useUserFilterOptions();
-  const stats = useUserStats();
+  const statsParams = {
+    search: filters.search || undefined,
+    customer: filters.customer || undefined,
+    status: filters.status || undefined,
+    department: filters.department || undefined,
+    service: filters.service || undefined,
+    coverage: filters.coverage || undefined,
+    portal: filters.portal || undefined,
+  };
+  const stats = useUserStats(statsParams);
   const list = useUserList(filters);
 
   const rows = list.data?.rows ?? [];
@@ -115,6 +125,7 @@ export default function UsersList() {
         }
         onClear={clear}
         onRefresh={() => list.refetch()}
+        exportUrl={internal.usersExportUrl(statsParams)}
         fields={[
           {
             key: 'customer',

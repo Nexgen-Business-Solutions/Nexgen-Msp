@@ -115,8 +115,8 @@ export type RequestListParams = {
 export const getRequestFilterOptions = (signal?: AbortSignal) =>
   get<RequestFilterOptions>(`${BASE}.get_request_filter_options`, undefined, signal);
 
-export const getRequestStats = (signal?: AbortSignal) =>
-  get<RequestStats>(`${BASE}.get_request_stats`, undefined, signal);
+export const getRequestStats = (params: RequestListParams = {}, signal?: AbortSignal) =>
+  get<RequestStats>(`${BASE}.get_request_stats`, params, signal);
 
 export const listRequests = (params: RequestListParams = {}, signal?: AbortSignal) =>
   get<Paginated<RequestRow>>(`${BASE}.list_requests`, params, signal);
@@ -354,8 +354,8 @@ export type UserListParams = {
 export const getUserFilterOptions = (signal?: AbortSignal) =>
   get<UserFilterOptions>(`${BASE}.get_user_filter_options`, undefined, signal);
 
-export const getUserStats = (signal?: AbortSignal) =>
-  get<UserStats>(`${BASE}.get_user_stats`, undefined, signal);
+export const getUserStats = (params: UserListParams = {}, signal?: AbortSignal) =>
+  get<UserStats>(`${BASE}.get_user_stats`, params, signal);
 
 export const listUsers = (params: UserListParams = {}, signal?: AbortSignal) =>
   get<Paginated<UserRow>>(`${BASE}.list_users`, params, signal);
@@ -871,8 +871,8 @@ export type DeviceListParams = {
 export const getDeviceFilterOptions = (signal?: AbortSignal) =>
   get<DeviceFilterOptions>(`${BASE}.get_device_filter_options`, undefined, signal);
 
-export const getDeviceStats = (signal?: AbortSignal) =>
-  get<DeviceStats>(`${BASE}.get_device_stats`, undefined, signal);
+export const getDeviceStats = (params: DeviceListParams = {}, signal?: AbortSignal) =>
+  get<DeviceStats>(`${BASE}.get_device_stats`, params, signal);
 
 export const listManagedDevices = (params: DeviceListParams = {}, signal?: AbortSignal) =>
   get<Paginated<DeviceRow>>(`${BASE}.list_devices`, params, signal);
@@ -1185,6 +1185,26 @@ export const getBillingBreakdown = (name: string, signal?: AbortSignal) =>
 
 export const breakdownFileUrl = (run: string) =>
   `/api/method/${BASE}.download_billing_breakdown?name=${encodeURIComponent(run)}`;
+
+/** The sheet is streamed by the server, so it is fetched as a plain download URL. */
+const exportUrl = (method: string, params: Record<string, unknown>) => {
+  const search = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return;
+    search.append(key, String(value));
+  });
+  const query = search.toString();
+  return `/api/method/${BASE}.${method}${query ? `?${query}` : ''}`;
+};
+
+export const usersExportUrl = (params: UserListParams = {}) =>
+  exportUrl('export_users', params as Record<string, unknown>);
+
+export const devicesExportUrl = (params: DeviceListParams = {}) =>
+  exportUrl('export_devices', params as Record<string, unknown>);
+
+export const requestsExportUrl = (params: RequestListParams = {}) =>
+  exportUrl('export_requests', params as Record<string, unknown>);
 
 export const invoicePdfUrl = (run: string) =>
   `/api/method/${BASE}.download_billing_invoice?name=${encodeURIComponent(run)}`;

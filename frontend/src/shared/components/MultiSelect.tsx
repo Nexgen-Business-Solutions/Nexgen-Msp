@@ -129,7 +129,7 @@ const MultiSelect: React.FC<Props> = ({
                     : 'text-slate-700 hover:bg-slate-50'
                 }`}
               >
-                <span className="truncate">{option.label}</span>
+                <span>{option.label}</span>
                 {isSelected && <Check size={15} className="shrink-0 text-blue-600" />}
               </button>
             );

@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom';
+import * as internal from '@/lib/api/internal';
 import { AlertTriangle, Clock, Eye, Inbox, Plus, Wrench } from 'lucide-react';
 import KpiCard from '@/shared/components/KpiCard';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
@@ -28,7 +29,15 @@ export default function RequestsList() {
   const navigate = useNavigate();
   const { filters, patch, clear } = useRequestFilters();
   const options = useRequestFilterOptions();
-  const stats = useRequestStats();
+  const statsParams = {
+    search: filters.search || undefined,
+    status: filters.status || undefined,
+    priority: filters.priority || undefined,
+    request_type: filters.request_type || undefined,
+    customer: filters.customer || undefined,
+    scope: filters.scope || undefined,
+  };
+  const stats = useRequestStats(statsParams);
   const list = useRequestList(filters);
 
   const rows = list.data?.rows ?? [];
@@ -108,6 +117,7 @@ export default function RequestsList() {
         }
         onClear={clear}
         onRefresh={() => list.refetch()}
+        exportUrl={internal.requestsExportUrl(statsParams)}
         fields={[
           {
             key: 'customer',

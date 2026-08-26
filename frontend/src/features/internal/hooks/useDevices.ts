@@ -99,10 +99,10 @@ export const useDeviceFilterOptions = () =>
     staleTime: 5 * 60 * 1000,
   });
 
-export const useDeviceStats = () =>
+export const useDeviceStats = (params: internal.DeviceListParams = {}) =>
   useQuery({
-    queryKey: deviceKeys.stats(),
-    queryFn: ({ signal }) => internal.getDeviceStats(signal),
+    queryKey: [...deviceKeys.stats(), params] as const,
+    queryFn: ({ signal }) => internal.getDeviceStats(params, signal),
     staleTime: 60 * 1000,
   });
 

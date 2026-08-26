@@ -1,5 +1,7 @@
 import frappe
 
+from nexgen_msp.utils.catalogue import security_item
+
 from nexgen_msp.utils import permissions
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
@@ -80,7 +82,6 @@ REQUEST_LINE_FIELDS = [
 
 MAX_PAGE_LENGTH = 200
 
-SECURITY_ITEM = "SVC-SOPHOS"
 
 ASSIGNMENT_HOLDER_JOIN = """
     from `tabService Assignment` sa
@@ -237,7 +238,7 @@ class PortalService:
         source = PortalService._kpi_source(kpi)
         rows = frappe.db.sql(
             f"select count(*) {source['body']}",
-            {"customer": customer, "security_item": SECURITY_ITEM},
+            {"customer": customer, "security_item": security_item()},
         )
         return rows[0][0] if rows else 0
 
@@ -251,7 +252,7 @@ class PortalService:
         page_length = min(max(frappe.utils.cint(page_length) or 20, 1), MAX_PAGE_LENGTH)
 
         selected = ", ".join(f"{expression} as `{key}`" for key, _label, expression in source["fields"])
-        params = {"customer": customer, "security_item": SECURITY_ITEM}
+        params = {"customer": customer, "security_item": security_item()}
 
         rows = frappe.db.sql(
             f"""

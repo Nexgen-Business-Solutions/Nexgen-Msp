@@ -62,6 +62,7 @@ const Select: React.FC<Props> = ({
     <div ref={anchorRef} className={`relative ${className ?? 'min-w-[12rem]'}`}>
       <button
         type="button"
+        title={selected?.label ?? undefined}
         onClick={() => setOpen((prev) => !prev)}
         className="flex h-10 w-full items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 text-left transition-colors hover:border-slate-300 focus:outline-none focus:ring-4 focus:ring-blue-100"
       >
@@ -129,7 +130,7 @@ const Select: React.FC<Props> = ({
                   }`}
                 >
                   <span className="min-w-0">
-                    <span className="block truncate">{option.label}</span>
+                    <span className="block">{option.label}</span>
                     {option.description && (
                       <span
                         className={`mt-0.5 block text-xs font-normal leading-snug ${

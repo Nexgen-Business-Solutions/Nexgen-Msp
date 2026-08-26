@@ -112,10 +112,10 @@ export const useUserFilterOptions = () =>
     staleTime: 5 * 60 * 1000,
   });
 
-export const useUserStats = () =>
+export const useUserStats = (params: internal.UserListParams = {}) =>
   useQuery({
-    queryKey: userKeys.stats(),
-    queryFn: ({ signal }) => internal.getUserStats(signal),
+    queryKey: [...userKeys.stats(), params] as const,
+    queryFn: ({ signal }) => internal.getUserStats(params, signal),
     staleTime: 60 * 1000,
   });
 

@@ -1,9 +1,12 @@
 import frappe
 
+from nexgen_msp.utils.meta import select_options
+
+from nexgen_msp.utils.catalogue import security_item
+
 from nexgen_msp.api.internal.services.request_service import RequestService
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
-SECURITY_ITEM = "9000-0007"
 
 OPEN_ASSIGNMENT_STATUSES = ("Pending Setup", "Active", "Suspended", "Pending Removal")
 
@@ -43,46 +46,67 @@ class UserService:
             "customers": frappe.get_all("Customer", pluck="name", order_by="name asc"),
             "departments": departments,
             "services": services,
-            "statuses": list(LIFECYCLE_STATUSES),
+            "statuses": select_options("Client User", "lifecycle_status"),
             "coverage": list(COVERAGE_FILTERS),
         }
 
     @staticmethod
-    def get_stats():
-        """Counters a technician acts on, not vanity metrics."""
+    def get_stats(
+        search=None,
+        customer=None,
+        status=None,
+        department=None,
+        service=None,
+        coverage=None,
+        portal=None,
+    ):
+        """Counters a technician acts on, over the same scope the list is showing.
+
+        They share the list's own WHERE clause: a figure that ignored the filters would
+        contradict the rows underneath it, and the cards double as shortcuts into that very
+        list.
+        """
         RequestService._guard_internal()
 
-        active = frappe.db.count("Client User", {"lifecycle_status": "Active"})
+        where, params = UserService._conditions(
+            search, customer, status, department, service, coverage, portal
+        )
+        params = {**params, "item": security_item()}
 
-        without_device = frappe.db.sql(
-            """
-            select count(*) from `tabClient User` cu
-            where cu.lifecycle_status = 'Active'
-              and not exists (
-                  select 1 from `tabManaged Device` device
-                  where device.assigned_client_user = cu.name and device.status = 'Active'
-              )
-            """
-        )[0][0]
+        def count(predicate):
+            clause = f"{where} and {predicate}" if where else f" where {predicate}"
+            return frappe.db.sql(
+                f"select count(distinct cu.name) from `tabClient User` cu {clause}", params
+            )[0][0]
 
-        disabled_with_services = frappe.db.sql(
-            """
-            select count(distinct cu.name) from `tabClient User` cu
-            where cu.lifecycle_status in ('Disabled', 'Archived')
-              and exists (
-                  select 1 from `tabService Assignment` sa
-                  left join `tabManaged Device` device on device.name = sa.managed_device
-                  where sa.operational_status in %(open)s
-                    and (sa.client_user = cu.name or device.assigned_client_user = cu.name)
-              )
-            """,
-            {"open": OPEN_ASSIGNMENT_STATUSES},
-        )[0][0]
+        active = count("cu.lifecycle_status = 'Active'")
 
+        without_device = count(
+            """cu.lifecycle_status = 'Active'
+               and not exists (
+                   select 1 from `tabManaged Device` device
+                   where device.assigned_client_user = cu.name and device.status = 'Active'
+               )"""
+        )
+
+        disabled_with_services = count(
+            """cu.lifecycle_status in ('Disabled', 'Archived')
+               and exists (
+                   select 1 from `tabService Assignment` sa
+                   left join `tabManaged Device` device on device.name = sa.managed_device
+                   where sa.operational_status in %(open)s
+                     and (sa.client_user = cu.name or device.assigned_client_user = cu.name)
+               )"""
+        )
+
+        # this one counts machines, so it is scoped through the people the filter kept
         unprotected_devices = frappe.db.sql(
-            """
-            select count(*) from `tabManaged Device` device
-            where device.status = 'Active'
+            f"""
+            select count(*)
+            from `tabManaged Device` device
+            join `tabClient User` cu on cu.name = device.assigned_client_user
+            {where.replace(' where ', ' where ') if where else ''}
+            {'and' if where else 'where'} device.status = 'Active'
               and not exists (
                   select 1 from `tabService Assignment` sa
                   where sa.managed_device = device.name
@@ -90,7 +114,7 @@ class UserService:
                     and sa.operational_status in %(open)s
               )
             """,
-            {"item": SECURITY_ITEM, "open": OPEN_ASSIGNMENT_STATUSES},
+            params,
         )[0][0]
 
         return {
@@ -103,7 +127,7 @@ class UserService:
     @staticmethod
     def _conditions(search, customer, status, department, service, coverage, portal):
         conditions = []
-        params = {"open": OPEN_ASSIGNMENT_STATUSES, "item": SECURITY_ITEM}
+        params = {"open": OPEN_ASSIGNMENT_STATUSES, "item": security_item()}
 
         if customer:
             conditions.append("cu.customer = %(customer)s")
@@ -213,7 +237,7 @@ class UserService:
             f"""
             select
                 cu.name, cu.full_name, cu.department, cu.customer, cu.lifecycle_status,
-                cu.start_date, cu.disabled_date,
+                cu.start_date, cu.disabled_date, cu.email, cu.remarks,
                 (select group_concat(device.hostname separator ', ')
                     from `tabManaged Device` device
                     where device.assigned_client_user = cu.name and device.status = 'Active')
@@ -230,7 +254,23 @@ class UserService:
                     left join `tabManaged Device` sad on sad.name = sa.managed_device
                     where sa.operational_status != 'Active'
                       and (sa.client_user = cu.name or sad.assigned_client_user = cu.name))
-                    as inactive_services
+                    as inactive_services,
+                (select group_concat(distinct coalesce(item.item_name, sa.service_item)
+                        order by item.item_name separator ', ')
+                    from `tabService Assignment` sa
+                    left join `tabItem` item on item.name = sa.service_item
+                    left join `tabManaged Device` sad on sad.name = sa.managed_device
+                    where sa.operational_status in %(open)s
+                      and (sa.client_user = cu.name or sad.assigned_client_user = cu.name))
+                    as services,
+                (select group_concat(distinct coalesce(item.item_name, sa.service_item)
+                        order by item.item_name separator ', ')
+                    from `tabService Assignment` sa
+                    left join `tabItem` item on item.name = sa.service_item
+                    left join `tabManaged Device` sad on sad.name = sa.managed_device
+                    where sa.operational_status not in %(open)s
+                      and (sa.client_user = cu.name or sad.assigned_client_user = cu.name))
+                    as inactive_service_names
             from `tabClient User` cu
             {where}
             order by cu.full_name asc

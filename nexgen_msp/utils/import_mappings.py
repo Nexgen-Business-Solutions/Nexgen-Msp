@@ -7,7 +7,10 @@ FIXTURE = "import_mappings.json"
 
 TABLES = {
 	"customer_mappings": ("excel_label", ("excel_label", "customer_id", "create_as", "department_prefix")),
-	"service_mappings": ("service_key", ("service_key", "item_id", "scope")),
+	"service_mappings": (
+		"service_key",
+		("service_key", "item_id", "scope", "is_endpoint_protection"),
+	),
 }
 
 

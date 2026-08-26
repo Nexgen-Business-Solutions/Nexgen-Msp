@@ -107,10 +107,10 @@ export const useRequestFilterOptions = () =>
     staleTime: 5 * 60 * 1000,
   });
 
-export const useRequestStats = () =>
+export const useRequestStats = (params: internal.RequestListParams = {}) =>
   useQuery({
-    queryKey: requestKeys.stats(),
-    queryFn: ({ signal }) => internal.getRequestStats(signal),
+    queryKey: [...requestKeys.stats(), params] as const,
+    queryFn: ({ signal }) => internal.getRequestStats(params, signal),
     staleTime: 30 * 1000,
   });
 
