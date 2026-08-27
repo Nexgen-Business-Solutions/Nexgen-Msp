@@ -10,6 +10,7 @@ import {
   PlayCircle,
   Send,
   Plus,
+  Trash2,
   ShieldCheck,
 } from 'lucide-react';
 import StatusBadge from '@/shared/components/StatusBadge';
@@ -23,7 +24,8 @@ import DeviceServiceModal from '../components/DeviceServiceModal';
 import AddDeviceModal from '../components/AddDeviceModal';
 import EditClientUserModal from '../components/EditClientUserModal';
 import PortalInviteModal from '../components/PortalInviteModal';
-import { userKeys, useUserDetail } from '../hooks/useUsers';
+import { userKeys, useDeleteClientUser, useUserDetail } from '../hooks/useUsers';
+import ConfirmModal from '@/shared/components/ConfirmModal';
 
 import type { UserServiceRow as UserServiceRowType } from '@/lib/api/internal';
 
@@ -80,6 +82,8 @@ export default function UserDetail() {
   const [assignOpen, setAssignOpen] = useState(false);
   const [editingUser, setEditingUser] = useState(false);
   const [inviting, setInviting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const remove = useDeleteClientUser();
 
   const { data: session } = useSession();
   // only an administrator hands out portal access
@@ -164,6 +168,22 @@ export default function UserDetail() {
               {isAdmin && (
                 <button
                   type="button"
+                  onClick={() => setDeleting(true)}
+                  disabled={!user.can_delete}
+                  title={
+                    user.can_delete
+                      ? 'Erase this person'
+                      : `Cannot be deleted: ${user.delete_blockers.join(', ')}`
+                  }
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-2.5 py-2.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+                >
+                  <Trash2 size={13} />
+                  Delete
+                </button>
+              )}
+              {isAdmin && (
+                <button
+                  type="button"
                   onClick={() => setInviting(true)}
                   disabled={['Disabled', 'Archived'].includes(user.lifecycle_status)}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-40"
@@ -210,14 +230,7 @@ export default function UserDetail() {
                 </p>
               </div>
             </div>
-            <div className="mt-4">
-              <p className="mb-2 text-xs font-medium text-slate-400">Remarks</p>
-              <RemarkLog
-                entries={user.remark_log}
-                target={{ doctype: 'Client User', name: user.name }}
-                invalidate={userKeys.detail(user.name)}
-              />
-            </div>
+
           </div>
 
           <button
@@ -230,6 +243,14 @@ export default function UserDetail() {
           </button>
         </div>
       </div>
+
+      <Panel title="Remarks">
+        <RemarkLog
+          entries={user.remark_log}
+          target={{ doctype: 'Client User', name: user.name }}
+          invalidate={userKeys.detail(user.name)}
+        />
+      </Panel>
 
       <Panel title="Services">
         <table className="w-full">
@@ -486,6 +507,20 @@ export default function UserDetail() {
         requests={detail.data.customer_requests}
         defaultRequest={referencedRequest}
         onClose={() => setDeviceOpen(false)}
+      />
+
+      <ConfirmModal
+        open={deleting}
+        tone="danger"
+        title={`Delete ${user.full_name}?`}
+        description="They carry nothing — no service, no device, no request, no billed line. This cannot be undone."
+        confirmLabel="Delete"
+        loading={remove.isLoading}
+        onCancel={() => setDeleting(false)}
+        onConfirm={async () => {
+          await remove.mutateAsync(user.name);
+          navigate('/msp/users');
+        }}
       />
 
       <AssignServiceModal

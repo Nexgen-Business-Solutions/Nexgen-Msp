@@ -17,3 +17,5 @@ nexgen_msp.patches.invoice_billed_count
 nexgen_msp.patches.service_invoice_label
 nexgen_msp.patches.flag_protection_service
 nexgen_msp.patches.remarks_to_log
+nexgen_msp.patches.seed_device_holders
+nexgen_msp.patches.flag_current_holder

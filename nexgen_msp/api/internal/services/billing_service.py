@@ -1723,6 +1723,16 @@ class BillingService:
                 if not known or covered > known:
                     bucket[key] = covered
 
+        for user, covered in per_user.items():
+            frappe.db.set_value(
+                "Client User", user, "last_billed_on", covered, update_modified=False
+            )
+
+        for device, covered in per_device.items():
+            frappe.db.set_value(
+                "Managed Device", device, "last_billed_on", covered, update_modified=False
+            )
+
         touched = frappe.db.sql_list(
             """
             select distinct brl.managed_device

@@ -309,6 +309,8 @@ export type UserDetail = {
     remark_log: RemarkEntry[];
     covered_until: string | null;
     last_billed_on: string | null;
+    can_delete: boolean;
+    delete_blockers: string[];
   };
   devices: UserDevice[];
   services: UserServiceRow[];
@@ -339,7 +341,18 @@ export type DeviceDetail = {
     remark_log: RemarkEntry[];
     last_billed_on: string | null;
     covered_until: string | null;
+    can_delete: boolean;
+    delete_blockers: string[];
   };
+  holder_log: {
+    client_user: string;
+    full_name: string | null;
+    from_date: string | null;
+    to_date: string | null;
+    note: string | null;
+    is_current: number;
+    idx: number;
+  }[];
   interfaces: DeviceInterface[];
   services: (UserServiceRow & { last_billed_on: string | null; internal_notes: string | null })[];
   requests: { name: string; status: string; priority: string; request_type: string; creation: string }[];
@@ -351,6 +364,9 @@ export type DeviceDetail = {
 
 export const addRemark = (payload: { doctype: string; name: string; note: string }) =>
   post<RemarkEntry[]>(`${BASE}.add_remark`, payload);
+
+export const deleteDevice = (device: string) =>
+  post<{ deleted: string }>(`${BASE}.delete_device`, { device });
 
 export const getDevice = (device: string, signal?: AbortSignal) =>
   get<DeviceDetail>(`${BASE}.get_device`, { device }, signal);
@@ -378,6 +394,9 @@ export const listUsers = (params: UserListParams = {}, signal?: AbortSignal) =>
 
 export const getUser = (name: string, signal?: AbortSignal) =>
   get<UserDetail>(`${BASE}.get_user`, { name }, signal);
+
+export const deleteClientUser = (name: string) =>
+  post<{ deleted: string }>(`${BASE}.delete_client_user`, { name });
 
 export const assignUserService = (payload: {
   client_user: string;

@@ -8,12 +8,15 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import getdate
 
+from nexgen_msp.utils import device_holders as holders
+
 MAC_PATTERN = re.compile(r"^[0-9A-F]{2}([:-])(?:[0-9A-F]{2}\1){4}[0-9A-F]{2}$")
 CLOSED_STATUSES = ("Returned", "Damaged", "Retired", "Lost")
 
 
 class ManagedDevice(Document):
 	def validate(self):
+		holders.sync_current(self)
 		self.normalize_hostname()
 		self.validate_unique_hostname()
 		self.validate_assigned_user()

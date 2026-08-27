@@ -217,3 +217,15 @@ export const useInviteToPortal = () =>
 
 export const useRevokePortalAccess = () =>
   usePortalAccessMutation((name: string) => internal.revokeClientUserPortal(name));
+
+export const useDeleteClientUser = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: internal.deleteClientUser,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: userKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['internal', 'devices'] });
+    },
+  });
+};

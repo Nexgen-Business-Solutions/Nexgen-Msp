@@ -6,6 +6,7 @@ from nexgen_msp.utils.catalogue import BILLING_UOM
 
 from nexgen_msp.api.excel_import.services import excel_parser
 from nexgen_msp.utils import permissions
+from nexgen_msp.utils import device_holders as holders
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[a-zA-Z]{2,}$")
@@ -398,7 +399,7 @@ class ExcelImportService:
                     if (record["remarks"] or "").strip()
                     else []
                 ),
-                **ExcelImportService._imported_billing(record, customer, dates_only=True),
+                **ExcelImportService._imported_billing(record, customer),
         }
 
         existing = frappe.db.get_value(
@@ -430,6 +431,16 @@ class ExcelImportService:
             if field == "doctype" or value in (None, "", []):
                 continue
 
+            # a machine that changed hands closes the previous spell instead of
+            # overwriting who held it
+            if field == "holder_log":
+                wanted = value[0]["client_user"] if value else None
+
+                if holders.hand_over(doc, wanted, wanted and value[0].get("from_date")):
+                    touched = True
+
+                continue
+
             # a note the sheet still carries is appended once, never stacked on re-import
             if field == "remark_log":
                 held = {(row.note or "").strip() for row in doc.get("remark_log")}
@@ -453,18 +464,16 @@ class ExcelImportService:
         return doc
 
     @staticmethod
-    def _imported_billing(record, customer, dates_only=False):
+    def _imported_billing(record, customer):
         """What the spreadsheet knows about billing, kept only while this app has billed nothing
         itself — once a run is invoiced the engine restates these from its own records."""
         if ExcelImportService._has_own_billing(customer):
             return {}
 
-        values = {"covered_until": record.get("covered_until")}
-
-        if not dates_only:
-            values["last_billed_on"] = record.get("last_billed_on")
-
-        return values
+        return {
+            "covered_until": record.get("covered_until"),
+            "last_billed_on": record.get("last_billed_on"),
+        }
 
     @staticmethod
     def _has_own_billing(customer):
@@ -510,7 +519,15 @@ class ExcelImportService:
         values = {
                 "doctype": "Managed Device",
                 "customer": customer,
-                "assigned_client_user": client_user,
+                "holder_log": (
+                    [{
+                        "client_user": client_user,
+                        "full_name": record["full_name"],
+                        "from_date": record["device_created"] or record.get("start_date"),
+                    }]
+                    if client_user
+                    else []
+                ),
                 "hostname": record["hostname"],
                 "device_type": record["device_type"] or "Other",
                 "status": status,

@@ -1,5 +1,7 @@
 import frappe
 
+from nexgen_msp.api.internal.services.contract_service import ContractService
+from nexgen_msp.utils import device_holders as holders
 from nexgen_msp.utils import remarks as remarks_util
 
 from nexgen_msp.utils.catalogue import security_item
@@ -161,6 +163,7 @@ class DeviceService:
             select
                 device.name, device.hostname, device.device_type, device.status,
                 device.assigned_date, device.serial_number, device.customer,
+                device.last_billed_on, device.covered_until,
                 device.assigned_client_user,
                 holder.full_name as user_name,
                 holder.department as user_department,
@@ -327,6 +330,10 @@ class DeviceService:
 
         doc["remark_log"] = remarks_util.log("Managed Device", device)
 
+        blockers = DeviceService.deletion_blockers(device)
+        doc["delete_blockers"] = blockers
+        doc["can_delete"] = not blockers
+
         doc["user_name"] = (
             frappe.db.get_value("Client User", doc.assigned_client_user, "full_name")
             if doc.assigned_client_user
@@ -400,6 +407,7 @@ class DeviceService:
 
         return {
             "device": doc,
+            "holder_log": holders.history(device),
             "interfaces": interfaces,
             "services": services,
             "requests": requests,
@@ -426,6 +434,61 @@ class DeviceService:
             .get_field("interface_type")
             .options.split("\n"),
         }
+
+    @staticmethod
+    def deletion_blockers(device):
+        """What stands in the way of erasing a machine, named so it can be acted on.
+
+        A past holder counts as history worth keeping; the current one does not, or a
+        machine could never be deleted the day after it was handed to someone.
+        """
+        checks = (
+            (
+                "service assignment(s)",
+                frappe.db.count("Service Assignment", {"managed_device": device}),
+            ),
+            (
+                "billed line(s)",
+                frappe.db.count("Billing Run Line", {"managed_device": device}),
+            ),
+            (
+                "request line(s)",
+                frappe.db.count("Service Request Line", {"managed_device": device}),
+            ),
+            (
+                "past holder(s)",
+                frappe.db.count(
+                    "MSP Device Holder",
+                    {"parent": device, "parenttype": "Managed Device", "is_current": 0},
+                ),
+            ),
+        )
+
+        return [f"{count} {label}" for label, count in checks if count]
+
+    @staticmethod
+    def delete_device(device=None):
+        """Erase a machine that never carried anything — a test record, a typo."""
+        ContractService._guard_admin()
+
+        if not device or not frappe.db.exists("Managed Device", device):
+            raise NotFoundError(f"Managed Device {device} not found.", "NOT_FOUND")
+
+        blockers = DeviceService.deletion_blockers(device)
+
+        if blockers:
+            raise ValidationError(
+                frappe.db.get_value("Managed Device", device, "hostname")
+                + " cannot be deleted: "
+                + ", ".join(blockers)
+                + ".",
+                "VALIDATION_ERROR",
+            )
+
+        frappe.delete_doc("Managed Device", device, ignore_permissions=True)
+        frappe.db.commit()
+
+        return {"deleted": device}
 
     @staticmethod
     def assign_device_service(
@@ -541,7 +604,8 @@ class DeviceService:
                         f"{assigned_client_user} belongs to {owner}, not {doc.customer}.",
                         "VALIDATION_ERROR",
                     )
-            doc.assigned_client_user = assigned_client_user or None
+            # the spell of whoever held it closes, and a new one opens
+            holders.hand_over(doc, assigned_client_user or None, assigned_date)
 
         interfaces = frappe.parse_json(interfaces) if isinstance(interfaces, str) else interfaces
 
@@ -621,6 +685,8 @@ class DeviceService:
 
             doc.status = target
             doc.retired_date = effective_date
+            # the machine leaves service, so nobody holds it any more
+            holders.hand_over(doc, None, effective_date, note=f"{target.lower()}")
         else:
             if doc.status == "Active":
                 raise ValidationError(f"{doc.hostname} is already active.", "INVALID_TRANSITION")
@@ -636,7 +702,7 @@ class DeviceService:
                         f"{assigned_client_user} belongs to {owner}, not {doc.customer}.",
                         "VALIDATION_ERROR",
                     )
-                doc.assigned_client_user = assigned_client_user
+                holders.hand_over(doc, assigned_client_user, effective_date, note="reinstated")
 
         # why a machine was retired or reinstated belongs in its history, not on top of it
         remarks_util.add(doc, notes)
@@ -705,7 +771,17 @@ class DeviceService:
             {
                 "doctype": "Managed Device",
                 "customer": customer,
-                "assigned_client_user": assigned_client_user or None,
+                "holder_log": (
+                    [{
+                        "client_user": assigned_client_user,
+                        "full_name": frappe.db.get_value(
+                            "Client User", assigned_client_user, "full_name"
+                        ),
+                        "from_date": assigned_date or frappe.utils.today(),
+                    }]
+                    if assigned_client_user
+                    else []
+                ),
                 "hostname": hostname,
                 "device_type": device_type or "Other",
                 "status": "Active",

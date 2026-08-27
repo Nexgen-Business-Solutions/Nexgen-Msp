@@ -1,5 +1,6 @@
 import frappe
 
+from nexgen_msp.utils import device_holders as holders
 from nexgen_msp.utils import remarks as remarks_util
 
 from nexgen_msp.api.internal.services.request_service import RequestService
@@ -101,6 +102,8 @@ EXPORT_COLUMNS = {
         ("active_services", "Active services"),
         ("services", "Services"),
         ("start_date", "In service since"),
+        ("last_billed_on", "Last billed on"),
+        ("covered_until", "Billed up to"),
         ("inactive_services", "Inactive services"),
         ("inactive_service_names", "Ended services"),
         ("disabled_date", "Disabled on"),
@@ -115,6 +118,9 @@ EXPORT_COLUMNS = {
         ("status", "Status"),
         ("serial_number", "Serial number"),
         ("assigned_date", "In service since"),
+        ("last_billed_on", "Last billed on"),
+        ("covered_until", "Billed up to"),
+        ("previous_holders", "Previous holders"),
         ("services", "Services"),
         ("inactive_service_names", "Ended services"),
         ("active_services", "Active services"),
@@ -191,6 +197,12 @@ def export_devices(search=None, customer=None, status=None, device_type=None, co
 
     for row in rows:
         row["remarks"] = remarks_util.joined("Managed Device", row["name"])
+        # who held it before, so a sheet tells the whole story of the machine
+        row["previous_holders"] = " | ".join(
+            f"{spell.full_name or spell.client_user}"
+            f" ({spell.from_date or '?'} → {spell.to_date or 'now'})"
+            for spell in holders.history(row["name"])
+        )
 
     return listing_export.respond(
         "devices.xlsx", "Devices", EXPORT_COLUMNS["devices"], rows
@@ -251,6 +263,14 @@ def list_users(
         start=start,
         page_length=page_length,
     )
+
+
+@frappe.whitelist()
+@handle_errors
+def delete_client_user(name=None):
+    from nexgen_msp.api.internal.services.user_service import UserService
+
+    return UserService.delete_client_user(name=name)
 
 
 @frappe.whitelist()
@@ -593,6 +613,12 @@ def get_device_context(device=None):
 @handle_errors
 def add_remark(doctype=None, name=None, note=None):
     return remarks_util.append(doctype=doctype, name=name, note=note)
+
+
+@frappe.whitelist()
+@handle_errors
+def delete_device(device=None):
+    return _devices().delete_device(device=device)
 
 
 @frappe.whitelist()

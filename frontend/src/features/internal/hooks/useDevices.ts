@@ -182,3 +182,15 @@ export const useDeviceDetail = (device?: string) =>
     queryFn: ({ signal }) => internal.getDevice(device as string, signal),
     enabled: Boolean(device),
   });
+
+export const useDeleteDevice = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: internal.deleteDevice,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: deviceKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['internal', 'users'] });
+    },
+  });
+};

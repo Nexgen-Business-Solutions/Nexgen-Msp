@@ -15,6 +15,7 @@
   "status",
   "section_assignment",
   "assigned_client_user",
+  "holder_log",
   "assigned_date",
   "column_break_assignment",
   "retired_date",
@@ -96,7 +97,9 @@
    "fieldname": "assigned_client_user",
    "fieldtype": "Link",
    "label": "Assigned Client User",
-   "options": "Client User"
+   "options": "Client User",
+   "read_only": 1,
+   "description": "Mirrors the current row of the holder history \u2014 set there, not here."
   },
   {
    "fieldname": "assigned_date",
@@ -206,6 +209,12 @@
    "fieldtype": "Table",
    "label": "Remarks",
    "options": "MSP Remark"
+  },
+  {
+   "fieldname": "holder_log",
+   "fieldtype": "Table",
+   "label": "Holder History",
+   "options": "MSP Device Holder"
   }
  ],
  "grid_page_length": 50,

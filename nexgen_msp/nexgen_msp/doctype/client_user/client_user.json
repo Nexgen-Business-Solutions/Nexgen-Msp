@@ -32,6 +32,7 @@
   "portal_user",
   "remarks",
   "remark_log",
+  "last_billed_on",
   "covered_until"
  ],
  "fields": [
@@ -191,6 +192,12 @@
    "fieldtype": "Table",
    "label": "Remarks",
    "options": "MSP Remark"
+  },
+  {
+   "fieldname": "last_billed_on",
+   "fieldtype": "Date",
+   "label": "Last Billed On",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,

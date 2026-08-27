@@ -1,5 +1,6 @@
 import frappe
 
+from nexgen_msp.api.internal.services.contract_service import ContractService
 from nexgen_msp.utils import remarks as remarks_util
 
 from nexgen_msp.utils.meta import select_options
@@ -240,6 +241,7 @@ class UserService:
             select
                 cu.name, cu.full_name, cu.department, cu.customer, cu.lifecycle_status,
                 cu.start_date, cu.disabled_date, cu.email,
+                cu.last_billed_on, cu.covered_until,
                 (select r.note from `tabMSP Remark` r
                     where r.parent = cu.name and r.parenttype = 'Client User'
                     order by r.idx desc limit 1) as remarks,
@@ -319,24 +321,32 @@ class UserService:
                 "portal_user",
                 "remarks",
                 "covered_until",
+                "last_billed_on",
             ],
             as_dict=True,
         )
 
         user["remark_log"] = remarks_util.log("Client User", name)
 
-        # what a submitted run actually covered, which is the date that can be defended
-        user["last_billed_on"] = frappe.db.sql(
-            """
-            select max(br.billing_period_end)
-            from `tabBilling Run Line` brl
-            join `tabBilling Run` br on br.name = brl.parent
-            left join `tabManaged Device` device on device.name = brl.managed_device
-            where br.docstatus = 1
-              and (brl.client_user = %(user)s or device.assigned_client_user = %(user)s)
-            """,
-            {"user": name},
-        )[0][0]
+        # said before the button is pressed, so the refusal is never a surprise
+        blockers = UserService.deletion_blockers(name)
+        user["delete_blockers"] = blockers
+        user["can_delete"] = not blockers
+
+        # the stored date is what the engine restates on every posted invoice and what the
+        # sheet seeds; the query below only covers records neither has touched yet
+        if not user.get("last_billed_on"):
+            user["last_billed_on"] = frappe.db.sql(
+                """
+                select max(br.billing_period_end)
+                from `tabBilling Run Line` brl
+                join `tabBilling Run` br on br.name = brl.parent
+                left join `tabManaged Device` device on device.name = brl.managed_device
+                where br.docstatus = 1
+                  and (brl.client_user = %(user)s or device.assigned_client_user = %(user)s)
+                """,
+                {"user": name},
+            )[0][0]
 
         devices = frappe.db.sql(
             """
@@ -763,6 +773,68 @@ class UserService:
         frappe.db.commit()
 
         return UserService.get_user(name)
+
+    @staticmethod
+    def deletion_blockers(name):
+        """What stands in the way of erasing a person, named so it can be acted on.
+
+        Anything that ties them to work done or money owed keeps them: a service they hold,
+        a request they appear in, a billed line, a device in their hands, a portal account.
+        Erasing those would leave documents pointing at nothing.
+        """
+        checks = (
+            (
+                "service assignment(s)",
+                frappe.db.count("Service Assignment", {"client_user": name}),
+            ),
+            (
+                "device(s) in their hands",
+                frappe.db.count("Managed Device", {"assigned_client_user": name}),
+            ),
+            (
+                "request line(s)",
+                frappe.db.count("Service Request Line", {"client_user": name}),
+            ),
+            (
+                "billed line(s)",
+                frappe.db.count("Billing Run Line", {"client_user": name}),
+            ),
+            (
+                "past device holding(s)",
+                frappe.db.count("MSP Device Holder", {"client_user": name}),
+            ),
+        )
+
+        blockers = [f"{count} {label}" for label, count in checks if count]
+
+        if frappe.db.get_value("Client User", name, "portal_user"):
+            blockers.append("a portal account — revoke it first")
+
+        return blockers
+
+    @staticmethod
+    def delete_client_user(name=None):
+        """Erase a person who never carried anything — a test record, a typo."""
+        ContractService._guard_admin()
+
+        if not name or not frappe.db.exists("Client User", name):
+            raise NotFoundError(f"Client User {name} not found.", "NOT_FOUND")
+
+        blockers = UserService.deletion_blockers(name)
+
+        if blockers:
+            raise ValidationError(
+                frappe.db.get_value("Client User", name, "full_name")
+                + " cannot be deleted: "
+                + ", ".join(blockers)
+                + ".",
+                "VALIDATION_ERROR",
+            )
+
+        frappe.delete_doc("Client User", name, ignore_permissions=True)
+        frappe.db.commit()
+
+        return {"deleted": name}
 
     @staticmethod
     def invite_to_portal(name=None, email=None):

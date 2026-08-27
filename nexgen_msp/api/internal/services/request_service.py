@@ -554,7 +554,7 @@ class RequestService:
                 {
                     "doctype": "Managed Device",
                     "customer": customer,
-                    "assigned_client_user": client_user,
+                    "holder_log": [{"client_user": client_user}] if client_user else [],
                     "hostname": hostname.strip().upper(),
                     "device_type": device_type or "Other",
                     "status": "Active",

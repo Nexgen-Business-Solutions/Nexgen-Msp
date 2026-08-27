@@ -9,6 +9,7 @@ import {
   Plus,
   PowerOff,
   RotateCcw,
+  Trash2,
 } from 'lucide-react';
 import StatusBadge from '@/shared/components/StatusBadge';
 import RemarkLog from '@/shared/components/RemarkLog';
@@ -18,7 +19,12 @@ import DeviceServiceModal from '../components/DeviceServiceModal';
 import EditDeviceModal from '../components/EditDeviceModal';
 import ServiceActionModal, { type ServiceAction } from '../components/ServiceActionModal';
 import type { DeviceDetail as DeviceDetailData, DeviceRow, UserServiceRow } from '@/lib/api/internal';
-import { deviceKeys, useChangeDeviceStatus, useDeviceDetail } from '../hooks/useDevices';
+import {
+  deviceKeys,
+  useChangeDeviceStatus,
+  useDeleteDevice,
+  useDeviceDetail,
+} from '../hooks/useDevices';
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
 
@@ -99,10 +105,12 @@ export default function DeviceDetail() {
 
   const detail = useDeviceDetail(name);
   const changeStatus = useChangeDeviceStatus();
+  const remove = useDeleteDevice();
 
   const [addingService, setAddingService] = useState(false);
   const [editing, setEditing] = useState(false);
   const [statusAction, setStatusAction] = useState<'Retire' | 'Reinstate' | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [target, setTarget] = useState<{ row: UserServiceRow; action: ServiceAction } | null>(null);
 
   if (detail.isLoading) {
@@ -123,7 +131,7 @@ export default function DeviceDetail() {
     );
   }
 
-  const { device, interfaces, services, requests, customer_requests } = detail.data;
+  const { device, interfaces, services, requests, customer_requests, holder_log } = detail.data;
   const retired = device.status !== 'Active';
   const openServices = services.filter(
     (row) => !['Ended', 'Cancelled'].includes(row.operational_status)
@@ -161,6 +169,20 @@ export default function DeviceDetail() {
               >
                 {retired ? <RotateCcw size={13} /> : <PowerOff size={13} />}
                 {retired ? 'Put back in service' : 'Retire device'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeleting(true)}
+                disabled={!device.can_delete}
+                title={
+                  device.can_delete
+                    ? 'Erase this device'
+                    : `Cannot be deleted: ${device.delete_blockers.join(', ')}`
+                }
+                className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-2.5 py-2.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+              >
+                <Trash2 size={13} />
+                Delete
               </button>
             </div>
 
@@ -201,14 +223,7 @@ export default function DeviceDetail() {
               {retired && <Fact label="Retired on" value={fmtDate(device.retired_date)} />}
             </div>
 
-            <div className="mt-4">
-              <p className="mb-2 text-xs font-medium text-slate-400">Remarks</p>
-              <RemarkLog
-                entries={device.remark_log}
-                target={{ doctype: 'Managed Device', name: device.name }}
-                invalidate={deviceKeys.detail(device.name)}
-              />
-            </div>
+
           </div>
 
           <button
@@ -222,6 +237,14 @@ export default function DeviceDetail() {
           </button>
         </div>
       </div>
+
+      <Panel title="Remarks">
+        <RemarkLog
+          entries={device.remark_log}
+          target={{ doctype: 'Managed Device', name: device.name }}
+          invalidate={deviceKeys.detail(device.name)}
+        />
+      </Panel>
 
       <Panel title={`Services (${openServices.length} running)`}>
         <table className="w-full">
@@ -324,6 +347,48 @@ export default function DeviceDetail() {
           </table>
         </Panel>
 
+        <Panel title="Who has held it">
+          <table className="w-full">
+            <thead className="bg-slate-50">
+              <tr>
+                <Th>Held by</Th>
+                <Th>From</Th>
+                <Th>To</Th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {(holder_log ?? []).length === 0 && <Empty span={3}>Never assigned to anyone.</Empty>}
+              {(holder_log ?? []).map((spell) => (
+                <tr key={spell.idx} className={spell.is_current ? 'bg-emerald-50/40' : ''}>
+                  <td className="whitespace-nowrap px-4 py-3 text-sm">
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/msp/users/${spell.client_user}`)}
+                      className="font-semibold text-slate-900 transition-colors hover:text-blue-700"
+                    >
+                      {spell.full_name || spell.client_user}
+                    </button>
+                    {Boolean(spell.is_current) && (
+                      <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+                        NOW
+                      </span>
+                    )}
+                    {spell.note && (
+                      <span className="ml-2 text-xs text-slate-400">{spell.note}</span>
+                    )}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                    {fmtDate(spell.from_date)}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                    {spell.to_date ? fmtDate(spell.to_date) : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Panel>
+
         <Panel title="Requests about this device">
           <table className="w-full">
             <thead className="bg-slate-50">
@@ -377,6 +442,20 @@ export default function DeviceDetail() {
         requests={customer_requests}
         defaultRequest={referencedRequest}
         onClose={() => setTarget(null)}
+      />
+
+      <ConfirmModal
+        open={deleting}
+        tone="danger"
+        title={`Delete ${device.hostname}?`}
+        description="It carries nothing — no service, no billed line, no past holder. This cannot be undone."
+        confirmLabel="Delete"
+        loading={remove.isLoading}
+        onCancel={() => setDeleting(false)}
+        onConfirm={async () => {
+          await remove.mutateAsync(device.name);
+          navigate('/msp/devices');
+        }}
       />
 
       <ConfirmModal
