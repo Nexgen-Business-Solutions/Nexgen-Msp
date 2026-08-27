@@ -153,6 +153,30 @@ export const getContext = (signal?: AbortSignal) =>
 export const getSummary = (customer?: string, signal?: AbortSignal) =>
   get<PortalSummary>(`${BASE}.get_summary`, { customer }, signal);
 
+export type UserChoice = {
+  name: string;
+  full_name: string;
+  email: string | null;
+  department: string | null;
+  lifecycle_status: string;
+  disabled_date: string | null;
+};
+
+export const listUserChoices = (customer?: string, signal?: AbortSignal) =>
+  get<UserChoice[]>(`${BASE}.list_user_choices`, { customer }, signal);
+
+export type DeviceChoice = {
+  name: string;
+  hostname: string;
+  device_type: string | null;
+  status: string;
+  serial_number: string | null;
+  assigned_client_user: string | null;
+};
+
+export const listDeviceChoices = (customer?: string, signal?: AbortSignal) =>
+  get<DeviceChoice[]>(`${BASE}.list_device_choices`, { customer }, signal);
+
 export const listClientUsers = (params: ListParams = {}, signal?: AbortSignal) =>
   get<Paginated<ClientUser>>(`${BASE}.list_client_users`, params, signal);
 

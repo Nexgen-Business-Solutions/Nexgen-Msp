@@ -289,6 +289,51 @@ class PortalService:
         )
 
     @staticmethod
+    def list_user_choices(customer=None):
+        """Every person of one customer, for a picker.
+
+        Not paginated on purpose: a page cap silently hid the people beyond the first two
+        hundred, and a picker that cannot offer someone who exists is worse than a long
+        list. It stays bounded because it only ever covers a single customer.
+        """
+        customer = PortalService._resolve_customer(customer)
+
+        return frappe.get_all(
+            "Client User",
+            filters={"customer": customer},
+            fields=[
+                "name",
+                "full_name",
+                "email",
+                "department",
+                "lifecycle_status",
+                "disabled_date",
+            ],
+            order_by="full_name asc",
+            limit_page_length=0,
+        )
+
+    @staticmethod
+    def list_device_choices(customer=None):
+        """Every machine of one customer, for a picker — same reasoning as the people."""
+        customer = PortalService._resolve_customer(customer)
+
+        return frappe.get_all(
+            "Managed Device",
+            filters={"customer": customer},
+            fields=[
+                "name",
+                "hostname",
+                "device_type",
+                "status",
+                "serial_number",
+                "assigned_client_user",
+            ],
+            order_by="hostname asc",
+            limit_page_length=0,
+        )
+
+    @staticmethod
     def list_devices(customer=None, search=None, status=None, start=0, page_length=20):
         filters = PortalService._base_filters(customer)
         if status:

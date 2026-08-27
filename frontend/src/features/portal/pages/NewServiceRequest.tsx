@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, Copy, Plus, Trash2, UserPlus, Users } from 'lucide-react';
+import { AlertCircle, Copy, Info, Plus, Trash2, TriangleAlert, UserPlus, Users } from 'lucide-react';
 import Select from '@/shared/components/Select';
 import ServiceStateHint from '../components/ServiceStateHint';
 import { NEW_DEVICE, useServiceRequestForm } from '../hooks/useServiceRequestForm';
@@ -162,7 +162,7 @@ export default function NewServiceRequest() {
                   </div>
 
                   {line.isNewUser ? (
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                       <div>
                         <span className={labelClass}>Full name</span>
                         <input
@@ -176,6 +176,21 @@ export default function NewServiceRequest() {
                         />
                         {showErrors && errors.new_user_full_name && (
                           <p className="mt-1 text-xs text-red-600">{errors.new_user_full_name}</p>
+                        )}
+                      </div>
+                      <div>
+                        <span className={labelClass}>Email</span>
+                        <input
+                          type="email"
+                          value={line.new_user_email}
+                          onChange={(event) =>
+                            form.updateLine(line.key, 'new_user_email', event.target.value)
+                          }
+                          placeholder="marie.dupont@compagny.com"
+                          className={inputClass}
+                        />
+                        {showErrors && errors.new_user_email && (
+                          <p className="mt-1 text-xs text-red-600">{errors.new_user_email}</p>
                         )}
                       </div>
                       <div>
@@ -204,6 +219,41 @@ export default function NewServiceRequest() {
                       {showErrors && errors.client_user && (
                         <p className="mt-1 text-xs text-red-600">{errors.client_user}</p>
                       )}
+                      {(() => {
+                        const picked = form.userFor(line.client_user);
+                        if (!picked) return null;
+
+                        const gone = ['Disabled', 'Archived'].includes(picked.lifecycle_status);
+
+                        return (
+                          <div
+                            className={`mt-2 flex items-start gap-2 rounded-lg border p-2.5 ${
+                              gone
+                                ? 'border-amber-200 bg-amber-50'
+                                : 'border-slate-200 bg-slate-50'
+                            }`}
+                          >
+                            {gone ? (
+                              <TriangleAlert size={15} className="mt-0.5 shrink-0 text-amber-600" />
+                            ) : (
+                              <Info size={15} className="mt-0.5 shrink-0 text-slate-400" />
+                            )}
+                            <p className={`text-xs ${gone ? 'text-amber-800' : 'text-slate-600'}`}>
+                              {gone && (
+                                <span className="font-semibold">
+                                  {picked.lifecycle_status}
+                                  {picked.disabled_date
+                                    ? ` since ${String(picked.disabled_date).slice(0, 10)}`
+                                    : ''}
+                                  {' — '}
+                                </span>
+                              )}
+                              {[picked.email, picked.department].filter(Boolean).join(' · ') ||
+                                'No email or department on file.'}
+                            </p>
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
 

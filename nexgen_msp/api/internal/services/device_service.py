@@ -1,5 +1,7 @@
 import frappe
 
+from nexgen_msp.utils import remarks as remarks_util
+
 from nexgen_msp.utils.catalogue import security_item
 
 from nexgen_msp.api.internal.services.request_service import RequestService
@@ -181,6 +183,9 @@ class DeviceService:
                     left join `tabItem` item on item.name = sa.service_item
                     where sa.managed_device = device.name
                       and sa.operational_status not in %(open)s) as inactive_service_names,
+                (select r.note from `tabMSP Remark` r
+                    where r.parent = device.name and r.parenttype = 'Managed Device'
+                    order by r.idx desc limit 1) as remarks,
                 exists (
                     select 1 from `tabService Assignment` sa
                     where sa.managed_device = device.name
@@ -319,6 +324,8 @@ class DeviceService:
 
         if not doc:
             raise NotFoundError(f"Managed Device {device} not found.", "NOT_FOUND")
+
+        doc["remark_log"] = remarks_util.log("Managed Device", device)
 
         doc["user_name"] = (
             frappe.db.get_value("Client User", doc.assigned_client_user, "full_name")
@@ -488,6 +495,7 @@ class DeviceService:
 
         reference = f" in reference to {source_request}" if source_request else ""
         assignment.add_comment("Comment", f"Opened by {frappe.session.user}{reference}.")
+        remarks_util.on_assignment(assignment, "granted", notes)
         frappe.db.commit()
 
         return DeviceService.get_device_context(device)
@@ -520,7 +528,7 @@ class DeviceService:
             doc.device_type = device_type
 
         doc.serial_number = serial_number or None
-        doc.remarks = remarks or None
+        remarks_util.add(doc, remarks)
 
         if assigned_date:
             doc.assigned_date = assigned_date
@@ -630,8 +638,8 @@ class DeviceService:
                     )
                 doc.assigned_client_user = assigned_client_user
 
-        if notes:
-            doc.remarks = notes
+        # why a machine was retired or reinstated belongs in its history, not on top of it
+        remarks_util.add(doc, notes)
 
         doc.save()
         doc.add_comment("Comment", f"{action} applied by {frappe.session.user}.")
@@ -704,7 +712,12 @@ class DeviceService:
                 "assigned_date": assigned_date or frappe.utils.today(),
                 "serial_number": serial_number or None,
                 "network_interfaces": rows,
-                "remarks": remarks or None,
+                "remark_log": (
+                    [{"note": remarks.strip(), "noted_on": frappe.utils.now(),
+                      "noted_by": frappe.session.user}]
+                    if (remarks or "").strip()
+                    else []
+                ),
             }
         ).insert()
 

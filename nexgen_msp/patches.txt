@@ -16,3 +16,4 @@ nexgen_msp.patches.backfill_covered_until
 nexgen_msp.patches.invoice_billed_count
 nexgen_msp.patches.service_invoice_label
 nexgen_msp.patches.flag_protection_service
+nexgen_msp.patches.remarks_to_log

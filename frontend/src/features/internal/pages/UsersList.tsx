@@ -180,9 +180,8 @@ export default function UsersList() {
                 {COLUMNS.map((column, index) => (
                   <th
                     key={column}
-                    className={`whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 ${
-                      index === 0 ? 'rounded-l-lg' : ''
-                    } ${index === COLUMNS.length - 1 ? 'rounded-r-lg' : ''}`}
+                    className={`whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 ${index === 0 ? 'rounded-l-lg' : ''
+                      } ${index === COLUMNS.length - 1 ? 'rounded-r-lg' : ''}`}
                   >
                     {column}
                   </th>
@@ -224,6 +223,9 @@ export default function UsersList() {
                   >
                     <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
                       {row.full_name}
+                      {row.email && (
+                        <p className="text-xs text-slate-400">{row.email}</p>
+                      )}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
                       {row.department || 'N/A'}
@@ -252,11 +254,10 @@ export default function UsersList() {
                     </td>
                     <td className="whitespace-nowrap px-4 py-3">
                       <span
-                        className={`inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-1 text-xs font-semibold tabular-nums ${
-                          row.inactive_services
+                        className={`inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-1 text-xs font-semibold tabular-nums ${row.inactive_services
                             ? 'bg-slate-100 text-slate-600'
                             : 'bg-transparent text-slate-300'
-                        }`}
+                          }`}
                       >
                         {row.inactive_services}
                       </span>

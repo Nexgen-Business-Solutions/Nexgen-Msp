@@ -29,7 +29,7 @@ const EditClientUserModal: React.FC<Props> = ({ open, user, onClose }) => {
     setDepartment(user.department ?? '');
     setEmail(user.email ?? '');
     setStartDate((user.start_date ?? '').slice(0, 10));
-    setRemarks(user.remarks ?? '');
+    setRemarks('');
     save.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, user]);
@@ -124,7 +124,7 @@ const EditClientUserModal: React.FC<Props> = ({ open, user, onClose }) => {
         </div>
 
         <div>
-          <FieldLabel>Note</FieldLabel>
+          <FieldLabel>Add a note</FieldLabel>
           <textarea
             rows={3}
             value={remarks}
@@ -132,6 +132,9 @@ const EditClientUserModal: React.FC<Props> = ({ open, user, onClose }) => {
             placeholder="Part-time from May, keeps the laptop."
             className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
           />
+          <p className="mt-1.5 text-sm text-slate-500">
+            Added to their history — earlier notes are kept.
+          </p>
         </div>
 
         <p className="text-sm text-slate-500">

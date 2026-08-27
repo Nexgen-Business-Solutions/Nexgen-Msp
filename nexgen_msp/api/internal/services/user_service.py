@@ -1,5 +1,7 @@
 import frappe
 
+from nexgen_msp.utils import remarks as remarks_util
+
 from nexgen_msp.utils.meta import select_options
 
 from nexgen_msp.utils.catalogue import security_item
@@ -237,7 +239,10 @@ class UserService:
             f"""
             select
                 cu.name, cu.full_name, cu.department, cu.customer, cu.lifecycle_status,
-                cu.start_date, cu.disabled_date, cu.email, cu.remarks,
+                cu.start_date, cu.disabled_date, cu.email,
+                (select r.note from `tabMSP Remark` r
+                    where r.parent = cu.name and r.parenttype = 'Client User'
+                    order by r.idx desc limit 1) as remarks,
                 (select group_concat(device.hostname separator ', ')
                     from `tabManaged Device` device
                     where device.assigned_client_user = cu.name and device.status = 'Active')
@@ -317,6 +322,8 @@ class UserService:
             ],
             as_dict=True,
         )
+
+        user["remark_log"] = remarks_util.log("Client User", name)
 
         # what a submitted run actually covered, which is the date that can be defended
         user["last_billed_on"] = frappe.db.sql(
@@ -597,6 +604,7 @@ class UserService:
 
         reference = f" in reference to {source_request}" if source_request else ""
         assignment.add_comment("Comment", f"Opened by {frappe.session.user}{reference}.")
+        remarks_util.on_assignment(assignment, "granted", notes)
         frappe.db.commit()
 
         return UserService.get_user(client_user)
@@ -647,6 +655,7 @@ class UserService:
 
         doc.save()
         doc.add_comment("Comment", f"{action} applied by {frappe.session.user}{reference}.")
+        remarks_util.on_assignment(doc, action, notes)
         frappe.db.commit()
 
         client_user = doc.client_user or frappe.db.get_value(
@@ -742,10 +751,13 @@ class UserService:
             ("department", department),
             ("email", email),
             ("start_date", start_date),
-            ("remarks", remarks),
         ):
             if value is not None:
                 doc.set(field, value or None)
+
+        # a remark is added to the log, never written over: the point is to follow what was
+        # noted and when, which a single overwritten field cannot do
+        remarks_util.add(doc, remarks)
 
         doc.save()
         frappe.db.commit()

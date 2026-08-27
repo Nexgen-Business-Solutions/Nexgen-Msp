@@ -33,6 +33,7 @@
   "sophos_endpoint_id",
   "section_notes",
   "remarks",
+  "remark_log",
   "last_billed_on",
   "covered_until"
  ],
@@ -185,7 +186,8 @@
   {
    "fieldname": "remarks",
    "fieldtype": "Small Text",
-   "label": "Remarks"
+   "label": "Remarks (legacy)",
+   "read_only": 1
   },
   {
    "fieldname": "last_billed_on",
@@ -198,6 +200,12 @@
    "fieldtype": "Date",
    "label": "Billed Up To",
    "read_only": 1
+  },
+  {
+   "fieldname": "remark_log",
+   "fieldtype": "Table",
+   "label": "Remarks",
+   "options": "MSP Remark"
   }
  ],
  "grid_page_length": 50,

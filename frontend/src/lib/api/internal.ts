@@ -242,6 +242,10 @@ export type UserRow = {
   lifecycle_status: string;
   start_date: string | null;
   disabled_date: string | null;
+  email: string | null;
+  remarks: string | null;
+  services: string | null;
+  inactive_service_names: string | null;
   hostnames: string | null;
   device_type: string | null;
   active_services: number;
@@ -283,6 +287,13 @@ export type CustomerRequestRef = {
   customer: string;
 };
 
+export type RemarkEntry = {
+  note: string;
+  noted_on: string | null;
+  noted_by: string | null;
+  idx: number;
+};
+
 export type UserDetail = {
   user: {
     name: string;
@@ -295,6 +306,7 @@ export type UserDetail = {
     disabled_date: string | null;
     portal_user: string | null;
     remarks: string | null;
+    remark_log: RemarkEntry[];
     covered_until: string | null;
     last_billed_on: string | null;
   };
@@ -324,6 +336,7 @@ export type DeviceDetail = {
     model: string | null;
     operating_system: string | null;
     remarks: string | null;
+    remark_log: RemarkEntry[];
     last_billed_on: string | null;
     covered_until: string | null;
   };
@@ -335,6 +348,9 @@ export type DeviceDetail = {
   device_types: string[];
   interface_types: string[];
 };
+
+export const addRemark = (payload: { doctype: string; name: string; note: string }) =>
+  post<RemarkEntry[]>(`${BASE}.add_remark`, payload);
 
 export const getDevice = (device: string, signal?: AbortSignal) =>
   get<DeviceDetail>(`${BASE}.get_device`, { device }, signal);

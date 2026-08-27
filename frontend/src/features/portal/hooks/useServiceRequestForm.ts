@@ -2,9 +2,9 @@ import { useMemo, useState } from 'react';
 import type { NewRequestLine, ServiceRequestDetail } from '@/lib/api/portal';
 import {
   useCatalogue,
-  useClientUsers,
+  useUserChoices,
+  useDeviceChoices,
   useCreateServiceRequest,
-  useDevices,
   useRequestActions,
 } from './usePortal';
 
@@ -22,6 +22,7 @@ export type FormLine = {
   client_user: string;
   new_user_full_name: string;
   new_user_department: string;
+  new_user_email: string;
   services: string[];
   managed_device: string;
   new_device_label: string;
@@ -44,6 +45,7 @@ const emptyLine = (): FormLine => {
     client_user: '',
     new_user_full_name: '',
     new_user_department: '',
+    new_user_email: '',
     services: [],
     managed_device: '',
     new_device_label: '',
@@ -59,6 +61,9 @@ const validateLine = (line: FormLine, deviceServices: Set<string>): LineErrors =
 
   if (line.isNewUser) {
     if (!line.new_user_full_name.trim()) errors.new_user_full_name = 'Enter the full name.';
+    // the address is what a portal invitation is sent to, so a typo is worth catching here
+    if (line.new_user_email.trim() && !/^[^@\s]+@[^@\s]+\.[a-zA-Z]{2,}$/.test(line.new_user_email.trim()))
+      errors.new_user_email = 'That does not look like an email address.';
   } else if (!line.client_user) {
     errors.client_user = 'Select a user.';
   }
@@ -92,6 +97,7 @@ const toPayloadLines = (line: FormLine, deviceServices: Set<string>): NewRequest
       client_user: line.isNewUser || onDevice ? undefined : line.client_user,
       managed_device: onDevice ? line.managed_device : undefined,
       new_user_full_name: line.isNewUser ? line.new_user_full_name.trim() : undefined,
+      new_user_email: line.isNewUser ? line.new_user_email.trim() || undefined : undefined,
       new_user_department: line.isNewUser
         ? line.new_user_department.trim() || undefined
         : undefined,
@@ -108,8 +114,8 @@ export const useServiceRequestForm = (onCreated?: (request: ServiceRequestDetail
   const [touched, setTouched] = useState(false);
 
   const catalogue = useCatalogue();
-  const users = useClientUsers(200);
-  const devices = useDevices(200);
+  const users = useUserChoices();
+  const devices = useDeviceChoices();
   const mutation = useCreateServiceRequest();
 
   const deviceServices = useMemo(
@@ -133,10 +139,31 @@ export const useServiceRequestForm = (onCreated?: (request: ServiceRequestDetail
 
   const userOptions = useMemo(
     () =>
-      (users.data?.rows ?? []).map((row) => ({
-        value: row.name,
-        label: row.full_name,
-      })),
+      (users.data ?? []).map((row) => {
+        // someone who has left can legitimately be the subject of a request — closing
+        // their services, for one — so they stay in the list, flagged rather than hidden
+        const gone = ['Disabled', 'Archived'].includes(row.lifecycle_status);
+        const facts = [
+          row.email,
+          row.department,
+          gone
+            ? `${row.lifecycle_status.toLowerCase()}${
+                row.disabled_date ? ` since ${String(row.disabled_date).slice(0, 10)}` : ''
+              }`
+            : null,
+        ].filter(Boolean);
+
+        return {
+          value: row.name,
+          label: row.full_name,
+          description: facts.join(' · ') || undefined,
+        };
+      }),
+    [users.data]
+  );
+
+  const usersByName = useMemo(
+    () => new Map((users.data ?? []).map((row) => [row.name, row])),
     [users.data]
   );
 
@@ -174,6 +201,7 @@ export const useServiceRequestForm = (onCreated?: (request: ServiceRequestDetail
           } else {
             next.new_user_full_name = '';
             next.new_user_department = '';
+            next.new_user_email = '';
           }
         }
 
@@ -240,13 +268,14 @@ export const useServiceRequestForm = (onCreated?: (request: ServiceRequestDetail
       users: userOptions,
     },
     deviceServices,
+    userFor: (clientUser: string) => usersByName.get(clientUser),
     devicesFor: (clientUser: string) =>
-      (devices.data?.rows ?? [])
+      (devices.data ?? [])
         .filter((row) => row.assigned_client_user === clientUser && row.status === 'Active')
         .map((row) => ({
           value: row.name,
-          label: [row.device_type, row.assigned_user_name].filter(Boolean).join(' · '),
-          description: row.hostname,
+          label: row.hostname,
+          description: [row.device_type, row.serial_number].filter(Boolean).join(' · ') || undefined,
         })),
     newDeviceValue: NEW_DEVICE,
     loadingOptions: catalogue.isLoading || users.isLoading || devices.isLoading,

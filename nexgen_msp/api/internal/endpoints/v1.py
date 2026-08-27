@@ -1,5 +1,7 @@
 import frappe
 
+from nexgen_msp.utils import remarks as remarks_util
+
 from nexgen_msp.api.internal.services.request_service import RequestService
 from nexgen_msp.utils.errors import NotFoundError
 from nexgen_msp.utils.wrapper_error_decorator import handle_errors
@@ -117,6 +119,7 @@ EXPORT_COLUMNS = {
         ("inactive_service_names", "Ended services"),
         ("active_services", "Active services"),
         ("inactive_services", "Inactive services"),
+        ("remarks", "Remarks"),
     ],
     "requests": [
         ("name", "Request"),
@@ -168,6 +171,9 @@ def export_users(
         department=department, service=service, coverage=coverage, portal=portal,
     )
 
+    for row in rows:
+        row["remarks"] = remarks_util.joined("Client User", row["name"])
+
     return listing_export.respond(
         "users.xlsx", "Users", EXPORT_COLUMNS["users"], rows
     )
@@ -182,6 +188,9 @@ def export_devices(search=None, customer=None, status=None, device_type=None, co
         _devices().list_devices, search=search, customer=customer, status=status,
         device_type=device_type, coverage=coverage,
     )
+
+    for row in rows:
+        row["remarks"] = remarks_util.joined("Managed Device", row["name"])
 
     return listing_export.respond(
         "devices.xlsx", "Devices", EXPORT_COLUMNS["devices"], rows
@@ -578,6 +587,12 @@ def list_devices(
 @handle_errors
 def get_device_context(device=None):
     return _devices().get_device_context(device=device)
+
+
+@frappe.whitelist()
+@handle_errors
+def add_remark(doctype=None, name=None, note=None):
+    return remarks_util.append(doctype=doctype, name=name, note=note)
 
 
 @frappe.whitelist()

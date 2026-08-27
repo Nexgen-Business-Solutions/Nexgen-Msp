@@ -303,3 +303,23 @@ export const useServiceState = (
       ),
     enabled: Boolean(serviceItem && (clientUser || managedDevice)),
   });
+
+export const useUserChoices = () => {
+  const customer = usePortalFilters((state) => state.customer);
+
+  return useQuery({
+    queryKey: [...portalKeys.all, 'userChoices', customer] as const,
+    queryFn: ({ signal }) => portal.listUserChoices(customer || undefined, signal),
+    staleTime: 60 * 1000,
+  });
+};
+
+export const useDeviceChoices = () => {
+  const customer = usePortalFilters((state) => state.customer);
+
+  return useQuery({
+    queryKey: [...portalKeys.all, 'deviceChoices', customer] as const,
+    queryFn: ({ signal }) => portal.listDeviceChoices(customer || undefined, signal),
+    staleTime: 60 * 1000,
+  });
+};

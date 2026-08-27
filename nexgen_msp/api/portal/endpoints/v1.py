@@ -18,6 +18,18 @@ def get_summary(customer=None):
 
 @frappe.whitelist()
 @handle_errors
+def list_user_choices(customer=None):
+    return PortalService.list_user_choices(customer=customer)
+
+
+@frappe.whitelist()
+@handle_errors
+def list_device_choices(customer=None):
+    return PortalService.list_device_choices(customer=customer)
+
+
+@frappe.whitelist()
+@handle_errors
 def list_client_users(customer=None, search=None, status=None, start=0, page_length=20):
     return PortalService.list_client_users(
         customer=customer, search=search, status=status, start=start, page_length=page_length

@@ -13,6 +13,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import StatusBadge from '@/shared/components/StatusBadge';
+import RemarkLog from '@/shared/components/RemarkLog';
 import { useSession } from '@/shared/hooks/useSession';
 import { isAdmin as hasAdminRole } from '@/shared/layout/navigation';
 import RowActionsMenu, { type RowAction } from '@/shared/components/RowActionsMenu';
@@ -22,7 +23,7 @@ import DeviceServiceModal from '../components/DeviceServiceModal';
 import AddDeviceModal from '../components/AddDeviceModal';
 import EditClientUserModal from '../components/EditClientUserModal';
 import PortalInviteModal from '../components/PortalInviteModal';
-import { useUserDetail } from '../hooks/useUsers';
+import { userKeys, useUserDetail } from '../hooks/useUsers';
 
 import type { UserServiceRow as UserServiceRowType } from '@/lib/api/internal';
 
@@ -145,7 +146,12 @@ export default function UserDetail() {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2.5">
-              <h1 className="text-lg font-bold text-slate-900">{user.full_name}</h1>
+              <span className="min-w-0">
+                <h1 className="text-lg font-bold text-slate-900">{user.full_name}</h1>
+                {user.email && (
+                  <p className="mt-0.5 text-sm text-slate-400">{user.email}</p>
+                )}
+              </span>
               <StatusBadge value={user.lifecycle_status} />
               <button
                 type="button"
@@ -168,10 +174,11 @@ export default function UserDetail() {
               )}
             </div>
 
-            {user.remarks && (
-              <p className="mt-2 max-w-2xl text-sm text-slate-600">{user.remarks}</p>
-            )}
             <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-4">
+              <div>
+                <p className="text-xs font-medium text-slate-400">Email</p>
+                <p className="mt-0.5 text-sm text-slate-700">{user.email}</p>
+              </div>
               <div>
                 <p className="text-xs font-medium text-slate-400">Customer</p>
                 <p className="mt-0.5 text-sm text-slate-700">{user.customer}</p>
@@ -203,11 +210,14 @@ export default function UserDetail() {
                 </p>
               </div>
             </div>
-            {user.remarks && (
-              <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                {user.remarks}
-              </p>
-            )}
+            <div className="mt-4">
+              <p className="mb-2 text-xs font-medium text-slate-400">Remarks</p>
+              <RemarkLog
+                entries={user.remark_log}
+                target={{ doctype: 'Client User', name: user.name }}
+                invalidate={userKeys.detail(user.name)}
+              />
+            </div>
           </div>
 
           <button

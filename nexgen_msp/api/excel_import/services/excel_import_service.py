@@ -392,7 +392,12 @@ class ExcelImportService:
                 "disabled_date": disabled_date,
                 "ad_status": "Active" if record["ad_marked_active"] else "Not Managed",
                 "portal_visible": 1,
-                "remarks": record["remarks"],
+                "remark_log": (
+                    [{"note": record["remarks"].strip(), "noted_on": frappe.utils.now(),
+                      "noted_by": frappe.session.user}]
+                    if (record["remarks"] or "").strip()
+                    else []
+                ),
                 **ExcelImportService._imported_billing(record, customer, dates_only=True),
         }
 
@@ -423,6 +428,17 @@ class ExcelImportService:
 
         for field, value in values.items():
             if field == "doctype" or value in (None, "", []):
+                continue
+
+            # a note the sheet still carries is appended once, never stacked on re-import
+            if field == "remark_log":
+                held = {(row.note or "").strip() for row in doc.get("remark_log")}
+
+                for row in value:
+                    if row["note"] not in held:
+                        doc.append("remark_log", row)
+                        touched = True
+
                 continue
 
             if field in ("covered_until", "last_billed_on") or not doc.get(field):
@@ -503,7 +519,12 @@ class ExcelImportService:
                 ),
                 "retired_date": retired_date,
                 "network_interfaces": record["macs"],
-                "remarks": record["remarks"],
+                "remark_log": (
+                    [{"note": record["remarks"].strip(), "noted_on": frappe.utils.now(),
+                      "noted_by": frappe.session.user}]
+                    if (record["remarks"] or "").strip()
+                    else []
+                ),
                 **ExcelImportService._imported_billing(record, customer),
         }
 

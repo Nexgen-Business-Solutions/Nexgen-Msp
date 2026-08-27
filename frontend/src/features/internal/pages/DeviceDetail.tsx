@@ -11,13 +11,14 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import StatusBadge from '@/shared/components/StatusBadge';
+import RemarkLog from '@/shared/components/RemarkLog';
 import RowActionsMenu, { type RowAction } from '@/shared/components/RowActionsMenu';
 import ConfirmModal from '@/shared/components/ConfirmModal';
 import DeviceServiceModal from '../components/DeviceServiceModal';
 import EditDeviceModal from '../components/EditDeviceModal';
 import ServiceActionModal, { type ServiceAction } from '../components/ServiceActionModal';
 import type { DeviceDetail as DeviceDetailData, DeviceRow, UserServiceRow } from '@/lib/api/internal';
-import { useChangeDeviceStatus, useDeviceDetail } from '../hooks/useDevices';
+import { deviceKeys, useChangeDeviceStatus, useDeviceDetail } from '../hooks/useDevices';
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
 
@@ -200,11 +201,14 @@ export default function DeviceDetail() {
               {retired && <Fact label="Retired on" value={fmtDate(device.retired_date)} />}
             </div>
 
-            {device.remarks && (
-              <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                {device.remarks}
-              </p>
-            )}
+            <div className="mt-4">
+              <p className="mb-2 text-xs font-medium text-slate-400">Remarks</p>
+              <RemarkLog
+                entries={device.remark_log}
+                target={{ doctype: 'Managed Device', name: device.name }}
+                invalidate={deviceKeys.detail(device.name)}
+              />
+            </div>
           </div>
 
           <button
