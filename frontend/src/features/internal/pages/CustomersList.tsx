@@ -129,14 +129,14 @@ export default function CustomersList() {
           </p>
         </div>
 
-        <div className="overflow-x-auto px-5 pb-4">
+        <div className="max-h-[62vh] overflow-auto px-5 pb-4">
           <table className="w-full">
-            <thead className="bg-slate-50">
+            <thead>
               <tr>
                 {COLUMNS.map((column, index) => (
                   <th
                     key={column}
-                    className={`whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 ${
+                    className={`sticky top-0 z-10 whitespace-nowrap bg-slate-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 ${
                       index === 0 ? 'rounded-l-lg' : ''
                     } ${index === COLUMNS.length - 1 ? 'rounded-r-lg' : ''}`}
                   >

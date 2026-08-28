@@ -569,12 +569,11 @@ class DeviceService:
         hostname=None,
         device_type=None,
         serial_number=None,
-        assigned_client_user=None,
         assigned_date=None,
         interfaces=None,
         remarks=None,
     ):
-        """Edit the machine itself. Its services are managed separately."""
+        """Edit the machine itself. Its holder and its services are handed over separately."""
         RequestService._guard_internal()
 
         if not device:
@@ -595,17 +594,6 @@ class DeviceService:
 
         if assigned_date:
             doc.assigned_date = assigned_date
-
-        if assigned_client_user is not None:
-            if assigned_client_user:
-                owner = frappe.db.get_value("Client User", assigned_client_user, "customer")
-                if owner != doc.customer:
-                    raise ValidationError(
-                        f"{assigned_client_user} belongs to {owner}, not {doc.customer}.",
-                        "VALIDATION_ERROR",
-                    )
-            # the spell of whoever held it closes, and a new one opens
-            holders.hand_over(doc, assigned_client_user or None, assigned_date)
 
         interfaces = frappe.parse_json(interfaces) if isinstance(interfaces, str) else interfaces
 
@@ -628,6 +616,75 @@ class DeviceService:
         frappe.db.commit()
 
         return {"name": doc.name, "hostname": doc.hostname}
+
+    @staticmethod
+    def hand_over_device(device=None, client_user=None, on_date=None, note=None):
+        """Hand a machine to someone else on a stated day.
+
+        A hand-over is its own act, dated on its own day: reading it off the date the machine
+        entered service is what wrote yesterday's changes into 2024.
+        """
+        RequestService._guard_internal()
+
+        if not device:
+            raise ValidationError("device is required.", "VALIDATION_ERROR")
+
+        if not frappe.db.exists("Managed Device", device):
+            raise NotFoundError(f"Managed Device {device} not found.", "NOT_FOUND")
+
+        doc = frappe.get_doc("Managed Device", device)
+        on_date = on_date or frappe.utils.today()
+
+        if frappe.utils.getdate(on_date) > frappe.utils.getdate(frappe.utils.today()):
+            raise ValidationError(
+                "A hand-over cannot be dated in the future.", "VALIDATION_ERROR"
+            )
+
+        if client_user:
+            owner = frappe.db.get_value("Client User", client_user, "customer")
+
+            if not owner:
+                raise NotFoundError(f"Client User {client_user} not found.", "NOT_FOUND")
+
+            if owner != doc.customer:
+                raise ValidationError(
+                    f"{client_user} belongs to {owner}, not {doc.customer}.",
+                    "VALIDATION_ERROR",
+                )
+
+        current = holders._open_row(doc)
+
+        if current and current.client_user == (client_user or None):
+            raise ValidationError(
+                f"{current.full_name or current.client_user} already holds this device.",
+                "VALIDATION_ERROR",
+            )
+
+        if current and frappe.utils.getdate(on_date) < frappe.utils.getdate(current.from_date):
+            raise ValidationError(
+                f"They took it on {frappe.utils.formatdate(current.from_date)}, so it cannot "
+                "change hands before that day.",
+                "VALIDATION_ERROR",
+            )
+
+        if not current and not client_user:
+            raise ValidationError("Nobody holds this device.", "VALIDATION_ERROR")
+
+        holders.hand_over(doc, client_user or None, on_date, note=note)
+
+        # the hand-over is written in the history; the log says it in words
+        taker = frappe.db.get_value("Client User", client_user, "full_name") if client_user else None
+        line = f"Handed over to {taker}" if taker else "Left in nobody's hands"
+        remarks_util.add(
+            doc,
+            f"{line} on {frappe.utils.formatdate(on_date)}" + (f" — {note}" if note else ""),
+        )
+
+        doc.save()
+        doc.add_comment("Comment", f"Handed over by {frappe.session.user} on {on_date}.")
+        frappe.db.commit()
+
+        return DeviceService.get_device_context(device)
 
     @staticmethod
     def change_device_status(
@@ -803,6 +860,97 @@ class DeviceService:
         frappe.db.commit()
 
         return {"name": doc.name, "hostname": doc.hostname, "customer": doc.customer}
+
+    @staticmethod
+    def list_customer_devices(customer=None, exclude_holder=None):
+        """Every machine this customer owns, with who holds it and since when.
+
+        Handing a machine over is a decision about a machine somebody already has, so the
+        picker has to say whose it is before the choice, not after.
+        """
+        RequestService._guard_internal()
+
+        if not customer:
+            raise ValidationError("customer is required.", "VALIDATION_ERROR")
+
+        rows = frappe.db.sql(
+            """
+            select
+                d.name, d.hostname, d.device_type, d.status, d.serial_number,
+                d.assigned_client_user, d.assigned_date,
+                cu.full_name as holder_name,
+                cu.lifecycle_status as holder_status,
+                cu.department as holder_department,
+                (select h.from_date
+                   from `tabMSP Device Holder` h
+                  where h.parent = d.name and h.is_current = 1
+                  limit 1) as held_since,
+                (select count(*)
+                   from `tabService Assignment` sa
+                  where sa.managed_device = d.name
+                    and sa.operational_status in %(open)s) as open_services
+            from `tabManaged Device` d
+            left join `tabClient User` cu on cu.name = d.assigned_client_user
+            where d.customer = %(customer)s
+            order by d.hostname asc
+            """,
+            {"customer": customer, "open": OPEN_ASSIGNMENT_STATUSES},
+            as_dict=True,
+        )
+
+        if exclude_holder:
+            rows = [row for row in rows if row.assigned_client_user != exclude_holder]
+
+        for row in rows:
+            row["interfaces"] = frappe.get_all(
+                "Network Interface",
+                filters={"parent": row.name, "parenttype": "Managed Device"},
+                fields=["interface_type", "mac_address"],
+                order_by="idx asc",
+            )
+
+        return rows
+
+    @staticmethod
+    def find_hostname(customer=None, hostname=None):
+        """The machine already carrying this hostname for this customer, if there is one.
+
+        Asked while the name is being typed, so the answer is a machine to open rather than
+        a refusal at save time.
+        """
+        RequestService._guard_internal()
+
+        hostname = (hostname or "").strip().upper()
+
+        if not customer or not hostname:
+            return None
+
+        found = frappe.db.get_value(
+            "Managed Device",
+            {"customer": customer, "hostname": hostname},
+            ["name", "hostname", "status", "device_type", "assigned_client_user", "assigned_date"],
+            as_dict=True,
+        )
+
+        if not found:
+            return None
+
+        if found.assigned_client_user:
+            holder = frappe.db.get_value(
+                "Client User",
+                found.assigned_client_user,
+                ["full_name", "lifecycle_status", "department"],
+                as_dict=True,
+            )
+            found["holder_name"] = holder.full_name if holder else None
+            found["holder_status"] = holder.lifecycle_status if holder else None
+            found["holder_department"] = holder.department if holder else None
+
+        found["held_since"] = frappe.db.get_value(
+            "MSP Device Holder", {"parent": found.name, "is_current": 1}, "from_date"
+        )
+
+        return found
 
     @staticmethod
     def list_customer_users(customer=None):

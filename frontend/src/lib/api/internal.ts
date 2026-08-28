@@ -352,6 +352,8 @@ export type DeviceDetail = {
     note: string | null;
     is_current: number;
     idx: number;
+    lifecycle_status: string | null;
+    disabled_date: string | null;
   }[];
   interfaces: DeviceInterface[];
   services: (UserServiceRow & { last_billed_on: string | null; internal_notes: string | null })[];
@@ -656,6 +658,8 @@ export type BillingPreview = {
   billable_count: number;
   exception_count: number;
   exceptions_by_code: Record<string, number>;
+  blocked_count: number;
+  blocked_by_code: Record<string, number>;
   total_amount: number;
   total_months: number;
 };
@@ -928,7 +932,6 @@ export const updateManagedDevice = (payload: {
   hostname?: string;
   device_type?: string;
   serial_number?: string;
-  assigned_client_user?: string;
   assigned_date?: string;
   interfaces?: DeviceInterface[];
   remarks?: string;
@@ -937,6 +940,52 @@ export const updateManagedDevice = (payload: {
     ...payload,
     interfaces: payload.interfaces ? JSON.stringify(payload.interfaces) : undefined,
   });
+
+export type CustomerDevice = {
+  name: string;
+  hostname: string;
+  device_type: string | null;
+  status: string;
+  serial_number: string | null;
+  assigned_client_user: string | null;
+  assigned_date: string | null;
+  holder_name: string | null;
+  holder_status: string | null;
+  holder_department: string | null;
+  held_since: string | null;
+  open_services: number;
+  interfaces: DeviceInterface[];
+};
+
+export const listCustomerDevices = (
+  params: { customer: string; exclude_holder?: string },
+  signal?: AbortSignal
+) => get<CustomerDevice[]>(`${BASE}.list_customer_devices`, params, signal);
+
+export type HostnameMatch = {
+  name: string;
+  hostname: string;
+  status: string;
+  device_type: string | null;
+  assigned_client_user: string | null;
+  assigned_date: string | null;
+  holder_name?: string | null;
+  holder_status?: string | null;
+  holder_department?: string | null;
+  held_since: string | null;
+};
+
+export const findDeviceHostname = (
+  params: { customer: string; hostname: string },
+  signal?: AbortSignal
+) => get<HostnameMatch | null>(`${BASE}.find_device_hostname`, params, signal);
+
+export const handOverDevice = (payload: {
+  device: string;
+  client_user?: string;
+  on_date: string;
+  note?: string;
+}) => post<DeviceContext>(`${BASE}.hand_over_device`, payload);
 
 export const changeDeviceStatus = (payload: {
   device: string;
@@ -1526,6 +1575,83 @@ export const uploadUserList = async (file: File) => {
 
 export const runUserImport = (file_url: string, dry_run: number) =>
   post<ImportReport>(`${BASE}.run_user_import`, { file_url, dry_run });
+
+export type TeamMember = {
+  name: string;
+  full_name: string | null;
+  enabled: number;
+  user_type: string;
+  last_active: string | null;
+  creation: string;
+  role: string | null;
+  roles: string[];
+  kind: string;
+  customers: string[];
+  client_user: string | null;
+};
+
+export type SignIn = {
+  operation: string;
+  status: string;
+  ip_address: string | null;
+  creation: string;
+};
+
+export type TeamMemberDetail = {
+  name: string;
+  full_name: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  enabled: number;
+  user_type: string;
+  creation: string;
+  last_active: string | null;
+  last_login: string | null;
+  last_password_reset_date: string | null;
+  kind: string;
+  role: string | null;
+  roles: string[];
+  desk_access: boolean;
+  customers: string[];
+  client_user: {
+    name: string;
+    full_name: string | null;
+    customer: string | null;
+    lifecycle_status: string | null;
+    email: string | null;
+  } | null;
+  sign_ins: SignIn[];
+  is_self: boolean;
+  can_invite: boolean;
+};
+
+export const getTeamMember = (email: string, signal?: AbortSignal) =>
+  get<TeamMemberDetail>(`${BASE}.get_team_member`, { email }, signal);
+
+export const listTeam = (
+  params: { search?: string; role?: string; status?: string; kind?: string } = {},
+  signal?: AbortSignal
+) => get<TeamMember[]>(`${BASE}.list_team`, params, signal);
+
+export const getTeamOptions = (signal?: AbortSignal) =>
+  get<{ roles: string[]; kinds: string[] }>(`${BASE}.get_team_options`, undefined, signal);
+
+export const inviteTeamMember = (payload: {
+  email: string;
+  first_name: string;
+  last_name?: string;
+  role: string;
+  send_email?: number;
+}) => post<TeamMember[]>(`${BASE}.invite_team_member`, payload);
+
+export const resendTeamInvitation = (email: string) =>
+  post<{ sent_to: string }>(`${BASE}.resend_team_invitation`, { email });
+
+export const setTeamRole = (payload: { email: string; role: string }) =>
+  post<TeamMember[]>(`${BASE}.set_team_role`, payload);
+
+export const setTeamEnabled = (payload: { email: string; enabled: number }) =>
+  post<TeamMember[]>(`${BASE}.set_team_enabled`, payload);
 
 export const getInvoiceSettings = (signal?: AbortSignal) =>
   get<InvoiceSettings>(`${BASE}.get_invoice_settings`, undefined, signal);

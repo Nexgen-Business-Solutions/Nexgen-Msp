@@ -252,3 +252,26 @@ def ensure_customer_contact(user_doc, customer):
     ).insert(ignore_permissions=True)
 
     return contact.name, True
+
+
+def keep_technicians_off_desk():
+	"""Move technicians to Website User, after the roles have been synced.
+
+	A role that grants desk access forces its holders to System User — which opens the
+	Frappe backend to them and consumes a paid seat. This runs after fixtures precisely
+	because the fixture is what settles the role, and the accounts follow from it.
+	"""
+	for user in frappe.get_all(
+		"User", filters={"enabled": 1, "user_type": "System User"}, pluck="name"
+	):
+		roles = set(frappe.get_roles(user))
+
+		if "MSP Technician" not in roles:
+			continue
+
+		if roles.intersection({"MSP System Admin", "System Manager", "Administrator"}):
+			continue
+
+		frappe.db.set_value("User", user, "user_type", "Website User")
+
+	frappe.db.commit()

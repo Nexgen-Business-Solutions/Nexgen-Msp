@@ -668,9 +668,20 @@ class BillingService:
 
         filters = frappe.parse_json(filters) if isinstance(filters, str) else filters
         total_before = len(lines)
+
+        # counted before the filters run: a line hidden for being blocked is exactly the one
+        # the administrator most needs told about, and "hide blocked lines" is on by default
+        blocked = {}
+
+        for line in lines:
+            if line["exception_code"]:
+                blocked[line["exception_code"]] = blocked.get(line["exception_code"], 0) + 1
+
         lines = [line for line in lines if BillingService._matches(line, filters)]
 
         return {
+            "blocked_count": sum(blocked.values()),
+            "blocked_by_code": blocked,
             "contract": terms["name"],
             "contract_title": terms["title"],
             "customer": terms["customer"],

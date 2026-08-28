@@ -32,6 +32,8 @@ const EMPTY: Partial<MspContract> = {
   billing_notes: null,
 };
 
+const today = () => new Date().toISOString().slice(0, 10);
+
 const toOptions = (values: string[] = []) => values.map((value) => ({ value, label: value }));
 
 const MspContractModal: React.FC<Props> = ({ open, customer, contract, onClose }) => {
@@ -46,6 +48,8 @@ const MspContractModal: React.FC<Props> = ({ open, customer, contract, onClose }
 
     setDraft({
       ...EMPTY,
+      // a new agreement starts the day it is signed unless told otherwise
+      start_date: contract?.start_date ?? today(),
       ...(contract ?? {}),
       customer,
       price_list: contract?.price_list ?? options.data?.default_price_list ?? undefined,

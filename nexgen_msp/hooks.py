@@ -63,6 +63,7 @@ override_doctype_class = {"User": "nexgen_msp.overrides.user.MSPUser"}
 after_migrate = [
 	"nexgen_msp.utils.notifications.ensure_templates",
 	"nexgen_msp.utils.import_mappings.ensure_mappings",
+	"nexgen_msp.utils.permissions.keep_technicians_off_desk",
 ]
 
 # Each item in the list will be shown as an app in the apps page

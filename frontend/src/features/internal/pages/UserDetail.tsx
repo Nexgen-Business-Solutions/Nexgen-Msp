@@ -502,6 +502,7 @@ export default function UserDetail() {
         open={deviceOpen}
         clientUser={user.name}
         userName={user.full_name}
+        customer={user.customer}
         deviceTypes={device_types}
         interfaceTypes={interface_types}
         requests={detail.data.customer_requests}

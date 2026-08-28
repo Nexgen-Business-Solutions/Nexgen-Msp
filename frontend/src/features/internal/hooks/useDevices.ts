@@ -166,6 +166,29 @@ export const useUpdateDevice = () => useDeviceMutation(internal.updateManagedDev
 
 export const useChangeDeviceStatus = () => useDeviceMutation(internal.changeDeviceStatus);
 
+export const useHandOverDevice = () => useDeviceMutation(internal.handOverDevice);
+
+export const useCustomerDevices = (customer?: string | null, excludeHolder?: string) =>
+  useQuery({
+    queryKey: [...deviceKeys.all, 'customerDevices', customer, excludeHolder] as const,
+    queryFn: ({ signal }) =>
+      internal.listCustomerDevices(
+        { customer: customer as string, exclude_holder: excludeHolder },
+        signal
+      ),
+    enabled: Boolean(customer),
+    staleTime: 30 * 1000,
+  });
+
+export const useHostnameMatch = (customer?: string | null, hostname?: string) =>
+  useQuery({
+    queryKey: [...deviceKeys.all, 'hostname', customer, hostname] as const,
+    queryFn: ({ signal }) =>
+      internal.findDeviceHostname({ customer: customer as string, hostname: hostname as string }, signal),
+    enabled: Boolean(customer) && (hostname ?? '').trim().length > 1,
+    staleTime: 10 * 1000,
+  });
+
 export const useCustomerUsers = (customer?: string | null) =>
   useQuery({
     queryKey: [...deviceKeys.all, 'customerUsers', customer] as const,

@@ -4,7 +4,7 @@ import Modal from '@/shared/components/Modal';
 import FieldLabel from '@/shared/components/FieldLabel';
 import Select from '@/shared/components/Select';
 import type { DeviceInterface, DeviceRow } from '@/lib/api/internal';
-import { useCustomerUsers, useDeviceFilterOptions, useUpdateDevice } from '../hooks/useDevices';
+import { useDeviceFilterOptions, useUpdateDevice } from '../hooks/useDevices';
 
 type Props = {
   device: DeviceRow | null;
@@ -32,7 +32,6 @@ const EditDeviceModal: React.FC<Props> = ({ device, onClose }) => {
   const [deviceType, setDeviceType] = useState('');
   const [serial, setSerial] = useState('');
   const [assignedDate, setAssignedDate] = useState('');
-  const [holder, setHolder] = useState('');
   const [interfaces, setInterfaces] = useState<DeviceInterface[]>([]);
 
   useEffect(() => {
@@ -41,13 +40,10 @@ const EditDeviceModal: React.FC<Props> = ({ device, onClose }) => {
     setDeviceType(device.device_type);
     setSerial(device.serial_number ?? '');
     setAssignedDate((device.assigned_date ?? '').slice(0, 10));
-    setHolder(device.assigned_client_user ?? '');
     setInterfaces(device.interfaces ?? []);
     update.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [device]);
-
-  const users = useCustomerUsers(device?.customer);
 
   const change = (position: number, patch: Partial<DeviceInterface>) =>
     setInterfaces((current) =>
@@ -64,7 +60,6 @@ const EditDeviceModal: React.FC<Props> = ({ device, onClose }) => {
         device_type: deviceType || undefined,
         serial_number: serial.trim() || undefined,
         assigned_date: assignedDate || undefined,
-        assigned_client_user: holder,
         interfaces: interfaces.filter((item) => item.mac_address.trim()),
       });
       onClose();
@@ -137,23 +132,6 @@ const EditDeviceModal: React.FC<Props> = ({ device, onClose }) => {
               value={serial}
               onChange={(event) => setSerial(event.target.value)}
               className={inputClass}
-            />
-          </div>
-          <div>
-            <FieldLabel>Assigned to</FieldLabel>
-            <Select
-              className="w-full"
-              value={holder}
-              onChange={setHolder}
-              placeholder="Nobody"
-              options={[
-                { value: '', label: 'Nobody', description: 'Leave the device unassigned' },
-                ...(users.data ?? []).map((item) => ({
-                  value: item.name,
-                  label: item.full_name,
-                  description: item.department ?? undefined,
-                })),
-              ]}
             />
           </div>
           <div>

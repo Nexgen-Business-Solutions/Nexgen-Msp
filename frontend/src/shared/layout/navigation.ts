@@ -11,6 +11,7 @@ import {
   Receipt,
   Settings2,
   Table2,
+  UserCog,
   Users,
   type LucideIcon,
 } from 'lucide-react';
@@ -103,6 +104,7 @@ export const getSectionsForRoles = (roles: string[] = []): NavSection[] => {
   const bottom: NavItem[] = [ACTIVITY];
 
   if (isAdmin(roles)) {
+    bottom.push({ id: 'accounts', label: 'Accounts', icon: UserCog, path: '/msp/accounts' });
     bottom.push({ id: 'settings', label: 'Settings', icon: Settings2, path: '/msp/settings' });
   }
 

@@ -13,6 +13,7 @@ type Props = {
   services: ContractServiceRow[];
   editing: ContractRate | null;
   presetService?: string;
+  contractWindow?: { start_date: string; end_date: string | null } | null;
   onClose: () => void;
 };
 
@@ -26,6 +27,7 @@ const RateModal: React.FC<Props> = ({
   services,
   editing,
   presetService,
+  contractWindow,
   onClose,
 }) => {
   const save = useSaveRate(customer);
@@ -44,12 +46,13 @@ const RateModal: React.FC<Props> = ({
     setService(editing?.item_code ?? presetService ?? '');
     setRate(editing ? String(editing.price_list_rate) : '');
     setDiscount(editing?.msp_discount_percent ? String(editing.msp_discount_percent) : '');
-    setValidFrom((editing?.valid_from ?? '').slice(0, 10));
-    setValidUpto((editing?.valid_upto ?? '').slice(0, 10));
+    // a new rate holds for as long as the agreement it prices
+    setValidFrom((editing?.valid_from ?? (editing ? '' : contractWindow?.start_date) ?? '').slice(0, 10));
+    setValidUpto((editing?.valid_upto ?? (editing ? '' : contractWindow?.end_date) ?? '').slice(0, 10));
     setNote(editing?.note ?? '');
     save.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editing, presetService]);
+  }, [open, editing, presetService, contractWindow]);
 
   const submit = async () => {
     try {

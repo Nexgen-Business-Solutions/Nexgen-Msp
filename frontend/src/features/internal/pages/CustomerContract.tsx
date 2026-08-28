@@ -83,6 +83,9 @@ export default function CustomerContract() {
   const hasCustomerDetails = Boolean(address) || customerFacts.length > 0;
 
   const agreements = useMspContracts({ customer });
+  const liveAgreement =
+    (agreements.data ?? []).find((row) => row.status === 'Active') ?? null;
+  const [showEveryService, setShowEveryService] = useState(false);
   const setContractStatus = useSetMspContractStatus();
   const [ending, setEnding] = useState<string | null>(null);
   const [agreementOpen, setAgreementOpen] = useState(false);
@@ -114,6 +117,19 @@ export default function CustomerContract() {
   }
 
   const { profile, services, readiness, price_list: priceList } = detail.data;
+
+  // the catalogue holds every service the company sells; this customer only deals with a
+  // few of them, and the rest is noise until someone deliberately goes looking for it
+  const liveServices = services.filter(
+    (service) =>
+      service.is_eligible ||
+      service.covered_by_contract ||
+      service.in_use ||
+      service.open_assignments > 0 ||
+      service.rate_versions > 0
+  );
+  const shownServices = showEveryService ? services : liveServices;
+  const hiddenServices = services.length - liveServices.length;
   const rateRows = rates.data ?? [];
 
   const openRate = (service?: string, rate?: ContractRate) => {
@@ -372,6 +388,19 @@ export default function CustomerContract() {
             <p className="mt-0.5 text-sm text-slate-400">
               Each rate is a dated version. Adding one never rewrites the past.
             </p>
+            {hiddenServices > 0 && (
+              <label className="mt-2 inline-flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={showEveryService}
+                  onChange={(event) => setShowEveryService(event.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300"
+                />
+                <span className="text-xs text-slate-500">
+                  Show the {hiddenServices} service(s) this customer does not use
+                </span>
+              </label>
+            )}
           </div>
           <button
             type="button"
@@ -384,14 +413,14 @@ export default function CustomerContract() {
           </button>
         </div>
 
-        <div className="overflow-x-auto px-5 pb-4">
+        <div className="max-h-[62vh] overflow-auto px-5 pb-4">
           <table className="w-full">
-            <thead className="bg-slate-50">
+            <thead>
               <tr>
                 {PRICING_COLUMNS.map((column, index) => (
                   <th
                     key={column || index}
-                    className={`whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 ${
+                    className={`sticky top-0 z-10 whitespace-nowrap bg-slate-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 ${
                       index === 0 ? 'rounded-l-lg' : ''
                     } ${index === PRICING_COLUMNS.length - 1 ? 'rounded-r-lg' : ''}`}
                   >
@@ -401,7 +430,7 @@ export default function CustomerContract() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {services.flatMap((service) => {
+              {shownServices.flatMap((service) => {
                 const versions = rateRows.filter((row) => row.item_code === service.service_item);
                 const blocking =
                   service.billable_assignments > 0 &&
@@ -590,6 +619,7 @@ export default function CustomerContract() {
         services={services}
         editing={editingRate}
         presetService={presetService}
+        contractWindow={liveAgreement}
         onClose={() => setRateOpen(false)}
       />
 

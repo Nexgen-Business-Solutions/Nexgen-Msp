@@ -17,6 +17,8 @@ import UsersList from '@/features/internal/pages/UsersList';
 import UserDetail from '@/features/internal/pages/UserDetail';
 import DeviceDetail from '@/features/internal/pages/DeviceDetail';
 import ServiceDetail from '@/features/internal/pages/ServiceDetail';
+import TeamList from '@/features/internal/pages/TeamList';
+import AccountDetail from '@/features/internal/pages/AccountDetail';
 import DevicesList from '@/features/internal/pages/DevicesList';
 import ActivityLog from '@/features/internal/pages/ActivityLog';
 import Settings from '@/features/internal/pages/Settings';
@@ -95,6 +97,22 @@ export const router = createBrowserRouter([
           <InternalGuard>
             <ActivityLog />
           </InternalGuard>
+        ),
+      },
+      {
+        path: 'accounts',
+        element: (
+          <AdminGuard>
+            <TeamList />
+          </AdminGuard>
+        ),
+      },
+      {
+        path: 'accounts/:email',
+        element: (
+          <AdminGuard>
+            <AccountDetail />
+          </AdminGuard>
         ),
       },
       {

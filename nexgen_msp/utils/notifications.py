@@ -62,6 +62,20 @@ TEMPLATES = {
             "{{ link }}<br><br>This link can only be used once."
         ),
     },
+    "MSP Team Invitation": {
+        "subject": "Your {{ app_name }} account",
+        "body": HEADING.format(text="Welcome to the team")
+        + "<p>Hello {{ full_name }},</p>"
+        + "<p>An account has been created for you on {{ app_name }} as "
+        "<strong>{{ role }}</strong>.</p>"
+        + "<p>From there you handle customer requests, the people and machines we manage, "
+        "and the services running on them.</p>"
+        + BUTTON.format(url="link", label="Set my password")
+        + MUTED.format(
+            text="If the button does not work, copy this address into your browser:<br>"
+            "{{ link }}<br><br>This link can only be used once."
+        ),
+    },
     "MSP Password Reset": {
         "subject": "Reset your {{ app_name }} password",
         "body": HEADING.format(text="Password reset")

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
@@ -164,6 +164,15 @@ export default function NewBillingRun() {
   const lines = result?.lines ?? [];
   const billable = lines.filter((line) => !line.exception_code);
   const kept = billable.filter((line) => !excluded.has(line.service_assignment));
+  // an untick made under one filter still holds under the next, so some of them are
+  // out of sight; saying how many keeps the count below honest
+  const hiddenExcluded =
+    excluded.size - billable.filter((line) => excluded.has(line.service_assignment)).length;
+  // a line a filter hides is not billed either, though nobody unticked it
+  const hiddenByFilter = Math.max(
+    (result?.available ?? 0) - (result?.blocked_count ?? 0) - billable.length,
+    0
+  );
   const keptTotal = kept.reduce((sum, line) => sum + line.amount, 0);
   const keptMonths = kept.reduce((sum, line) => sum + line.billable_months, 0);
 
@@ -180,9 +189,19 @@ export default function NewBillingRun() {
     [contract, start, end, discount]
   );
 
+  // what was unticked is a decision about people, not about the current view: it survives
+  // every filter, and only a change of period wipes it, because the lines are then not the same
+  const scope = `${contract}|${start}|${end}`;
+  const lastScope = useRef(scope);
+
   useEffect(() => {
     if (step !== 1) return;
-    setExcluded(new Set());
+
+    if (lastScope.current !== scope) {
+      lastScope.current = scope;
+      setExcluded(new Set());
+    }
+
     preview.mutate({ ...run, filters });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, filters, run]);
@@ -614,7 +633,7 @@ export default function NewBillingRun() {
               <div>
                 <h2 className="text-base font-semibold text-slate-900">Who gets billed</h2>
                 <p className="mt-0.5 text-sm text-slate-400">
-                  Untick anyone you want to leave out.
+                  Untick anyone you want to leave out. It sticks when you change the filters.
                 </p>
               </div>
               <div className="text-right">
@@ -626,22 +645,40 @@ export default function NewBillingRun() {
                 </p>
                 <p className="text-xs text-slate-400">
                   {kept.length} of {billable.length} lines · {keptMonths.toFixed(1)} months
+                  {hiddenExcluded > 0 && (
+                    <span className="text-amber-600">
+                      {' '}
+                      · {hiddenExcluded} unticked out of view
+                    </span>
+                  )}
                 </p>
               </div>
             </div>
 
-            {result && result.exception_count > 0 && (
+            {result && result.blocked_count > 0 && (
               <div className="mx-5 mb-3 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
                 <TriangleAlert size={16} className="mt-0.5 shrink-0 text-amber-600" />
                 <div className="text-sm text-amber-800">
-                  <p className="font-semibold">{result.exception_count} line(s) cannot be billed</p>
+                  <p className="font-semibold">
+                    {result.blocked_count} line(s) cannot be billed
+                    {filters.only_billable ? ' and are hidden below' : ''}
+                  </p>
                   <ul className="mt-1 space-y-0.5">
-                    {Object.entries(result.exceptions_by_code).map(([code, count]) => (
+                    {Object.entries(result.blocked_by_code).map(([code, count]) => (
                       <li key={code}>
                         {count} × {code}
                       </li>
                     ))}
                   </ul>
+                  {Boolean(filters.only_billable) && (
+                    <button
+                      type="button"
+                      onClick={() => set({ only_billable: 0 })}
+                      className="mt-2 inline-flex items-center rounded-lg border border-amber-300 bg-white px-3.5 py-2.5 text-sm font-semibold text-amber-800 transition-colors hover:bg-amber-100"
+                    >
+                      Show them
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -768,6 +805,18 @@ export default function NewBillingRun() {
               </table>
             </div>
           </div>
+        </div>
+      )}
+
+      {step === 1 && hiddenByFilter > 0 && (
+        <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
+          <TriangleAlert size={16} className="mt-0.5 shrink-0 text-amber-600" />
+          <p className="text-sm text-amber-800">
+            <span className="font-semibold">
+              {hiddenByFilter} billable line(s) are held back by the filters
+            </span>{' '}
+            and will not be on this run. Clear the filters to bill them too.
+          </p>
         </div>
       )}
 

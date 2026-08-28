@@ -1,16 +1,19 @@
 import React, { useEffect, useState } from 'react';
-import { AlertCircle, Laptop, Plus, Trash2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { AlertCircle, ArrowUpRight, Laptop, Plus, Trash2, TriangleAlert } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
 import FieldLabel from '@/shared/components/FieldLabel';
 import Select from '@/shared/components/Select';
 import type { CustomerRequestRef, DeviceInterface } from '@/lib/api/internal';
 import RequestReferenceField from './RequestReferenceField';
 import { useAddDevice } from '../hooks/useUsers';
+import { useCustomerDevices, useHandOverDevice, useHostnameMatch } from '../hooks/useDevices';
 
 type Props = {
   open: boolean;
   clientUser: string;
   userName: string;
+  customer: string;
   deviceTypes: string[];
   interfaceTypes: string[];
   requests: CustomerRequestRef[];
@@ -31,18 +34,29 @@ const inputClass =
 
 const today = () => new Date().toISOString().slice(0, 10);
 
+const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
+
 const AddDeviceModal: React.FC<Props> = ({
   open,
   clientUser,
   userName,
+  customer,
   deviceTypes,
   interfaceTypes,
   requests,
   defaultRequest,
   onClose,
 }) => {
+  const navigate = useNavigate();
   const add = useAddDevice(clientUser);
+  const handOver = useHandOverDevice();
 
+  const [mode, setMode] = useState<'new' | 'existing'>('new');
+  const [existing, setExisting] = useState('');
+  const [handOverDate, setHandOverDate] = useState(today());
+  const [handOverNote, setHandOverNote] = useState('');
+
+  const fleet = useCustomerDevices(open ? customer : null, clientUser);
   const [hostname, setHostname] = useState('');
   const [deviceType, setDeviceType] = useState('');
   const [serial, setSerial] = useState('');
@@ -55,6 +69,11 @@ const AddDeviceModal: React.FC<Props> = ({
 
   useEffect(() => {
     if (!open) return;
+    setMode('new');
+    setExisting('');
+    setHandOverDate(today());
+    setHandOverNote('');
+    handOver.reset();
     setHostname('');
     setDeviceType('');
     setSerial('');
@@ -67,6 +86,32 @@ const AddDeviceModal: React.FC<Props> = ({
     add.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // asked while the name is being typed, so a name already taken is a machine to open
+  // rather than a refusal thrown back after the form is filled in
+  const clash = useHostnameMatch(open && mode === 'new' ? customer : null, hostname.trim());
+  const taken = clash.data ?? null;
+
+  const chosen = (fleet.data ?? []).find((item) => item.name === existing) ?? null;
+
+  const openDevice = (name: string) => {
+    onClose();
+    navigate(`/msp/devices/${name}`);
+  };
+
+  const handOverExisting = async () => {
+    try {
+      await handOver.mutateAsync({
+        device: existing,
+        client_user: clientUser,
+        on_date: handOverDate,
+        note: handOverNote.trim() || undefined,
+      });
+      onClose();
+    } catch {
+      // surfaced by the error banner below
+    }
+  };
 
   const update = (position: number, patch: Partial<DeviceInterface>) =>
     setInterfaces((current) =>
@@ -97,7 +142,11 @@ const AddDeviceModal: React.FC<Props> = ({
       icon={Laptop}
       tone="indigo"
       title="Add a device"
-      subtitle={`Register hardware for ${userName}. Services are attached separately, through a request.`}
+      subtitle={
+        mode === 'new'
+          ? `Register hardware for ${userName}. Services are attached separately, through a request.`
+          : `Hand a machine this customer already owns over to ${userName}. Its services follow it.`
+      }
       widthClass="max-w-2xl"
       footer={
         <div className="flex items-center justify-end gap-2">
@@ -110,20 +159,168 @@ const AddDeviceModal: React.FC<Props> = ({
           </button>
           <button
             type="button"
-            onClick={submit}
-            disabled={!hostname.trim() || add.isLoading}
+            onClick={mode === 'new' ? submit : handOverExisting}
+            disabled={
+              mode === 'new'
+                ? !hostname.trim() || Boolean(taken) || add.isLoading
+                : !existing || !handOverDate || handOver.isLoading
+            }
             className="flex min-w-[7rem] items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {add.isLoading ? (
+            {add.isLoading || handOver.isLoading ? (
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-            ) : (
+            ) : mode === 'new' ? (
               'Add device'
+            ) : (
+              'Hand it over'
             )}
           </button>
         </div>
       }
     >
       <div className="space-y-5">
+        <div className="inline-flex rounded-lg bg-slate-200/70 p-1">
+          <button
+            type="button"
+            onClick={() => setMode('new')}
+            className={`rounded-md px-3 py-2.5 text-xs font-semibold transition-all ${
+              mode === 'new' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
+            }`}
+          >
+            New device
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode('existing')}
+            className={`rounded-md px-3 py-2.5 text-xs font-semibold transition-all ${
+              mode === 'existing' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
+            }`}
+          >
+            Existing device
+          </button>
+        </div>
+
+        {mode === 'existing' && (
+          <div className="space-y-4">
+            <div>
+              <FieldLabel required>Which machine</FieldLabel>
+              <Select
+                searchable
+                className="w-full"
+                value={existing}
+                onChange={setExisting}
+                placeholder={
+                  (fleet.data ?? []).length
+                    ? 'Search a hostname'
+                    : 'This customer has no other device'
+                }
+                options={(fleet.data ?? []).map((item) => ({
+                  value: item.name,
+                  label: item.hostname,
+                  description: [
+                    item.holder_name ? `held by ${item.holder_name}` : 'held by nobody',
+                    item.status !== 'Active' ? item.status.toLowerCase() : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · '),
+                }))}
+              />
+            </div>
+
+            {chosen && (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-slate-900">{chosen.hostname}</p>
+                  <button
+                    type="button"
+                    onClick={() => openDevice(chosen.name)}
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 transition-colors hover:text-blue-700"
+                  >
+                    Open its page
+                    <ArrowUpRight size={13} />
+                  </button>
+                </div>
+                <dl className="mt-2 grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
+                  <div>
+                    <dt className="text-slate-400">Held by</dt>
+                    <dd className="mt-0.5 text-slate-700">
+                      {chosen.holder_name ?? 'Nobody'}
+                      {chosen.holder_status && chosen.holder_status !== 'Active' && (
+                        <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-700">
+                          {chosen.holder_status.toUpperCase()}
+                        </span>
+                      )}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-400">Since</dt>
+                    <dd className="mt-0.5 text-slate-700">{fmtDate(chosen.held_since)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-400">Type</dt>
+                    <dd className="mt-0.5 text-slate-700">{chosen.device_type ?? 'N/A'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-400">Status</dt>
+                    <dd className="mt-0.5 text-slate-700">{chosen.status}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-400">Serial number</dt>
+                    <dd className="mt-0.5 text-slate-700">{chosen.serial_number ?? 'N/A'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-400">Open services</dt>
+                    <dd className="mt-0.5 text-slate-700">
+                      {chosen.open_services} — they follow the machine
+                    </dd>
+                  </div>
+                  {chosen.interfaces.length > 0 && (
+                    <div className="col-span-2">
+                      <dt className="text-slate-400">MAC</dt>
+                      <dd className="mt-0.5 font-mono text-slate-700">
+                        {chosen.interfaces.map((row) => row.mac_address).join(' · ')}
+                      </dd>
+                    </div>
+                  )}
+                </dl>
+              </div>
+            )}
+
+            <div>
+              <FieldLabel required>Hand-over date</FieldLabel>
+              <input
+                type="date"
+                value={handOverDate}
+                max={today()}
+                onChange={(event) => setHandOverDate(event.target.value)}
+                className={inputClass}
+              />
+              <p className="mt-1.5 text-xs text-slate-400">
+                Today by default. Set it back if it changed hands earlier.
+              </p>
+            </div>
+
+            <div>
+              <span className={labelClass}>Internal note</span>
+              <textarea
+                rows={2}
+                value={handOverNote}
+                onChange={(event) => setHandOverNote(event.target.value)}
+                placeholder="Why it changed hands — kept for Nexgen, not shown to the customer."
+                className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm leading-relaxed text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+              />
+            </div>
+
+            {handOver.error instanceof Error && (
+              <div className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
+                <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
+                <span className="text-sm font-medium text-red-700">{handOver.error.message}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {mode === 'new' && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <FieldLabel required>Hostname</FieldLabel>
@@ -134,6 +331,38 @@ const AddDeviceModal: React.FC<Props> = ({
               placeholder="SN-HYS-JDUPONT"
               className={`${inputClass} uppercase`}
             />
+            {taken && (
+              <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5">
+                <p className="text-xs text-amber-800">
+                  <span className="font-semibold">{taken.hostname}</span> already exists —{' '}
+                  {taken.holder_name
+                    ? `held by ${taken.holder_name} since ${fmtDate(taken.held_since)}`
+                    : 'held by nobody'}
+                  {taken.status !== 'Active' ? ` · ${taken.status.toLowerCase()}` : ''}.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => openDevice(taken.name)}
+                    className="inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-800 transition-colors hover:bg-amber-100"
+                  >
+                    Open it
+                    <ArrowUpRight size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMode('existing');
+                      setExisting(taken.name);
+                    }}
+                    className="inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-800 transition-colors hover:bg-amber-100"
+                  >
+                    <TriangleAlert size={13} />
+                    Hand it to {userName} instead
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
           <div>
             <span className={labelClass}>Device type</span>
@@ -166,6 +395,9 @@ const AddDeviceModal: React.FC<Props> = ({
           </div>
         </div>
 
+        )}
+
+        {mode === 'new' && (
         <div>
           <div className="mb-2 flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-700">Network interfaces</span>
@@ -218,14 +450,17 @@ const AddDeviceModal: React.FC<Props> = ({
           </div>
 
         </div>
+        )}
 
-        <RequestReferenceField
-          requests={requests}
-          value={sourceRequest}
-          onChange={setSourceRequest}
-        />
+        {mode === 'new' && (
+          <RequestReferenceField
+            requests={requests}
+            value={sourceRequest}
+            onChange={setSourceRequest}
+          />
+        )}
 
-        {add.error instanceof Error && (
+        {mode === 'new' && add.error instanceof Error && (
           <div className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
             <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
             <span className="text-sm font-medium text-red-700">{add.error.message}</span>

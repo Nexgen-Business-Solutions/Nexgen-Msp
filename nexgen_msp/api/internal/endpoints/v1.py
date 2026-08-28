@@ -648,7 +648,6 @@ def update_managed_device(
     hostname=None,
     device_type=None,
     serial_number=None,
-    assigned_client_user=None,
     assigned_date=None,
     interfaces=None,
     remarks=None,
@@ -658,10 +657,29 @@ def update_managed_device(
         hostname=hostname,
         device_type=device_type,
         serial_number=serial_number,
-        assigned_client_user=assigned_client_user,
         assigned_date=assigned_date,
         interfaces=interfaces,
         remarks=remarks,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def list_customer_devices(customer=None, exclude_holder=None):
+    return _devices().list_customer_devices(customer=customer, exclude_holder=exclude_holder)
+
+
+@frappe.whitelist()
+@handle_errors
+def find_device_hostname(customer=None, hostname=None):
+    return _devices().find_hostname(customer=customer, hostname=hostname)
+
+
+@frappe.whitelist()
+@handle_errors
+def hand_over_device(device=None, client_user=None, on_date=None, note=None):
+    return _devices().hand_over_device(
+        device=device, client_user=client_user, on_date=on_date, note=note
     )
 
 
@@ -1018,6 +1036,60 @@ def save_request_action(name=None, action=None):
 @handle_errors
 def delete_request_action(name=None):
     return _settings().delete_request_action(name=name)
+
+
+def _team():
+    from nexgen_msp.api.internal.services.team_service import TeamService
+
+    return TeamService
+
+
+@frappe.whitelist()
+@handle_errors
+def list_team(search=None, role=None, status=None, kind=None):
+    return _team().list_members(search=search, role=role, status=status, kind=kind)
+
+
+@frappe.whitelist()
+@handle_errors
+def get_team_member(email=None):
+    return _team().get_member(email=email)
+
+
+@frappe.whitelist()
+@handle_errors
+def get_team_options():
+    return _team().options()
+
+
+@frappe.whitelist()
+@handle_errors
+def invite_team_member(email=None, first_name=None, last_name=None, role=None, send_email=1):
+    return _team().invite(
+        email=email,
+        first_name=first_name,
+        last_name=last_name,
+        role=role,
+        send_email=send_email,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def resend_team_invitation(email=None):
+    return _team().send_invitation(email=email)
+
+
+@frappe.whitelist()
+@handle_errors
+def set_team_role(email=None, role=None):
+    return _team().set_role(email=email, role=role)
+
+
+@frappe.whitelist()
+@handle_errors
+def set_team_enabled(email=None, enabled=None):
+    return _team().set_enabled(email=email, enabled=enabled)
 
 
 @frappe.whitelist()
