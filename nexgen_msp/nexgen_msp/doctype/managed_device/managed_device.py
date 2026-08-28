@@ -28,6 +28,11 @@ class ManagedDevice(Document):
 			self.hostname = self.hostname.strip().upper()
 
 	def validate_unique_hostname(self):
+		"""Two machines of the same customer cannot answer to the same name.
+
+		The rule stops at the customer: two companies naming a machine the same way is their
+		business, and the screens say whose machine it is when the name comes up twice.
+		"""
 		duplicate = frappe.db.exists(
 			"Managed Device",
 			{

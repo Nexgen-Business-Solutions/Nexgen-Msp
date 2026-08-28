@@ -163,10 +163,10 @@ export default function DevicesList() {
         ]}
       />
 
-      <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
-        <div className="overflow-x-auto px-5 pb-1 pt-4">
+      <div className="overflow-hidden rounded-xl border border-slate-100 bg-white pt-4 shadow-sm">
+        <div className="max-h-[62vh] overflow-auto px-5 pb-1">
           <table className="w-full">
-            <thead className="bg-slate-50">
+            <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
               <tr>
                 {COLUMNS.map((column, index) => (
                   <th

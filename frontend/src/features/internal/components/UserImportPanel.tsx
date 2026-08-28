@@ -250,9 +250,9 @@ const UserImportPanel: React.FC = () => {
           hint="Which customer each company in the file already is here."
           badge={warningBadge(unresolved.length)}
         >
-          <div className="overflow-x-auto">
+          <div className="max-h-[62vh] overflow-auto">
             <table className="w-full">
-              <thead className="bg-slate-50">
+              <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
                 <tr>
                   <Th>Company in file</Th>
                   <Th>Customer id</Th>
@@ -349,9 +349,9 @@ const UserImportPanel: React.FC = () => {
           hint="Which article each service column bills against."
           badge={warningBadge(missingItems.length)}
         >
-          <div className="overflow-x-auto">
+          <div className="max-h-[62vh] overflow-auto">
             <table className="w-full sm:max-w-3xl">
-              <thead className="bg-slate-50">
+              <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
                 <tr>
                   <Th>Service in file</Th>
                   <Th>Item id</Th>

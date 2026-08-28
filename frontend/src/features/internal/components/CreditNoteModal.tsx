@@ -119,7 +119,7 @@ const CreditNoteModal: React.FC<Props> = ({ open, run, onClose, onCreated }) => 
         <div className="overflow-hidden rounded-lg border border-slate-200">
           <div className="max-h-[22rem] overflow-auto">
             <table className="w-full">
-              <thead className="sticky top-0 bg-slate-50">
+              <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
                 <tr>
                   {['', 'User', 'Service', 'Billed', 'Credited', 'To credit'].map(
                     (column, index) => (

@@ -90,7 +90,7 @@ const AddDeviceModal: React.FC<Props> = ({
   // asked while the name is being typed, so a name already taken is a machine to open
   // rather than a refusal thrown back after the form is filled in
   const clash = useHostnameMatch(open && mode === 'new' ? customer : null, hostname.trim());
-  const taken = clash.data ?? null;
+  const taken = clash.data?.name ? clash.data : null;
 
   const chosen = (fleet.data ?? []).find((item) => item.name === existing) ?? null;
 
@@ -162,7 +162,7 @@ const AddDeviceModal: React.FC<Props> = ({
             onClick={mode === 'new' ? submit : handOverExisting}
             disabled={
               mode === 'new'
-                ? !hostname.trim() || Boolean(taken) || add.isLoading
+                ? !hostname.trim() || Boolean(taken?.same_customer) || add.isLoading
                 : !existing || !handOverDate || handOver.isLoading
             }
             className="flex min-w-[7rem] items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
@@ -334,11 +334,16 @@ const AddDeviceModal: React.FC<Props> = ({
             {taken && (
               <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5">
                 <p className="text-xs text-amber-800">
-                  <span className="font-semibold">{taken.hostname}</span> already exists —{' '}
-                  {taken.holder_name
-                    ? `held by ${taken.holder_name} since ${fmtDate(taken.held_since)}`
-                    : 'held by nobody'}
+                  <span className="font-semibold">{taken.hostname}</span> is already taken —{' '}
+                  {taken.same_customer
+                    ? taken.holder_name
+                      ? `held by ${taken.holder_name} since ${fmtDate(taken.held_since)}`
+                      : 'held by nobody'
+                    : `it belongs to ${taken.customer}`}
                   {taken.status !== 'Active' ? ` · ${taken.status.toLowerCase()}` : ''}.
+                  {taken.same_customer
+                    ? ' This customer cannot have two machines under that name.'
+                    : ' Another customer already uses that name — yours may keep it.'}
                 </p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <button
@@ -349,17 +354,19 @@ const AddDeviceModal: React.FC<Props> = ({
                     Open it
                     <ArrowUpRight size={13} />
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMode('existing');
-                      setExisting(taken.name);
-                    }}
-                    className="inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-800 transition-colors hover:bg-amber-100"
-                  >
-                    <TriangleAlert size={13} />
-                    Hand it to {userName} instead
-                  </button>
+                  {taken.same_customer && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMode('existing');
+                        setExisting(taken.name);
+                      }}
+                      className="inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-800 transition-colors hover:bg-amber-100"
+                    >
+                      <TriangleAlert size={13} />
+                      Pick it and hand it to {userName}
+                    </button>
+                  )}
                 </div>
               </div>
             )}

@@ -715,7 +715,7 @@ export default function NewBillingRun() {
 
             <div className="max-h-[30rem] overflow-auto px-5 pb-5">
               <table className="w-full">
-                <thead className="sticky top-0 bg-slate-50">
+                <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
                   <tr>
                     {resultColumns.map((column, index) => (
                       <th

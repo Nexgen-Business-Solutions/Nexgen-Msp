@@ -283,9 +283,9 @@ export default function CustomerContract() {
           </button>
         </div>
 
-        <div className="overflow-x-auto px-5 pb-4">
+        <div className="max-h-[62vh] overflow-auto px-5 pb-4">
           <table className="w-full">
-            <thead className="bg-slate-50">
+            <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
               <tr>
                 {AGREEMENT_COLUMNS.map((column, index) => (
                   <th
@@ -415,12 +415,12 @@ export default function CustomerContract() {
 
         <div className="max-h-[62vh] overflow-auto px-5 pb-4">
           <table className="w-full">
-            <thead>
+            <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
               <tr>
                 {PRICING_COLUMNS.map((column, index) => (
                   <th
                     key={column || index}
-                    className={`sticky top-0 z-10 whitespace-nowrap bg-slate-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 ${
+                    className={`whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 ${
                       index === 0 ? 'rounded-l-lg' : ''
                     } ${index === PRICING_COLUMNS.length - 1 ? 'rounded-r-lg' : ''}`}
                   >

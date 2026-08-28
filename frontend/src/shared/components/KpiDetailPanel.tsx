@@ -111,9 +111,11 @@ const KpiDetailPanel: React.FC<KpiDetailPanelProps> = ({
           </button>
         </div>
 
-        <div className="flex-1 overflow-auto px-6 py-4">
+        <div className="pt-4" />
+
+        <div className="flex-1 overflow-auto px-6 pb-4">
           <table className="w-full">
-            <thead className="bg-slate-50">
+            <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
               <tr>
                 {columns.map((column, index) => (
                   <th

@@ -11,7 +11,7 @@ const Panel = ({ title, children }: { title: string; children: React.ReactNode }
     <div className="px-5 py-4">
       <h2 className="text-base font-semibold text-slate-900">{title}</h2>
     </div>
-    <div className="overflow-x-auto px-5 pb-4">{children}</div>
+    <div className="max-h-[26rem] overflow-auto px-5 pb-4">{children}</div>
   </div>
 );
 
@@ -94,7 +94,7 @@ export default function PortalUserDetail() {
 
       <Panel title="Services in use">
         <table className="w-full">
-          <thead className="bg-slate-50">
+          <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
             <tr>
               <Th>Service</Th>
               <Th>Device</Th>
@@ -137,7 +137,7 @@ export default function PortalUserDetail() {
 
       <Panel title="Devices">
         <table className="w-full">
-          <thead className="bg-slate-50">
+          <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
             <tr>
               <Th>Device</Th>
               <Th>Type</Th>
@@ -176,7 +176,7 @@ export default function PortalUserDetail() {
 
       <Panel title="Requests for this user">
         <table className="w-full">
-          <thead className="bg-slate-50">
+          <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
             <tr>
               <Th>Request</Th>
               <Th>Type</Th>

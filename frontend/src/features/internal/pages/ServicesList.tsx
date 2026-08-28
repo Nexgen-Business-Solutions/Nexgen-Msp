@@ -92,9 +92,9 @@ export default function ServicesList() {
           </button>
         </div>
 
-        <div className="overflow-x-auto px-5 pb-4">
+        <div className="max-h-[62vh] overflow-auto px-5 pb-4">
           <table className="w-full">
-            <thead className="bg-slate-50">
+            <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
               <tr>
                 {COLUMNS.map((column, index) => (
                   <th

@@ -54,7 +54,7 @@ const Panel = ({
       <h2 className="text-base font-semibold text-slate-900">{title}</h2>
       {action}
     </div>
-    <div className="overflow-x-auto px-5 pb-4">{children}</div>
+    <div className="max-h-[26rem] overflow-auto px-5 pb-4">{children}</div>
   </div>
 );
 
@@ -254,7 +254,7 @@ export default function UserDetail() {
 
       <Panel title="Services">
         <table className="w-full">
-          <thead className="bg-slate-50">
+          <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
             <tr>
               <Th>Service</Th>
               <Th>Device</Th>
@@ -339,7 +339,7 @@ export default function UserDetail() {
         }
       >
         <table className="w-full">
-          <thead className="bg-slate-50">
+          <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
             <tr>
               <Th>Hostname</Th>
               <Th>Type</Th>
@@ -432,7 +432,7 @@ export default function UserDetail() {
 
       <Panel title="Request history">
         <table className="w-full">
-          <thead className="bg-slate-50">
+          <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
             <tr>
               <Th>Request</Th>
               <Th>Type</Th>

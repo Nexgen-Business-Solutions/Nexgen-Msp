@@ -913,22 +913,30 @@ class DeviceService:
 
     @staticmethod
     def find_hostname(customer=None, hostname=None):
-        """The machine already carrying this hostname for this customer, if there is one.
+        """The machine already carrying this hostname, whoever owns it.
 
         Asked while the name is being typed, so the answer is a machine to open rather than
-        a refusal at save time.
+        a refusal at save time. The search spans every customer because the name does.
         """
         RequestService._guard_internal()
 
         hostname = (hostname or "").strip().upper()
 
-        if not customer or not hostname:
+        if not hostname:
             return None
 
         found = frappe.db.get_value(
             "Managed Device",
-            {"customer": customer, "hostname": hostname},
-            ["name", "hostname", "status", "device_type", "assigned_client_user", "assigned_date"],
+            {"hostname": hostname},
+            [
+                "name",
+                "hostname",
+                "customer",
+                "status",
+                "device_type",
+                "assigned_client_user",
+                "assigned_date",
+            ],
             as_dict=True,
         )
 
@@ -949,6 +957,7 @@ class DeviceService:
         found["held_since"] = frappe.db.get_value(
             "MSP Device Holder", {"parent": found.name, "is_current": 1}, "from_date"
         )
+        found["same_customer"] = bool(customer) and found.customer == customer
 
         return found
 

@@ -44,6 +44,13 @@ type Props = {
   onApply: (values: FilterState) => void;
   onClear: () => void;
   onRefresh?: () => void;
+  /** A single yes-or-no cut, kept in the bar itself rather than behind the filter sheet. */
+  toggle?: {
+    label: string;
+    checked: boolean;
+    onChange: (checked: boolean) => void;
+    title?: string;
+  };
   /** Where the sheet of the current selection is served from. */
   exportUrl?: string;
 };
@@ -78,6 +85,7 @@ const FilterBar: React.FC<Props> = ({
   onApply,
   onClear,
   onRefresh,
+  toggle,
   exportUrl,
 }) => {
   const [open, setOpen] = useState(false);
@@ -160,6 +168,21 @@ const FilterBar: React.FC<Props> = ({
             className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-10 pr-4 text-sm outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
           />
         </div>
+
+        {toggle && (
+          <label
+            title={toggle.title}
+            className="flex h-10 cursor-pointer select-none items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+          >
+            <input
+              type="checkbox"
+              checked={toggle.checked}
+              onChange={(event) => toggle.onChange(event.target.checked)}
+              className="h-4 w-4 rounded border-slate-300"
+            />
+            {toggle.label}
+          </label>
+        )}
 
         {fields.length > 0 && (
           <button type="button" onClick={openModal} className={ghost}>

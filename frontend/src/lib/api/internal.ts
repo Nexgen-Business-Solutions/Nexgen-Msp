@@ -965,6 +965,8 @@ export const listCustomerDevices = (
 export type HostnameMatch = {
   name: string;
   hostname: string;
+  customer: string;
+  same_customer: boolean;
   status: string;
   device_type: string | null;
   assigned_client_user: string | null;

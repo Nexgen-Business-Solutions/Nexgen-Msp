@@ -46,7 +46,7 @@ const Panel = ({
       <h2 className="text-base font-semibold text-slate-900">{title}</h2>
       {action}
     </div>
-    <div className="overflow-x-auto px-5 pb-4">{children}</div>
+    <div className="max-h-[26rem] overflow-auto px-5 pb-4">{children}</div>
   </div>
 );
 
@@ -254,7 +254,7 @@ export default function AccountDetail() {
         <Panel title="Recent sign-ins">
           {account.sign_ins.length > 0 ? (
             <table className="w-full">
-              <thead className="bg-slate-50">
+              <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
                 <tr>
                   {['When', 'Event', 'Result', 'From'].map((label) => (
                     <th

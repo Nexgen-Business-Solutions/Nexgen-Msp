@@ -23,7 +23,7 @@ const Panel = ({
       <h2 className="text-base font-semibold text-slate-900">{title}</h2>
       {subtitle && <p className="mt-0.5 text-sm text-slate-400">{subtitle}</p>}
     </div>
-    <div className="overflow-x-auto px-5 pb-4">{children}</div>
+    <div className="max-h-[26rem] overflow-auto px-5 pb-4">{children}</div>
   </div>
 );
 
@@ -216,7 +216,7 @@ export default function ServiceDetail() {
 
       <Panel title="Who runs it" subtitle="Open assignments and the rate in force today.">
         <table className="w-full">
-          <thead className="bg-slate-50">
+          <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
             <tr>
               <Th>Customer</Th>
               <Th>Open</Th>
@@ -260,7 +260,7 @@ export default function ServiceDetail() {
 
       <Panel title="Contracts covering it">
         <table className="w-full">
-          <thead className="bg-slate-50">
+          <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
             <tr>
               <Th>Contract</Th>
               <Th>Customer</Th>

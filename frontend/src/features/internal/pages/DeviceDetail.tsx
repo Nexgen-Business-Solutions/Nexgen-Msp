@@ -51,7 +51,7 @@ const Panel = ({
       <h2 className="text-base font-semibold text-slate-900">{title}</h2>
       {action}
     </div>
-    <div className="overflow-x-auto px-5 pb-4">{children}</div>
+    <div className="max-h-[26rem] overflow-auto px-5 pb-4">{children}</div>
   </div>
 );
 
@@ -274,7 +274,7 @@ export default function DeviceDetail() {
 
       <Panel title={`Services (${openServices.length} running)`}>
         <table className="w-full">
-          <thead className="bg-slate-50">
+          <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
             <tr>
               <Th>Service</Th>
               <Th>Since</Th>
@@ -351,7 +351,7 @@ export default function DeviceDetail() {
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <Panel title="Network">
           <table className="w-full">
-            <thead className="bg-slate-50">
+            <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
               <tr>
                 <Th>Interface</Th>
                 <Th>MAC address</Th>
@@ -388,7 +388,7 @@ export default function DeviceDetail() {
           }
         >
           <table className="w-full">
-            <thead className="bg-slate-50">
+            <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
               <tr>
                 <Th>Held by</Th>
                 <Th>From</Th>
@@ -448,7 +448,7 @@ export default function DeviceDetail() {
 
         <Panel title="Requests about this device">
           <table className="w-full">
-            <thead className="bg-slate-50">
+            <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
               <tr>
                 <Th>Type</Th>
                 <Th>Priority</Th>

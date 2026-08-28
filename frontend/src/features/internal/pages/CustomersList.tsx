@@ -17,6 +17,7 @@ export default function CustomersList() {
 
   const [filters, setFilters] = useState<FilterState>({ contract_status: '', priced: '' });
   const [search, setSearch] = useState('');
+  const [liveOnly, setLiveOnly] = useState(false);
 
   const all = data ?? [];
 
@@ -25,6 +26,8 @@ export default function CustomersList() {
 
     return all.filter((row) => {
       if (needle && !row.customer.toLowerCase().includes(needle)) return false;
+
+      if (liveOnly && row.contract_status !== 'Active') return false;
 
       if (filters.contract_status && row.contract_status !== filters.contract_status) return false;
 
@@ -38,7 +41,7 @@ export default function CustomersList() {
 
       return true;
     });
-  }, [all, filters, search]);
+  }, [all, filters, search, liveOnly]);
   const withContract = all.filter((row) => row.contract).length;
   const active = all.filter((row) => row.contract_status === 'Active').length;
   const fullyPriced = all.filter(
@@ -93,6 +96,12 @@ export default function CustomersList() {
         onApply={setFilters}
         onClear={() => setFilters({ contract_status: '', priced: '' })}
         onRefresh={() => refetch()}
+        toggle={{
+          label: 'Active contract only',
+          checked: liveOnly,
+          onChange: setLiveOnly,
+          title: 'Only the customers a run can actually be generated for',
+        }}
         fields={[
           {
             key: 'contract_status',
@@ -131,12 +140,12 @@ export default function CustomersList() {
 
         <div className="max-h-[62vh] overflow-auto px-5 pb-4">
           <table className="w-full">
-            <thead>
+            <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
               <tr>
                 {COLUMNS.map((column, index) => (
                   <th
                     key={column}
-                    className={`sticky top-0 z-10 whitespace-nowrap bg-slate-50 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 ${
+                    className={`whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 ${
                       index === 0 ? 'rounded-l-lg' : ''
                     } ${index === COLUMNS.length - 1 ? 'rounded-r-lg' : ''}`}
                   >

@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { AlertCircle, Pencil, Plus, Trash2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { AlertCircle, ArrowUpRight, Pencil, Plus, Trash2 } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
 import FieldLabel from '@/shared/components/FieldLabel';
 import Select from '@/shared/components/Select';
 import type { DeviceInterface, DeviceRow } from '@/lib/api/internal';
-import { useDeviceFilterOptions, useUpdateDevice } from '../hooks/useDevices';
+import { useDeviceFilterOptions, useHostnameMatch, useUpdateDevice } from '../hooks/useDevices';
 
 type Props = {
   device: DeviceRow | null;
@@ -25,6 +26,7 @@ const inputClass =
   'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
 
 const EditDeviceModal: React.FC<Props> = ({ device, onClose }) => {
+  const navigate = useNavigate();
   const options = useDeviceFilterOptions();
   const update = useUpdateDevice();
 
@@ -44,6 +46,11 @@ const EditDeviceModal: React.FC<Props> = ({ device, onClose }) => {
     update.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [device]);
+
+  // renaming into a name another machine already carries fails at save, so it is said here
+  const clash = useHostnameMatch(device?.customer, hostname.trim());
+  const taken =
+    clash.data?.name && clash.data.name !== device?.name ? clash.data : null;
 
   const change = (position: number, patch: Partial<DeviceInterface>) =>
     setInterfaces((current) =>
@@ -89,7 +96,7 @@ const EditDeviceModal: React.FC<Props> = ({ device, onClose }) => {
           <button
             type="button"
             onClick={submit}
-            disabled={!hostname.trim() || update.isLoading}
+            disabled={!hostname.trim() || Boolean(taken?.same_customer) || update.isLoading}
             className="flex min-w-[7rem] items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {update.isLoading ? (
@@ -111,6 +118,28 @@ const EditDeviceModal: React.FC<Props> = ({ device, onClose }) => {
               onChange={(event) => setHostname(event.target.value)}
               className={`${inputClass} uppercase`}
             />
+            {taken && (
+              <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5">
+                <p className="text-xs text-amber-800">
+                  <span className="font-semibold">{taken.hostname}</span> is already taken by{' '}
+                  {taken.same_customer ? taken.name : `${taken.customer} (${taken.name})`}.
+                  {taken.same_customer
+                    ? ' This customer cannot have two machines under that name.'
+                    : ' Another customer already uses that name — this one may keep it.'}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    navigate(`/msp/devices/${taken.name}`);
+                  }}
+                  className="mt-2 inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-800 transition-colors hover:bg-amber-100"
+                >
+                  Open it
+                  <ArrowUpRight size={13} />
+                </button>
+              </div>
+            )}
           </div>
           <div>
             <FieldLabel>Device type</FieldLabel>

@@ -102,7 +102,9 @@ export const request = async <T>(method: string, options: RequestOptions = {}): 
     payload = null;
   }
 
-  const body = (payload?.message ?? payload) as
+  // Frappe answers `{"message": null}` when a method returns nothing, so the key has to
+  // decide, not its value: `?? payload` handed the envelope back as if it were the answer
+  const body = (payload && 'message' in payload ? payload.message : payload) as
     | (FrappeErrorBody & Record<string, unknown>)
     | null;
 
