@@ -12,16 +12,16 @@ SCOPE_FIELD = {
 }
 
 SCOPE_DOCTYPE = {
-	"client_user": "Client User",
-	"managed_device": "Managed Device",
-	"customer_site": "Customer Site",
+	"client_user": "MSP Client User",
+	"managed_device": "MSP Managed Device",
+	"customer_site": "MSP Customer Site",
 }
 
 
 DISPUTE_TYPE = "Billing Dispute"
 
 
-class ServiceRequest(Document):
+class MSPServiceRequest(Document):
 	def validate(self):
 		self.validate_has_lines()
 		self.validate_lines()

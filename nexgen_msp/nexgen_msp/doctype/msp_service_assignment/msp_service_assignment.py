@@ -15,7 +15,7 @@ SCOPE_FIELD = {
 OPEN_STATUSES = ("Pending Setup", "Active", "Suspended", "Pending Removal")
 
 
-class ServiceAssignment(Document):
+class MSPServiceAssignment(Document):
 	def validate(self):
 		self.validate_scope_link()
 		self.validate_scope_ownership()
@@ -92,7 +92,7 @@ class ServiceAssignment(Document):
 			filters[scope_field] = self.get(scope_field)
 
 		for other in frappe.get_all(
-			"Service Assignment",
+			"MSP Service Assignment",
 			filters=filters,
 			fields=["name", "effective_start_date", "effective_end_date"],
 		):

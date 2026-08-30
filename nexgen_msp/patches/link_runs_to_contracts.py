@@ -7,7 +7,7 @@ def execute():
 	Only runs whose customer has exactly one contract can be attached without guessing.
 	"""
 	orphans = frappe.get_all(
-		"Billing Run",
+		"MSP Billing Run",
 		filters={"contract": ["in", [None, ""]], "docstatus": ["!=", 2]},
 		fields=["name", "customer"],
 	)
@@ -17,7 +17,7 @@ def execute():
 
 		if len(contracts) == 1:
 			frappe.db.set_value(
-				"Billing Run", run.name, "contract", contracts[0], update_modified=False
+				"MSP Billing Run", run.name, "contract", contracts[0], update_modified=False
 			)
 
 	frappe.db.commit()

@@ -26,7 +26,9 @@
   "dispute_window_days",
   "section_accounting",
   "default_cost_center",
-  "show_cost_center_on_invoice"
+  "show_cost_center_on_invoice",
+  "section_portal",
+  "portal_url"
  ],
  "fields": [
   {
@@ -136,6 +138,17 @@
    "label": "Payment Terms (Days)",
    "default": "30",
    "non_negative": 1
+  },
+  {
+   "fieldname": "section_portal",
+   "fieldtype": "Section Break",
+   "label": "Portal"
+  },
+  {
+   "fieldname": "portal_url",
+   "fieldtype": "Data",
+   "label": "Portal URL",
+   "options": "URL"
   }
  ],
  "links": [],

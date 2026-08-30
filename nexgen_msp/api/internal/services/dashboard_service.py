@@ -15,11 +15,11 @@ ACTIONABLE_STATUSES = ("Submitted", "Under Review", "Approved", "In Progress")
 OPEN_ASSIGNMENT_STATUSES = ("Pending Setup", "Active", "Suspended", "Pending Removal")
 
 ASSIGNMENT_JOIN = """
-    from `tabService Assignment` sa
+    from `tabMSP Service Assignment` sa
     left join `tabItem` item on item.name = sa.service_item
-    left join `tabClient User` holder on holder.name = sa.client_user
-    left join `tabManaged Device` device on device.name = sa.managed_device
-    left join `tabClient User` device_holder on device_holder.name = device.assigned_client_user
+    left join `tabMSP Client User` holder on holder.name = sa.client_user
+    left join `tabMSP Managed Device` device on device.name = sa.managed_device
+    left join `tabMSP Client User` device_holder on device_holder.name = device.assigned_client_user
 """
 
 HOLDER = "coalesce(holder.full_name, device_holder.full_name)"
@@ -58,11 +58,11 @@ KPI_SOURCES = {
             ("status", "Status", "device.status"),
         ],
         "body": """
-            from `tabManaged Device` device
-            left join `tabClient User` holder on holder.name = device.assigned_client_user
+            from `tabMSP Managed Device` device
+            left join `tabMSP Client User` holder on holder.name = device.assigned_client_user
             where device.status = 'Active'
               and not exists (
-                  select 1 from `tabService Assignment` sa
+                  select 1 from `tabMSP Service Assignment` sa
                   where sa.managed_device = device.name
                     and sa.service_item = %(security_item)s
                     and sa.operational_status in ('Pending Setup', 'Active', 'Suspended', 'Pending Removal')
@@ -155,7 +155,7 @@ class DashboardService:
             select status, priority,
                    count(*) as total,
                    sum(timestampdiff(hour, creation, now()) > 48) as ageing
-            from `tabService Request`
+            from `tabMSP Service Request`
             group by status, priority
             """,
             as_dict=True,
@@ -180,13 +180,13 @@ class DashboardService:
         counters["lines_to_execute"] = frappe.db.sql(
             """
             select count(*)
-            from `tabService Request Line` srl
-            join `tabService Request` sr on sr.name = srl.parent
+            from `tabMSP Service Request Line` srl
+            join `tabMSP Service Request` sr on sr.name = srl.parent
             where sr.status in ('Approved', 'In Progress')
               and srl.line_status = 'Approved'
               and not exists (
-                  select 1 from `tabService Assignment` sa
-                  left join `tabManaged Device` sad on sad.name = sa.managed_device
+                  select 1 from `tabMSP Service Assignment` sa
+                  left join `tabMSP Managed Device` sad on sad.name = sa.managed_device
                   where sa.source_request = srl.parent
                     and sa.service_item = srl.requested_service
                     and (srl.client_user is null or srl.client_user = ''
@@ -206,14 +206,14 @@ class DashboardService:
                 sr.name, sr.customer, sr.request_type, sr.status, sr.priority,
                 sr.creation,
                 timestampdiff(hour, sr.creation, now()) as age_hours,
-                (select count(*) from `tabService Request Line` srl where srl.parent = sr.name)
+                (select count(*) from `tabMSP Service Request Line` srl where srl.parent = sr.name)
                     as line_count,
                 (select group_concat(distinct coalesce(cu.full_name, srl.new_user_full_name)
                     order by srl.idx separator ', ')
-                    from `tabService Request Line` srl
-                    left join `tabClient User` cu on cu.name = srl.client_user
+                    from `tabMSP Service Request Line` srl
+                    left join `tabMSP Client User` cu on cu.name = srl.client_user
                     where srl.parent = sr.name) as users
-            from `tabService Request` sr
+            from `tabMSP Service Request` sr
             where sr.status in %(statuses)s
             order by field(sr.priority, 'Urgent', 'High', 'Medium', 'Low'), sr.creation asc
             limit 8
@@ -235,16 +235,16 @@ class DashboardService:
                 device.hostname,
                 srl.requested_effective_date,
                 srl.comment
-            from `tabService Request Line` srl
-            join `tabService Request` sr on sr.name = srl.parent
-            left join `tabClient User` cu on cu.name = srl.client_user
-            left join `tabManaged Device` device on device.name = srl.managed_device
+            from `tabMSP Service Request Line` srl
+            join `tabMSP Service Request` sr on sr.name = srl.parent
+            left join `tabMSP Client User` cu on cu.name = srl.client_user
+            left join `tabMSP Managed Device` device on device.name = srl.managed_device
             left join `tabItem` item on item.name = srl.requested_service
             where sr.status in ('Approved', 'In Progress')
               and srl.line_status = 'Approved'
               and not exists (
-                  select 1 from `tabService Assignment` sa
-                  left join `tabManaged Device` sad on sad.name = sa.managed_device
+                  select 1 from `tabMSP Service Assignment` sa
+                  left join `tabMSP Managed Device` sad on sad.name = sa.managed_device
                   where sa.source_request = srl.parent
                     and sa.service_item = srl.requested_service
                     and (srl.client_user is null or srl.client_user = ''
@@ -263,10 +263,10 @@ class DashboardService:
         unprotected = frappe.db.sql(
             """
             select count(*)
-            from `tabManaged Device` device
+            from `tabMSP Managed Device` device
             where device.status = 'Active'
               and not exists (
-                  select 1 from `tabService Assignment` sa
+                  select 1 from `tabMSP Service Assignment` sa
                   where sa.managed_device = device.name
                     and sa.service_item = %(item)s
                     and sa.operational_status not in ('Ended', 'Cancelled')
@@ -278,10 +278,10 @@ class DashboardService:
         reclaimable = frappe.db.sql(
             """
             select count(*)
-            from `tabService Assignment` sa
-            left join `tabClient User` holder on holder.name = sa.client_user
-            left join `tabManaged Device` device on device.name = sa.managed_device
-            left join `tabClient User` device_holder on device_holder.name = device.assigned_client_user
+            from `tabMSP Service Assignment` sa
+            left join `tabMSP Client User` holder on holder.name = sa.client_user
+            left join `tabMSP Managed Device` device on device.name = sa.managed_device
+            left join `tabMSP Client User` device_holder on device_holder.name = device.assigned_client_user
             where sa.operational_status not in ('Ended', 'Cancelled')
               and coalesce(holder.lifecycle_status, device_holder.lifecycle_status)
                   in ('Disabled', 'Archived')
@@ -295,11 +295,11 @@ class DashboardService:
         month_start = frappe.utils.get_first_day(frappe.utils.today())
 
         added = frappe.db.count(
-            "Service Assignment",
+            "MSP Service Assignment",
             {"effective_start_date": (">=", month_start), "operational_status": ("!=", "Cancelled")},
         )
         removed = frappe.db.count(
-            "Service Assignment", {"effective_end_date": (">=", month_start)}
+            "MSP Service Assignment", {"effective_end_date": (">=", month_start)}
         )
 
         by_service = frappe.db.sql(
@@ -307,7 +307,7 @@ class DashboardService:
             select coalesce(item.item_name, sa.service_item) as service,
                    count(*) as total,
                    sum(sa.billing_status = 'Billable') as billable
-            from `tabService Assignment` sa
+            from `tabMSP Service Assignment` sa
             left join `tabItem` item on item.name = sa.service_item
             where sa.operational_status in %(open)s
             group by 1
@@ -319,20 +319,20 @@ class DashboardService:
 
         return {
             "customers": frappe.db.count("Customer"),
-            "client_users": frappe.db.count("Client User"),
-            "active_client_users": frappe.db.count("Client User", {"lifecycle_status": "Active"}),
-            "devices": frappe.db.count("Managed Device", {"status": "Active"}),
+            "client_users": frappe.db.count("MSP Client User"),
+            "active_client_users": frappe.db.count("MSP Client User", {"lifecycle_status": "Active"}),
+            "devices": frappe.db.count("MSP Managed Device", {"status": "Active"}),
             "active_services": frappe.db.count(
-                "Service Assignment", {"operational_status": "Active"}
+                "MSP Service Assignment", {"operational_status": "Active"}
             ),
             "billable_services": frappe.db.count(
-                "Service Assignment", {"billing_status": "Billable"}
+                "MSP Service Assignment", {"billing_status": "Billable"}
             ),
             "added_this_month": added,
             "removed_this_month": removed,
             "by_service": by_service,
             "rated_services": frappe.db.count(
-                "Service Assignment", {"agreed_rate": (">", 0)}
+                "MSP Service Assignment", {"agreed_rate": (">", 0)}
             ),
         }
 

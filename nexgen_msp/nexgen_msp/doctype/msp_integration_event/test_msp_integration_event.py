@@ -13,7 +13,7 @@ IGNORE_TEST_RECORD_DEPENDENCIES = []  # eg. ["User"]
 
 
 
-class IntegrationTestIntegrationEvent(IntegrationTestCase):
+class IntegrationTestMSPIntegrationEvent(IntegrationTestCase):
 	"""
 	Integration tests for IntegrationEvent.
 	Use this class for testing interactions between multiple components.

@@ -5,5 +5,5 @@
 from frappe.model.document import Document
 
 
-class WorkOrderChecklistItem(Document):
+class MSPWorkOrderChecklistItem(Document):
 	pass

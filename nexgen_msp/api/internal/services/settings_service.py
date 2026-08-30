@@ -1,3 +1,5 @@
+from urllib.parse import urlparse
+
 import frappe
 
 from nexgen_msp.api.internal.services.contract_service import ContractService
@@ -19,6 +21,7 @@ INVOICE_FIELDS = (
     "payment_terms_days",
     "default_cost_center",
     "show_cost_center_on_invoice",
+    "portal_url",
 )
 
 # how long a customer keeps the right to contest, when the setting has never been saved
@@ -54,7 +57,7 @@ class SettingsService:
             """
             select
                 ra.name, ra.title, ra.action_type, ra.description, ra.enabled,
-                (select count(*) from `tabService Request Line` srl
+                (select count(*) from `tabMSP Service Request Line` srl
                     where srl.request_action = ra.name) as used
             from `tabMSP Request Action` ra
             order by ra.action_type asc, ra.title asc
@@ -115,7 +118,7 @@ class SettingsService:
         if not name or not frappe.db.exists("MSP Request Action", name):
             raise NotFoundError(f"Action {name} not found.", "NOT_FOUND")
 
-        used = frappe.db.count("Service Request Line", {"request_action": name})
+        used = frappe.db.count("MSP Service Request Line", {"request_action": name})
 
         if used:
             raise ValidationError(
@@ -293,6 +296,21 @@ class SettingsService:
             raise ValidationError(
                 f"Cost Center {doc.default_cost_center} does not exist.", "VALIDATION_ERROR"
             )
+
+        # only the origin is kept: the paths are the application's own business
+        portal = (doc.portal_url or "").strip().rstrip("/")
+
+        if portal:
+            parsed = urlparse(portal)
+
+            if parsed.scheme not in ("http", "https") or not parsed.netloc or parsed.path:
+                raise ValidationError(
+                    "The portal address must be a bare origin, such as "
+                    "https://portal.example.com.",
+                    "VALIDATION_ERROR",
+                )
+
+        doc.portal_url = portal or None
 
         if doc.payment_terms_days in (None, ""):
             doc.payment_terms_days = DEFAULT_PAYMENT_TERMS

@@ -178,7 +178,7 @@ def export_users(
     )
 
     for row in rows:
-        row["remarks"] = remarks_util.joined("Client User", row["name"])
+        row["remarks"] = remarks_util.joined("MSP Client User", row["name"])
 
     return listing_export.respond(
         "users.xlsx", "Users", EXPORT_COLUMNS["users"], rows
@@ -196,7 +196,7 @@ def export_devices(search=None, customer=None, status=None, device_type=None, co
     )
 
     for row in rows:
-        row["remarks"] = remarks_util.joined("Managed Device", row["name"])
+        row["remarks"] = remarks_util.joined("MSP Managed Device", row["name"])
         # who held it before, so a sheet tells the whole story of the machine
         row["previous_holders"] = " | ".join(
             f"{spell.full_name or spell.client_user}"
@@ -673,6 +673,12 @@ def list_customer_devices(customer=None, exclude_holder=None):
 @handle_errors
 def find_device_hostname(customer=None, hostname=None):
     return _devices().find_hostname(customer=customer, hostname=hostname)
+
+
+@frappe.whitelist()
+@handle_errors
+def find_device_serial(serial_number=None, exclude=None):
+    return _devices().find_serial(serial_number=serial_number, exclude=exclude)
 
 
 @frappe.whitelist()

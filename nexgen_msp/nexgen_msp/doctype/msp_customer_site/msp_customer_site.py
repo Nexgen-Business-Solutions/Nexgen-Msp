@@ -5,5 +5,5 @@
 from frappe.model.document import Document
 
 
-class CustomerSite(Document):
+class MSPCustomerSite(Document):
 	pass

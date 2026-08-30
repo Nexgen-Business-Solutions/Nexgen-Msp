@@ -13,7 +13,7 @@ IGNORE_TEST_RECORD_DEPENDENCIES = []  # eg. ["User"]
 
 
 
-class IntegrationTestClientUser(IntegrationTestCase):
+class IntegrationTestMSPClientUser(IntegrationTestCase):
 	"""
 	Integration tests for ClientUser.
 	Use this class for testing interactions between multiple components.

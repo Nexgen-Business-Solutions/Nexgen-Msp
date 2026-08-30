@@ -5,5 +5,5 @@
 from frappe.model.document import Document
 
 
-class NetworkInterface(Document):
+class MSPNetworkInterface(Document):
 	pass

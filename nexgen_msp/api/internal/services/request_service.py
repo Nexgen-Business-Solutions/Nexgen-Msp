@@ -7,7 +7,8 @@ from nexgen_msp.utils.errors import NotFoundError, ValidationError
 ADMIN_ROLES = ("MSP System Admin", "System Manager", "Administrator")
 
 DISPUTE_TYPE = "Billing Dispute"
-TECHNICIAN_ROLES = ("MSP Technician",) + ADMIN_ROLES
+# everyone who works the floor: everything but the money
+TECHNICIAN_ROLES = ("MSP Operator", "MSP Technician") + ADMIN_ROLES
 
 OPEN_STATUSES = (
     "Draft",
@@ -108,12 +109,12 @@ class RequestService:
         RequestService._guard_internal()
 
         customers = frappe.get_all(
-            "Service Request", distinct=True, pluck="customer", order_by="customer asc"
+            "MSP Service Request", distinct=True, pluck="customer", order_by="customer asc"
         )
 
         return {
             "customers": [customer for customer in customers if customer],
-            "statuses": select_options("Service Request", "status"),
+            "statuses": select_options("MSP Service Request", "status"),
             "open_statuses": list(OPEN_STATUSES),
             # only an administrator handles disputes, so only they can filter on them
             "request_types": (
@@ -121,7 +122,7 @@ class RequestService:
                 if RequestService._roles().intersection(ADMIN_ROLES)
                 else list(REQUEST_TYPES)
             ),
-            "priorities": select_options("Service Request", "priority"),
+            "priorities": select_options("MSP Service Request", "priority"),
             "is_admin": bool(RequestService._roles().intersection(ADMIN_ROLES)),
         }
 
@@ -170,8 +171,8 @@ class RequestService:
                     sr.name like %(search)s
                     or sr.customer like %(search)s
                     or exists (
-                        select 1 from `tabService Request Line` srl
-                        left join `tabClient User` cu on cu.name = srl.client_user
+                        select 1 from `tabMSP Service Request Line` srl
+                        left join `tabMSP Client User` cu on cu.name = srl.client_user
                         where srl.parent = sr.name
                           and (cu.full_name like %(search)s or srl.new_user_full_name like %(search)s)
                     )
@@ -202,7 +203,7 @@ class RequestService:
             search, status, priority, request_type, customer, scope
         )
 
-        total = frappe.db.sql(f"select count(*) from `tabService Request` sr {where}", params)[0][0]
+        total = frappe.db.sql(f"select count(*) from `tabMSP Service Request` sr {where}", params)[0][0]
 
         rows = frappe.db.sql(
             f"""
@@ -217,21 +218,21 @@ class RequestService:
                 sr.billing_run,
                 sr.creation,
                 sr.modified,
-                (select count(*) from `tabService Request Line` srl where srl.parent = sr.name)
+                (select count(*) from `tabMSP Service Request Line` srl where srl.parent = sr.name)
                     as line_count,
-                (select count(*) from `tabService Request Line` srl
+                (select count(*) from `tabMSP Service Request Line` srl
                     where srl.parent = sr.name and srl.line_status = 'Pending') as pending_lines,
                 coalesce(
                     (select group_concat(distinct coalesce(cu.full_name, srl.new_user_full_name)
                         order by srl.idx separator ', ')
-                        from `tabService Request Line` srl
-                        left join `tabClient User` cu on cu.name = srl.client_user
+                        from `tabMSP Service Request Line` srl
+                        left join `tabMSP Client User` cu on cu.name = srl.client_user
                         where srl.parent = sr.name),
                     -- a dispute carries no service line, so whoever raised it is the person
                     (select u.full_name from `tabUser` u where u.name = sr.requester)
                 ) as users,
                 timestampdiff(hour, sr.creation, now()) as age_hours
-            from `tabService Request` sr
+            from `tabMSP Service Request` sr
             {where}
             order by field(sr.priority, 'Urgent', 'High', 'Medium', 'Low'), sr.creation asc
             limit {page_length} offset {start}
@@ -263,7 +264,7 @@ class RequestService:
             f"""
             select sr.status, sr.priority, count(*) as total,
                    sum(timestampdiff(hour, sr.creation, now()) > 48) as ageing
-            from `tabService Request` sr
+            from `tabMSP Service Request` sr
             {where}
             group by sr.status, sr.priority
             """,
@@ -302,10 +303,10 @@ class RequestService:
         if not name:
             raise ValidationError("name is required.", "VALIDATION_ERROR")
 
-        if not frappe.db.exists("Service Request", name):
+        if not frappe.db.exists("MSP Service Request", name):
             raise NotFoundError(f"Service Request {name} not found.", "NOT_FOUND")
 
-        doc = frappe.get_doc("Service Request", name)
+        doc = frappe.get_doc("MSP Service Request", name)
 
         lines = frappe.db.sql(
             """
@@ -324,10 +325,10 @@ class RequestService:
                 srl.requested_service, item.item_name as requested_service_name,
                 srl.requested_quantity, srl.requested_effective_date,
                 srl.comment, srl.line_status, srl.rejection_reason
-            from `tabService Request Line` srl
-            left join `tabClient User` cu on cu.name = srl.client_user
-            left join `tabManaged Device` device on device.name = srl.managed_device
-            left join `tabClient User` holder on holder.name = device.assigned_client_user
+            from `tabMSP Service Request Line` srl
+            left join `tabMSP Client User` cu on cu.name = srl.client_user
+            left join `tabMSP Managed Device` device on device.name = srl.managed_device
+            left join `tabMSP Client User` holder on holder.name = device.assigned_client_user
             left join `tabItem` item on item.name = srl.requested_service
             left join `tabMSP Request Action` ra on ra.name = srl.request_action
             where srl.parent = %(parent)s
@@ -379,10 +380,10 @@ class RequestService:
                 f"Your role cannot {spec['label'].lower()}.", "PERMISSION_DENIED", 403
             )
 
-        if not frappe.db.exists("Service Request", name):
+        if not frappe.db.exists("MSP Service Request", name):
             raise NotFoundError(f"Service Request {name} not found.", "NOT_FOUND")
 
-        doc = frappe.get_doc("Service Request", name)
+        doc = frappe.get_doc("MSP Service Request", name)
 
         if doc.status not in spec["from"]:
             raise ValidationError(
@@ -433,10 +434,10 @@ class RequestService:
         if line_status not in LINE_STATUSES:
             raise ValidationError(f"Unknown line status '{line_status}'.", "VALIDATION_ERROR")
 
-        if not frappe.db.exists("Service Request", name):
+        if not frappe.db.exists("MSP Service Request", name):
             raise NotFoundError(f"Service Request {name} not found.", "NOT_FOUND")
 
-        doc = frappe.get_doc("Service Request", name)
+        doc = frappe.get_doc("MSP Service Request", name)
 
         if doc.status in CLOSED_STATUSES:
             raise ValidationError(
@@ -473,7 +474,7 @@ class RequestService:
         row = frappe.db.sql(
             """
             select assignment_scope, count(*) as total
-            from `tabService Assignment`
+            from `tabMSP Service Assignment`
             where service_item = %(item)s
             group by assignment_scope
             order by total desc
@@ -490,8 +491,8 @@ class RequestService:
         found = frappe.db.sql(
             """
             select sa.name
-            from `tabService Assignment` sa
-            left join `tabManaged Device` device on device.name = sa.managed_device
+            from `tabMSP Service Assignment` sa
+            left join `tabMSP Managed Device` device on device.name = sa.managed_device
             where sa.customer = %(customer)s
               and sa.service_item = %(service_item)s
               and sa.operational_status in ('Pending Setup', 'Active', 'Suspended', 'Pending Removal')
@@ -515,7 +516,7 @@ class RequestService:
             if not managed_device:
                 raise ValidationError("Select a device.", "VALIDATION_ERROR")
 
-            device = frappe.get_doc("Managed Device", managed_device)
+            device = frappe.get_doc("MSP Managed Device", managed_device)
 
             if device.customer != customer:
                 raise ValidationError(
@@ -552,7 +553,7 @@ class RequestService:
 
             device = frappe.get_doc(
                 {
-                    "doctype": "Managed Device",
+                    "doctype": "MSP Managed Device",
                     "customer": customer,
                     "holder_log": [{"client_user": client_user}] if client_user else [],
                     "hostname": hostname.strip().upper(),
@@ -621,7 +622,7 @@ class RequestService:
             if row.action == "Add":
                 if row.managed_device:
                     duplicate = frappe.db.get_value(
-                        "Service Assignment",
+                        "MSP Service Assignment",
                         {
                             "managed_device": row.managed_device,
                             "service_item": row.requested_service,
@@ -699,7 +700,7 @@ class RequestService:
                 "MSP Request Completed",
                 [doc.requester],
                 context,
-                reference_doctype="Service Request",
+                reference_doctype="MSP Service Request",
                 reference_name=doc.name,
             )
             return
@@ -719,6 +720,6 @@ class RequestService:
             "MSP Request Decision",
             [doc.requester],
             context,
-            reference_doctype="Service Request",
+            reference_doctype="MSP Service Request",
             reference_name=doc.name,
         )

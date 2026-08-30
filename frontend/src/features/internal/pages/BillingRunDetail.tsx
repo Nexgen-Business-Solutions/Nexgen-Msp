@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   AlertCircle,
@@ -28,6 +28,30 @@ import { useBillingRun, useRunAction, useSetLineDiscount } from '../hooks/useBil
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
 
+const Stat = ({
+  label,
+  value,
+  hint,
+  alert,
+}: {
+  label: string;
+  value: React.ReactNode;
+  hint?: string;
+  alert?: boolean;
+}) => (
+  <div>
+    <p className="text-xs font-medium text-slate-400">{label}</p>
+    <p
+      className={`mt-0.5 text-xl font-bold tabular-nums ${
+        alert ? 'text-amber-600' : 'text-slate-900'
+      }`}
+    >
+      {value}
+    </p>
+    {hint && <p className="mt-0.5 text-xs text-slate-400">{hint}</p>}
+  </div>
+);
+
 const COLUMNS = [
   'Service',
   'User',
@@ -54,6 +78,36 @@ export default function BillingRunDetail() {
   const setDiscount = useSetLineDiscount();
 
   const data = detail.data;
+
+  // what an administrator counts before approving: how many lines, on how many people and
+  // machines, for how many months, and what each service weighs in the total
+  const stats = useMemo(() => {
+    const billed = (data?.lines ?? []).filter((line) => !line.exception_code);
+    const tally = new Map<string, { name: string; count: number; months: number; amount: number }>();
+
+    for (const line of billed) {
+      const key = line.service_item;
+      const row = tally.get(key) ?? {
+        name: line.service_name || key,
+        count: 0,
+        months: 0,
+        amount: 0,
+      };
+      row.count += 1;
+      row.months += line.billable_months;
+      row.amount += line.amount;
+      tally.set(key, row);
+    }
+
+    return {
+      billable: billed.length,
+      people: new Set(billed.map((line) => line.client_user).filter(Boolean)).size,
+      devices: new Set(billed.map((line) => line.hostname).filter(Boolean)).size,
+      months: billed.reduce((sum, line) => sum + line.billable_months, 0),
+      perService: [...tally.values()].sort((a, b) => b.amount - a.amount),
+    };
+  }, [data?.lines]);
+
 
   if (detail.isLoading) {
     return (
@@ -156,6 +210,39 @@ export default function BillingRunDetail() {
             </p>
           </div>
         </div>
+
+        <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-4 border-t border-slate-100 pt-4 sm:grid-cols-3 lg:grid-cols-6">
+          <Stat label="Billed lines" value={stats.billable} hint={`of ${data.lines.length}`} />
+          <Stat label="People" value={stats.people} hint="distinct users" />
+          <Stat label="Devices" value={stats.devices} hint="distinct machines" />
+          <Stat label="Services" value={stats.perService.length} hint="on this run" />
+          <Stat label="Months billed" value={stats.months.toFixed(1)} hint="user-months" />
+          <Stat
+            label="Blocked"
+            value={data.exception_count}
+            hint={data.exception_count ? 'excluded from the total' : 'nothing held back'}
+            alert={data.exception_count > 0}
+          />
+        </div>
+
+        {stats.perService.length > 0 && (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {stats.perService.map((row) => (
+              <div
+                key={row.name}
+                className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+              >
+                <p className="text-sm font-semibold text-slate-900">
+                  {row.count}
+                  <span className="ml-1.5 font-medium text-slate-500">{row.name}</span>
+                </p>
+                <p className="mt-0.5 text-xs text-slate-400 tabular-nums">
+                  {row.months.toFixed(1)} months · {row.amount.toLocaleString()} {currency}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
 
         {data.disputed && (
           <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">

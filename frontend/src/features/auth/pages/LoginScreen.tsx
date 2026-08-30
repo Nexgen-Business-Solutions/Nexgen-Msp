@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, Navigate, useLocation } from 'react-router-dom';
 import {
   AlertCircleIcon,
   EyeIcon,
@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { FrappeError, login } from '@/lib/api/client';
 import { AppLogo } from '@/shared/components/appLogo';
+import { useSession } from '@/shared/hooks/useSession';
 
 
 const EYEBROW = 'WELCOME BACK';
@@ -32,10 +33,15 @@ const errorMessageFor = (err: unknown) => {
 
 export default function LoginScreen() {
   const location = useLocation();
+  // someone already signed in lands here when they are turned away from the desk; showing
+  // them a login form would be absurd, so they go straight to the application
+  const session = useSession();
   const [credentials, setCredentials] = useState({ username: '', password: '' });
   const [showPassword, setShowPassword] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
   const [error, setError] = useState('');
+
+  if (session.data?.authenticated) return <Navigate to="/msp" replace />;
 
   const params = new URLSearchParams(location.search);
   const from =

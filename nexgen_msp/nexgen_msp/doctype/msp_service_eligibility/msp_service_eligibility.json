@@ -59,7 +59,7 @@
  "modified": "2026-08-09 17:43:46.345378",
  "modified_by": "Administrator",
  "module": "Nexgen MSP",
- "name": "Service Eligibility",
+ "name": "MSP Service Eligibility",
  "owner": "Administrator",
  "permissions": [],
  "row_format": "Dynamic",

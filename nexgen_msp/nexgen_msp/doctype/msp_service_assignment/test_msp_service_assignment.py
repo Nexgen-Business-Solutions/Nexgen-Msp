@@ -13,7 +13,7 @@ IGNORE_TEST_RECORD_DEPENDENCIES = []  # eg. ["User"]
 
 
 
-class IntegrationTestServiceAssignment(IntegrationTestCase):
+class IntegrationTestMSPServiceAssignment(IntegrationTestCase):
 	"""
 	Integration tests for ServiceAssignment.
 	Use this class for testing interactions between multiple components.

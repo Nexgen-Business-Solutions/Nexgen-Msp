@@ -5,7 +5,12 @@ import Modal from '@/shared/components/Modal';
 import FieldLabel from '@/shared/components/FieldLabel';
 import Select from '@/shared/components/Select';
 import type { DeviceInterface, DeviceRow } from '@/lib/api/internal';
-import { useDeviceFilterOptions, useHostnameMatch, useUpdateDevice } from '../hooks/useDevices';
+import {
+  useDeviceFilterOptions,
+  useHostnameMatch,
+  useSerialMatch,
+  useUpdateDevice,
+} from '../hooks/useDevices';
 
 type Props = {
   device: DeviceRow | null;
@@ -52,6 +57,9 @@ const EditDeviceModal: React.FC<Props> = ({ device, onClose }) => {
   const taken =
     clash.data?.name && clash.data.name !== device?.name ? clash.data : null;
 
+  const serialClash = useSerialMatch(serial.trim(), device?.name);
+  const serialTaken = serialClash.data?.name ? serialClash.data : null;
+
   const change = (position: number, patch: Partial<DeviceInterface>) =>
     setInterfaces((current) =>
       current.map((item, index) => (index === position ? { ...item, ...patch } : item))
@@ -96,7 +104,7 @@ const EditDeviceModal: React.FC<Props> = ({ device, onClose }) => {
           <button
             type="button"
             onClick={submit}
-            disabled={!hostname.trim() || Boolean(taken?.same_customer) || update.isLoading}
+            disabled={!hostname.trim() || Boolean(serialTaken) || update.isLoading}
             className="flex min-w-[7rem] items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {update.isLoading ? (
@@ -123,9 +131,8 @@ const EditDeviceModal: React.FC<Props> = ({ device, onClose }) => {
                 <p className="text-xs text-amber-800">
                   <span className="font-semibold">{taken.hostname}</span> is already taken by{' '}
                   {taken.same_customer ? taken.name : `${taken.customer} (${taken.name})`}.
-                  {taken.same_customer
-                    ? ' This customer cannot have two machines under that name.'
-                    : ' Another customer already uses that name — this one may keep it.'}
+{' '}
+                  Names may be shared — the serial number is what has to be unique.
                 </p>
                 <button
                   type="button"
@@ -162,6 +169,12 @@ const EditDeviceModal: React.FC<Props> = ({ device, onClose }) => {
               onChange={(event) => setSerial(event.target.value)}
               className={inputClass}
             />
+            {serialTaken && (
+              <p className="mt-2 rounded-lg border border-red-200 bg-red-50 p-2.5 text-xs text-red-700">
+                Already on <span className="font-semibold">{serialTaken.hostname}</span> (
+                {serialTaken.customer}). Two records cannot share a serial number.
+              </p>
+            )}
           </div>
           <div>
             <FieldLabel>In service since</FieldLabel>

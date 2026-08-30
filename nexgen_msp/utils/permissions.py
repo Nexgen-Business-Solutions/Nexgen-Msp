@@ -3,7 +3,7 @@ import frappe
 from nexgen_msp.utils.errors import ValidationError
 
 PORTAL_ROLES = ("Customer Portal Manager",)
-INTERNAL_ROLES = ("MSP System Admin", "MSP Technician")
+INTERNAL_ROLES = ("MSP System Admin", "MSP Operator", "MSP Technician")
 MANAGE_ACCESS_ROLES = ("MSP System Admin", "System Manager")
 
 
@@ -185,7 +185,7 @@ def ensure_invitation_template():
 def send_portal_invitation(user_doc, customer):
     from nexgen_msp.utils import notifications
 
-    link = user_doc._reset_password(send_email=False)
+    link = notifications.on_portal_host(user_doc._reset_password(send_email=False))
 
     notifications.send(
         "MSP Portal Invitation",
@@ -266,7 +266,7 @@ def keep_technicians_off_desk():
 	):
 		roles = set(frappe.get_roles(user))
 
-		if "MSP Technician" not in roles:
+		if not roles.intersection({"MSP Operator", "MSP Technician"}):
 			continue
 
 		if roles.intersection({"MSP System Admin", "System Manager", "Administrator"}):

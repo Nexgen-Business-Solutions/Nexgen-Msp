@@ -203,7 +203,7 @@ class ContractService:
             row.is_eligible = 1
         elif not wanted and row:
             open_count = frappe.db.count(
-                "Service Assignment",
+                "MSP Service Assignment",
                 {
                     "customer": customer,
                     "service_item": service_item,
@@ -361,10 +361,10 @@ class ContractService:
                 live.end_date as contract_end_date,
                 live.billing_frequency,
                 live.currency,
-                (select count(*) from `tabService Assignment` sa
+                (select count(*) from `tabMSP Service Assignment` sa
                     where sa.customer = c.name and sa.billing_status = 'Billable'
                       and sa.operational_status in %(open)s) as billable_assignments,
-                (select count(distinct sa.service_item) from `tabService Assignment` sa
+                (select count(distinct sa.service_item) from `tabMSP Service Assignment` sa
                     where sa.customer = c.name
                       and sa.operational_status in %(open)s) as services_used,
                 (select count(distinct ip.item_code) from `tabItem Price` ip
@@ -412,7 +412,7 @@ class ContractService:
                 coalesce(item.item_name, sa.service_item) as service_name,
                 count(*) as open_assignments,
                 sum(sa.billing_status = 'Billable') as billable_assignments
-            from `tabService Assignment` sa
+            from `tabMSP Service Assignment` sa
             left join `tabItem` item on item.name = sa.service_item
             where sa.customer = %(customer)s
               and sa.operational_status in %(open)s

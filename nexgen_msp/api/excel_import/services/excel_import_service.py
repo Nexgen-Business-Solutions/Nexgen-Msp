@@ -36,7 +36,7 @@ class ExcelImportService:
         create_portal_users = frappe.utils.cint(create_portal_users)
         send_welcome_email = frappe.utils.cint(send_welcome_email)
 
-        if not frappe.has_permission("Client User", "create"):
+        if not frappe.has_permission("MSP Client User", "create"):
             raise ValidationError("You are not allowed to import client users.", "PERMISSION_DENIED", 403)
 
         ExcelImportService._billed_customers = {}
@@ -381,14 +381,14 @@ class ExcelImportService:
         start_date, disabled_date = ExcelImportService._lifecycle_dates(record, status)
 
         values = {
-                "doctype": "Client User",
+                "doctype": "MSP Client User",
                 "full_name": record["full_name"],
                 "customer": customer,
                 "department": ExcelImportService._department(record, prefix),
                 "email": record["email"],
                 "lifecycle_status": status,
                 "start_date": ExcelImportService._reconcile_start(
-                    start_date, disabled_date, record, report, "Client User"
+                    start_date, disabled_date, record, report, "MSP Client User"
                 ),
                 "disabled_date": disabled_date,
                 "ad_status": "Active" if record["ad_marked_active"] else "Not Managed",
@@ -403,7 +403,7 @@ class ExcelImportService:
         }
 
         existing = frappe.db.get_value(
-            "Client User", {"customer": customer, "full_name": record["full_name"]}, "name"
+            "MSP Client User", {"customer": customer, "full_name": record["full_name"]}, "name"
         )
 
         if existing:
@@ -480,7 +480,7 @@ class ExcelImportService:
         """Whether this app has billed the customer itself, in which case it knows better."""
         if customer not in ExcelImportService._billed_customers:
             ExcelImportService._billed_customers[customer] = bool(
-                frappe.db.exists("Billing Run", {"customer": customer, "status": "Invoiced"})
+                frappe.db.exists("MSP Billing Run", {"customer": customer, "status": "Invoiced"})
             )
 
         return ExcelImportService._billed_customers[customer]
@@ -517,7 +517,7 @@ class ExcelImportService:
         retired_date = record["device_disabled"] if status == "Retired" else None
 
         values = {
-                "doctype": "Managed Device",
+                "doctype": "MSP Managed Device",
                 "customer": customer,
                 "holder_log": (
                     [{
@@ -532,7 +532,7 @@ class ExcelImportService:
                 "device_type": record["device_type"] or "Other",
                 "status": status,
                 "assigned_date": ExcelImportService._reconcile_start(
-                    record["device_created"], retired_date, record, report, "Managed Device"
+                    record["device_created"], retired_date, record, report, "MSP Managed Device"
                 ),
                 "retired_date": retired_date,
                 "network_interfaces": record["macs"],
@@ -546,7 +546,7 @@ class ExcelImportService:
         }
 
         existing = frappe.db.get_value(
-            "Managed Device", {"customer": customer, "hostname": record["hostname"]}, "name"
+            "MSP Managed Device", {"customer": customer, "hostname": record["hostname"]}, "name"
         )
 
         if existing:
@@ -564,7 +564,7 @@ class ExcelImportService:
     @staticmethod
     def _add_interfaces(device, macs, report):
         """Append the MAC addresses the device does not already carry."""
-        doc = frappe.get_doc("Managed Device", device)
+        doc = frappe.get_doc("MSP Managed Device", device)
         held = {(row.mac_address or "").lower() for row in doc.network_interfaces}
         added = 0
 
@@ -619,7 +619,7 @@ class ExcelImportService:
         permission_added = permissions.add_customer_permission(email, customer)
         contact, contact_created = permissions.ensure_customer_contact(user, customer)
 
-        frappe.db.set_value("Client User", client_user, "portal_user", user.name)
+        frappe.db.set_value("MSP Client User", client_user, "portal_user", user.name)
 
         if user_created:
             report["created"]["portal_users"] += 1
@@ -667,13 +667,13 @@ class ExcelImportService:
                 "managed_device": device if scope == "Device" else None,
             }
 
-            if frappe.db.exists("Service Assignment", held):
+            if frappe.db.exists("MSP Service Assignment", held):
                 report["skipped"]["assignments_existing"] += 1
                 continue
 
             frappe.get_doc(
                 {
-                    "doctype": "Service Assignment",
+                    "doctype": "MSP Service Assignment",
                     "customer": customer,
                     "service_item": items[key],
                     "assignment_scope": scope,

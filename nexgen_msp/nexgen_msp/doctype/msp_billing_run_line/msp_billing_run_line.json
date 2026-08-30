@@ -36,7 +36,7 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Service Assignment",
-   "options": "Service Assignment",
+   "options": "MSP Service Assignment",
    "reqd": 1
   },
   {
@@ -58,13 +58,13 @@
    "fieldname": "client_user",
    "fieldtype": "Link",
    "label": "Client User",
-   "options": "Client User"
+   "options": "MSP Client User"
   },
   {
    "fieldname": "managed_device",
    "fieldtype": "Link",
    "label": "Managed Device",
-   "options": "Managed Device"
+   "options": "MSP Managed Device"
   },
   {
    "fieldname": "column_break_line",
@@ -174,7 +174,7 @@
  "modified": "2026-08-09 17:43:47.328951",
  "modified_by": "Administrator",
  "module": "Nexgen MSP",
- "name": "Billing Run Line",
+ "name": "MSP Billing Run Line",
  "owner": "Administrator",
  "permissions": [],
  "row_format": "Dynamic",

@@ -267,7 +267,7 @@ export default function DeviceDetail() {
       <Panel title="Remarks">
         <RemarkLog
           entries={device.remark_log}
-          target={{ doctype: 'Managed Device', name: device.name }}
+          target={{ doctype: 'MSP Managed Device', name: device.name }}
           invalidate={deviceKeys.detail(device.name)}
         />
       </Panel>

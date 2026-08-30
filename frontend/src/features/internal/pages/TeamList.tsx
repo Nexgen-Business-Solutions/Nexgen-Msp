@@ -17,6 +17,12 @@ import {
 
 const COLUMNS = ['Account', 'Kind', 'Scope', 'Desk', 'Last seen', 'Status', ''];
 
+const ROLE_LABEL: Record<string, string> = {
+  'MSP System Admin': 'administrator',
+  'MSP Operator': 'operator',
+  'MSP Technician': 'technician',
+};
+
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'Never');
 
 export default function TeamList() {
@@ -203,22 +209,14 @@ export default function TeamList() {
                               onClick: () => resend.mutate(member.name),
                               disabled: !member.enabled,
                             },
-                            {
-                              label:
-                                member.role === 'MSP Technician'
-                                  ? 'Make administrator'
-                                  : 'Make technician',
-                              icon: ShieldCheck,
-                              disabled: !member.role,
-                              onClick: () =>
-                                setRole.mutate({
-                                  email: member.name,
-                                  role:
-                                    member.role === 'MSP Technician'
-                                      ? 'MSP System Admin'
-                                      : 'MSP Technician',
-                                }),
-                            },
+                            ...(options.data?.roles ?? [])
+                              .filter((role) => role !== member.role)
+                              .map((role) => ({
+                                label: `Make ${ROLE_LABEL[role] ?? role}`,
+                                icon: ShieldCheck,
+                                disabled: !member.role,
+                                onClick: () => setRole.mutate({ email: member.name, role }),
+                              })),
                             {
                               label: member.enabled ? 'Disable the account' : 'Enable the account',
                               icon: member.enabled ? UserX : UserCheck,

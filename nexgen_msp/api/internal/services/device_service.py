@@ -28,14 +28,14 @@ class DeviceService:
             "device_types": [
                 option
                 for option in (
-                    frappe.get_meta("Managed Device").get_field("device_type").options or ""
+                    frappe.get_meta("MSP Managed Device").get_field("device_type").options or ""
                 ).split("\n")
                 if option
             ],
             "statuses": [
                 option
                 for option in (
-                    frappe.get_meta("Managed Device").get_field("status").options or ""
+                    frappe.get_meta("MSP Managed Device").get_field("status").options or ""
                 ).split("\n")
                 if option
             ],
@@ -53,7 +53,7 @@ class DeviceService:
         def count(predicate):
             clause = f"{where} and {predicate}" if where else f" where {predicate}"
             return frappe.db.sql(
-                f"select count(*) from `tabManaged Device` device {clause}", params
+                f"select count(*) from `tabMSP Managed Device` device {clause}", params
             )[0][0]
 
         return {
@@ -61,7 +61,7 @@ class DeviceService:
             "unprotected_devices": count(
                 """device.status = 'Active'
                    and not exists (
-                       select 1 from `tabService Assignment` sa
+                       select 1 from `tabMSP Service Assignment` sa
                        where sa.managed_device = device.name
                          and sa.service_item = %(item)s
                          and sa.operational_status in %(open)s
@@ -74,7 +74,7 @@ class DeviceService:
             "devices_without_mac": count(
                 """device.status = 'Active'
                    and not exists (
-                       select 1 from `tabNetwork Interface` ni where ni.parent = device.name
+                       select 1 from `tabMSP Network Interface` ni where ni.parent = device.name
                    )"""
             ),
         }
@@ -100,7 +100,7 @@ class DeviceService:
             conditions.append("device.status = 'Active'")
             conditions.append(
                 """not exists (
-                    select 1 from `tabService Assignment` sa
+                    select 1 from `tabMSP Service Assignment` sa
                     where sa.managed_device = device.name
                       and sa.service_item = %(item)s
                       and sa.operational_status in %(open)s
@@ -114,7 +114,7 @@ class DeviceService:
         elif coverage == "no_mac":
             conditions.append("device.status = 'Active'")
             conditions.append(
-                "not exists (select 1 from `tabNetwork Interface` ni where ni.parent = device.name)"
+                "not exists (select 1 from `tabMSP Network Interface` ni where ni.parent = device.name)"
             )
 
         if search:
@@ -124,7 +124,7 @@ class DeviceService:
                     or device.serial_number like %(search)s
                     or holder.full_name like %(search)s
                     or exists (
-                        select 1 from `tabNetwork Interface` ni
+                        select 1 from `tabMSP Network Interface` ni
                         where ni.parent = device.name and ni.mac_address like %(search)s
                     )
                 )"""
@@ -152,8 +152,8 @@ class DeviceService:
         where, params = DeviceService._conditions(search, customer, status, device_type, coverage)
 
         base_from = """
-            from `tabManaged Device` device
-            left join `tabClient User` holder on holder.name = device.assigned_client_user
+            from `tabMSP Managed Device` device
+            left join `tabMSP Client User` holder on holder.name = device.assigned_client_user
         """
 
         total = frappe.db.sql(f"select count(*) {base_from} {where}", params)[0][0]
@@ -168,29 +168,29 @@ class DeviceService:
                 holder.full_name as user_name,
                 holder.department as user_department,
                 holder.lifecycle_status as user_status,
-                (select count(*) from `tabService Assignment` sa
+                (select count(*) from `tabMSP Service Assignment` sa
                     where sa.managed_device = device.name
                       and sa.operational_status = 'Active') as active_services,
-                (select count(*) from `tabService Assignment` sa
+                (select count(*) from `tabMSP Service Assignment` sa
                     where sa.managed_device = device.name
                       and sa.operational_status != 'Active') as inactive_services,
                 (select group_concat(distinct coalesce(item.item_name, sa.service_item)
                         order by item.item_name separator ', ')
-                    from `tabService Assignment` sa
+                    from `tabMSP Service Assignment` sa
                     left join `tabItem` item on item.name = sa.service_item
                     where sa.managed_device = device.name
                       and sa.operational_status in %(open)s) as services,
                 (select group_concat(distinct coalesce(item.item_name, sa.service_item)
                         order by item.item_name separator ', ')
-                    from `tabService Assignment` sa
+                    from `tabMSP Service Assignment` sa
                     left join `tabItem` item on item.name = sa.service_item
                     where sa.managed_device = device.name
                       and sa.operational_status not in %(open)s) as inactive_service_names,
                 (select r.note from `tabMSP Remark` r
-                    where r.parent = device.name and r.parenttype = 'Managed Device'
+                    where r.parent = device.name and r.parenttype = 'MSP Managed Device'
                     order by r.idx desc limit 1) as remarks,
                 exists (
-                    select 1 from `tabService Assignment` sa
+                    select 1 from `tabMSP Service Assignment` sa
                     where sa.managed_device = device.name
                       and sa.service_item = %(item)s
                       and sa.operational_status in %(open)s
@@ -206,7 +206,7 @@ class DeviceService:
 
         if rows:
             interfaces = frappe.get_all(
-                "Network Interface",
+                "MSP Network Interface",
                 filters={"parent": ("in", [row.name for row in rows])},
                 fields=["parent", "interface_type", "mac_address"],
             )
@@ -238,7 +238,7 @@ class DeviceService:
             raise ValidationError("device is required.", "VALIDATION_ERROR")
 
         doc = frappe.db.get_value(
-            "Managed Device",
+            "MSP Managed Device",
             device,
             ["name", "hostname", "device_type", "status", "customer", "assigned_client_user"],
             as_dict=True,
@@ -249,7 +249,7 @@ class DeviceService:
 
         open_items = frappe.db.sql_list(
             """
-            select sa.service_item from `tabService Assignment` sa
+            select sa.service_item from `tabMSP Service Assignment` sa
             where sa.managed_device = %(device)s and sa.operational_status in %(open)s
             """,
             {"device": device, "open": OPEN_ASSIGNMENT_STATUSES},
@@ -272,7 +272,7 @@ class DeviceService:
 
         return {
             "device": doc,
-            "user_name": frappe.db.get_value("Client User", doc.assigned_client_user, "full_name")
+            "user_name": frappe.db.get_value("MSP Client User", doc.assigned_client_user, "full_name")
             if doc.assigned_client_user
             else None,
             "catalogue": [item for item in catalogue if item["scope"] in ("Device", "Both")],
@@ -281,7 +281,7 @@ class DeviceService:
                 select sr.name, sr.request_type, sr.status, sr.priority, sr.source,
                        coalesce(requester.full_name, sr.requester) as requester,
                        sr.creation, sr.customer
-                from `tabService Request` sr
+                from `tabMSP Service Request` sr
                 left join `tabUser` requester on requester.name = sr.requester
                 where sr.customer = %(customer)s
                 order by field(sr.status, 'Completed', 'Rejected', 'Cancelled') asc,
@@ -302,7 +302,7 @@ class DeviceService:
             raise ValidationError("device is required.", "VALIDATION_ERROR")
 
         doc = frappe.db.get_value(
-            "Managed Device",
+            "MSP Managed Device",
             device,
             [
                 "name",
@@ -328,20 +328,20 @@ class DeviceService:
         if not doc:
             raise NotFoundError(f"Managed Device {device} not found.", "NOT_FOUND")
 
-        doc["remark_log"] = remarks_util.log("Managed Device", device)
+        doc["remark_log"] = remarks_util.log("MSP Managed Device", device)
 
         blockers = DeviceService.deletion_blockers(device)
         doc["delete_blockers"] = blockers
         doc["can_delete"] = not blockers
 
         doc["user_name"] = (
-            frappe.db.get_value("Client User", doc.assigned_client_user, "full_name")
+            frappe.db.get_value("MSP Client User", doc.assigned_client_user, "full_name")
             if doc.assigned_client_user
             else None
         )
 
         interfaces = frappe.get_all(
-            "Network Interface",
+            "MSP Network Interface",
             filters={"parent": device},
             fields=["interface_type", "mac_address"],
             order_by="idx asc",
@@ -357,11 +357,11 @@ class DeviceService:
                 sa.internal_notes, sa.source_request,
                 (
                     select max(br.billing_period_end)
-                    from `tabBilling Run Line` brl
-                    join `tabBilling Run` br on br.name = brl.parent
+                    from `tabMSP Billing Run Line` brl
+                    join `tabMSP Billing Run` br on br.name = brl.parent
                     where brl.service_assignment = sa.name and br.docstatus = 1
                 ) as last_billed_on
-            from `tabService Assignment` sa
+            from `tabMSP Service Assignment` sa
             left join `tabItem` item on item.name = sa.service_item
             where sa.managed_device = %(device)s
             order by field(sa.operational_status, 'Ended', 'Cancelled') asc,
@@ -374,8 +374,8 @@ class DeviceService:
         requests = frappe.db.sql(
             """
             select distinct sr.name, sr.status, sr.priority, sr.request_type, sr.creation
-            from `tabService Request` sr
-            join `tabService Request Line` srl on srl.parent = sr.name
+            from `tabMSP Service Request` sr
+            join `tabMSP Service Request Line` srl on srl.parent = sr.name
             where srl.managed_device = %(device)s
             order by sr.creation desc
             limit 10
@@ -417,7 +417,7 @@ class DeviceService:
                 select sr.name, sr.request_type, sr.status, sr.priority, sr.source,
                        coalesce(requester.full_name, sr.requester) as requester,
                        sr.creation, sr.customer
-                from `tabService Request` sr
+                from `tabMSP Service Request` sr
                 left join `tabUser` requester on requester.name = sr.requester
                 where sr.customer = %(customer)s
                 order by field(sr.status, 'Completed', 'Rejected', 'Cancelled') asc,
@@ -427,10 +427,10 @@ class DeviceService:
                 {"customer": doc.customer},
                 as_dict=True,
             ),
-            "device_types": frappe.get_meta("Managed Device")
+            "device_types": frappe.get_meta("MSP Managed Device")
             .get_field("device_type")
             .options.split("\n"),
-            "interface_types": frappe.get_meta("Network Interface")
+            "interface_types": frappe.get_meta("MSP Network Interface")
             .get_field("interface_type")
             .options.split("\n"),
         }
@@ -445,21 +445,21 @@ class DeviceService:
         checks = (
             (
                 "service assignment(s)",
-                frappe.db.count("Service Assignment", {"managed_device": device}),
+                frappe.db.count("MSP Service Assignment", {"managed_device": device}),
             ),
             (
                 "billed line(s)",
-                frappe.db.count("Billing Run Line", {"managed_device": device}),
+                frappe.db.count("MSP Billing Run Line", {"managed_device": device}),
             ),
             (
                 "request line(s)",
-                frappe.db.count("Service Request Line", {"managed_device": device}),
+                frappe.db.count("MSP Service Request Line", {"managed_device": device}),
             ),
             (
                 "past holder(s)",
                 frappe.db.count(
                     "MSP Device Holder",
-                    {"parent": device, "parenttype": "Managed Device", "is_current": 0},
+                    {"parent": device, "parenttype": "MSP Managed Device", "is_current": 0},
                 ),
             ),
         )
@@ -471,21 +471,21 @@ class DeviceService:
         """Erase a machine that never carried anything — a test record, a typo."""
         ContractService._guard_admin()
 
-        if not device or not frappe.db.exists("Managed Device", device):
+        if not device or not frappe.db.exists("MSP Managed Device", device):
             raise NotFoundError(f"Managed Device {device} not found.", "NOT_FOUND")
 
         blockers = DeviceService.deletion_blockers(device)
 
         if blockers:
             raise ValidationError(
-                frappe.db.get_value("Managed Device", device, "hostname")
+                frappe.db.get_value("MSP Managed Device", device, "hostname")
                 + " cannot be deleted: "
                 + ", ".join(blockers)
                 + ".",
                 "VALIDATION_ERROR",
             )
 
-        frappe.delete_doc("Managed Device", device, ignore_permissions=True)
+        frappe.delete_doc("MSP Managed Device", device, ignore_permissions=True)
         frappe.db.commit()
 
         return {"deleted": device}
@@ -501,7 +501,7 @@ class DeviceService:
             raise ValidationError("device and service_item are required.", "VALIDATION_ERROR")
 
         doc = frappe.db.get_value(
-            "Managed Device", device, ["name", "customer", "status"], as_dict=True
+            "MSP Managed Device", device, ["name", "customer", "status"], as_dict=True
         )
 
         if not doc:
@@ -522,7 +522,7 @@ class DeviceService:
             )
 
         existing = frappe.db.exists(
-            "Service Assignment",
+            "MSP Service Assignment",
             {
                 "managed_device": device,
                 "service_item": service_item,
@@ -540,7 +540,7 @@ class DeviceService:
 
         assignment = frappe.get_doc(
             {
-                "doctype": "Service Assignment",
+                "doctype": "MSP Service Assignment",
                 "customer": doc.customer,
                 "service_item": service_item,
                 "assignment_scope": "Device",
@@ -579,10 +579,10 @@ class DeviceService:
         if not device:
             raise ValidationError("device is required.", "VALIDATION_ERROR")
 
-        if not frappe.db.exists("Managed Device", device):
+        if not frappe.db.exists("MSP Managed Device", device):
             raise NotFoundError(f"Managed Device {device} not found.", "NOT_FOUND")
 
-        doc = frappe.get_doc("Managed Device", device)
+        doc = frappe.get_doc("MSP Managed Device", device)
 
         if hostname:
             doc.hostname = hostname
@@ -618,6 +618,33 @@ class DeviceService:
         return {"name": doc.name, "hostname": doc.hostname}
 
     @staticmethod
+    def find_serial(serial_number=None, exclude=None):
+        """The machine already carrying this serial number, if there is one."""
+        RequestService._guard_internal()
+
+        serial_number = (serial_number or "").strip()
+
+        if not serial_number:
+            return None
+
+        found = frappe.db.get_value(
+            "MSP Managed Device",
+            {"serial_number": serial_number},
+            ["name", "hostname", "customer", "status", "assigned_client_user"],
+            as_dict=True,
+        )
+
+        if not found or found.name == exclude:
+            return None
+
+        if found.assigned_client_user:
+            found["holder_name"] = frappe.db.get_value(
+                "MSP Client User", found.assigned_client_user, "full_name"
+            )
+
+        return found
+
+    @staticmethod
     def hand_over_device(device=None, client_user=None, on_date=None, note=None):
         """Hand a machine to someone else on a stated day.
 
@@ -629,10 +656,10 @@ class DeviceService:
         if not device:
             raise ValidationError("device is required.", "VALIDATION_ERROR")
 
-        if not frappe.db.exists("Managed Device", device):
+        if not frappe.db.exists("MSP Managed Device", device):
             raise NotFoundError(f"Managed Device {device} not found.", "NOT_FOUND")
 
-        doc = frappe.get_doc("Managed Device", device)
+        doc = frappe.get_doc("MSP Managed Device", device)
         on_date = on_date or frappe.utils.today()
 
         if frappe.utils.getdate(on_date) > frappe.utils.getdate(frappe.utils.today()):
@@ -641,7 +668,7 @@ class DeviceService:
             )
 
         if client_user:
-            owner = frappe.db.get_value("Client User", client_user, "customer")
+            owner = frappe.db.get_value("MSP Client User", client_user, "customer")
 
             if not owner:
                 raise NotFoundError(f"Client User {client_user} not found.", "NOT_FOUND")
@@ -673,7 +700,7 @@ class DeviceService:
         holders.hand_over(doc, client_user or None, on_date, note=note)
 
         # the hand-over is written in the history; the log says it in words
-        taker = frappe.db.get_value("Client User", client_user, "full_name") if client_user else None
+        taker = frappe.db.get_value("MSP Client User", client_user, "full_name") if client_user else None
         line = f"Handed over to {taker}" if taker else "Left in nobody's hands"
         remarks_util.add(
             doc,
@@ -701,10 +728,10 @@ class DeviceService:
         if not device or action not in ("Retire", "Reinstate"):
             raise ValidationError("device and a valid action are required.", "VALIDATION_ERROR")
 
-        if not frappe.db.exists("Managed Device", device):
+        if not frappe.db.exists("MSP Managed Device", device):
             raise NotFoundError(f"Managed Device {device} not found.", "NOT_FOUND")
 
-        doc = frappe.get_doc("Managed Device", device)
+        doc = frappe.get_doc("MSP Managed Device", device)
         effective_date = effective_date or frappe.utils.today()
         closed = []
 
@@ -719,14 +746,14 @@ class DeviceService:
                 raise ValidationError(f"'{target}' is not a retirement status.", "VALIDATION_ERROR")
 
             for name in frappe.get_all(
-                "Service Assignment",
+                "MSP Service Assignment",
                 filters={
                     "managed_device": device,
                     "operational_status": ("in", OPEN_ASSIGNMENT_STATUSES),
                 },
                 pluck="name",
             ):
-                assignment = frappe.get_doc("Service Assignment", name)
+                assignment = frappe.get_doc("MSP Service Assignment", name)
                 assignment.operational_status = "Ended"
                 assignment.billing_status = "Ended"
                 # a retirement backdated before the service started still ends it, on its own day
@@ -753,7 +780,7 @@ class DeviceService:
             doc.assigned_date = effective_date
 
             if assigned_client_user:
-                owner = frappe.db.get_value("Client User", assigned_client_user, "customer")
+                owner = frappe.db.get_value("MSP Client User", assigned_client_user, "customer")
                 if owner != doc.customer:
                     raise ValidationError(
                         f"{assigned_client_user} belongs to {owner}, not {doc.customer}.",
@@ -793,8 +820,31 @@ class DeviceService:
         if not hostname:
             raise ValidationError("hostname is required.", "VALIDATION_ERROR")
 
+        # the serial number is what tells two machines apart, so a new one arrives with it
+        serial_number = (serial_number or "").strip()
+
+        if not serial_number:
+            raise ValidationError(
+                "A serial number is required: it is what identifies the machine.",
+                "VALIDATION_ERROR",
+            )
+
+        twin = frappe.db.get_value(
+            "MSP Managed Device",
+            {"serial_number": serial_number},
+            ["name", "hostname", "customer"],
+            as_dict=True,
+        )
+
+        if twin:
+            raise ValidationError(
+                f"Serial number {serial_number} is already on {twin.hostname} "
+                f"({twin.customer}).",
+                "VALIDATION_ERROR",
+            )
+
         if assigned_client_user and not customer:
-            customer = frappe.db.get_value("Client User", assigned_client_user, "customer")
+            customer = frappe.db.get_value("MSP Client User", assigned_client_user, "customer")
 
         if not customer:
             raise ValidationError("customer is required.", "VALIDATION_ERROR")
@@ -803,7 +853,7 @@ class DeviceService:
             raise NotFoundError(f"Customer {customer} not found.", "NOT_FOUND")
 
         if assigned_client_user:
-            owner = frappe.db.get_value("Client User", assigned_client_user, "customer")
+            owner = frappe.db.get_value("MSP Client User", assigned_client_user, "customer")
             if owner != customer:
                 raise ValidationError(
                     f"{assigned_client_user} belongs to {owner}, not {customer}.",
@@ -826,13 +876,13 @@ class DeviceService:
 
         doc = frappe.get_doc(
             {
-                "doctype": "Managed Device",
+                "doctype": "MSP Managed Device",
                 "customer": customer,
                 "holder_log": (
                     [{
                         "client_user": assigned_client_user,
                         "full_name": frappe.db.get_value(
-                            "Client User", assigned_client_user, "full_name"
+                            "MSP Client User", assigned_client_user, "full_name"
                         ),
                         "from_date": assigned_date or frappe.utils.today(),
                     }]
@@ -886,11 +936,11 @@ class DeviceService:
                   where h.parent = d.name and h.is_current = 1
                   limit 1) as held_since,
                 (select count(*)
-                   from `tabService Assignment` sa
+                   from `tabMSP Service Assignment` sa
                   where sa.managed_device = d.name
                     and sa.operational_status in %(open)s) as open_services
-            from `tabManaged Device` d
-            left join `tabClient User` cu on cu.name = d.assigned_client_user
+            from `tabMSP Managed Device` d
+            left join `tabMSP Client User` cu on cu.name = d.assigned_client_user
             where d.customer = %(customer)s
             order by d.hostname asc
             """,
@@ -903,8 +953,8 @@ class DeviceService:
 
         for row in rows:
             row["interfaces"] = frappe.get_all(
-                "Network Interface",
-                filters={"parent": row.name, "parenttype": "Managed Device"},
+                "MSP Network Interface",
+                filters={"parent": row.name, "parenttype": "MSP Managed Device"},
                 fields=["interface_type", "mac_address"],
                 order_by="idx asc",
             )
@@ -926,7 +976,7 @@ class DeviceService:
             return None
 
         found = frappe.db.get_value(
-            "Managed Device",
+            "MSP Managed Device",
             {"hostname": hostname},
             [
                 "name",
@@ -945,7 +995,7 @@ class DeviceService:
 
         if found.assigned_client_user:
             holder = frappe.db.get_value(
-                "Client User",
+                "MSP Client User",
                 found.assigned_client_user,
                 ["full_name", "lifecycle_status", "department"],
                 as_dict=True,
@@ -970,7 +1020,7 @@ class DeviceService:
             raise ValidationError("customer is required.", "VALIDATION_ERROR")
 
         return frappe.get_all(
-            "Client User",
+            "MSP Client User",
             filters={"customer": customer, "lifecycle_status": ("in", ("Pending", "Active"))},
             fields=["name", "full_name", "department"],
             order_by="full_name asc",

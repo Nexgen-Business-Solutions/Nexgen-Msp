@@ -55,7 +55,7 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Service Request",
-   "options": "Service Request"
+   "options": "MSP Service Request"
   },
   {
    "fieldname": "customer",
@@ -107,7 +107,7 @@
    "fieldtype": "Link",
    "label": "Client User",
    "mandatory_depends_on": "eval:doc.target_scope==\"User\"",
-   "options": "Client User"
+   "options": "MSP Client User"
   },
   {
    "depends_on": "eval:doc.target_scope==\"Device\"",
@@ -115,7 +115,7 @@
    "fieldtype": "Link",
    "label": "Managed Device",
    "mandatory_depends_on": "eval:doc.target_scope==\"Device\"",
-   "options": "Managed Device"
+   "options": "MSP Managed Device"
   },
   {
    "depends_on": "eval:doc.target_scope==\"Site\"",
@@ -123,7 +123,7 @@
    "fieldtype": "Link",
    "label": "Customer Site",
    "mandatory_depends_on": "eval:doc.target_scope==\"Site\"",
-   "options": "Customer Site"
+   "options": "MSP Customer Site"
   },
   {
    "fieldname": "column_break_target",
@@ -176,7 +176,7 @@
    "fieldname": "checklist",
    "fieldtype": "Table",
    "label": "Checklist",
-   "options": "Work Order Checklist Item"
+   "options": "MSP Work Order Checklist Item"
   },
   {
    "fieldname": "section_execution",
@@ -235,7 +235,7 @@
    "fieldname": "resulting_assignment",
    "fieldtype": "Link",
    "label": "Resulting Assignment",
-   "options": "Service Assignment",
+   "options": "MSP Service Assignment",
    "read_only": 1
   }
  ],
@@ -245,7 +245,7 @@
  "modified": "2026-08-13 18:39:19.945900",
  "modified_by": "Administrator",
  "module": "Nexgen MSP",
- "name": "Service Work Order",
+ "name": "MSP Service Work Order",
  "owner": "Administrator",
  "permissions": [
   {
@@ -281,6 +281,18 @@
    "read": 1,
    "report": 1,
    "role": "MSP Technician",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "MSP Operator",
    "share": 1,
    "write": 1
   }

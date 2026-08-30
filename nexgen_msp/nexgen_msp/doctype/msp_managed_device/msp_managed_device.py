@@ -14,11 +14,11 @@ MAC_PATTERN = re.compile(r"^[0-9A-F]{2}([:-])(?:[0-9A-F]{2}\1){4}[0-9A-F]{2}$")
 CLOSED_STATUSES = ("Returned", "Damaged", "Retired", "Lost")
 
 
-class ManagedDevice(Document):
+class MSPManagedDevice(Document):
 	def validate(self):
 		holders.sync_current(self)
 		self.normalize_hostname()
-		self.validate_unique_hostname()
+		self.validate_unique_serial()
 		self.validate_assigned_user()
 		self.validate_status_dates()
 		self.validate_network_interfaces()
@@ -27,24 +27,32 @@ class ManagedDevice(Document):
 		if self.hostname:
 			self.hostname = self.hostname.strip().upper()
 
-	def validate_unique_hostname(self):
-		"""Two machines of the same customer cannot answer to the same name.
+	def validate_unique_serial(self):
+		"""A serial number names one physical machine, so no two records may share it.
 
-		The rule stops at the customer: two companies naming a machine the same way is their
-		business, and the screens say whose machine it is when the name comes up twice.
+		The hostname is deliberately left free: two machines can answer to the same name,
+		and the screens say who already carries it when it comes up. What cannot be shared
+		is the number engraved on the case.
 		"""
-		duplicate = frappe.db.exists(
-			"Managed Device",
-			{
-				"hostname": self.hostname,
-				"customer": self.customer,
-				"name": ("!=", self.name),
-			},
+		if not (self.serial_number or "").strip():
+			return
+
+		self.serial_number = self.serial_number.strip()
+
+		duplicate = frappe.db.get_value(
+			"MSP Managed Device",
+			{"serial_number": self.serial_number, "name": ("!=", self.name)},
+			["name", "hostname", "customer"],
+			as_dict=True,
 		)
+
 		if duplicate:
 			frappe.throw(
-				_("Hostname {0} already exists for customer {1} on {2}.").format(
-					frappe.bold(self.hostname), frappe.bold(self.customer), duplicate
+				_("Serial number {0} is already on {1} ({2}, {3}).").format(
+					frappe.bold(self.serial_number),
+					duplicate.name,
+					duplicate.hostname,
+					duplicate.customer,
 				)
 			)
 
@@ -52,7 +60,7 @@ class ManagedDevice(Document):
 		if not self.assigned_client_user:
 			return
 
-		user_customer = frappe.db.get_value("Client User", self.assigned_client_user, "customer")
+		user_customer = frappe.db.get_value("MSP Client User", self.assigned_client_user, "customer")
 		if user_customer != self.customer:
 			frappe.throw(
 				_("Client User {0} belongs to customer {1} and cannot be assigned to a device of customer {2}.").format(

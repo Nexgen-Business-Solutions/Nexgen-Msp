@@ -5,5 +5,5 @@
 from frappe.model.document import Document
 
 
-class BillingRunLine(Document):
+class MSPBillingRunLine(Document):
 	pass

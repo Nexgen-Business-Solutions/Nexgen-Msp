@@ -75,7 +75,7 @@ def hand_over(doc, client_user, on_date=None, note=None):
 		FIELD,
 		{
 			"client_user": client_user,
-			"full_name": frappe.db.get_value("Client User", client_user, "full_name"),
+			"full_name": frappe.db.get_value("MSP Client User", client_user, "full_name"),
 			"from_date": on_date,
 			"note": note,
 		},
@@ -97,8 +97,8 @@ def history(device):
 			h.client_user, h.full_name, h.from_date, h.to_date, h.note, h.is_current, h.idx,
 			cu.lifecycle_status, cu.disabled_date
 		from `tabMSP Device Holder` h
-		left join `tabClient User` cu on cu.name = h.client_user
-		where h.parent = %(device)s and h.parenttype = 'Managed Device'
+		left join `tabMSP Client User` cu on cu.name = h.client_user
+		where h.parent = %(device)s and h.parenttype = 'MSP Managed Device'
 		order by h.idx asc
 		""",
 		{"device": device},

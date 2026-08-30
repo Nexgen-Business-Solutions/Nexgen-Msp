@@ -169,7 +169,7 @@ def attach_breakdown(run_name):
 
     existing = frappe.db.get_value(
         "File",
-        {"attached_to_doctype": "Billing Run", "attached_to_name": run_name, "file_name": filename},
+        {"attached_to_doctype": "MSP Billing Run", "attached_to_name": run_name, "file_name": filename},
         "name",
     )
 
@@ -180,7 +180,7 @@ def attach_breakdown(run_name):
         {
             "doctype": "File",
             "file_name": filename,
-            "attached_to_doctype": "Billing Run",
+            "attached_to_doctype": "MSP Billing Run",
             "attached_to_name": run_name,
             "is_private": 1,
             "content": content,

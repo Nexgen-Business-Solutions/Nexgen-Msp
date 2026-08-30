@@ -10,7 +10,7 @@ def execute():
 	stale = frappe.db.sql(
 		"""
 		select br.name
-		from `tabBilling Run` br
+		from `tabMSP Billing Run` br
 		join `tabSales Invoice` si on si.name = br.sales_invoice
 		where br.status = 'Invoiced' and si.docstatus = 0
 		""",
@@ -18,6 +18,6 @@ def execute():
 	)
 
 	for name in stale:
-		frappe.db.set_value("Billing Run", name, "status", "Invoice Drafted", update_modified=False)
+		frappe.db.set_value("MSP Billing Run", name, "status", "Invoice Drafted", update_modified=False)
 
 	frappe.db.commit()

@@ -8,7 +8,7 @@ from frappe.utils import flt, getdate, now_datetime
 
 
 
-class BillingRun(Document):
+class MSPBillingRun(Document):
 	def validate(self):
 		self.validate_period()
 		self.validate_adjustment()
@@ -39,7 +39,7 @@ class BillingRun(Document):
 		if self.adjustment_of == self.name:
 			frappe.throw(_("A Billing Run cannot be an adjustment of itself."))
 
-		source_customer = frappe.db.get_value("Billing Run", self.adjustment_of, "customer")
+		source_customer = frappe.db.get_value("MSP Billing Run", self.adjustment_of, "customer")
 		if source_customer != self.customer:
 			frappe.throw(
 				_("Billing Run {0} belongs to customer {1}, not {2}.").format(

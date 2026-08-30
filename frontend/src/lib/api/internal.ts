@@ -982,6 +982,20 @@ export const findDeviceHostname = (
   signal?: AbortSignal
 ) => get<HostnameMatch | null>(`${BASE}.find_device_hostname`, params, signal);
 
+export type SerialMatch = {
+  name: string;
+  hostname: string;
+  customer: string;
+  status: string;
+  assigned_client_user: string | null;
+  holder_name?: string | null;
+};
+
+export const findDeviceSerial = (
+  params: { serial_number: string; exclude?: string },
+  signal?: AbortSignal
+) => get<SerialMatch | null>(`${BASE}.find_device_serial`, params, signal);
+
 export const handOverDevice = (payload: {
   device: string;
   client_user?: string;
@@ -1508,6 +1522,7 @@ export type InvoiceSettings = {
   dispute_window_days: number | null;
   default_cost_center: string | null;
   show_cost_center_on_invoice: number;
+  portal_url: string | null;
 };
 
 export type CustomerMapping = {

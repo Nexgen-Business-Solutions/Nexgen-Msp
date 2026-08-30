@@ -1,3 +1,5 @@
+from urllib.parse import urlparse
+
 import frappe
 
 APP_NAME = "Nexgen MSP"
@@ -225,4 +227,27 @@ def summary_table(rows):
 
 
 def portal_url(path=""):
-    return frappe.utils.get_url(f"/msp{path}")
+    """Where a customer is sent, which is not always where the staff works.
+
+    When the portal answers on its own address, every link we mail out has to carry that
+    address: the site's canonical host is the internal one, and `get_url` knows nothing else.
+    """
+    from nexgen_msp.utils.gatekeeper import portal_origin
+
+    origin = portal_origin()
+
+    return f"{origin}/msp{path}" if origin else frappe.utils.get_url(f"/msp{path}")
+
+
+def on_portal_host(link):
+    """Move a link Frappe built onto the portal address, when there is one."""
+    from nexgen_msp.utils.gatekeeper import portal_origin
+
+    origin = portal_origin()
+
+    if not origin or not link:
+        return link
+
+    parsed = urlparse(link)
+
+    return f"{origin}{parsed.path}" + (f"?{parsed.query}" if parsed.query else "")

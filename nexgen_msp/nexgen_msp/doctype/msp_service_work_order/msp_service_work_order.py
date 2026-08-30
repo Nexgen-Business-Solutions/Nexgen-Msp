@@ -13,7 +13,7 @@ SCOPE_FIELD = {
 }
 
 
-class ServiceWorkOrder(Document):
+class MSPServiceWorkOrder(Document):
 	def validate(self):
 		self.validate_target_scope()
 		self.validate_target_ownership()
@@ -57,7 +57,7 @@ class ServiceWorkOrder(Document):
 		if not self.service_request:
 			return
 
-		request_customer = frappe.db.get_value("Service Request", self.service_request, "customer")
+		request_customer = frappe.db.get_value("MSP Service Request", self.service_request, "customer")
 		if request_customer != self.customer:
 			frappe.throw(
 				_("Service Request {0} belongs to customer {1}, not {2}.").format(

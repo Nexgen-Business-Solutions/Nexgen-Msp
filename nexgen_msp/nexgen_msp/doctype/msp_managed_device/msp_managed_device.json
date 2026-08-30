@@ -97,7 +97,7 @@
    "fieldname": "assigned_client_user",
    "fieldtype": "Link",
    "label": "Assigned Client User",
-   "options": "Client User",
+   "options": "MSP Client User",
    "read_only": 1,
    "description": "Mirrors the current row of the holder history \u2014 set there, not here."
   },
@@ -160,7 +160,7 @@
    "fieldname": "network_interfaces",
    "fieldtype": "Table",
    "label": "Network Interfaces",
-   "options": "Network Interface"
+   "options": "MSP Network Interface"
   },
   {
    "fieldname": "section_external",
@@ -223,7 +223,7 @@
  "modified": "2026-08-13 18:39:19.616168",
  "modified_by": "Administrator",
  "module": "Nexgen MSP",
- "name": "Managed Device",
+ "name": "MSP Managed Device",
  "owner": "Administrator",
  "permissions": [
   {
@@ -259,6 +259,18 @@
    "read": 1,
    "report": 1,
    "role": "MSP Technician",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "MSP Operator",
    "share": 1,
    "write": 1
   },

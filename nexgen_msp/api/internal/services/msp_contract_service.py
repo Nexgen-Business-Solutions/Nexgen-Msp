@@ -107,7 +107,7 @@ class MSPContractService:
                 c.currency, c.default_cost_center, c.billing_notes,
                 (select count(*) from `tabMSP Contract Service` cs where cs.parent = c.name)
                     as service_count,
-                (select count(*) from `tabBilling Run` br
+                (select count(*) from `tabMSP Billing Run` br
                     where br.contract = c.name and br.docstatus != 2) as run_count
             from `tabMSP Contract` c
             {where}
@@ -165,7 +165,7 @@ class MSPContractService:
             "services": services,
             "blockers": MSPContractService._blockers(doc, services),
             "runs": frappe.get_all(
-                "Billing Run",
+                "MSP Billing Run",
                 filters={"contract": doc.name, "docstatus": ["!=", 2]},
                 fields=[
                     "name",

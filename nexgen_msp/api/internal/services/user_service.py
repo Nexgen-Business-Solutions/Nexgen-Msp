@@ -28,7 +28,7 @@ class UserService:
 
         departments = frappe.db.sql_list(
             """
-            select distinct department from `tabClient User`
+            select distinct department from `tabMSP Client User`
             where department is not null and department != ''
             order by department asc
             """
@@ -38,7 +38,7 @@ class UserService:
             """
             select distinct sa.service_item as value,
                    coalesce(item.item_name, sa.service_item) as label
-            from `tabService Assignment` sa
+            from `tabMSP Service Assignment` sa
             left join `tabItem` item on item.name = sa.service_item
             order by label asc
             """,
@@ -49,7 +49,7 @@ class UserService:
             "customers": frappe.get_all("Customer", pluck="name", order_by="name asc"),
             "departments": departments,
             "services": services,
-            "statuses": select_options("Client User", "lifecycle_status"),
+            "statuses": select_options("MSP Client User", "lifecycle_status"),
             "coverage": list(COVERAGE_FILTERS),
         }
 
@@ -79,7 +79,7 @@ class UserService:
         def count(predicate):
             clause = f"{where} and {predicate}" if where else f" where {predicate}"
             return frappe.db.sql(
-                f"select count(distinct cu.name) from `tabClient User` cu {clause}", params
+                f"select count(distinct cu.name) from `tabMSP Client User` cu {clause}", params
             )[0][0]
 
         active = count("cu.lifecycle_status = 'Active'")
@@ -87,7 +87,7 @@ class UserService:
         without_device = count(
             """cu.lifecycle_status = 'Active'
                and not exists (
-                   select 1 from `tabManaged Device` device
+                   select 1 from `tabMSP Managed Device` device
                    where device.assigned_client_user = cu.name and device.status = 'Active'
                )"""
         )
@@ -95,8 +95,8 @@ class UserService:
         disabled_with_services = count(
             """cu.lifecycle_status in ('Disabled', 'Archived')
                and exists (
-                   select 1 from `tabService Assignment` sa
-                   left join `tabManaged Device` device on device.name = sa.managed_device
+                   select 1 from `tabMSP Service Assignment` sa
+                   left join `tabMSP Managed Device` device on device.name = sa.managed_device
                    where sa.operational_status in %(open)s
                      and (sa.client_user = cu.name or device.assigned_client_user = cu.name)
                )"""
@@ -106,12 +106,12 @@ class UserService:
         unprotected_devices = frappe.db.sql(
             f"""
             select count(*)
-            from `tabManaged Device` device
-            join `tabClient User` cu on cu.name = device.assigned_client_user
+            from `tabMSP Managed Device` device
+            join `tabMSP Client User` cu on cu.name = device.assigned_client_user
             {where.replace(' where ', ' where ') if where else ''}
             {'and' if where else 'where'} device.status = 'Active'
               and not exists (
-                  select 1 from `tabService Assignment` sa
+                  select 1 from `tabMSP Service Assignment` sa
                   where sa.managed_device = device.name
                     and sa.service_item = %(item)s
                     and sa.operational_status in %(open)s
@@ -149,8 +149,8 @@ class UserService:
         if service:
             conditions.append(
                 """exists (
-                    select 1 from `tabService Assignment` sa
-                    left join `tabManaged Device` sad on sad.name = sa.managed_device
+                    select 1 from `tabMSP Service Assignment` sa
+                    left join `tabMSP Managed Device` sad on sad.name = sa.managed_device
                     where sa.service_item = %(service)s
                       and sa.operational_status in %(open)s
                       and (sa.client_user = cu.name or sad.assigned_client_user = cu.name)
@@ -167,7 +167,7 @@ class UserService:
             conditions.append("cu.lifecycle_status = 'Active'")
             conditions.append(
                 """not exists (
-                    select 1 from `tabManaged Device` device
+                    select 1 from `tabMSP Managed Device` device
                     where device.assigned_client_user = cu.name and device.status = 'Active'
                 )"""
             )
@@ -175,10 +175,10 @@ class UserService:
             conditions.append("cu.lifecycle_status = 'Active'")
             conditions.append(
                 """exists (
-                    select 1 from `tabManaged Device` device
+                    select 1 from `tabMSP Managed Device` device
                     where device.assigned_client_user = cu.name and device.status = 'Active'
                       and not exists (
-                          select 1 from `tabService Assignment` sa
+                          select 1 from `tabMSP Service Assignment` sa
                           where sa.managed_device = device.name
                             and sa.service_item = %(item)s
                             and sa.operational_status in %(open)s
@@ -189,8 +189,8 @@ class UserService:
             conditions.append("cu.lifecycle_status in ('Disabled', 'Archived')")
             conditions.append(
                 """exists (
-                    select 1 from `tabService Assignment` sa
-                    left join `tabManaged Device` sad on sad.name = sa.managed_device
+                    select 1 from `tabMSP Service Assignment` sa
+                    left join `tabMSP Managed Device` sad on sad.name = sa.managed_device
                     where sa.operational_status in %(open)s
                       and (sa.client_user = cu.name or sad.assigned_client_user = cu.name)
                 )"""
@@ -202,7 +202,7 @@ class UserService:
                     cu.full_name like %(search)s
                     or cu.department like %(search)s
                     or exists (
-                        select 1 from `tabManaged Device` device
+                        select 1 from `tabMSP Managed Device` device
                         where device.assigned_client_user = cu.name
                           and device.hostname like %(search)s
                     )
@@ -234,7 +234,7 @@ class UserService:
             search, customer, status, department, service, coverage, portal
         )
 
-        total = frappe.db.sql(f"select count(*) from `tabClient User` cu {where}", params)[0][0]
+        total = frappe.db.sql(f"select count(*) from `tabMSP Client User` cu {where}", params)[0][0]
 
         rows = frappe.db.sql(
             f"""
@@ -243,42 +243,42 @@ class UserService:
                 cu.start_date, cu.disabled_date, cu.email,
                 cu.last_billed_on, cu.covered_until,
                 (select r.note from `tabMSP Remark` r
-                    where r.parent = cu.name and r.parenttype = 'Client User'
+                    where r.parent = cu.name and r.parenttype = 'MSP Client User'
                     order by r.idx desc limit 1) as remarks,
                 (select group_concat(device.hostname separator ', ')
-                    from `tabManaged Device` device
+                    from `tabMSP Managed Device` device
                     where device.assigned_client_user = cu.name and device.status = 'Active')
                     as hostnames,
-                (select device.device_type from `tabManaged Device` device
+                (select device.device_type from `tabMSP Managed Device` device
                     where device.assigned_client_user = cu.name and device.status = 'Active'
                     limit 1) as device_type,
-                (select count(*) from `tabService Assignment` sa
-                    left join `tabManaged Device` sad on sad.name = sa.managed_device
+                (select count(*) from `tabMSP Service Assignment` sa
+                    left join `tabMSP Managed Device` sad on sad.name = sa.managed_device
                     where sa.operational_status = 'Active'
                       and (sa.client_user = cu.name or sad.assigned_client_user = cu.name))
                     as active_services,
-                (select count(*) from `tabService Assignment` sa
-                    left join `tabManaged Device` sad on sad.name = sa.managed_device
+                (select count(*) from `tabMSP Service Assignment` sa
+                    left join `tabMSP Managed Device` sad on sad.name = sa.managed_device
                     where sa.operational_status != 'Active'
                       and (sa.client_user = cu.name or sad.assigned_client_user = cu.name))
                     as inactive_services,
                 (select group_concat(distinct coalesce(item.item_name, sa.service_item)
                         order by item.item_name separator ', ')
-                    from `tabService Assignment` sa
+                    from `tabMSP Service Assignment` sa
                     left join `tabItem` item on item.name = sa.service_item
-                    left join `tabManaged Device` sad on sad.name = sa.managed_device
+                    left join `tabMSP Managed Device` sad on sad.name = sa.managed_device
                     where sa.operational_status in %(open)s
                       and (sa.client_user = cu.name or sad.assigned_client_user = cu.name))
                     as services,
                 (select group_concat(distinct coalesce(item.item_name, sa.service_item)
                         order by item.item_name separator ', ')
-                    from `tabService Assignment` sa
+                    from `tabMSP Service Assignment` sa
                     left join `tabItem` item on item.name = sa.service_item
-                    left join `tabManaged Device` sad on sad.name = sa.managed_device
+                    left join `tabMSP Managed Device` sad on sad.name = sa.managed_device
                     where sa.operational_status not in %(open)s
                       and (sa.client_user = cu.name or sad.assigned_client_user = cu.name))
                     as inactive_service_names
-            from `tabClient User` cu
+            from `tabMSP Client User` cu
             {where}
             order by cu.full_name asc
             limit {page_length} offset {start}
@@ -303,11 +303,11 @@ class UserService:
         if not name:
             raise ValidationError("name is required.", "VALIDATION_ERROR")
 
-        if not frappe.db.exists("Client User", name):
+        if not frappe.db.exists("MSP Client User", name):
             raise NotFoundError(f"Client User {name} not found.", "NOT_FOUND")
 
         user = frappe.db.get_value(
-            "Client User",
+            "MSP Client User",
             name,
             [
                 "name",
@@ -326,7 +326,7 @@ class UserService:
             as_dict=True,
         )
 
-        user["remark_log"] = remarks_util.log("Client User", name)
+        user["remark_log"] = remarks_util.log("MSP Client User", name)
 
         # said before the button is pressed, so the refusal is never a surprise
         blockers = UserService.deletion_blockers(name)
@@ -339,9 +339,9 @@ class UserService:
             user["last_billed_on"] = frappe.db.sql(
                 """
                 select max(br.billing_period_end)
-                from `tabBilling Run Line` brl
-                join `tabBilling Run` br on br.name = brl.parent
-                left join `tabManaged Device` device on device.name = brl.managed_device
+                from `tabMSP Billing Run Line` brl
+                join `tabMSP Billing Run` br on br.name = brl.parent
+                left join `tabMSP Managed Device` device on device.name = brl.managed_device
                 where br.docstatus = 1
                   and (brl.client_user = %(user)s or device.assigned_client_user = %(user)s)
                 """,
@@ -351,7 +351,7 @@ class UserService:
         devices = frappe.db.sql(
             """
             select name, hostname, device_type, status, assigned_date, retired_date
-            from `tabManaged Device`
+            from `tabMSP Managed Device`
             where assigned_client_user = %(user)s
             order by field(status, 'Active') desc, hostname asc
             """,
@@ -361,7 +361,7 @@ class UserService:
 
         if devices:
             interfaces = frappe.get_all(
-                "Network Interface",
+                "MSP Network Interface",
                 filters={"parent": ("in", [device.name for device in devices])},
                 fields=["parent", "interface_type", "mac_address"],
             )
@@ -388,13 +388,13 @@ class UserService:
                 sa.source_request,
                 (
                     select max(br.billing_period_end)
-                    from `tabBilling Run Line` brl
-                    join `tabBilling Run` br on br.name = brl.parent
+                    from `tabMSP Billing Run Line` brl
+                    join `tabMSP Billing Run` br on br.name = brl.parent
                     where brl.service_assignment = sa.name and br.docstatus = 1
                 ) as last_billed_on
-            from `tabService Assignment` sa
+            from `tabMSP Service Assignment` sa
             left join `tabItem` item on item.name = sa.service_item
-            left join `tabManaged Device` device on device.name = sa.managed_device
+            left join `tabMSP Managed Device` device on device.name = sa.managed_device
             where sa.client_user = %(user)s
                or device.assigned_client_user = %(user)s
             order by field(sa.operational_status, 'Ended', 'Cancelled') asc,
@@ -407,8 +407,8 @@ class UserService:
         requests = frappe.db.sql(
             """
             select distinct sr.name, sr.status, sr.priority, sr.request_type, sr.creation
-            from `tabService Request` sr
-            join `tabService Request Line` srl on srl.parent = sr.name
+            from `tabMSP Service Request` sr
+            join `tabMSP Service Request Line` srl on srl.parent = sr.name
             where srl.client_user = %(user)s
             order by sr.creation desc
             limit 10
@@ -427,7 +427,7 @@ class UserService:
                 select sr.name, sr.request_type, sr.status, sr.priority, sr.source,
                        coalesce(requester.full_name, sr.requester) as requester,
                        sr.creation, sr.customer
-                from `tabService Request` sr
+                from `tabMSP Service Request` sr
                 left join `tabUser` requester on requester.name = sr.requester
                 where sr.customer = %(customer)s
                 order by field(sr.status, 'Completed', 'Rejected', 'Cancelled') asc,
@@ -437,10 +437,10 @@ class UserService:
                 {"customer": user.customer},
                 as_dict=True,
             ),
-            "device_types": frappe.get_meta("Managed Device")
+            "device_types": frappe.get_meta("MSP Managed Device")
             .get_field("device_type")
             .options.split("\n"),
-            "interface_types": frappe.get_meta("Network Interface")
+            "interface_types": frappe.get_meta("MSP Network Interface")
             .get_field("interface_type")
             .options.split("\n"),
             "catalogue": [
@@ -475,7 +475,7 @@ class UserService:
         if not client_user:
             raise ValidationError("client_user is required.", "VALIDATION_ERROR")
 
-        if not frappe.db.exists("Client User", client_user):
+        if not frappe.db.exists("MSP Client User", client_user):
             raise NotFoundError(f"Client User {client_user} not found.", "NOT_FOUND")
 
         DeviceService.create_device(
@@ -497,7 +497,7 @@ class UserService:
         if not source_request:
             return None
 
-        owner = frappe.db.get_value("Service Request", source_request, "customer")
+        owner = frappe.db.get_value("MSP Service Request", source_request, "customer")
 
         if not owner:
             raise NotFoundError(f"Service Request {source_request} not found.", "NOT_FOUND")
@@ -530,7 +530,7 @@ class UserService:
         if not client_user or not service_item:
             raise ValidationError("client_user and service_item are required.", "VALIDATION_ERROR")
 
-        user = frappe.db.get_value("Client User", client_user, ["name", "customer"], as_dict=True)
+        user = frappe.db.get_value("MSP Client User", client_user, ["name", "customer"], as_dict=True)
 
         if not user:
             raise NotFoundError(f"Client User {client_user} not found.", "NOT_FOUND")
@@ -576,7 +576,7 @@ class UserService:
                 )
 
             on_device = frappe.db.exists(
-                "Service Assignment",
+                "MSP Service Assignment",
                 {
                     "managed_device": device,
                     "service_item": service_item,
@@ -595,7 +595,7 @@ class UserService:
 
         assignment = frappe.get_doc(
             {
-                "doctype": "Service Assignment",
+                "doctype": "MSP Service Assignment",
                 "customer": user.customer,
                 "service_item": service_item,
                 "assignment_scope": scope,
@@ -632,10 +632,10 @@ class UserService:
         if action not in ("Suspend", "Resume", "End"):
             raise ValidationError(f"Unknown action '{action}'.", "VALIDATION_ERROR")
 
-        if not frappe.db.exists("Service Assignment", assignment):
+        if not frappe.db.exists("MSP Service Assignment", assignment):
             raise NotFoundError(f"Service Assignment {assignment} not found.", "NOT_FOUND")
 
-        doc = frappe.get_doc("Service Assignment", assignment)
+        doc = frappe.get_doc("MSP Service Assignment", assignment)
 
         if doc.operational_status in ("Ended", "Cancelled"):
             raise ValidationError(
@@ -669,7 +669,7 @@ class UserService:
         frappe.db.commit()
 
         client_user = doc.client_user or frappe.db.get_value(
-            "Managed Device", doc.managed_device, "assigned_client_user"
+            "MSP Managed Device", doc.managed_device, "assigned_client_user"
         )
 
         return UserService.get_user(client_user)
@@ -692,7 +692,7 @@ class UserService:
             raise ValidationError("full_name is required.", "VALIDATION_ERROR")
 
         if source_request and not customer:
-            customer = frappe.db.get_value("Service Request", source_request, "customer")
+            customer = frappe.db.get_value("MSP Service Request", source_request, "customer")
 
         if not customer:
             raise ValidationError("customer is required.", "VALIDATION_ERROR")
@@ -704,7 +704,7 @@ class UserService:
 
         doc = frappe.get_doc(
             {
-                "doctype": "Client User",
+                "doctype": "MSP Client User",
                 "full_name": full_name,
                 "customer": customer,
                 "department": department or None,
@@ -717,7 +717,7 @@ class UserService:
         ).insert()
 
         if source_request and request_line:
-            request = frappe.get_doc("Service Request", source_request)
+            request = frappe.get_doc("MSP Service Request", source_request)
             row = next(
                 (line for line in request.lines if line.idx == frappe.utils.cint(request_line)),
                 None,
@@ -747,10 +747,10 @@ class UserService:
         """
         RequestService._guard_internal()
 
-        if not name or not frappe.db.exists("Client User", name):
+        if not name or not frappe.db.exists("MSP Client User", name):
             raise NotFoundError(f"Client User {name} not found.", "NOT_FOUND")
 
-        doc = frappe.get_doc("Client User", name)
+        doc = frappe.get_doc("MSP Client User", name)
 
         if full_name is not None:
             if not str(full_name).strip():
@@ -785,19 +785,19 @@ class UserService:
         checks = (
             (
                 "service assignment(s)",
-                frappe.db.count("Service Assignment", {"client_user": name}),
+                frappe.db.count("MSP Service Assignment", {"client_user": name}),
             ),
             (
                 "device(s) in their hands",
-                frappe.db.count("Managed Device", {"assigned_client_user": name}),
+                frappe.db.count("MSP Managed Device", {"assigned_client_user": name}),
             ),
             (
                 "request line(s)",
-                frappe.db.count("Service Request Line", {"client_user": name}),
+                frappe.db.count("MSP Service Request Line", {"client_user": name}),
             ),
             (
                 "billed line(s)",
-                frappe.db.count("Billing Run Line", {"client_user": name}),
+                frappe.db.count("MSP Billing Run Line", {"client_user": name}),
             ),
             (
                 "past device holding(s)",
@@ -807,7 +807,7 @@ class UserService:
 
         blockers = [f"{count} {label}" for label, count in checks if count]
 
-        if frappe.db.get_value("Client User", name, "portal_user"):
+        if frappe.db.get_value("MSP Client User", name, "portal_user"):
             blockers.append("a portal account — revoke it first")
 
         return blockers
@@ -817,21 +817,21 @@ class UserService:
         """Erase a person who never carried anything — a test record, a typo."""
         ContractService._guard_admin()
 
-        if not name or not frappe.db.exists("Client User", name):
+        if not name or not frappe.db.exists("MSP Client User", name):
             raise NotFoundError(f"Client User {name} not found.", "NOT_FOUND")
 
         blockers = UserService.deletion_blockers(name)
 
         if blockers:
             raise ValidationError(
-                frappe.db.get_value("Client User", name, "full_name")
+                frappe.db.get_value("MSP Client User", name, "full_name")
                 + " cannot be deleted: "
                 + ", ".join(blockers)
                 + ".",
                 "VALIDATION_ERROR",
             )
 
-        frappe.delete_doc("Client User", name, ignore_permissions=True)
+        frappe.delete_doc("MSP Client User", name, ignore_permissions=True)
         frappe.db.commit()
 
         return {"deleted": name}
@@ -847,10 +847,10 @@ class UserService:
 
         permissions.guard_can_manage_access()
 
-        if not name or not frappe.db.exists("Client User", name):
+        if not name or not frappe.db.exists("MSP Client User", name):
             raise NotFoundError(f"Client User {name} not found.", "NOT_FOUND")
 
-        doc = frappe.get_doc("Client User", name)
+        doc = frappe.get_doc("MSP Client User", name)
 
         address = (email or doc.email or "").strip()
 
@@ -899,10 +899,10 @@ class UserService:
 
         permissions.guard_can_manage_access()
 
-        if not name or not frappe.db.exists("Client User", name):
+        if not name or not frappe.db.exists("MSP Client User", name):
             raise NotFoundError(f"Client User {name} not found.", "NOT_FOUND")
 
-        doc = frappe.get_doc("Client User", name)
+        doc = frappe.get_doc("MSP Client User", name)
 
         if not doc.portal_user:
             raise ValidationError(

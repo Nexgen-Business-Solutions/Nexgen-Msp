@@ -176,6 +176,23 @@ export default function NewBillingRun() {
   const keptTotal = kept.reduce((sum, line) => sum + line.amount, 0);
   const keptMonths = kept.reduce((sum, line) => sum + line.billable_months, 0);
 
+  // the invoice is read service by service before it is read person by person, so the run
+  // says how many of each it carries before listing who they belong to
+  const perService = useMemo(() => {
+    const tally = new Map<string, { name: string; count: number; months: number; amount: number }>();
+
+    for (const line of kept) {
+      const key = line.service_item;
+      const row = tally.get(key) ?? { name: line.service_name || key, count: 0, months: 0, amount: 0 };
+      row.count += 1;
+      row.months += line.billable_months;
+      row.amount += line.amount;
+      tally.set(key, row);
+    }
+
+    return [...tally.values()].sort((a, b) => b.amount - a.amount);
+  }, [kept]);
+
   const set = (patch: Partial<BillingFilters>) =>
     setFilters((current) => ({ ...current, ...patch }));
 
@@ -654,6 +671,37 @@ export default function NewBillingRun() {
                 </p>
               </div>
             </div>
+
+            {perService.length > 0 && (
+              <div className="sticky top-2 z-20 border-y border-slate-100 bg-slate-50/95 px-5 py-3 backdrop-blur">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                    What this run carries
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    {perService.length} service{perService.length > 1 ? 's' : ''} · {kept.length}{' '}
+                    line{kept.length > 1 ? 's' : ''}
+                  </p>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {perService.map((row) => (
+                    <div
+                      key={row.name}
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-2"
+                    >
+                      <p className="text-sm font-semibold text-slate-900">
+                        {row.count}
+                        <span className="ml-1.5 font-medium text-slate-500">{row.name}</span>
+                      </p>
+                      <p className="mt-0.5 text-xs text-slate-400 tabular-nums">
+                        {row.months.toFixed(1)} months · {row.amount.toLocaleString()}{' '}
+                        {result?.currency ?? ''}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {result && result.blocked_count > 0 && (
               <div className="mx-5 mb-3 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">

@@ -44,7 +44,7 @@ class CatalogueService:
             "external_systems": [
                 option
                 for option in (
-                    frappe.get_meta("Service Assignment").get_field("external_system").options or ""
+                    frappe.get_meta("MSP Service Assignment").get_field("external_system").options or ""
                 ).split("\n")
                 if option
             ],
@@ -61,13 +61,13 @@ class CatalogueService:
                 item.name, item.item_name, item.disabled, item.stock_uom,
                 item.msp_service_scope as scope, item.description,
                 item.msp_invoice_label as invoice_label,
-                (select count(*) from `tabService Assignment` sa
+                (select count(*) from `tabMSP Service Assignment` sa
                     where sa.service_item = item.name
                       and sa.operational_status in %(open)s) as open_assignments,
-                (select count(distinct sa.customer) from `tabService Assignment` sa
+                (select count(distinct sa.customer) from `tabMSP Service Assignment` sa
                     where sa.service_item = item.name
                       and sa.operational_status in %(open)s) as customers,
-                (select count(*) from `tabService Eligibility` se
+                (select count(*) from `tabMSP Service Eligibility` se
                     where se.service_item = item.name and se.is_eligible = 1
                       and se.negotiated_rate > 0) as priced_contracts
             from `tabItem` item
@@ -132,7 +132,7 @@ class CatalogueService:
 
             if wanted and not doc.disabled:
                 open_count = frappe.db.count(
-                    "Service Assignment",
+                    "MSP Service Assignment",
                     {
                         "service_item": doc.name or doc.item_code,
                         "operational_status": ("in", OPEN_ASSIGNMENT_STATUSES),
@@ -193,7 +193,7 @@ class CatalogueService:
                       and (price.valid_from is null or price.valid_from <= curdate())
                       and (price.valid_upto is null or price.valid_upto >= curdate())
                     order by price.valid_from desc limit 1) as discount_percent
-            from `tabService Assignment` sa
+            from `tabMSP Service Assignment` sa
             where sa.service_item = %(item)s
               and sa.operational_status in %(open)s
             group by sa.customer
@@ -221,8 +221,8 @@ class CatalogueService:
                 count(distinct brl.parent) as runs,
                 sum(brl.billable_months) as months,
                 sum(brl.amount) as amount
-            from `tabBilling Run Line` brl
-            join `tabBilling Run` br on br.name = brl.parent
+            from `tabMSP Billing Run Line` brl
+            join `tabMSP Billing Run` br on br.name = brl.parent
             where brl.service_item = %(item)s and br.docstatus = 1
             """,
             {"item": name},

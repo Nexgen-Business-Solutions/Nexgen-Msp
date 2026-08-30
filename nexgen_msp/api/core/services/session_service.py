@@ -3,7 +3,13 @@ import frappe
 from nexgen_msp.utils import permissions
 
 PORTAL_ROLE = "Customer Portal Manager"
-INTERNAL_ROLES = ("MSP System Admin", "MSP Technician", "System Manager", "Administrator")
+INTERNAL_ROLES = (
+    "MSP System Admin",
+    "MSP Operator",
+    "MSP Technician",
+    "System Manager",
+    "Administrator",
+)
 
 
 class SessionService:
@@ -28,7 +34,7 @@ class SessionService:
         is_internal = any(role in roles for role in INTERNAL_ROLES)
 
         profile = frappe.db.get_value(
-            "Client User", {"portal_user": user}, ["name", "department"], as_dict=True
+            "MSP Client User", {"portal_user": user}, ["name", "department"], as_dict=True
         )
 
         return {

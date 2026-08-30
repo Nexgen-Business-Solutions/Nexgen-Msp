@@ -180,6 +180,15 @@ export const useCustomerDevices = (customer?: string | null, excludeHolder?: str
     staleTime: 30 * 1000,
   });
 
+export const useSerialMatch = (serial?: string, exclude?: string) =>
+  useQuery({
+    queryKey: [...deviceKeys.all, 'serial', serial, exclude] as const,
+    queryFn: ({ signal }) =>
+      internal.findDeviceSerial({ serial_number: serial as string, exclude }, signal),
+    enabled: (serial ?? '').trim().length > 1,
+    staleTime: 10 * 1000,
+  });
+
 export const useHostnameMatch = (customer?: string | null, hostname?: string) =>
   useQuery({
     queryKey: [...deviceKeys.all, 'hostname', customer, hostname] as const,

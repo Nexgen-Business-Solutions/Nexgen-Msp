@@ -13,7 +13,7 @@ IGNORE_TEST_RECORD_DEPENDENCIES = []  # eg. ["User"]
 
 
 
-class IntegrationTestBillingRun(IntegrationTestCase):
+class IntegrationTestMSPBillingRun(IntegrationTestCase):
 	"""
 	Integration tests for BillingRun.
 	Use this class for testing interactions between multiple components.

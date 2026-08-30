@@ -1,6 +1,16 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { CalendarClock, Eye, FileText, Play, Plus, Receipt, TriangleAlert, Wallet } from 'lucide-react';
+import {
+  CalendarClock,
+  Eye,
+  FileText,
+  Layers,
+  Play,
+  Plus,
+  Receipt,
+  TriangleAlert,
+  Wallet,
+} from 'lucide-react';
 import KpiCard from '@/shared/components/KpiCard';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import StatusBadge from '@/shared/components/StatusBadge';
@@ -77,6 +87,8 @@ export default function BillingRuns() {
 
   const invoiced = scoped.filter((row) => row.status === 'Invoiced');
   const blocked = scoped.filter((row) => row.exception_count > 0);
+  const scopedLines = scoped.reduce((sum, row) => sum + (row.line_count || 0), 0);
+  const blockedLines = scoped.reduce((sum, row) => sum + (row.exception_count || 0), 0);
   const awaiting = scoped.filter((row) => row.status === 'Ready for Approval');
   const invoicedTotal = invoiced.reduce((sum, row) => sum + (row.total_amount || 0), 0);
   const currency = scoped.find((row) => row.currency)?.currency ?? '';
@@ -134,7 +146,7 @@ export default function BillingRuns() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <KpiCard
           icon={FileText}
           accent="blue"
@@ -158,6 +170,14 @@ export default function BillingRuns() {
           label="Runs with exceptions"
           value={blocked.length}
           caption="Blocked until resolved"
+          loading={isLoading}
+        />
+        <KpiCard
+          icon={Layers}
+          accent="slate"
+          label="Billing lines"
+          value={scopedLines}
+          caption={`${blockedLines} blocked by an exception`}
           loading={isLoading}
         />
         <KpiCard

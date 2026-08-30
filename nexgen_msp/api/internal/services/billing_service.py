@@ -291,8 +291,8 @@ class BillingService:
         found = frappe.db.sql(
             """
             select br.name
-            from `tabBilling Run Line` brl
-            join `tabBilling Run` br on br.name = brl.parent
+            from `tabMSP Billing Run Line` brl
+            join `tabMSP Billing Run` br on br.name = brl.parent
             where brl.service_assignment = %(assignment)s
               and br.docstatus < 2
               and br.status not in ('Cancelled')
@@ -333,8 +333,8 @@ class BillingService:
             select
                 sa.name,
                 (select br.name
-                    from `tabBilling Run Line` brl
-                    join `tabBilling Run` br on br.name = brl.parent
+                    from `tabMSP Billing Run Line` brl
+                    join `tabMSP Billing Run` br on br.name = brl.parent
                     where brl.service_assignment = sa.name
                       and br.docstatus < 2
                       and br.status not in ('Cancelled')
@@ -342,7 +342,7 @@ class BillingService:
                       and br.billing_period_start <= %(period_end)s
                       and br.billing_period_end >= %(period_start)s
                     limit 1) as billed_on
-            from `tabService Assignment` sa
+            from `tabMSP Service Assignment` sa
             where sa.customer = %(customer)s
               and sa.service_item in %(services)s
               and sa.billing_status in ('Billable', 'Ended')
@@ -398,16 +398,16 @@ class BillingService:
                 coalesce(item.item_name, sa.service_item) as service_name,
                 (
                     select max(br.billing_period_end)
-                    from `tabBilling Run Line` brl
-                    join `tabBilling Run` br on br.name = brl.parent
+                    from `tabMSP Billing Run Line` brl
+                    join `tabMSP Billing Run` br on br.name = brl.parent
                     where brl.service_assignment = sa.name and br.docstatus = 1
                 ) as last_billed_on
-            from `tabService Assignment` sa
+            from `tabMSP Service Assignment` sa
             left join `tabItem` item on item.name = sa.service_item
-            left join `tabClient User` cu on cu.name = sa.client_user
-            left join `tabManaged Device` device on device.name = sa.managed_device
-            left join `tabClient User` dcu on dcu.name = device.assigned_client_user
-            left join `tabManaged Device` owned
+            left join `tabMSP Client User` cu on cu.name = sa.client_user
+            left join `tabMSP Managed Device` device on device.name = sa.managed_device
+            left join `tabMSP Client User` dcu on dcu.name = device.assigned_client_user
+            left join `tabMSP Managed Device` owned
                 on owned.assigned_client_user = sa.client_user and owned.status = 'Active'
             where sa.customer = %(customer)s
               and sa.service_item in %(services)s
@@ -607,7 +607,7 @@ class BillingService:
             # billed to people has nothing to choose between
             "billed_to": frappe.db.sql_list(
                 """
-                select distinct assignment_scope from `tabService Assignment`
+                select distinct assignment_scope from `tabMSP Service Assignment`
                 where customer = %(customer)s and assignment_scope is not null
                   and assignment_scope != ''
                 order by assignment_scope asc
@@ -619,7 +619,7 @@ class BillingService:
                 """
                 select distinct sa.service_item as value,
                        coalesce(item.item_name, sa.service_item) as label
-                from `tabService Assignment` sa
+                from `tabMSP Service Assignment` sa
                 left join `tabItem` item on item.name = sa.service_item
                 where sa.customer = %(customer)s
                 order by label asc
@@ -629,7 +629,7 @@ class BillingService:
             ),
             "device_types": frappe.db.sql_list(
                 """
-                select distinct device_type from `tabManaged Device`
+                select distinct device_type from `tabMSP Managed Device`
                 where customer = %(customer)s and device_type is not null and device_type != ''
                 order by device_type asc
                 """,
@@ -637,7 +637,7 @@ class BillingService:
             ),
             "departments": frappe.db.sql_list(
                 """
-                select distinct department from `tabClient User`
+                select distinct department from `tabMSP Client User`
                 where customer = %(customer)s and department is not null and department != ''
                 order by department asc
                 """,
@@ -754,7 +754,7 @@ class BillingService:
 
         doc = frappe.get_doc(
             {
-                "doctype": "Billing Run",
+                "doctype": "MSP Billing Run",
                 "customer": terms["customer"],
                 "contract": terms["name"],
                 "billing_period_start": period_start,
@@ -844,10 +844,10 @@ class BillingService:
         if not name:
             raise ValidationError("name is required.", "VALIDATION_ERROR")
 
-        if not frappe.db.exists("Billing Run", name):
+        if not frappe.db.exists("MSP Billing Run", name):
             raise NotFoundError(f"Billing Run {name} not found.", "NOT_FOUND")
 
-        doc = frappe.get_doc("Billing Run", name)
+        doc = frappe.get_doc("MSP Billing Run", name)
 
         if doc.docstatus != 0:
             raise ValidationError(
@@ -899,10 +899,10 @@ class BillingService:
     def cancel(name=None):
         BillingService._guard_admin()
 
-        if not frappe.db.exists("Billing Run", name):
+        if not frappe.db.exists("MSP Billing Run", name):
             raise NotFoundError(f"Billing Run {name} not found.", "NOT_FOUND")
 
-        doc = frappe.get_doc("Billing Run", name)
+        doc = frappe.get_doc("MSP Billing Run", name)
 
         if doc.sales_invoice:
             raise ValidationError(
@@ -1022,10 +1022,10 @@ class BillingService:
         """
         BillingService._guard_admin()
 
-        if not frappe.db.exists("Billing Run", name):
+        if not frappe.db.exists("MSP Billing Run", name):
             raise NotFoundError(f"Billing Run {name} not found.", "NOT_FOUND")
 
-        doc = frappe.get_doc("Billing Run", name)
+        doc = frappe.get_doc("MSP Billing Run", name)
 
         if doc.sales_invoice:
             raise ValidationError(
@@ -1131,10 +1131,10 @@ class BillingService:
         """
         BillingService._guard_admin()
 
-        if not name or not frappe.db.exists("Billing Run", name):
+        if not name or not frappe.db.exists("MSP Billing Run", name):
             raise NotFoundError(f"Billing Run {name} not found.", "NOT_FOUND")
 
-        run = frappe.get_doc("Billing Run", name)
+        run = frappe.get_doc("MSP Billing Run", name)
 
         if not run.sales_invoice:
             return {"run": run.name, "invoice": None}
@@ -1153,16 +1153,16 @@ class BillingService:
             key = (row.service_item, flt(row.unit_rate, 2), flt(row.discount_percent, 2))
             targets.setdefault(key, []).append(
                 {
-                    "user_name": frappe.db.get_value("Client User", row.client_user, "full_name")
+                    "user_name": frappe.db.get_value("MSP Client User", row.client_user, "full_name")
                     if row.client_user
                     else None,
                     "hostname": frappe.db.get_value(
-                        "Managed Device", row.managed_device, "hostname"
+                        "MSP Managed Device", row.managed_device, "hostname"
                     )
                     if row.managed_device
                     else None,
                     "serial_number": frappe.db.get_value(
-                        "Managed Device", row.managed_device, "serial_number"
+                        "MSP Managed Device", row.managed_device, "serial_number"
                     )
                     if row.managed_device
                     else None,
@@ -1244,10 +1244,10 @@ class BillingService:
         """
         BillingService._guard_admin()
 
-        if not name or not frappe.db.exists("Billing Run", name):
+        if not name or not frappe.db.exists("MSP Billing Run", name):
             raise NotFoundError(f"Billing Run {name} not found.", "NOT_FOUND")
 
-        doc = frappe.get_doc("Billing Run", name)
+        doc = frappe.get_doc("MSP Billing Run", name)
 
         if not doc.sales_invoice:
             raise ValidationError(f"{name} has no invoice to discard.", "INVALID_TRANSITION")
@@ -1290,10 +1290,10 @@ class BillingService:
         """
         BillingService._guard_admin()
 
-        if not name or not frappe.db.exists("Billing Run", name):
+        if not name or not frappe.db.exists("MSP Billing Run", name):
             raise NotFoundError(f"Billing Run {name} not found.", "NOT_FOUND")
 
-        doc = frappe.get_doc("Billing Run", name)
+        doc = frappe.get_doc("MSP Billing Run", name)
 
         if doc.sales_invoice:
             raise ValidationError(
@@ -1333,16 +1333,16 @@ class BillingService:
         """
         BillingService._guard_admin()
 
-        if not name or not frappe.db.exists("Billing Run", name):
+        if not name or not frappe.db.exists("MSP Billing Run", name):
             raise NotFoundError(f"Billing Run {name} not found.", "NOT_FOUND")
 
-        doc = frappe.get_doc("Billing Run", name)
+        doc = frappe.get_doc("MSP Billing Run", name)
 
         if not doc.disputed:
             raise ValidationError(f"{name} is not disputed.", "INVALID_TRANSITION")
 
-        if doc.dispute_request and frappe.db.exists("Service Request", doc.dispute_request):
-            request = frappe.get_doc("Service Request", doc.dispute_request)
+        if doc.dispute_request and frappe.db.exists("MSP Service Request", doc.dispute_request):
+            request = frappe.get_doc("MSP Service Request", doc.dispute_request)
             request.status = "Completed"
 
             if note:
@@ -1376,7 +1376,7 @@ class BillingService:
                 "outcome": note or "We have reviewed it and the invoice stands as issued.",
                 "link": notifications.portal_url(f"/invoices/{doc.name}"),
             },
-            reference_doctype="Billing Run",
+            reference_doctype="MSP Billing Run",
             reference_name=doc.name,
         )
 
@@ -1441,7 +1441,7 @@ class BillingService:
 
         where = (" where " + " and ".join(conditions)) if conditions else ""
 
-        total = frappe.db.sql(f"select count(*) from `tabBilling Run` br {where}", params)[0][0]
+        total = frappe.db.sql(f"select count(*) from `tabMSP Billing Run` br {where}", params)[0][0]
 
         rows = frappe.db.sql(
             f"""
@@ -1450,9 +1450,9 @@ class BillingService:
                 br.billing_period_start, br.billing_period_end,
                 br.currency, br.total_amount, br.exception_count,
                 br.sales_invoice, br.adjustment_of, br.creation,
-                (select count(*) from `tabBilling Run Line` brl where brl.parent = br.name)
+                (select count(*) from `tabMSP Billing Run Line` brl where brl.parent = br.name)
                     as line_count
-            from `tabBilling Run` br
+            from `tabMSP Billing Run` br
             {where}
             order by br.billing_period_end desc, br.creation desc
             limit %(page_length)s offset %(start)s
@@ -1468,10 +1468,10 @@ class BillingService:
         if guard:
             BillingService._guard_admin()
 
-        if not name or not frappe.db.exists("Billing Run", name):
+        if not name or not frappe.db.exists("MSP Billing Run", name):
             raise NotFoundError(f"Billing Run {name} not found.", "NOT_FOUND")
 
-        doc = frappe.get_doc("Billing Run", name)
+        doc = frappe.get_doc("MSP Billing Run", name)
 
         lines = frappe.db.sql(
             """
@@ -1490,12 +1490,12 @@ class BillingService:
                 coalesce(cu.department, device_holder.department) as department,
                 coalesce(cu.email, device_holder.email) as email,
                 sa.effective_start_date, sa.effective_end_date, sa.operational_status
-            from `tabBilling Run Line` brl
-            left join `tabService Assignment` sa on sa.name = brl.service_assignment
+            from `tabMSP Billing Run Line` brl
+            left join `tabMSP Service Assignment` sa on sa.name = brl.service_assignment
             left join `tabItem` item on item.name = brl.service_item
-            left join `tabClient User` cu on cu.name = brl.client_user
-            left join `tabManaged Device` device on device.name = brl.managed_device
-            left join `tabClient User` device_holder on device_holder.name = device.assigned_client_user
+            left join `tabMSP Client User` cu on cu.name = brl.client_user
+            left join `tabMSP Managed Device` device on device.name = brl.managed_device
+            left join `tabMSP Client User` device_holder on device_holder.name = device.assigned_client_user
             where brl.parent = %(parent)s
             order by brl.exception_code desc, brl.service_item asc, brl.idx asc
             """,
@@ -1624,10 +1624,10 @@ class BillingService:
         """Post the invoice to the ledger. The run only becomes final once this succeeds."""
         BillingService._guard_admin()
 
-        if not name or not frappe.db.exists("Billing Run", name):
+        if not name or not frappe.db.exists("MSP Billing Run", name):
             raise NotFoundError(f"Billing Run {name} not found.", "NOT_FOUND")
 
-        doc = frappe.get_doc("Billing Run", name)
+        doc = frappe.get_doc("MSP Billing Run", name)
 
         if not doc.sales_invoice:
             raise ValidationError(
@@ -1693,8 +1693,8 @@ class BillingService:
                 br.billing_period_end as period_end,
                 max(coalesce(brl.covered_to, br.billing_period_end)) as covered_to,
                 sum(brl.billable_months) as net_months
-            from `tabBilling Run Line` brl
-            join `tabBilling Run` br on br.name = brl.parent
+            from `tabMSP Billing Run Line` brl
+            join `tabMSP Billing Run` br on br.name = brl.parent
             where br.customer = %(customer)s and br.status = 'Invoiced'
             group by brl.service_assignment, br.billing_period_start, br.billing_period_end
             having net_months > 0
@@ -1736,19 +1736,19 @@ class BillingService:
 
         for user, covered in per_user.items():
             frappe.db.set_value(
-                "Client User", user, "last_billed_on", covered, update_modified=False
+                "MSP Client User", user, "last_billed_on", covered, update_modified=False
             )
 
         for device, covered in per_device.items():
             frappe.db.set_value(
-                "Managed Device", device, "last_billed_on", covered, update_modified=False
+                "MSP Managed Device", device, "last_billed_on", covered, update_modified=False
             )
 
         touched = frappe.db.sql_list(
             """
             select distinct brl.managed_device
-            from `tabBilling Run Line` brl
-            join `tabBilling Run` br on br.name = brl.parent
+            from `tabMSP Billing Run Line` brl
+            join `tabMSP Billing Run` br on br.name = brl.parent
             where br.customer = %(customer)s and brl.managed_device is not null
             """,
             {"customer": customer},
@@ -1756,7 +1756,7 @@ class BillingService:
 
         for device in touched:
             frappe.db.set_value(
-                "Managed Device",
+                "MSP Managed Device",
                 device,
                 {
                     "last_billed_on": per_device.get(device),
@@ -1768,8 +1768,8 @@ class BillingService:
         billed_users = frappe.db.sql_list(
             """
             select distinct brl.client_user
-            from `tabBilling Run Line` brl
-            join `tabBilling Run` br on br.name = brl.parent
+            from `tabMSP Billing Run Line` brl
+            join `tabMSP Billing Run` br on br.name = brl.parent
             where br.customer = %(customer)s and brl.client_user is not null
             """,
             {"customer": customer},
@@ -1777,7 +1777,7 @@ class BillingService:
 
         for user in billed_users:
             frappe.db.set_value(
-                "Client User", user, "covered_until", per_user.get(user), update_modified=False
+                "MSP Client User", user, "covered_until", per_user.get(user), update_modified=False
             )
 
     @staticmethod
@@ -1821,7 +1821,7 @@ class BillingService:
                 "summary": notifications.summary_table(rows),
                 "link": notifications.portal_url("/records"),
             },
-            reference_doctype="Billing Run",
+            reference_doctype="MSP Billing Run",
             reference_name=doc.name,
         )
 
@@ -1836,10 +1836,10 @@ class BillingService:
         if guard:
             BillingService._guard_admin()
 
-        if not name or not frappe.db.exists("Billing Run", name):
+        if not name or not frappe.db.exists("MSP Billing Run", name):
             raise NotFoundError(f"Billing Run {name} not found.", "NOT_FOUND")
 
-        doc = frappe.get_doc("Billing Run", name)
+        doc = frappe.get_doc("MSP Billing Run", name)
         detail = BillingService.get_run(name, guard=guard)
         reference = doc.sales_invoice or doc.name
 
@@ -1937,8 +1937,8 @@ class BillingService:
         credited = frappe.db.sql(
             """
             select brl.service_assignment, sum(brl.billable_months) as months
-            from `tabBilling Run Line` brl
-            join `tabBilling Run` br on br.name = brl.parent
+            from `tabMSP Billing Run Line` brl
+            join `tabMSP Billing Run` br on br.name = brl.parent
             where br.credit_note_of = %(run)s and br.docstatus != 2
             group by brl.service_assignment
             """,
@@ -2031,11 +2031,11 @@ class BillingService:
         if not chosen:
             raise ValidationError("Nothing left to credit on these lines.", "VALIDATION_ERROR")
 
-        run = frappe.get_doc("Billing Run", name)
+        run = frappe.get_doc("MSP Billing Run", name)
 
         note = frappe.get_doc(
             {
-                "doctype": "Billing Run",
+                "doctype": "MSP Billing Run",
                 "customer": run.customer,
                 "contract": run.contract,
                 "billing_period_start": run.billing_period_start,
@@ -2079,7 +2079,7 @@ class BillingService:
     @staticmethod
     def _issue_credit_note(doc):
         """Draft the return document that carries the credited months."""
-        original = frappe.db.get_value("Billing Run", doc.credit_note_of, "sales_invoice")
+        original = frappe.db.get_value("MSP Billing Run", doc.credit_note_of, "sales_invoice")
 
         if not original:
             raise ValidationError(
@@ -2163,7 +2163,7 @@ class BillingService:
                 count(br.name) as runs
             from `tabMSP Contract` c
             join `tabCustomer` cust on cust.name = c.customer
-            left join `tabBilling Run` br
+            left join `tabMSP Billing Run` br
                 on br.contract = c.name and br.docstatus != 2 and br.status != 'Cancelled'
             where c.status = 'Active' and ifnull(cust.msp_free_of_charge, 0) = 0
             group by c.name
@@ -2208,7 +2208,7 @@ class BillingService:
                     "days_left": days_left,
                     "state": state,
                     "billable_assignments": frappe.db.count(
-                        "Service Assignment",
+                        "MSP Service Assignment",
                         {
                             "customer": row.customer,
                             "billing_status": "Billable",

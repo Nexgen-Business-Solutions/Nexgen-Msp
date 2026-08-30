@@ -13,7 +13,7 @@ IGNORE_TEST_RECORD_DEPENDENCIES = []  # eg. ["User"]
 
 
 
-class IntegrationTestManagedDevice(IntegrationTestCase):
+class IntegrationTestMSPManagedDevice(IntegrationTestCase):
 	"""
 	Integration tests for ManagedDevice.
 	Use this class for testing interactions between multiple components.

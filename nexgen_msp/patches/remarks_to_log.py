@@ -1,6 +1,6 @@
 import frappe
 
-PARENTS = ("Client User", "Managed Device")
+PARENTS = ("MSP Client User", "MSP Managed Device")
 
 
 def execute():

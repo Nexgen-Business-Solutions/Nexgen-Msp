@@ -159,13 +159,13 @@
    "fieldname": "lines",
    "fieldtype": "Table",
    "label": "Lines",
-   "options": "Service Request Line"
+   "options": "MSP Service Request Line"
   },
   {
    "fieldname": "billing_run",
    "fieldtype": "Link",
    "label": "Disputed Billing Run",
-   "options": "Billing Run",
+   "options": "MSP Billing Run",
    "read_only": 1
   }
  ],
@@ -175,7 +175,7 @@
  "modified": "2026-08-17 14:11:53.350767",
  "modified_by": "Administrator",
  "module": "Nexgen MSP",
- "name": "Service Request",
+ "name": "MSP Service Request",
  "owner": "Administrator",
  "permissions": [
   {
@@ -211,6 +211,18 @@
    "read": 1,
    "report": 1,
    "role": "MSP Technician",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "MSP Operator",
    "share": 1,
    "write": 1
   },

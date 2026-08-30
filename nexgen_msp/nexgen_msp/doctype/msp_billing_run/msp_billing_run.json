@@ -114,7 +114,7 @@
    "fieldtype": "Table",
    "label": "Lines",
    "no_copy": 1,
-   "options": "Billing Run Line"
+   "options": "MSP Billing Run Line"
   },
   {
    "fieldname": "section_totals",
@@ -216,14 +216,14 @@
    "fieldname": "adjustment_of",
    "fieldtype": "Link",
    "label": "Adjustment Of",
-   "options": "Billing Run"
+   "options": "MSP Billing Run"
   },
   {
    "fieldname": "amended_from",
    "fieldtype": "Link",
    "label": "Amended From",
    "no_copy": 1,
-   "options": "Billing Run",
+   "options": "MSP Billing Run",
    "print_hide": 1,
    "read_only": 1
   },
@@ -231,7 +231,7 @@
    "fieldname": "credit_note_of",
    "fieldtype": "Link",
    "label": "Credit Note Of",
-   "options": "Billing Run",
+   "options": "MSP Billing Run",
    "read_only": 1
   },
   {
@@ -275,7 +275,7 @@
    "fieldname": "dispute_request",
    "fieldtype": "Link",
    "label": "Dispute Request",
-   "options": "Service Request",
+   "options": "MSP Service Request",
    "read_only": 1
   },
   {
@@ -291,7 +291,7 @@
  "modified": "2026-08-13 18:39:20.071560",
  "modified_by": "Administrator",
  "module": "Nexgen MSP",
- "name": "Billing Run",
+ "name": "MSP Billing Run",
  "owner": "Administrator",
  "permissions": [
   {

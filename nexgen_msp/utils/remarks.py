@@ -3,7 +3,7 @@ import frappe
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 # only records this app owns carry a remark log
-PARENTS = ("Client User", "Managed Device")
+PARENTS = ("MSP Client User", "MSP Managed Device")
 
 
 def add(doc, note, noted_by=None):
@@ -91,9 +91,9 @@ def on_assignment(assignment, action, note):
 		return False
 
 	host_type, host = (
-		("Managed Device", assignment.managed_device)
+		("MSP Managed Device", assignment.managed_device)
 		if assignment.managed_device
-		else ("Client User", assignment.client_user)
+		else ("MSP Client User", assignment.client_user)
 	)
 
 	if not host:

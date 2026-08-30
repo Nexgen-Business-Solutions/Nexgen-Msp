@@ -25,7 +25,7 @@ def execute():
 	for customer, billed in frappe.db.sql(
 		"""
 		select br.customer, max(br.billing_period_end)
-		from `tabBilling Run` br
+		from `tabMSP Billing Run` br
 		where br.status = 'Invoiced' and (br.credit_note_of is null or br.credit_note_of = '')
 		group by br.customer
 		"""
@@ -35,13 +35,13 @@ def execute():
 	for device, billed in frappe.db.sql(
 		"""
 		select brl.managed_device, max(br.billing_period_end)
-		from `tabBilling Run Line` brl
-		join `tabBilling Run` br on br.name = brl.parent
+		from `tabMSP Billing Run Line` brl
+		join `tabMSP Billing Run` br on br.name = brl.parent
 		where br.status = 'Invoiced' and brl.managed_device is not null
 		  and (br.credit_note_of is null or br.credit_note_of = '')
 		group by brl.managed_device
 		"""
 	):
-		frappe.db.set_value("Managed Device", device, "last_billed_on", billed, update_modified=False)
+		frappe.db.set_value("MSP Managed Device", device, "last_billed_on", billed, update_modified=False)
 
 	frappe.db.commit()

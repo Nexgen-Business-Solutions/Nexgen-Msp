@@ -206,7 +206,7 @@
  "modified": "2026-08-13 19:10:52.890826",
  "modified_by": "Administrator",
  "module": "Nexgen MSP",
- "name": "Client User",
+ "name": "MSP Client User",
  "owner": "Administrator",
  "permissions": [
   {
@@ -242,6 +242,18 @@
    "read": 1,
    "report": 1,
    "role": "MSP Technician",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "MSP Operator",
    "share": 1,
    "write": 1
   },

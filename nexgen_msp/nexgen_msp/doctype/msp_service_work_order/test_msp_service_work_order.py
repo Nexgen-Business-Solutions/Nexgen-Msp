@@ -13,7 +13,7 @@ IGNORE_TEST_RECORD_DEPENDENCIES = []  # eg. ["User"]
 
 
 
-class IntegrationTestServiceWorkOrder(IntegrationTestCase):
+class IntegrationTestMSPServiceWorkOrder(IntegrationTestCase):
 	"""
 	Integration tests for ServiceWorkOrder.
 	Use this class for testing interactions between multiple components.

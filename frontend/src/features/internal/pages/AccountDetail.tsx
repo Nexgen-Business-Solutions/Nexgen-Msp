@@ -18,6 +18,7 @@ import {
   useSetTeamEnabled,
   useSetTeamRole,
   useTeamMember,
+  useTeamOptions,
 } from '../hooks/useTeam';
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'Never');
@@ -57,6 +58,12 @@ const Fact = ({ label, value }: { label: string; value: React.ReactNode }) => (
   </div>
 );
 
+const ROLE_LABEL: Record<string, string> = {
+  'MSP System Admin': 'administrator',
+  'MSP Operator': 'operator',
+  'MSP Technician': 'technician',
+};
+
 const ACTION_CLASS =
   'inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400';
 
@@ -67,6 +74,7 @@ export default function AccountDetail() {
   const session = useSession();
 
   const detail = useTeamMember(address);
+  const options = useTeamOptions();
   const setRole = useSetTeamRole();
   const setEnabled = useSetTeamEnabled();
   const resend = useResendTeamInvitation();
@@ -97,7 +105,7 @@ export default function AccountDetail() {
   const KindIcon = kind.icon;
   const isSelf = account.name === session.data?.user;
   const isRoot = account.name === 'Administrator';
-  const nextRole = account.role === 'MSP Technician' ? 'MSP System Admin' : 'MSP Technician';
+  const otherRoles = (options.data?.roles ?? []).filter((role) => role !== account.role);
 
   return (
     <div className="space-y-5 px-6 pb-6 pt-4">
@@ -150,20 +158,23 @@ export default function AccountDetail() {
             {resend.isSuccess ? 'Invitation sent' : 'Send a password link'}
           </button>
 
-          <button
-            type="button"
-            onClick={() => setPromoting(nextRole)}
-            disabled={!account.role || isRoot || setRole.isLoading}
-            title={
-              account.role
-                ? `Move this account to ${nextRole}`
-                : 'Only a staff account carries an MSP role.'
-            }
-            className={ACTION_CLASS}
-          >
-            <ShieldCheck size={15} />
-            {account.role === 'MSP Technician' ? 'Make administrator' : 'Make technician'}
-          </button>
+          {otherRoles.map((role) => (
+            <button
+              key={role}
+              type="button"
+              onClick={() => setPromoting(role)}
+              disabled={!account.role || isRoot || setRole.isLoading}
+              title={
+                account.role
+                  ? `Move this account to ${role}`
+                  : 'Only a staff account carries an MSP role.'
+              }
+              className={ACTION_CLASS}
+            >
+              <ShieldCheck size={15} />
+              Make {ROLE_LABEL[role] ?? role}
+            </button>
+          ))}
 
           <button
             type="button"

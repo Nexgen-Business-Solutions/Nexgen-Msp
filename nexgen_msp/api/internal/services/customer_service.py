@@ -97,8 +97,8 @@ class CustomerService:
             ),
             "last_billed_on": doc.get("msp_last_billed_on"),
             "counts": {
-                "users": frappe.db.count("Client User", {"customer": customer}),
-                "devices": frappe.db.count("Managed Device", {"customer": customer}),
+                "users": frappe.db.count("MSP Client User", {"customer": customer}),
+                "devices": frappe.db.count("MSP Managed Device", {"customer": customer}),
                 "contracts": frappe.db.count("MSP Contract", {"customer": customer}),
             },
         }

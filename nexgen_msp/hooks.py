@@ -17,7 +17,12 @@ fixtures = [
 			[
 				"name",
 				"in",
-				["MSP System Admin", "MSP Technician", "Customer Portal Manager"],
+				[
+					"MSP System Admin",
+					"MSP Operator",
+					"MSP Technician",
+					"Customer Portal Manager",
+				],
 			]
 		],
 	},
@@ -59,6 +64,8 @@ fixtures = [
 ]
 
 override_doctype_class = {"User": "nexgen_msp.overrides.user.MSPUser"}
+
+before_request = ["nexgen_msp.utils.gatekeeper.guard"]
 
 after_migrate = [
 	"nexgen_msp.utils.notifications.ensure_templates",

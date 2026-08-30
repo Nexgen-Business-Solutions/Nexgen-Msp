@@ -13,8 +13,8 @@ def execute():
 		"""
 		select h.name, h.parent, d.retired_date, d.modified
 		from `tabMSP Device Holder` h
-		join `tabManaged Device` d on d.name = h.parent
-		where h.parenttype = 'Managed Device'
+		join `tabMSP Managed Device` d on d.name = h.parent
+		where h.parenttype = 'MSP Managed Device'
 		  and ifnull(h.to_date, '') = ''
 		  and d.status != 'Active'
 		""",

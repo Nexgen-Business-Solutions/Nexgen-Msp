@@ -4,7 +4,7 @@ from nexgen_msp.api.internal.services.contract_service import ContractService
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 # the two roles that make someone staff; the portal role is granted from a person's file
-STAFF_ROLES = ("MSP System Admin", "MSP Technician")
+STAFF_ROLES = ("MSP System Admin", "MSP Operator", "MSP Technician")
 
 # customer contacts are accounts too, and belong on the same page
 PORTAL_ROLES = ("Customer Portal Manager",)
@@ -12,6 +12,8 @@ PORTAL_ROLES = ("Customer Portal Manager",)
 def _classify(email, held):
 	if email == "Administrator" or "MSP System Admin" in held:
 		return "Administrator"
+	if "MSP Operator" in held:
+		return "Operator"
 	if "MSP Technician" in held:
 		return "Technician"
 	if held.intersection(PORTAL_ROLES):
@@ -55,7 +57,7 @@ class TeamService:
 		linked = {
 			row.portal_user: row.name
 			for row in frappe.get_all(
-				"Client User",
+				"MSP Client User",
 				filters={"portal_user": ("is", "set")},
 				fields=["name", "portal_user"],
 			)
@@ -138,7 +140,7 @@ class TeamService:
 		)
 
 		person = frappe.db.get_value(
-			"Client User",
+			"MSP Client User",
 			{"portal_user": email},
 			["name", "full_name", "customer", "lifecycle_status", "email"],
 			as_dict=True,
@@ -164,7 +166,7 @@ class TeamService:
 
 		return {
 			"roles": list(STAFF_ROLES),
-			"kinds": ["Administrator", "Technician", "Portal contact", "No role"],
+			"kinds": ["Administrator", "Operator", "Technician", "Portal contact", "No role"],
 		}
 
 	@staticmethod
@@ -223,7 +225,7 @@ class TeamService:
 		role = next((name for name in STAFF_ROLES if name in held), None)
 
 		if not role:
-			person = frappe.db.get_value("Client User", {"portal_user": user.name}, "name")
+			person = frappe.db.get_value("MSP Client User", {"portal_user": user.name}, "name")
 
 			if not person:
 				raise ValidationError(

@@ -116,7 +116,7 @@
    "fieldtype": "Link",
    "label": "Client User",
    "mandatory_depends_on": "eval:doc.assignment_scope==\"User\"",
-   "options": "Client User"
+   "options": "MSP Client User"
   },
   {
    "depends_on": "eval:doc.assignment_scope==\"Device\"",
@@ -124,7 +124,7 @@
    "fieldtype": "Link",
    "label": "Managed Device",
    "mandatory_depends_on": "eval:doc.assignment_scope==\"Device\"",
-   "options": "Managed Device"
+   "options": "MSP Managed Device"
   },
   {
    "depends_on": "eval:doc.assignment_scope==\"Site\"",
@@ -132,7 +132,7 @@
    "fieldtype": "Link",
    "label": "Customer Site",
    "mandatory_depends_on": "eval:doc.assignment_scope==\"Site\"",
-   "options": "Customer Site"
+   "options": "MSP Customer Site"
   },
   {
    "fieldname": "column_break_scope",
@@ -213,7 +213,7 @@
    "fieldname": "source_request",
    "fieldtype": "Link",
    "label": "Source Request",
-   "options": "Service Request",
+   "options": "MSP Service Request",
    "read_only": 1
   },
   {
@@ -275,7 +275,7 @@
    "fieldname": "activation_work_order",
    "fieldtype": "Link",
    "label": "Activation Work Order",
-   "options": "Service Work Order",
+   "options": "MSP Service Work Order",
    "read_only": 1
   }
  ],
@@ -285,7 +285,7 @@
  "modified": "2026-08-13 18:39:19.723327",
  "modified_by": "Administrator",
  "module": "Nexgen MSP",
- "name": "Service Assignment",
+ "name": "MSP Service Assignment",
  "owner": "Administrator",
  "permissions": [
   {
@@ -321,6 +321,18 @@
    "read": 1,
    "report": 1,
    "role": "MSP Technician",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "MSP Operator",
    "share": 1,
    "write": 1
   },

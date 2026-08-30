@@ -52,7 +52,7 @@
  "modified": "2026-08-07 02:27:07.645852",
  "modified_by": "Administrator",
  "module": "Nexgen MSP",
- "name": "Network Interface",
+ "name": "MSP Network Interface",
  "owner": "Administrator",
  "permissions": [],
  "row_format": "Dynamic",

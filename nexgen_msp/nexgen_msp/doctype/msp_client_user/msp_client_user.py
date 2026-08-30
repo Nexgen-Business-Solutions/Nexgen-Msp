@@ -6,10 +6,10 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import getdate
 
-LINKED_DOCTYPES = ("Managed Device",)
+LINKED_DOCTYPES = ("MSP Managed Device",)
 
 
-class ClientUser(Document):
+class MSPClientUser(Document):
 	def validate(self):
 		self.normalize_full_name()
 		self.validate_lifecycle_dates()
@@ -38,7 +38,7 @@ class ClientUser(Document):
 			return
 
 		duplicate = frappe.db.exists(
-			"Client User",
+			"MSP Client User",
 			{
 				"username": self.username,
 				"customer": self.customer,

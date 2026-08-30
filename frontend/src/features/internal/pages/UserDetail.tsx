@@ -247,7 +247,7 @@ export default function UserDetail() {
       <Panel title="Remarks">
         <RemarkLog
           entries={user.remark_log}
-          target={{ doctype: 'Client User', name: user.name }}
+          target={{ doctype: 'MSP Client User', name: user.name }}
           invalidate={userKeys.detail(user.name)}
         />
       </Panel>

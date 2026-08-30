@@ -7,7 +7,12 @@ import Select from '@/shared/components/Select';
 import type { CustomerRequestRef, DeviceInterface } from '@/lib/api/internal';
 import RequestReferenceField from './RequestReferenceField';
 import { useAddDevice } from '../hooks/useUsers';
-import { useCustomerDevices, useHandOverDevice, useHostnameMatch } from '../hooks/useDevices';
+import {
+  useCustomerDevices,
+  useHandOverDevice,
+  useHostnameMatch,
+  useSerialMatch,
+} from '../hooks/useDevices';
 
 type Props = {
   open: boolean;
@@ -92,6 +97,10 @@ const AddDeviceModal: React.FC<Props> = ({
   const clash = useHostnameMatch(open && mode === 'new' ? customer : null, hostname.trim());
   const taken = clash.data?.name ? clash.data : null;
 
+  // the serial number is what identifies the machine, so it is required and cannot be shared
+  const serialClash = useSerialMatch(open && mode === 'new' ? serial.trim() : undefined);
+  const serialTaken = serialClash.data?.name ? serialClash.data : null;
+
   const chosen = (fleet.data ?? []).find((item) => item.name === existing) ?? null;
 
   const openDevice = (name: string) => {
@@ -162,7 +171,7 @@ const AddDeviceModal: React.FC<Props> = ({
             onClick={mode === 'new' ? submit : handOverExisting}
             disabled={
               mode === 'new'
-                ? !hostname.trim() || Boolean(taken?.same_customer) || add.isLoading
+                ? !hostname.trim() || !serial.trim() || Boolean(serialTaken) || add.isLoading
                 : !existing || !handOverDate || handOver.isLoading
             }
             className="flex min-w-[7rem] items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
@@ -340,10 +349,9 @@ const AddDeviceModal: React.FC<Props> = ({
                       ? `held by ${taken.holder_name} since ${fmtDate(taken.held_since)}`
                       : 'held by nobody'
                     : `it belongs to ${taken.customer}`}
-                  {taken.status !== 'Active' ? ` · ${taken.status.toLowerCase()}` : ''}.
-                  {taken.same_customer
-                    ? ' This customer cannot have two machines under that name.'
-                    : ' Another customer already uses that name — yours may keep it.'}
+                  {taken.status !== 'Active' ? ` · ${taken.status.toLowerCase()}` : ''}. You may
+                  still register another machine under that name — what has to be unique is the
+                  serial number.
                 </p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <button
@@ -382,14 +390,33 @@ const AddDeviceModal: React.FC<Props> = ({
             />
           </div>
           <div>
-            <span className={labelClass}>Serial number</span>
+            <FieldLabel required>Serial number</FieldLabel>
             <input
               type="text"
               value={serial}
               onChange={(event) => setSerial(event.target.value)}
-              placeholder="Optional"
+              placeholder="What is engraved on the case"
               className={inputClass}
             />
+            {serialTaken && (
+              <div className="mt-2 rounded-lg border border-red-200 bg-red-50 p-2.5">
+                <p className="text-xs text-red-700">
+                  This serial number is already on{' '}
+                  <span className="font-semibold">{serialTaken.hostname}</span> (
+                  {serialTaken.customer}
+                  {serialTaken.holder_name ? `, held by ${serialTaken.holder_name}` : ''}). Two
+                  records cannot share it.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => openDevice(serialTaken.name)}
+                  className="mt-2 inline-flex items-center gap-1 rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-semibold text-red-700 transition-colors hover:bg-red-100"
+                >
+                  Open it
+                  <ArrowUpRight size={13} />
+                </button>
+              </div>
+            )}
           </div>
           <div>
             <span className={labelClass}>In service since</span>

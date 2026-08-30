@@ -11,7 +11,7 @@ def execute():
 	rows = frappe.db.sql(
 		"""
 		select name, quantity, unit_rate, amount
-		from `tabBilling Run Line`
+		from `tabMSP Billing Run Line`
 		where (billable_months is null or billable_months = 0)
 		  and amount != 0 and unit_rate > 0
 		""",
@@ -25,7 +25,7 @@ def execute():
 			continue
 
 		frappe.db.set_value(
-			"Billing Run Line", row.name, "billable_months", flt(row.amount / divisor, 2),
+			"MSP Billing Run Line", row.name, "billable_months", flt(row.amount / divisor, 2),
 			update_modified=False,
 		)
 

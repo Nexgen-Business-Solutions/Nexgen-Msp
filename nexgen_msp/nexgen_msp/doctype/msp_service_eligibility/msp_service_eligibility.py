@@ -5,5 +5,5 @@
 from frappe.model.document import Document
 
 
-class ServiceEligibility(Document):
+class MSPServiceEligibility(Document):
 	pass

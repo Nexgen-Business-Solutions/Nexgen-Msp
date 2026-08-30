@@ -11,7 +11,7 @@ def execute():
 		"""
 		update `tabMSP Device Holder`
 		set is_current = case when ifnull(to_date, '') = '' then 1 else 0 end
-		where parenttype = 'Managed Device'
+		where parenttype = 'MSP Managed Device'
 		"""
 	)
 	frappe.db.commit()

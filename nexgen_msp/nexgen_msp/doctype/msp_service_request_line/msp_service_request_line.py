@@ -5,5 +5,5 @@
 from frappe.model.document import Document
 
 
-class ServiceRequestLine(Document):
+class MSPServiceRequestLine(Document):
 	pass

@@ -54,7 +54,7 @@
  "modified": "2026-08-13 18:39:19.432145",
  "modified_by": "Administrator",
  "module": "Nexgen MSP",
- "name": "Customer Site",
+ "name": "MSP Customer Site",
  "naming_rule": "Expression (old style)",
  "owner": "Administrator",
  "permissions": [
@@ -91,6 +91,18 @@
    "read": 1,
    "report": 1,
    "role": "MSP Technician",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "MSP Operator",
    "share": 1,
    "write": 1
   },

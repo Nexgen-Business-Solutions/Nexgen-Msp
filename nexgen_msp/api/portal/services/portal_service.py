@@ -84,11 +84,11 @@ MAX_PAGE_LENGTH = 200
 
 
 ASSIGNMENT_HOLDER_JOIN = """
-    from `tabService Assignment` sa
+    from `tabMSP Service Assignment` sa
     left join `tabItem` item on item.name = sa.service_item
-    left join `tabClient User` holder on holder.name = sa.client_user
-    left join `tabManaged Device` device on device.name = sa.managed_device
-    left join `tabClient User` device_holder on device_holder.name = device.assigned_client_user
+    left join `tabMSP Client User` holder on holder.name = sa.client_user
+    left join `tabMSP Managed Device` device on device.name = sa.managed_device
+    left join `tabMSP Client User` device_holder on device_holder.name = device.assigned_client_user
 """
 
 HOLDER_NAME = "coalesce(holder.full_name, device_holder.full_name)"
@@ -122,7 +122,7 @@ KPI_SOURCES = {
             ("status", "Status", "sr.status"),
         ],
         "body": """
-            from `tabService Request` sr
+            from `tabMSP Service Request` sr
             where sr.customer = %(customer)s
               and sr.status not in ('Completed', 'Rejected', 'Cancelled')
         """,
@@ -157,12 +157,12 @@ KPI_SOURCES = {
             ("status", "Status", "device.status"),
         ],
         "body": """
-            from `tabManaged Device` device
-            left join `tabClient User` holder on holder.name = device.assigned_client_user
+            from `tabMSP Managed Device` device
+            left join `tabMSP Client User` holder on holder.name = device.assigned_client_user
             where device.customer = %(customer)s
               and device.status = 'Active'
               and not exists (
-                  select 1 from `tabService Assignment` sa
+                  select 1 from `tabMSP Service Assignment` sa
                   where sa.managed_device = device.name
                     and sa.service_item = %(security_item)s
                     and sa.operational_status not in ('Ended', 'Cancelled')
@@ -206,17 +206,17 @@ class PortalService:
 
         return {
             "customer": customer,
-            "client_users": frappe.db.count("Client User", base),
+            "client_users": frappe.db.count("MSP Client User", base),
             "active_client_users": frappe.db.count(
-                "Client User", {**base, "lifecycle_status": "Active"}
+                "MSP Client User", {**base, "lifecycle_status": "Active"}
             ),
-            "devices": frappe.db.count("Managed Device", base),
-            "active_devices": frappe.db.count("Managed Device", {**base, "status": "Active"}),
-            "service_assignments": frappe.db.count("Service Assignment", base),
+            "devices": frappe.db.count("MSP Managed Device", base),
+            "active_devices": frappe.db.count("MSP Managed Device", {**base, "status": "Active"}),
+            "service_assignments": frappe.db.count("MSP Service Assignment", base),
             "active_services": PortalService._count_kpi("active_services", customer),
             "open_requests": PortalService._count_kpi("open_requests", customer),
             "awaiting_approval": frappe.db.count(
-                "Service Request",
+                "MSP Service Request",
                 {**base, "status": ["in", ["Submitted", "Under Review"]]},
             ),
             "reclaimable_licences": PortalService._count_kpi("reclaimable_licences", customer),
@@ -285,7 +285,7 @@ class PortalService:
             filters["lifecycle_status"] = status
 
         return PortalService._paginated(
-            "Client User", CLIENT_USER_FIELDS, filters, search, ["full_name", "email"], start, page_length
+            "MSP Client User", CLIENT_USER_FIELDS, filters, search, ["full_name", "email"], start, page_length
         )
 
     @staticmethod
@@ -299,7 +299,7 @@ class PortalService:
         customer = PortalService._resolve_customer(customer)
 
         return frappe.get_all(
-            "Client User",
+            "MSP Client User",
             filters={"customer": customer},
             fields=[
                 "name",
@@ -319,7 +319,7 @@ class PortalService:
         customer = PortalService._resolve_customer(customer)
 
         return frappe.get_all(
-            "Managed Device",
+            "MSP Managed Device",
             filters={"customer": customer},
             fields=[
                 "name",
@@ -340,7 +340,7 @@ class PortalService:
             filters["status"] = status
 
         result = PortalService._paginated(
-            "Managed Device", DEVICE_FIELDS, filters, search, ["hostname", "serial_number"], start, page_length
+            "MSP Managed Device", DEVICE_FIELDS, filters, search, ["hostname", "serial_number"], start, page_length
         )
 
         # a hostname means nothing to a customer — the type and who holds it do
@@ -350,7 +350,7 @@ class PortalService:
             {
                 row.name: row.full_name
                 for row in frappe.get_all(
-                    "Client User", filters={"name": ("in", list(holders))}, fields=["name", "full_name"]
+                    "MSP Client User", filters={"name": ("in", list(holders))}, fields=["name", "full_name"]
                 )
             }
             if holders
@@ -373,7 +373,7 @@ class PortalService:
             filters["client_user"] = client_user
 
         return PortalService._paginated(
-            "Service Assignment", ASSIGNMENT_FIELDS, filters, search, ["service_item"], start, page_length
+            "MSP Service Assignment", ASSIGNMENT_FIELDS, filters, search, ["service_item"], start, page_length
         )
 
     @staticmethod
@@ -398,14 +398,14 @@ class PortalService:
             filters["request_type"] = request_type
 
         return PortalService._paginated(
-            "Service Request", REQUEST_FIELDS, filters, search, ["name"], start, page_length
+            "MSP Service Request", REQUEST_FIELDS, filters, search, ["name"], start, page_length
         )
 
     @staticmethod
     def request_filter_options(customer=None):
         """The axes the customer can narrow their own request queue on."""
         customer = PortalService._resolve_customer(customer)
-        meta = frappe.get_meta("Service Request")
+        meta = frappe.get_meta("MSP Service Request")
 
         def select(fieldname):
             field = meta.get_field(fieldname)
@@ -417,7 +417,7 @@ class PortalService:
             "request_types": select("request_type"),
             "used_types": frappe.db.sql_list(
                 """
-                select distinct request_type from `tabService Request`
+                select distinct request_type from `tabMSP Service Request`
                 where customer = %(customer)s and request_type is not null
                 order by request_type asc
                 """,
@@ -431,10 +431,10 @@ class PortalService:
         if not name:
             raise ValidationError("name is required.", "VALIDATION_ERROR")
 
-        if not frappe.db.exists("Service Request", name):
+        if not frappe.db.exists("MSP Service Request", name):
             raise NotFoundError(f"Service Request {name} does not exist.", "NOT_FOUND")
 
-        doc = frappe.get_doc("Service Request", name)
+        doc = frappe.get_doc("MSP Service Request", name)
         doc.check_permission("read")
 
         PortalService._resolve_customer(doc.customer)
@@ -453,16 +453,16 @@ class PortalService:
                 sa.operational_status as service_status,
                 sa.effective_start_date as service_start_date,
                 sa_device.hostname as delivered_on
-            from `tabService Request Line` srl
-            left join `tabClient User` cu on cu.name = srl.client_user
-            left join `tabManaged Device` device on device.name = srl.managed_device
-            left join `tabClient User` holder on holder.name = device.assigned_client_user
+            from `tabMSP Service Request Line` srl
+            left join `tabMSP Client User` cu on cu.name = srl.client_user
+            left join `tabMSP Managed Device` device on device.name = srl.managed_device
+            left join `tabMSP Client User` holder on holder.name = device.assigned_client_user
             left join `tabItem` item on item.name = srl.requested_service
-            left join `tabService Assignment` sa
+            left join `tabMSP Service Assignment` sa
                 on sa.source_request = srl.parent
                and sa.service_item = srl.requested_service
                and (srl.client_user is null or srl.client_user = '' or sa.client_user = srl.client_user)
-            left join `tabManaged Device` sa_device on sa_device.name = sa.managed_device
+            left join `tabMSP Managed Device` sa_device on sa_device.name = sa.managed_device
             where srl.parent = %(parent)s
             order by srl.idx asc
             """,
@@ -491,7 +491,7 @@ class PortalService:
             raise ValidationError("client_user is required.", "VALIDATION_ERROR")
 
         user = frappe.db.get_value(
-            "Client User",
+            "MSP Client User",
             client_user,
             [
                 "name",
@@ -513,7 +513,7 @@ class PortalService:
         devices = frappe.db.sql(
             """
             select hostname, device_type, status, assigned_date
-            from `tabManaged Device`
+            from `tabMSP Managed Device`
             where assigned_client_user = %(user)s
             order by field(status, 'Active') desc, hostname asc
             """,
@@ -533,13 +533,13 @@ class PortalService:
                 sa.source_request,
                 (
                     select max(br.billing_period_end)
-                    from `tabBilling Run Line` brl
-                    join `tabBilling Run` br on br.name = brl.parent
+                    from `tabMSP Billing Run Line` brl
+                    join `tabMSP Billing Run` br on br.name = brl.parent
                     where brl.service_assignment = sa.name and br.docstatus = 1
                 ) as last_billed_on
-            from `tabService Assignment` sa
+            from `tabMSP Service Assignment` sa
             left join `tabItem` item on item.name = sa.service_item
-            left join `tabManaged Device` device on device.name = sa.managed_device
+            left join `tabMSP Managed Device` device on device.name = sa.managed_device
             where sa.client_user = %(user)s
                or device.assigned_client_user = %(user)s
             order by field(sa.operational_status, 'Ended', 'Cancelled') asc,
@@ -552,8 +552,8 @@ class PortalService:
         requests = frappe.db.sql(
             """
             select distinct sr.name, sr.status, sr.priority, sr.request_type, sr.creation
-            from `tabService Request` sr
-            join `tabService Request Line` srl on srl.parent = sr.name
+            from `tabMSP Service Request` sr
+            join `tabMSP Service Request Line` srl on srl.parent = sr.name
             where srl.client_user = %(user)s
             order by sr.creation desc
             limit 10
@@ -588,7 +588,7 @@ class PortalService:
                 ),
                 "link": notifications.portal_url(f"/requests/{doc.name}"),
             },
-            reference_doctype="Service Request",
+            reference_doctype="MSP Service Request",
             reference_name=doc.name,
         )
 
@@ -621,7 +621,7 @@ class PortalService:
                 )
 
             owner = frappe.db.get_value(
-                "Managed Device", device, ["customer", "assigned_client_user"], as_dict=True
+                "MSP Managed Device", device, ["customer", "assigned_client_user"], as_dict=True
             )
 
             if not owner:
@@ -681,7 +681,7 @@ class PortalService:
 
         doc = frappe.get_doc(
             {
-                "doctype": "Service Request",
+                "doctype": "MSP Service Request",
                 "customer": customer,
                 "request_type": request_type,
                 "priority": priority or "Medium",
@@ -773,10 +773,10 @@ class PortalService:
         where = " and ".join(conditions)
 
         base_from = """
-            from `tabClient User` cu
-            left join `tabManaged Device` d
+            from `tabMSP Client User` cu
+            left join `tabMSP Managed Device` d
                 on d.assigned_client_user = cu.name and d.status = 'Active'
-            left join `tabService Assignment` sa
+            left join `tabMSP Service Assignment` sa
                 on (sa.client_user = cu.name or sa.managed_device = d.name)
                 and sa.operational_status not in ('Ended', 'Cancelled')
         """
@@ -804,7 +804,7 @@ class PortalService:
         )
 
         counted = frappe.db.sql(
-            f"select count(distinct cu.name) from `tabClient User` cu where {where}", values
+            f"select count(distinct cu.name) from `tabMSP Client User` cu where {where}", values
         )
         total = counted[0][0] if counted else 0
 
@@ -829,7 +829,7 @@ class PortalService:
                 count(*) as total,
                 cast(sum(case when sa.operational_status = 'Active' then 1 else 0 end) as unsigned) as active,
                 cast(sum(case when sa.operational_status in ('Ended', 'Cancelled') then 1 else 0 end) as unsigned) as ended
-            from `tabService Assignment` sa
+            from `tabMSP Service Assignment` sa
             left join `tabItem` i on i.name = sa.service_item
             where sa.customer = %s
             group by sa.service_item, i.item_name, sa.assignment_scope
@@ -886,8 +886,8 @@ class PortalService:
         billed = """
             (
                 select max(br.billing_period_end)
-                from `tabBilling Run Line` brl
-                join `tabBilling Run` br on br.name = brl.parent
+                from `tabMSP Billing Run Line` brl
+                join `tabMSP Billing Run` br on br.name = brl.parent
                 where brl.service_assignment = sa.name and br.docstatus = 1
             )
         """
@@ -910,12 +910,12 @@ class PortalService:
         where = " and ".join(conditions)
 
         base_from = """
-            from `tabService Assignment` sa
-            left join `tabClient User` cu on cu.name = sa.client_user
-            left join `tabManaged Device` d on d.name = sa.managed_device
-            left join `tabManaged Device` own on own.assigned_client_user = sa.client_user
+            from `tabMSP Service Assignment` sa
+            left join `tabMSP Client User` cu on cu.name = sa.client_user
+            left join `tabMSP Managed Device` d on d.name = sa.managed_device
+            left join `tabMSP Managed Device` own on own.assigned_client_user = sa.client_user
                 and own.status = 'Active'
-            left join `tabClient User` dcu on dcu.name = d.assigned_client_user
+            left join `tabMSP Client User` dcu on dcu.name = d.assigned_client_user
             left join `tabItem` item on item.name = sa.service_item
         """
 
@@ -1043,10 +1043,10 @@ class PortalService:
                 br.disputed, br.dispute_reason, br.disputed_on,
                 si.status as invoice_status, si.docstatus as invoice_docstatus,
                 si.posting_date,
-                (select count(*) from `tabBilling Run Line` brl
+                (select count(*) from `tabMSP Billing Run Line` brl
                     where brl.parent = br.name and (brl.exception_code is null or brl.exception_code = ''))
                     as line_count
-            from `tabBilling Run` br
+            from `tabMSP Billing Run` br
             left join `tabSales Invoice` si on si.name = br.sales_invoice
             where br.customer = %(customer)s
               and br.status = 'Invoiced'
@@ -1063,7 +1063,7 @@ class PortalService:
             raise ValidationError("name is required.", "VALIDATION_ERROR")
 
         run = frappe.db.get_value(
-            "Billing Run",
+            "MSP Billing Run",
             name,
             [
                 "name",
@@ -1104,12 +1104,12 @@ class PortalService:
                 brl.quantity, brl.billable_days, brl.period_days, brl.billable_months,
                 brl.unit_rate, brl.amount, brl.proration_method,
                 sa.effective_start_date, sa.effective_end_date
-            from `tabBilling Run Line` brl
+            from `tabMSP Billing Run Line` brl
             left join `tabItem` item on item.name = brl.service_item
-            left join `tabClient User` cu on cu.name = brl.client_user
-            left join `tabManaged Device` device on device.name = brl.managed_device
-            left join `tabClient User` dcu on dcu.name = device.assigned_client_user
-            left join `tabService Assignment` sa on sa.name = brl.service_assignment
+            left join `tabMSP Client User` cu on cu.name = brl.client_user
+            left join `tabMSP Managed Device` device on device.name = brl.managed_device
+            left join `tabMSP Client User` dcu on dcu.name = device.assigned_client_user
+            left join `tabMSP Service Assignment` sa on sa.name = brl.service_assignment
             where brl.parent = %(parent)s
               and (brl.exception_code is null or brl.exception_code = '')
             order by service_name asc, user_name asc
@@ -1202,7 +1202,7 @@ class PortalService:
             raise ValidationError("name is required.", "VALIDATION_ERROR")
 
         run = frappe.db.get_value(
-            "Billing Run", name, ["name", "customer", "status", "sales_invoice"], as_dict=True
+            "MSP Billing Run", name, ["name", "customer", "status", "sales_invoice"], as_dict=True
         )
 
         if not run:
@@ -1266,7 +1266,7 @@ class PortalService:
                 """
                 select distinct sa.service_item as value,
                        coalesce(item.item_name, sa.service_item) as label
-                from `tabService Assignment` sa
+                from `tabMSP Service Assignment` sa
                 left join `tabItem` item on item.name = sa.service_item
                 where sa.customer = %(customer)s
                 order by label asc
@@ -1276,7 +1276,7 @@ class PortalService:
             ),
             "statuses": frappe.db.sql_list(
                 """
-                select distinct operational_status from `tabService Assignment`
+                select distinct operational_status from `tabMSP Service Assignment`
                 where customer = %(customer)s and operational_status is not null
                 order by operational_status asc
                 """,
@@ -1284,7 +1284,7 @@ class PortalService:
             ),
             "departments": frappe.db.sql_list(
                 """
-                select distinct department from `tabClient User`
+                select distinct department from `tabMSP Client User`
                 where customer = %(customer)s and department is not null and department != ''
                 order by department asc
                 """,
@@ -1292,7 +1292,7 @@ class PortalService:
             ),
             "user_statuses": frappe.db.sql_list(
                 """
-                select distinct lifecycle_status from `tabClient User`
+                select distinct lifecycle_status from `tabMSP Client User`
                 where customer = %(customer)s and lifecycle_status is not null
                 order by lifecycle_status asc
                 """,
@@ -1315,7 +1315,7 @@ class PortalService:
             )
 
         run = PortalService._billing_run_for_customer(name)
-        doc = frappe.get_doc("Billing Run", run.name)
+        doc = frappe.get_doc("MSP Billing Run", run.name)
 
         if doc.disputed:
             raise ValidationError(
@@ -1342,7 +1342,7 @@ class PortalService:
         # a dispute travels as a request, so it lands in the same queue as everything else
         request = frappe.get_doc(
             {
-                "doctype": "Service Request",
+                "doctype": "MSP Service Request",
                 "customer": doc.customer,
                 "request_type": "Billing Dispute",
                 "priority": "High",
@@ -1383,7 +1383,7 @@ class PortalService:
                 "MSP Invoice Disputed",
                 admins,
                 {**context, "link": f"/msp/requests/{request.name}"},
-                reference_doctype="Billing Run",
+                reference_doctype="MSP Billing Run",
                 reference_name=doc.name,
             )
 
@@ -1395,7 +1395,7 @@ class PortalService:
                 "full_name": frappe.db.get_value("User", frappe.session.user, "full_name") or "there",
                 "link": notifications.portal_url(f"/invoices/{doc.name}"),
             },
-            reference_doctype="Billing Run",
+            reference_doctype="MSP Billing Run",
             reference_name=doc.name,
         )
 
@@ -1432,7 +1432,7 @@ class PortalService:
             select br.name, br.total_amount, br.currency, br.sales_invoice,
                    br.billing_period_start, br.billing_period_end, br.credit_note_of,
                    br.disputed, br.modified as `on`
-            from `tabBilling Run` br
+            from `tabMSP Billing Run` br
             where br.customer = %(customer)s and br.status = 'Invoiced'
             order by br.modified desc limit %(cap)s
             """,
@@ -1464,7 +1464,7 @@ class PortalService:
             frappe.db.sql(
                 """
                 select name, request_type, status, modified as `on`
-                from `tabService Request`
+                from `tabMSP Service Request`
                 where customer = %(customer)s
                 order by modified desc limit %(cap)s
                 """,
@@ -1481,7 +1481,7 @@ class PortalService:
             frappe.db.sql(
                 """
                 select name, full_name, department, start_date, creation as `on`
-                from `tabClient User`
+                from `tabMSP Client User`
                 where customer = %(customer)s
                 order by creation desc limit %(cap)s
                 """,
@@ -1498,7 +1498,7 @@ class PortalService:
             frappe.db.sql(
                 """
                 select name, hostname, device_type, creation as `on`
-                from `tabManaged Device`
+                from `tabMSP Managed Device`
                 where customer = %(customer)s
                 order by creation desc limit %(cap)s
                 """,
@@ -1516,10 +1516,10 @@ class PortalService:
                 select sa.name, sa.effective_start_date as `on`,
                        coalesce(item.item_name, sa.service_item) as service_name,
                        coalesce(cu.full_name, d.hostname) as holder
-                from `tabService Assignment` sa
+                from `tabMSP Service Assignment` sa
                 left join `tabItem` item on item.name = sa.service_item
-                left join `tabClient User` cu on cu.name = sa.client_user
-                left join `tabManaged Device` d on d.name = sa.managed_device
+                left join `tabMSP Client User` cu on cu.name = sa.client_user
+                left join `tabMSP Managed Device` d on d.name = sa.managed_device
                 where sa.customer = %(customer)s and sa.effective_start_date is not null
                 order by sa.effective_start_date desc limit %(cap)s
                 """,
@@ -1537,10 +1537,10 @@ class PortalService:
                 select sa.name, sa.effective_end_date as `on`,
                        coalesce(item.item_name, sa.service_item) as service_name,
                        coalesce(cu.full_name, d.hostname) as holder
-                from `tabService Assignment` sa
+                from `tabMSP Service Assignment` sa
                 left join `tabItem` item on item.name = sa.service_item
-                left join `tabClient User` cu on cu.name = sa.client_user
-                left join `tabManaged Device` d on d.name = sa.managed_device
+                left join `tabMSP Client User` cu on cu.name = sa.client_user
+                left join `tabMSP Managed Device` d on d.name = sa.managed_device
                 where sa.customer = %(customer)s and sa.effective_end_date is not null
                 order by sa.effective_end_date desc limit %(cap)s
                 """,
@@ -1606,11 +1606,11 @@ class PortalService:
                 sa.effective_start_date, sa.effective_end_date,
                 (
                     select max(br.billing_period_end)
-                    from `tabBilling Run Line` brl
-                    join `tabBilling Run` br on br.name = brl.parent
+                    from `tabMSP Billing Run Line` brl
+                    join `tabMSP Billing Run` br on br.name = brl.parent
                     where brl.service_assignment = sa.name and br.docstatus = 1
                 ) as last_billed_on
-            from `tabService Assignment` sa
+            from `tabMSP Service Assignment` sa
             where {" and ".join(conditions)}
             order by (sa.operational_status not in ('Ended', 'Cancelled')) desc,
                      sa.effective_start_date desc

@@ -103,7 +103,7 @@ class ActivityService:
                 select br.name, br.customer, br.total_amount, br.currency, br.sales_invoice,
                        br.billing_period_start, br.billing_period_end, br.credit_note_of,
                        br.disputed, br.modified as `on`
-                from `tabBilling Run` br
+                from `tabMSP Billing Run` br
                 where br.status = 'Invoiced'{customers}{window}
                 order by br.modified desc limit %(cap)s
                 """,
@@ -133,7 +133,7 @@ class ActivityService:
             for row in run(
                 """
                 select name, customer, request_type, status, modified as `on`
-                from `tabService Request`
+                from `tabMSP Service Request`
                 where 1 = 1{customers}{window}
                 order by modified desc limit %(cap)s
                 """,
@@ -154,7 +154,7 @@ class ActivityService:
             for row in run(
                 """
                 select name, customer, full_name, department, creation as `on`
-                from `tabClient User`
+                from `tabMSP Client User`
                 where 1 = 1{customers}{window}
                 order by creation desc limit %(cap)s
                 """
@@ -174,7 +174,7 @@ class ActivityService:
             for row in run(
                 """
                 select name, customer, hostname, device_type, creation as `on`
-                from `tabManaged Device`
+                from `tabMSP Managed Device`
                 where 1 = 1{customers}{window}
                 order by creation desc limit %(cap)s
                 """
@@ -203,10 +203,10 @@ class ActivityService:
                        coalesce(item.item_name, sa.service_item) as service_name,
                        coalesce(cu.full_name, d.hostname) as holder,
                        sa.client_user
-                from `tabService Assignment` sa
+                from `tabMSP Service Assignment` sa
                 left join `tabItem` item on item.name = sa.service_item
-                left join `tabClient User` cu on cu.name = sa.client_user
-                left join `tabManaged Device` d on d.name = sa.managed_device
+                left join `tabMSP Client User` cu on cu.name = sa.client_user
+                left join `tabMSP Managed Device` d on d.name = sa.managed_device
                 where {column} is not null{{customers}}{{window}}
                 order by {column} desc limit %(cap)s
                 """,
