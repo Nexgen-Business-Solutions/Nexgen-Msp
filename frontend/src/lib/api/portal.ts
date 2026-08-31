@@ -157,9 +157,12 @@ export type UserChoice = {
   name: string;
   full_name: string;
   email: string | null;
+  username: string | null;
   department: string | null;
   lifecycle_status: string;
   disabled_date: string | null;
+  hostnames: string | null;
+  serial_numbers: string | null;
 };
 
 export const listUserChoices = (customer?: string, signal?: AbortSignal) =>

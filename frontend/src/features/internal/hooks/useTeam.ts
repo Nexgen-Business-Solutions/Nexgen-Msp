@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as internal from '@/lib/api/internal';
+import { resetTwoFactor } from '@/lib/api/auth2fa';
 
 export const teamKeys = {
   all: ['internal', 'team'] as const,
@@ -44,3 +45,5 @@ export const useInviteTeamMember = () => useTeamMutation(internal.inviteTeamMemb
 export const useSetTeamRole = () => useTeamMutation(internal.setTeamRole);
 export const useSetTeamEnabled = () => useTeamMutation(internal.setTeamEnabled);
 export const useResendTeamInvitation = () => useTeamMutation(internal.resendTeamInvitation);
+
+export const useResetTwoFactor = () => useTeamMutation((user: string) => resetTwoFactor(user));

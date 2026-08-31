@@ -74,8 +74,16 @@ export const useSaveImportMappings = () => {
 
 export const useRunUserImport = () =>
   useMutation({
-    mutationFn: async (variables: { file: File; dryRun: boolean }) => {
+    mutationFn: async (variables: {
+      file: File;
+      dryRun: boolean;
+      fillBlanksOnly: boolean;
+    }) => {
       const uploaded = await internal.uploadUserList(variables.file);
-      return internal.runUserImport(uploaded.file_url, variables.dryRun ? 1 : 0);
+      return internal.runUserImport(
+        uploaded.file_url,
+        variables.dryRun ? 1 : 0,
+        variables.fillBlanksOnly ? 1 : 0
+      );
     },
   });

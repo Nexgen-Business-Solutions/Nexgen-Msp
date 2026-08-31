@@ -6,9 +6,12 @@ import {
   EyeClosed,
   ShieldCheckIcon,
 } from 'lucide-react';
-import { FrappeError, login } from '@/lib/api/client';
+import { FrappeError } from '@/lib/api/client';
+import { completeLogin, preLogin } from '@/lib/api/auth2fa';
 import { AppLogo } from '@/shared/components/appLogo';
 import { useSession } from '@/shared/hooks/useSession';
+import TwoFactorChallenge from '../components/TwoFactorChallenge';
+import TwoFactorSetup from '../components/TwoFactorSetup';
 
 
 const EYEBROW = 'WELCOME BACK';
@@ -21,6 +24,8 @@ const errorMessageFor = (err: unknown) => {
     if (err.status === 401) return 'Incorrect username or password.';
     if (err.status === 403) return 'Your account is not allowed to sign in.';
     if (err.status === 417) return err.message || 'Sign-in refused.';
+    if (err.status === 428) return err.message || 'A verification code is required.';
+    if (err.status === 429) return err.message || 'Too many attempts. Try again shortly.';
     if (err.status === 429) return 'Too many attempts. Try again in a few minutes.';
     if (err.status >= 500) return 'The server is unavailable. Please try again later.';
     return err.message || 'Sign-in failed.';
@@ -40,6 +45,10 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
   const [error, setError] = useState('');
+  // the password alone opens nothing: it buys a token the code turns into a session
+  const [pending, setPending] = useState<{ token: string; fullName: string } | null>(null);
+  const [step, setStep] = useState<'credentials' | 'code' | 'setup'>('credentials');
+  const [notice, setNotice] = useState('');
 
   if (session.data?.authenticated) return <Navigate to="/msp" replace />;
 
@@ -65,10 +74,13 @@ export default function LoginScreen() {
 
     setLoginLoading(true);
     setError('');
+    setNotice('');
 
     try {
-      await login(credentials.username.trim(), credentials.password);
-      window.location.assign(from);
+      const answer = await preLogin(credentials.username.trim(), credentials.password);
+      setPending({ token: answer.pending_token, fullName: answer.full_name });
+      setStep(answer.needs_setup ? 'setup' : 'code');
+      setCredentials((current) => ({ ...current, password: '' }));
     } catch (err) {
       setError(errorMessageFor(err));
       setCredentials((current) => ({ ...current, password: '' }));
@@ -77,13 +89,47 @@ export default function LoginScreen() {
     }
   };
 
+  const submitCode = async (code: string) => {
+    if (!pending || code.length !== 6 || loginLoading) return;
+
+    setLoginLoading(true);
+    setError('');
+
+    try {
+      await completeLogin({
+        pending_token: pending.token,
+        otp: code,
+        username: credentials.username.trim(),
+      });
+      window.location.assign(from);
+    } catch (err) {
+      setError(errorMessageFor(err));
+
+      if (err instanceof FrappeError && err.code === 'PENDING_LOGIN_INVALID') {
+        // the token died under us; the password has to be typed again
+        backToCredentials();
+      }
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const backToCredentials = () => {
+    setPending(null);
+    setStep('credentials');
+    setCredentials((current) => ({ ...current, password: '' }));
+  };
+
   return (
-    <div className="relative min-h-screen w-full overflow-hidden bg-linear-to-br from-blue-50 via-indigo-50 to-slate-100">
+    <div className="relative h-full w-full overflow-y-auto overflow-x-hidden bg-linear-to-br from-blue-50 via-indigo-50 to-slate-100">
       
-      <div className="pointer-events-none absolute -top-32 -left-24 h-96 w-96 rounded-full bg-blue-300/25 blur-3xl" />
-      <div className="pointer-events-none absolute top-1/3 -right-24 h-[28rem] w-[28rem] rounded-full bg-indigo-300/20 blur-3xl" />
-      <div className="pointer-events-none absolute bottom-0 right-0 h-[70vh] w-[45%] bg-blue-600/90 [clip-path:polygon(100%_0,100%_100%,0%_100%)]" />
-      <div className="pointer-events-none absolute -bottom-16 left-1/4 h-72 w-72 rounded-full bg-sky-300/20 blur-3xl" />
+      {/* held in a layer of its own: clipping the page itself is what stopped it scrolling */}
+      <div aria-hidden className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute -top-32 -left-24 h-96 w-96 rounded-full bg-blue-300/25 blur-3xl" />
+        <div className="absolute top-1/3 -right-24 h-[28rem] w-[28rem] rounded-full bg-indigo-300/20 blur-3xl" />
+        <div className="absolute bottom-0 right-0 h-[70vh] w-[45%] bg-blue-600/90 [clip-path:polygon(100%_0,100%_100%,0%_100%)]" />
+        <div className="absolute -bottom-16 left-1/4 h-72 w-72 rounded-full bg-sky-300/20 blur-3xl" />
+      </div>
 
       <div className="relative flex min-h-screen items-center justify-center px-4 py-10">
         <div className="w-full max-w-sm rounded-2xl border border-white/60 bg-white shadow-2xl shadow-blue-950/10">
@@ -92,11 +138,44 @@ export default function LoginScreen() {
           <div className="border-t border-gray-100" />
 
           <div className="px-7 pt-6 pb-7">
+            {step === 'code' && pending && (
+              <TwoFactorChallenge
+                fullName={pending.fullName}
+                busy={loginLoading}
+                error={error}
+                onSubmit={submitCode}
+                onCancel={backToCredentials}
+              />
+            )}
+
+            {step === 'setup' && pending && (
+              <TwoFactorSetup
+                pendingToken={pending.token}
+                onDone={() => {
+                  setStep('credentials');
+                  setPending(null);
+                  setNotice(
+                    'Two-factor authentication is on. Sign in again and enter the code from your app.'
+                  );
+                }}
+                onCancel={backToCredentials}
+              />
+            )}
+
+            {step === 'credentials' && (
+            <>
             <p className="text-xs font-bold tracking-widest text-blue-700">{EYEBROW}</p>
             <h1 className="mt-2 text-3xl font-bold tracking-tight text-gray-900">{FORM_HEADER}</h1>
             <p className="mt-2 text-sm leading-relaxed text-gray-500">{FORM_DESCRIPTION}</p>
 
             <form className="mt-6 space-y-5" onSubmit={handleLogin}>
+              {notice && (
+                <div className="flex items-start gap-2.5 rounded-lg border border-emerald-100 bg-emerald-50 p-3 text-emerald-800">
+                  <ShieldCheckIcon className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span className="text-sm font-medium">{notice}</span>
+                </div>
+              )}
+
               {error && (
                 <div
                   role="alert"
@@ -187,6 +266,8 @@ export default function LoginScreen() {
                 )}
               </button>
             </form>
+            </>
+            )}
 
             <div className="text-center text-sm text-gray-500 pt-6 border-t border-gray-100/80 flex flex-wrap gap-x-2 gap-y-1 items-center justify-center">
               <p>Powered by Nexgen</p>
@@ -199,7 +280,7 @@ export default function LoginScreen() {
         </div>
       </div>
 
-      <footer className="absolute bottom-0 left-0 text-sm text-left p-6">
+      <footer className="pointer-events-none fixed bottom-0 left-0 p-6 text-sm text-left text-gray-600">
         &copy; {new Date().getFullYear()} Nexgen Business Solutions. All rights reserved.
       </footer>
     </div>

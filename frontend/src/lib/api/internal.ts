@@ -257,6 +257,7 @@ export type UserDevice = {
   hostname: string;
   device_type: string;
   status: string;
+  serial_number: string | null;
   assigned_date: string | null;
   retired_date: string | null;
   interfaces?: DeviceInterface[];
@@ -301,6 +302,7 @@ export type UserDetail = {
     department: string | null;
     customer: string;
     email: string | null;
+    username: string | null;
     lifecycle_status: string;
     start_date: string | null;
     disabled_date: string | null;
@@ -409,6 +411,7 @@ export const assignUserService = (payload: {
   hostname?: string;
   device_type?: string;
   interfaces?: DeviceInterface[];
+  serial_number?: string;
   notes?: string;
   source_request?: string;
   target_scope?: 'User' | 'Device';
@@ -842,6 +845,7 @@ export const createClientUser = (payload: {
   full_name: string;
   department?: string;
   email?: string;
+  username?: string;
   start_date?: string;
   source_request?: string;
   request_line?: number;
@@ -1590,8 +1594,8 @@ export const uploadUserList = async (file: File) => {
   return message as { file_url: string; file_name: string };
 };
 
-export const runUserImport = (file_url: string, dry_run: number) =>
-  post<ImportReport>(`${BASE}.run_user_import`, { file_url, dry_run });
+export const runUserImport = (file_url: string, dry_run: number, fill_blanks_only: number) =>
+  post<ImportReport>(`${BASE}.run_user_import`, { file_url, dry_run, fill_blanks_only });
 
 export type TeamMember = {
   name: string;
@@ -1605,6 +1609,7 @@ export type TeamMember = {
   kind: string;
   customers: string[];
   client_user: string | null;
+  two_factor: boolean;
 };
 
 export type SignIn = {
@@ -1638,6 +1643,7 @@ export type TeamMemberDetail = {
     email: string | null;
   } | null;
   sign_ins: SignIn[];
+  two_factor: boolean;
   is_self: boolean;
   can_invite: boolean;
 };
@@ -1683,6 +1689,7 @@ export const updateClientUser = (payload: {
   full_name?: string;
   department?: string;
   email?: string;
+  username?: string;
   start_date?: string;
   remarks?: string;
 }) => post<UserDetail>(`${BASE}.update_client_user`, payload);

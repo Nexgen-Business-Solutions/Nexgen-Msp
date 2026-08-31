@@ -22,8 +22,10 @@
   "new_user_full_name",
   "new_user_department",
   "new_user_email",
+  "new_user_username",
   "is_new_device",
   "new_device_label",
+  "new_device_serial",
   "request_action",
   "action",
   "needs_portal_access"
@@ -150,6 +152,11 @@
    "options": "Email"
   },
   {
+   "fieldname": "new_user_username",
+   "fieldtype": "Data",
+   "label": "Username"
+  },
+  {
    "fieldname": "is_new_device",
    "fieldtype": "Check",
    "label": "Is New Device"
@@ -158,6 +165,11 @@
    "fieldname": "new_device_label",
    "fieldtype": "Data",
    "label": "New Device Label"
+  },
+  {
+   "fieldname": "new_device_serial",
+   "fieldtype": "Data",
+   "label": "Serial Number"
   },
   {
    "columns": 1,

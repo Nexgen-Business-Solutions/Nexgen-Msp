@@ -65,6 +65,15 @@ def hand_over(doc, client_user, on_date=None, note=None):
 	if current and current.client_user == client_user:
 		return False
 
+	# a machine out of service has no open spell any more — its last one was closed on the
+	# day it was retired. Handing it to the person who already held it last would open a
+	# second spell for the same holder, and a re-import would do so again every time.
+	if not current:
+		last = _last_row(doc)
+
+		if last and last.client_user == client_user:
+			return False
+
 	if current:
 		current.to_date = on_date
 

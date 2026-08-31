@@ -63,8 +63,11 @@ class TeamService:
 			)
 		}
 
+		from nexgen_msp.api.two_factor.services.two_factor_service import TwoFactorService
+
 		for row in rows:
 			held = set(frappe.get_roles(row.name))
+			row["two_factor"] = TwoFactorService.has_secret(row.name)
 			row["roles"] = sorted(held.intersection(STAFF_ROLES + PORTAL_ROLES))
 			row["customers"] = scopes.get(row.name, [])
 			row["client_user"] = linked.get(row.name)
@@ -155,6 +158,9 @@ class TeamService:
 			limit=12,
 		)
 
+		from nexgen_msp.api.two_factor.services.two_factor_service import TwoFactorService
+
+		account["two_factor"] = TwoFactorService.has_secret(email)
 		account["is_self"] = email == frappe.session.user
 		account["can_invite"] = bool(account["role"] or person)
 

@@ -196,6 +196,12 @@ export default function UserDetail() {
 
             <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-4">
               <div>
+                <p className="text-xs font-medium text-slate-400">Username</p>
+                <p className="mt-0.5 text-sm text-slate-700">
+                  {user.username || <span className="text-amber-600">Not recorded</span>}
+                </p>
+              </div>
+              <div>
                 <p className="text-xs font-medium text-slate-400">Email</p>
                 <p className="mt-0.5 text-sm text-slate-700">{user.email}</p>
               </div>
@@ -344,6 +350,7 @@ export default function UserDetail() {
               <Th>Hostname</Th>
               <Th>Type</Th>
               <Th>Network interfaces</Th>
+              <Th>Serial number</Th>
               <Th>Assigned</Th>
               <Th>Status</Th>
               <Th />
@@ -351,7 +358,7 @@ export default function UserDetail() {
           </thead>
           <tbody className="divide-y divide-slate-100">
             {devices.length === 0 && (
-              <Empty span={6}>
+              <Empty span={7}>
                 <span className="inline-flex items-center gap-1.5">
                   <Laptop size={15} className="text-slate-400" />
                   No device assigned to this user.
@@ -391,6 +398,15 @@ export default function UserDetail() {
                     </div>
                   ) : (
                     <span className="text-sm text-slate-400">N/A</span>
+                  )}
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 text-sm">
+                  {device.serial_number ? (
+                    <span className="font-mono text-xs tracking-tight text-slate-800">
+                      {device.serial_number}
+                    </span>
+                  ) : (
+                    <span className="text-amber-600">Missing</span>
                   )}
                 </td>
                 <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">

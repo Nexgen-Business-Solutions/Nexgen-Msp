@@ -38,6 +38,7 @@ const AssignServiceModal: React.FC<Props> = ({ open, detail, defaultRequest, onC
   const [mode, setMode] = useState<'existing' | 'new'>('existing');
   const [device, setDevice] = useState('');
   const [hostname, setHostname] = useState('');
+  const [serial, setSerial] = useState('');
   const [deviceType, setDeviceType] = useState('');
   const [interfaces, setInterfaces] = useState<DeviceInterface[]>([]);
 
@@ -56,6 +57,7 @@ const AssignServiceModal: React.FC<Props> = ({ open, detail, defaultRequest, onC
     setMode(activeDevices.length ? 'existing' : 'new');
     setDevice(activeDevices[0]?.name ?? '');
     setHostname('');
+    setSerial('');
     setDeviceType('');
     setInterfaces([]);
     assign.reset();
@@ -81,7 +83,8 @@ const AssignServiceModal: React.FC<Props> = ({ open, detail, defaultRequest, onC
 
   const canSubmit =
     Boolean(service) &&
-    (!requiresDevice || (mode === 'existing' ? Boolean(device) : hostname.trim().length > 0));
+    (!requiresDevice ||
+      (mode === 'existing' ? Boolean(device) : hostname.trim().length > 0 && serial.trim().length > 0));
 
   const submit = async () => {
     try {
@@ -93,6 +96,7 @@ const AssignServiceModal: React.FC<Props> = ({ open, detail, defaultRequest, onC
         device_mode: requiresDevice ? mode : 'none',
         managed_device: requiresDevice && mode === 'existing' ? device : undefined,
         hostname: requiresDevice && mode === 'new' ? hostname.trim() : undefined,
+        serial_number: requiresDevice && mode === 'new' ? serial.trim() : undefined,
         device_type: requiresDevice ? deviceType || undefined : undefined,
         interfaces: requiresDevice ? interfaces.filter((i) => i.mac_address.trim()) : undefined,
         notes: notes.trim() || undefined,
@@ -255,6 +259,16 @@ const AssignServiceModal: React.FC<Props> = ({ open, detail, defaultRequest, onC
                     onChange={setDeviceType}
                     placeholder="Select a type"
                     options={detail.device_types.map((type) => ({ value: type, label: type }))}
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <FieldLabel required>Serial number</FieldLabel>
+                  <input
+                    type="text"
+                    value={serial}
+                    onChange={(event) => setSerial(event.target.value)}
+                    placeholder="What is engraved on the case"
+                    className={inputClass}
                   />
                 </div>
               </div>

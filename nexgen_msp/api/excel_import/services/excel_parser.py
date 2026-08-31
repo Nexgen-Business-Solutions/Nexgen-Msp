@@ -265,6 +265,9 @@ def parse_row(row, row_number):
     record = {
         "row_number": row_number,
         "full_name": as_text(read(row, "full_name")),
+        # the account name their licences are issued against — not a credential, unlike
+        # the password column beside it, which is never read
+        "username": as_text(read(row, "username")),
         "email": as_text(read(row, "email")),
         "company": as_text(read(row, "company")),
         "department": as_text(read(row, "department")),

@@ -57,6 +57,7 @@ ACTIONS = {
         "to": "Completed",
         "roles": TECHNICIAN_ROLES,
         "stamp": None,
+        "requires_delivery_details": True,
     },
     "reject": {
         "label": "Reject",
@@ -319,8 +320,9 @@ class RequestService:
                 coalesce(cu.full_name, holder.full_name) as client_user_name,
                 coalesce(cu.department, holder.department) as client_user_department,
                 srl.new_user_full_name, srl.new_user_department, srl.new_user_email,
+                srl.new_user_username,
                 srl.needs_portal_access,
-                srl.is_new_device, srl.new_device_label,
+                srl.is_new_device, srl.new_device_label, srl.new_device_serial,
                 srl.managed_device, device.hostname as device_hostname,
                 srl.requested_service, item.item_name as requested_service_name,
                 srl.requested_quantity, srl.requested_effective_date,
@@ -402,6 +404,9 @@ class RequestService:
                     f"Decide every line first. Still pending: {', '.join(str(i) for i in pending)}.",
                     "VALIDATION_ERROR",
                 )
+
+        if spec.get("requires_delivery_details"):
+            RequestService._guard_delivery_details(doc)
 
         doc.status = spec["to"]
 
@@ -510,7 +515,14 @@ class RequestService:
 
     @staticmethod
     def _resolve_device(
-        customer, client_user, device_mode, managed_device, hostname, device_type, interfaces
+        customer,
+        client_user,
+        device_mode,
+        managed_device,
+        hostname,
+        device_type,
+        interfaces,
+        serial_number=None,
     ):
         if device_mode == "existing":
             if not managed_device:
@@ -551,12 +563,37 @@ class RequestService:
             if not hostname:
                 raise ValidationError("A hostname is required for a new device.", "VALIDATION_ERROR")
 
+            # the serial number is what tells two machines apart, whatever the door the
+            # machine comes in through
+            serial_number = (serial_number or "").strip()
+
+            if not serial_number:
+                raise ValidationError(
+                    "A serial number is required: it is what identifies the machine.",
+                    "VALIDATION_ERROR",
+                )
+
+            twin = frappe.db.get_value(
+                "MSP Managed Device",
+                {"serial_number": serial_number},
+                ["hostname", "customer"],
+                as_dict=True,
+            )
+
+            if twin:
+                raise ValidationError(
+                    f"Serial number {serial_number} is already on {twin.hostname} "
+                    f"({twin.customer}).",
+                    "VALIDATION_ERROR",
+                )
+
             device = frappe.get_doc(
                 {
                     "doctype": "MSP Managed Device",
                     "customer": customer,
                     "holder_log": [{"client_user": client_user}] if client_user else [],
                     "hostname": hostname.strip().upper(),
+                    "serial_number": serial_number,
                     "device_type": device_type or "Other",
                     "status": "Active",
                     "assigned_date": frappe.utils.today(),
@@ -574,6 +611,72 @@ class RequestService:
 
         return None
 
+
+    @staticmethod
+    def _guard_delivery_details(doc):
+        """What a technician must hold before a request can be called done.
+
+        The customer is not asked for either of these when they raise the request — they
+        rarely know them. They are collected while the work is carried out, and this is the
+        gate that stops a request being closed without them.
+
+        A serial number for every machine the request touched: it is what identifies the
+        machine afterwards. A username for every person receiving a service whose licence is
+        issued against a named account — which service that is comes from the catalogue,
+        not from a list written here.
+        """
+        missing = []
+
+        for row in doc.lines:
+            if row.line_status == "Rejected":
+                continue
+
+            device = row.managed_device
+
+            if not device and row.fulfilled_assignment:
+                device = frappe.db.get_value(
+                    "MSP Service Assignment", row.fulfilled_assignment, "managed_device"
+                )
+
+            if device and not (frappe.db.get_value("MSP Managed Device", device, "serial_number") or "").strip():
+                hostname = frappe.db.get_value("MSP Managed Device", device, "hostname")
+                missing.append(f"line {row.idx}: {hostname} has no serial number")
+
+            if not RequestService._needs_username(row.requested_service):
+                continue
+
+            person = row.client_user
+
+            if not person and row.fulfilled_assignment:
+                person = frappe.db.get_value(
+                    "MSP Service Assignment", row.fulfilled_assignment, "client_user"
+                )
+
+            if not person:
+                continue
+
+            if not (frappe.db.get_value("MSP Client User", person, "username") or "").strip():
+                full_name = frappe.db.get_value("MSP Client User", person, "full_name")
+                service = frappe.db.get_value("Item", row.requested_service, "item_name")
+                missing.append(f"line {row.idx}: {full_name} has no username for {service}")
+
+        if missing:
+            raise ValidationError(
+                "This request cannot be closed yet — " + "; ".join(missing) + ".",
+                "VALIDATION_ERROR",
+            )
+
+    @staticmethod
+    def _needs_username(service_item):
+        """Whether this service is licensed against a named account."""
+        if not service_item or not frappe.db.exists("DocType", "MSP Service Mapping"):
+            return False
+
+        return bool(
+            frappe.db.get_value(
+                "MSP Service Mapping", {"item_id": service_item}, "requires_username"
+            )
+        )
 
     @staticmethod
     def _review_checks(doc):

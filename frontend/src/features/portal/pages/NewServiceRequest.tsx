@@ -194,6 +194,18 @@ export default function NewServiceRequest() {
                         )}
                       </div>
                       <div>
+                        <span className={labelClass}>Username</span>
+                        <input
+                          type="text"
+                          value={line.new_user_username}
+                          onChange={(event) =>
+                            form.updateLine(line.key, 'new_user_username', event.target.value)
+                          }
+                          placeholder="If you already know it"
+                          className={inputClass}
+                        />
+                      </div>
+                      <div>
                         <span className={labelClass}>Department</span>
                         <input
                           type="text"
@@ -252,6 +264,31 @@ export default function NewServiceRequest() {
                                 'No email or department on file.'}
                             </p>
                           </div>
+                        );
+                      })()}
+                      {(() => {
+                        const picked = form.userFor(line.client_user);
+                        if (!picked) return null;
+
+                        // what the technician will need in hand: which machine, its serial,
+                        // and the account name a licence is issued against
+                        const facts = [
+                          ['Device', picked.hostnames],
+                          ['Serial', picked.serial_numbers],
+                          ['Username', picked.username],
+                        ].filter(([, value]) => Boolean(value)) as [string, string][];
+
+                        if (!facts.length) return null;
+
+                        return (
+                          <dl className="mt-2 flex flex-wrap gap-x-5 gap-y-1 px-1 text-xs">
+                            {facts.map(([label, value]) => (
+                              <div key={label} className="flex items-baseline gap-1.5">
+                                <dt className="text-slate-400">{label}</dt>
+                                <dd className="font-medium text-slate-700">{value}</dd>
+                              </div>
+                            ))}
+                          </dl>
                         );
                       })()}
                     </div>
@@ -353,6 +390,17 @@ export default function NewServiceRequest() {
                           {showErrors && errors.new_device_label && (
                             <p className="mt-1 text-xs text-red-600">{errors.new_device_label}</p>
                           )}
+
+                          <span className={`${labelClass} mt-3`}>Serial number</span>
+                          <input
+                            type="text"
+                            value={line.new_device_serial}
+                            onChange={(event) =>
+                              form.updateLine(line.key, 'new_device_serial', event.target.value)
+                            }
+                            placeholder="If you have it to hand"
+                            className={inputClass}
+                          />
                         </div>
                       )}
                     </div>

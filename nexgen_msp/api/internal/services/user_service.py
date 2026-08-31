@@ -7,7 +7,7 @@ from nexgen_msp.utils.meta import select_options
 
 from nexgen_msp.utils.catalogue import security_item
 
-from nexgen_msp.api.internal.services.request_service import RequestService
+from nexgen_msp.api.internal.services.request_service import ADMIN_ROLES, RequestService
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 
@@ -315,6 +315,7 @@ class UserService:
                 "department",
                 "customer",
                 "email",
+                "username",
                 "lifecycle_status",
                 "start_date",
                 "disabled_date",
@@ -350,7 +351,8 @@ class UserService:
 
         devices = frappe.db.sql(
             """
-            select name, hostname, device_type, status, assigned_date, retired_date
+            select name, hostname, device_type, status, serial_number, assigned_date,
+                   retired_date
             from `tabMSP Managed Device`
             where assigned_client_user = %(user)s
             order by field(status, 'Active') desc, hostname asc
@@ -492,6 +494,66 @@ class UserService:
         return UserService.get_user(client_user)
 
     @staticmethod
+    def _end_date_for(assignment, effective_date):
+        """The day a service stops, refusing a date that rewrites an issued invoice.
+
+        A service often stops before anyone gets round to recording it, so the date has to
+        be allowed into the past. What it may not cross is a period already billed: the
+        customer has the invoice, and moving the end date behind it would silently claim
+        back days that were charged.
+
+        Backdating is the administrator's call, since it is the invoice it touches.
+        """
+        end_on = frappe.utils.getdate(effective_date or frappe.utils.today())
+        today = frappe.utils.getdate(frappe.utils.today())
+
+        if assignment.effective_start_date and end_on < frappe.utils.getdate(
+            assignment.effective_start_date
+        ):
+            raise ValidationError(
+                f"The service started on {frappe.utils.formatdate(assignment.effective_start_date)}; "
+                "it cannot end before it began.",
+                "VALIDATION_ERROR",
+            )
+
+        if end_on > today:
+            raise ValidationError("A service cannot be ended in the future.", "VALIDATION_ERROR")
+
+        if end_on < today:
+            if not RequestService._roles().intersection(ADMIN_ROLES):
+                raise ValidationError(
+                    "Only an administrator can end a service on a past date.",
+                    "PERMISSION_DENIED",
+                    403,
+                )
+
+            billed_to = UserService._billed_to(assignment.name)
+
+            if billed_to and end_on < frappe.utils.getdate(billed_to):
+                raise ValidationError(
+                    f"This service is invoiced up to {frappe.utils.formatdate(billed_to)}. "
+                    "It cannot be ended before that day — issue a credit note instead.",
+                    "VALIDATION_ERROR",
+                )
+
+        return end_on
+
+    @staticmethod
+    def _billed_to(assignment):
+        """The last day this assignment has been invoiced for, if it ever was."""
+        return frappe.db.sql(
+            """
+            select max(br.billing_period_end)
+            from `tabMSP Billing Run Line` brl
+            join `tabMSP Billing Run` br on br.name = brl.parent
+            where brl.service_assignment = %s
+              and br.docstatus = 1
+              and ifnull(br.credit_note_of, '') = ''
+            """,
+            assignment,
+        )[0][0]
+
+    @staticmethod
     def _checked_request(source_request, customer):
         """A reference is only meaningful if it belongs to the same customer."""
         if not source_request:
@@ -520,6 +582,7 @@ class UserService:
         hostname=None,
         device_type=None,
         interfaces=None,
+        serial_number=None,
         notes=None,
         source_request=None,
         target_scope=None,
@@ -565,7 +628,14 @@ class UserService:
         ]
 
         device = RequestService._resolve_device(
-            user.customer, user.name, device_mode, managed_device, hostname, device_type, interfaces
+            user.customer,
+            user.name,
+            device_mode,
+            managed_device,
+            hostname,
+            device_type,
+            interfaces,
+            serial_number,
         )
 
         if scope == "Device":
@@ -655,7 +725,7 @@ class UserService:
         else:
             doc.operational_status = "Ended"
             doc.billing_status = "Ended"
-            doc.effective_end_date = effective_date or frappe.utils.today()
+            doc.effective_end_date = UserService._end_date_for(doc, effective_date)
 
         if notes:
             doc.internal_notes = notes
@@ -680,6 +750,7 @@ class UserService:
         full_name=None,
         department=None,
         email=None,
+        username=None,
         start_date=None,
         remarks=None,
         source_request=None,
@@ -709,6 +780,8 @@ class UserService:
                 "customer": customer,
                 "department": department or None,
                 "email": email or None,
+                # the account name a licence is issued against, when the service needs one
+                "username": (username or "").strip() or None,
                 "lifecycle_status": "Active",
                 "start_date": start_date or frappe.utils.today(),
                 "portal_visible": 1,
@@ -737,6 +810,7 @@ class UserService:
         full_name=None,
         department=None,
         email=None,
+        username=None,
         start_date=None,
         remarks=None,
     ):
@@ -760,6 +834,7 @@ class UserService:
         for field, value in (
             ("department", department),
             ("email", email),
+            ("username", username),
             ("start_date", start_date),
         ):
             if value is not None:

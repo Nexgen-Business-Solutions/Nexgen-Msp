@@ -7,6 +7,8 @@ from nexgen_msp.utils.catalogue import BILLING_UOM
 from nexgen_msp.api.excel_import.services import excel_parser
 from nexgen_msp.utils import permissions
 from nexgen_msp.utils import device_holders as holders
+
+FIELD_HOLDERS = "holder_log"
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[a-zA-Z]{2,}$")
@@ -22,6 +24,9 @@ class ExcelImportService:
     # filled per import so the check below costs one query per customer
     _billed_customers = {}
 
+    # never overwrite what the application already holds, unless asked to
+    _fill_blanks_only = 1
+
     @staticmethod
     def import_users(
         file_url=None,
@@ -30,11 +35,17 @@ class ExcelImportService:
         create_items=1,
         create_portal_users=0,
         send_welcome_email=0,
+        fill_blanks_only=1,
     ):
         dry_run = frappe.utils.cint(dry_run)
         create_items = frappe.utils.cint(create_items)
         create_portal_users = frappe.utils.cint(create_portal_users)
         send_welcome_email = frappe.utils.cint(send_welcome_email)
+
+        # the application has been running in production: what a person corrected there is
+        # worth more than what the sheet still says. Left on, the import only fills gaps —
+        # including the billing dates, which it would otherwise restate from the sheet.
+        ExcelImportService._fill_blanks_only = frappe.utils.cint(fill_blanks_only)
 
         if not frappe.has_permission("MSP Client User", "create"):
             raise ValidationError("You are not allowed to import client users.", "PERMISSION_DENIED", 403)
@@ -386,6 +397,7 @@ class ExcelImportService:
                 "customer": customer,
                 "department": ExcelImportService._department(record, prefix),
                 "email": record["email"],
+                "username": record.get("username"),
                 "lifecycle_status": status,
                 "start_date": ExcelImportService._reconcile_start(
                     start_date, disabled_date, record, report, "MSP Client User"
@@ -436,6 +448,12 @@ class ExcelImportService:
             if field == "holder_log":
                 wanted = value[0]["client_user"] if value else None
 
+                # filling gaps only: a machine that already has a holder keeps the one the
+                # application recorded. The sheet is a photograph of one day, and a
+                # hand-over entered here since is the more recent truth.
+                if ExcelImportService._fill_blanks_only and doc.get(FIELD_HOLDERS):
+                    continue
+
                 if holders.hand_over(doc, wanted, wanted and value[0].get("from_date")):
                     touched = True
 
@@ -452,7 +470,9 @@ class ExcelImportService:
 
                 continue
 
-            if field in ("covered_until", "last_billed_on") or not doc.get(field):
+            restated = field in ("covered_until", "last_billed_on")
+
+            if (restated and not ExcelImportService._fill_blanks_only) or not doc.get(field):
                 if doc.get(field) != value:
                     doc.set(field, value)
                     touched = True

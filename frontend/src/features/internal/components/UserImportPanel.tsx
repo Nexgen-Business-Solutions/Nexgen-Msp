@@ -85,6 +85,8 @@ const UserImportPanel: React.FC = () => {
   const mappings = useImportMappings();
   const save = useSaveImportMappings();
   const run = useRunUserImport();
+  // the application has been running: what someone corrected here outranks the sheet
+  const [fillBlanksOnly, setFillBlanksOnly] = useState(true);
 
   const [customers, setCustomers] = useState<CustomerMapping[]>([]);
   const [services, setServices] = useState<ServiceMapping[]>([]);
@@ -113,7 +115,7 @@ const UserImportPanel: React.FC = () => {
   const start = async (dryRun: boolean) => {
     if (!file) return;
     setReport(null);
-    setReport(await run.mutateAsync({ file, dryRun }));
+    setReport(await run.mutateAsync({ file, dryRun, fillBlanksOnly }));
   };
 
   const unresolved = customers.filter((row) => row.exists === false && !row.create_as);
@@ -196,6 +198,24 @@ const UserImportPanel: React.FC = () => {
             <span className="h-4 w-4 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />
           )}
         </div>
+
+        <label className="mt-3 flex cursor-pointer items-start gap-2.5">
+          <input
+            type="checkbox"
+            checked={fillBlanksOnly}
+            onChange={(event) => setFillBlanksOnly(event.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-slate-300"
+          />
+          <span className="text-sm text-slate-700">
+            Only fill what is empty
+            <span className="mt-0.5 block text-xs text-slate-400">
+              On, the sheet fills gaps and never overwrites: a field already recorded here, a
+              device already handed to someone, and the billing dates all stay as they are.
+              Off, the sheet restates the billing dates and gives every device back to the
+              holder it names.
+            </span>
+          </span>
+        </label>
 
         {run.error instanceof Error && (
           <div className="mt-3 flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">

@@ -70,6 +70,8 @@ REQUEST_LINE_FIELDS = [
     "new_user_department",
     "needs_portal_access",
     "new_user_email",
+    "new_user_username",
+    "new_device_serial",
     "managed_device",
     "customer_site",
     "requested_service",
@@ -298,13 +300,14 @@ class PortalService:
         """
         customer = PortalService._resolve_customer(customer)
 
-        return frappe.get_all(
+        rows = frappe.get_all(
             "MSP Client User",
             filters={"customer": customer},
             fields=[
                 "name",
                 "full_name",
                 "email",
+                "username",
                 "department",
                 "lifecycle_status",
                 "disabled_date",
@@ -312,6 +315,28 @@ class PortalService:
             order_by="full_name asc",
             limit_page_length=0,
         )
+
+        # the machines they hold, so the picker can say which one is being talked about
+        # before anyone opens another screen to find out
+        machines = {}
+
+        for device in frappe.get_all(
+            "MSP Managed Device",
+            filters={"customer": customer, "status": "Active"},
+            fields=["assigned_client_user", "hostname", "serial_number"],
+            order_by="hostname asc",
+        ):
+            if device.assigned_client_user:
+                machines.setdefault(device.assigned_client_user, []).append(device)
+
+        for row in rows:
+            held = machines.get(row.name, [])
+            row["hostnames"] = ", ".join(d.hostname for d in held) or None
+            row["serial_numbers"] = (
+                ", ".join(d.serial_number for d in held if d.serial_number) or None
+            )
+
+        return rows
 
     @staticmethod
     def list_device_choices(customer=None):
@@ -444,7 +469,8 @@ class PortalService:
             select
                 srl.idx, srl.action, srl.line_status, srl.rejection_reason,
                 srl.is_new_user, srl.new_user_full_name, srl.new_user_department,
-                srl.is_new_device, srl.new_device_label,
+                srl.new_user_username,
+                srl.is_new_device, srl.new_device_label, srl.new_device_serial,
                 coalesce(cu.full_name, holder.full_name, srl.new_user_full_name) as user_name,
                 coalesce(cu.department, holder.department, srl.new_user_department) as department,
                 coalesce(item.item_name, srl.requested_service) as service_name,
@@ -700,8 +726,12 @@ class PortalService:
                         "new_user_department": line.get("new_user_department"),
                         "needs_portal_access": 1 if line.get("needs_portal_access") else 0,
                         "new_user_email": line.get("new_user_email"),
+                        # neither is asked of the customer, but both save the technician a
+                        # phone call when they happen to know them
+                        "new_user_username": line.get("new_user_username"),
                         "is_new_device": 1 if line.get("is_new_device") else 0,
                         "new_device_label": line.get("new_device_label"),
+                        "new_device_serial": line.get("new_device_serial"),
                         "managed_device": line.get("managed_device"),
                         "customer_site": line.get("customer_site"),
                         "requested_service": line.get("requested_service"),

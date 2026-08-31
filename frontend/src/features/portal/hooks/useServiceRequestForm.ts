@@ -23,9 +23,11 @@ export type FormLine = {
   new_user_full_name: string;
   new_user_department: string;
   new_user_email: string;
+  new_user_username: string;
   services: string[];
   managed_device: string;
   new_device_label: string;
+  new_device_serial: string;
   requested_effective_date: string;
   comment: string;
 };
@@ -46,9 +48,11 @@ const emptyLine = (): FormLine => {
     new_user_full_name: '',
     new_user_department: '',
     new_user_email: '',
+    new_user_username: '',
     services: [],
     managed_device: '',
     new_device_label: '',
+    new_device_serial: '',
     requested_effective_date: today(),
     comment: '',
   };
@@ -94,12 +98,16 @@ const toPayloadLines = (line: FormLine, deviceServices: Set<string>): NewRequest
       is_new_user: line.isNewUser ? 1 : 0,
       is_new_device: toRegister ? 1 : 0,
       new_device_label: toRegister ? line.new_device_label.trim() : undefined,
+      new_device_serial: toRegister ? line.new_device_serial.trim() || undefined : undefined,
       client_user: line.isNewUser || onDevice ? undefined : line.client_user,
       managed_device: onDevice ? line.managed_device : undefined,
       new_user_full_name: line.isNewUser ? line.new_user_full_name.trim() : undefined,
       new_user_email: line.isNewUser ? line.new_user_email.trim() || undefined : undefined,
       new_user_department: line.isNewUser
         ? line.new_user_department.trim() || undefined
+        : undefined,
+      new_user_username: line.isNewUser
+        ? line.new_user_username.trim() || undefined
         : undefined,
       requested_service: service,
       requested_effective_date: line.requested_effective_date || undefined,

@@ -67,6 +67,10 @@ override_doctype_class = {"User": "nexgen_msp.overrides.user.MSPUser"}
 
 before_request = ["nexgen_msp.utils.gatekeeper.guard"]
 
+# Frappe's own username-and-password endpoint opens a session without ever
+# reaching our second factor. This runs before authenticate() and closes it.
+before_login = ["nexgen_msp.utils.native_login_guard.block_native_login"]
+
 after_migrate = [
 	"nexgen_msp.utils.notifications.ensure_templates",
 	"nexgen_msp.utils.import_mappings.ensure_mappings",

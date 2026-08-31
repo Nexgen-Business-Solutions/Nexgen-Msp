@@ -13,11 +13,14 @@ type Props = {
 };
 
 const AuthShell: React.FC<Props> = ({ eyebrow, title, description, children, footer }) => (
-  <div className="relative min-h-screen w-full overflow-hidden bg-linear-to-br from-blue-50 via-indigo-50 to-slate-100">
-    <div className="pointer-events-none absolute -top-32 -left-24 h-96 w-96 rounded-full bg-blue-300/25 blur-3xl" />
-    <div className="pointer-events-none absolute top-1/3 -right-24 h-[28rem] w-[28rem] rounded-full bg-indigo-300/20 blur-3xl" />
-    <div className="pointer-events-none absolute bottom-0 right-0 h-[70vh] w-[45%] bg-blue-600/90 [clip-path:polygon(100%_0,100%_100%,0%_100%)]" />
-    <div className="pointer-events-none absolute -bottom-16 left-1/4 h-72 w-72 rounded-full bg-sky-300/20 blur-3xl" />
+  <div className="relative h-full w-full overflow-y-auto overflow-x-hidden bg-linear-to-br from-blue-50 via-indigo-50 to-slate-100">
+    {/* held in a layer of its own: clipping the page itself is what stopped it scrolling */}
+    <div aria-hidden className="pointer-events-none fixed inset-0 overflow-hidden">
+      <div className="absolute -top-32 -left-24 h-96 w-96 rounded-full bg-blue-300/25 blur-3xl" />
+      <div className="absolute top-1/3 -right-24 h-[28rem] w-[28rem] rounded-full bg-indigo-300/20 blur-3xl" />
+      <div className="absolute bottom-0 right-0 h-[70vh] w-[45%] bg-blue-600/90 [clip-path:polygon(100%_0,100%_100%,0%_100%)]" />
+      <div className="absolute -bottom-16 left-1/4 h-72 w-72 rounded-full bg-sky-300/20 blur-3xl" />
+    </div>
 
     <div className="relative flex min-h-screen items-center justify-center px-4 py-10">
       <div className="w-full max-w-sm rounded-2xl border border-white/60 bg-white shadow-2xl shadow-blue-950/10">
@@ -47,7 +50,7 @@ const AuthShell: React.FC<Props> = ({ eyebrow, title, description, children, foo
       </div>
     </div>
 
-    <footer className="absolute bottom-0 left-0 text-sm text-left p-6">
+    <footer className="pointer-events-none fixed bottom-0 left-0 p-6 text-sm text-left text-gray-600">
       &copy; {new Date().getFullYear()} Nexgen Business Solutions. All rights reserved.
     </footer>
   </div>

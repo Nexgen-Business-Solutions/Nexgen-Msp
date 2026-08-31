@@ -245,12 +245,14 @@ class SettingsService:
         return {"file_url": doc.file_url, "file_name": doc.file_name}
 
     @staticmethod
-    def run_user_import(file_url=None, dry_run=1):
+    def run_user_import(file_url=None, dry_run=1, fill_blanks_only=1):
         SettingsService._guard_admin()
 
         from nexgen_msp.api.excel_import.services.excel_import_service import ExcelImportService
 
-        return ExcelImportService.import_users(file_url=file_url, dry_run=dry_run)
+        return ExcelImportService.import_users(
+            file_url=file_url, dry_run=dry_run, fill_blanks_only=fill_blanks_only
+        )
 
     @staticmethod
     def dispute_window():

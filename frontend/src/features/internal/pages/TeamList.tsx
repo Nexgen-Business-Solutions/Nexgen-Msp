@@ -9,13 +9,14 @@ import InviteTeamModal from '../components/InviteTeamModal';
 import type { TeamMember } from '@/lib/api/internal';
 import {
   useResendTeamInvitation,
+  useResetTwoFactor,
   useSetTeamEnabled,
   useSetTeamRole,
   useTeam,
   useTeamOptions,
 } from '../hooks/useTeam';
 
-const COLUMNS = ['Account', 'Kind', 'Scope', 'Desk', 'Last seen', 'Status', ''];
+const COLUMNS = ['Account', 'Kind', 'Scope', 'Desk', '2FA', 'Last seen', 'Status', ''];
 
 const ROLE_LABEL: Record<string, string> = {
   'MSP System Admin': 'administrator',
@@ -30,7 +31,10 @@ export default function TeamList() {
   const [filters, setFilters] = useState<FilterState>({ kind: '', status: '' });
   const [search, setSearch] = useState('');
   const [inviting, setInviting] = useState(false);
-  const [target, setTarget] = useState<{ member: TeamMember; action: 'disable' | 'enable' } | null>(
+  const [target, setTarget] = useState<{
+    member: TeamMember;
+    action: 'disable' | 'enable' | 'reset2fa';
+  } | null>(
     null
   );
 
@@ -44,6 +48,7 @@ export default function TeamList() {
   const setRole = useSetTeamRole();
   const setEnabled = useSetTeamEnabled();
   const resend = useResendTeamInvitation();
+  const resetTotp = useResetTwoFactor();
 
   const rows = list.data ?? [];
 
@@ -184,6 +189,16 @@ export default function TeamList() {
                       <span className="text-slate-400">App only</span>
                     )}
                   </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-sm">
+                    {member.two_factor ? (
+                      <span className="inline-flex items-center gap-1 text-emerald-600">
+                        <ShieldCheck size={13} />
+                        On
+                      </span>
+                    ) : (
+                      <span className="text-amber-600">Not set up</span>
+                    )}
+                  </td>
                   <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
                     {fmtDate(member.last_active)}
                   </td>
@@ -218,6 +233,12 @@ export default function TeamList() {
                                 onClick: () => setRole.mutate({ email: member.name, role }),
                               })),
                             {
+                              label: 'Reset two-factor',
+                              icon: KeyRound,
+                              disabled: !member.two_factor,
+                              onClick: () => setTarget({ member, action: 'reset2fa' }),
+                            },
+                            {
                               label: member.enabled ? 'Disable the account' : 'Enable the account',
                               icon: member.enabled ? UserX : UserCheck,
                               danger: Boolean(member.enabled),
@@ -243,25 +264,39 @@ export default function TeamList() {
 
       <ConfirmModal
         open={Boolean(target)}
-        tone={target?.action === 'disable' ? 'danger' : 'info'}
+        tone={target?.action === 'enable' ? 'info' : 'danger'}
         title={
-          target?.action === 'disable'
-            ? `Disable ${target?.member.full_name ?? ''}?`
-            : `Enable ${target?.member.full_name ?? ''}?`
+          target?.action === 'reset2fa'
+            ? `Reset two-factor for ${target?.member.full_name ?? ''}?`
+            : target?.action === 'disable'
+              ? `Disable ${target?.member.full_name ?? ''}?`
+              : `Enable ${target?.member.full_name ?? ''}?`
         }
         description={
-          target?.action === 'disable'
-            ? 'They can no longer sign in. Nothing they did is removed.'
-            : 'They can sign in again with their existing password.'
+          target?.action === 'reset2fa'
+            ? 'Their authenticator stops working and their sessions are closed. They set it up again the next time they sign in — do this only once you are sure who you are talking to.'
+            : target?.action === 'disable'
+              ? 'They can no longer sign in. Nothing they did is removed.'
+              : 'They can sign in again with their existing password.'
         }
-        confirmLabel={target?.action === 'disable' ? 'Disable' : 'Enable'}
-        loading={setEnabled.isLoading}
+        confirmLabel={
+          target?.action === 'reset2fa'
+            ? 'Reset'
+            : target?.action === 'disable'
+              ? 'Disable'
+              : 'Enable'
+        }
+        loading={setEnabled.isLoading || resetTotp.isLoading}
         onCancel={() => setTarget(null)}
         onConfirm={async () => {
-          await setEnabled.mutateAsync({
-            email: target!.member.name,
-            enabled: target!.action === 'enable' ? 1 : 0,
-          });
+          if (target!.action === 'reset2fa') {
+            await resetTotp.mutateAsync(target!.member.name);
+          } else {
+            await setEnabled.mutateAsync({
+              email: target!.member.name,
+              enabled: target!.action === 'enable' ? 1 : 0,
+            });
+          }
           setTarget(null);
         }}
       />

@@ -20,6 +20,7 @@ const EditClientUserModal: React.FC<Props> = ({ open, user, onClose }) => {
   const [fullName, setFullName] = useState('');
   const [department, setDepartment] = useState('');
   const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [startDate, setStartDate] = useState('');
   const [remarks, setRemarks] = useState('');
 
@@ -28,6 +29,7 @@ const EditClientUserModal: React.FC<Props> = ({ open, user, onClose }) => {
     setFullName(user.full_name ?? '');
     setDepartment(user.department ?? '');
     setEmail(user.email ?? '');
+    setUsername(user.username ?? '');
     setStartDate((user.start_date ?? '').slice(0, 10));
     setRemarks('');
     save.reset();
@@ -41,6 +43,7 @@ const EditClientUserModal: React.FC<Props> = ({ open, user, onClose }) => {
         full_name: fullName,
         department,
         email,
+        username,
         start_date: startDate,
         remarks,
       });
@@ -109,6 +112,16 @@ const EditClientUserModal: React.FC<Props> = ({ open, user, onClose }) => {
               type="email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <FieldLabel>Username</FieldLabel>
+            <input
+              type="text"
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+              placeholder="The account their licences are issued against"
               className={inputClass}
             />
           </div>

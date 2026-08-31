@@ -8,7 +8,8 @@
   "service_key",
   "item_id",
   "scope",
-  "is_endpoint_protection"
+  "is_endpoint_protection",
+  "requires_username"
  ],
  "fields": [
   {
@@ -40,6 +41,11 @@
    "in_list_view": 1,
    "label": "Endpoint Protection",
    "default": "0"
+  },
+  {
+   "fieldname": "requires_username",
+   "fieldtype": "Check",
+   "label": "Requires Username"
   }
  ],
  "istable": 1,

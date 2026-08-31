@@ -15,6 +15,7 @@ import ConfirmModal from '@/shared/components/ConfirmModal';
 import { useSession } from '@/shared/hooks/useSession';
 import {
   useResendTeamInvitation,
+  useResetTwoFactor,
   useSetTeamEnabled,
   useSetTeamRole,
   useTeamMember,
@@ -78,9 +79,11 @@ export default function AccountDetail() {
   const setRole = useSetTeamRole();
   const setEnabled = useSetTeamEnabled();
   const resend = useResendTeamInvitation();
+  const resetTotp = useResetTwoFactor();
 
   const [promoting, setPromoting] = useState<string | null>(null);
   const [switching, setSwitching] = useState(false);
+  const [resettingTotp, setResettingTotp] = useState(false);
 
   if (detail.isLoading) {
     return (
@@ -197,6 +200,21 @@ export default function AccountDetail() {
             {account.enabled ? 'Disable access' : 'Enable access'}
           </button>
 
+          <button
+            type="button"
+            onClick={() => setResettingTotp(true)}
+            disabled={!account.two_factor || resetTotp.isLoading}
+            title={
+              account.two_factor
+                ? 'Their authenticator stops working and they enrol again'
+                : 'This account has not set up two-factor authentication yet.'
+            }
+            className={ACTION_CLASS}
+          >
+            <KeyRound size={15} />
+            Reset two-factor
+          </button>
+
           {account.client_user && (
             <button
               type="button"
@@ -213,6 +231,16 @@ export default function AccountDetail() {
           <Fact label="Role" value={account.role || 'None'} />
           <Fact label="Account type" value={account.user_type} />
           <Fact label="Frappe desk" value={account.desk_access ? 'Allowed' : 'Blocked'} />
+          <Fact
+            label="Two-factor"
+            value={
+              account.two_factor ? (
+                <span className="text-emerald-600">On</span>
+              ) : (
+                <span className="text-amber-600">Not set up</span>
+              )
+            }
+          />
           <Fact label="Created on" value={fmtDate(account.creation)} />
           <Fact label="Last sign-in" value={fmtMoment(account.last_login)} />
           <Fact label="Last seen" value={fmtMoment(account.last_active)} />
@@ -327,6 +355,20 @@ export default function AccountDetail() {
         onConfirm={async () => {
           await setRole.mutateAsync({ email: account.name, role: promoting as string });
           setPromoting(null);
+        }}
+      />
+
+      <ConfirmModal
+        open={resettingTotp}
+        tone="danger"
+        title="Reset two-factor authentication?"
+        description="Their authenticator stops working and every session they have open is closed. They set it up again the next time they sign in — do this only once you are sure who you are talking to."
+        confirmLabel="Reset"
+        loading={resetTotp.isLoading}
+        onCancel={() => setResettingTotp(false)}
+        onConfirm={async () => {
+          await resetTotp.mutateAsync(account.name);
+          setResettingTotp(false);
         }}
       />
 

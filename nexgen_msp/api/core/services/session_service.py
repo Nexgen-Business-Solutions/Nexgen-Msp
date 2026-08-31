@@ -15,6 +15,8 @@ INTERNAL_ROLES = (
 class SessionService:
     @staticmethod
     def get_session_context():
+        from nexgen_msp.api.two_factor.services.two_factor_service import TwoFactorService
+
         user = frappe.session.user
 
         if user == "Guest":
@@ -52,4 +54,10 @@ class SessionService:
             "client_user": profile.name if profile else None,
             "is_portal_user": is_portal and not is_internal,
             "is_internal_user": is_internal,
+            # the second factor, and the deadline it is bound to: the client
+            # counts down to the moment Frappe drops the session and a fresh
+            # code will be asked for
+            "two_factor_enabled": TwoFactorService.has_secret(user),
+            "two_factor_passed": TwoFactorService.gate_passed(user),
+            "session_expiry_seconds": TwoFactorService.session_expiry_seconds(),
         }

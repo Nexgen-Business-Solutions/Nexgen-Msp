@@ -21,3 +21,4 @@ nexgen_msp.patches.remarks_to_log
 nexgen_msp.patches.seed_device_holders
 nexgen_msp.patches.flag_current_holder
 nexgen_msp.patches.close_retired_holders
+nexgen_msp.patches.flag_username_services

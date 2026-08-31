@@ -292,6 +292,7 @@ def assign_user_service(
     hostname=None,
     device_type=None,
     interfaces=None,
+    serial_number=None,
     notes=None,
     source_request=None,
     target_scope=None,
@@ -307,6 +308,7 @@ def assign_user_service(
         hostname=hostname,
         device_type=device_type,
         interfaces=interfaces,
+        serial_number=serial_number,
         notes=notes,
         source_request=source_request,
         target_scope=target_scope,
@@ -544,6 +546,7 @@ def create_client_user(
     full_name=None,
     department=None,
     email=None,
+    username=None,
     start_date=None,
     remarks=None,
     source_request=None,
@@ -556,6 +559,7 @@ def create_client_user(
         full_name=full_name,
         department=department,
         email=email,
+        username=username,
         start_date=start_date,
         remarks=remarks,
         source_request=source_request,
@@ -1124,8 +1128,10 @@ def upload_user_list():
 
 @frappe.whitelist()
 @handle_errors
-def run_user_import(file_url=None, dry_run=1):
-    return _settings().run_user_import(file_url=file_url, dry_run=dry_run)
+def run_user_import(file_url=None, dry_run=1, fill_blanks_only=1):
+    return _settings().run_user_import(
+        file_url=file_url, dry_run=dry_run, fill_blanks_only=fill_blanks_only
+    )
 
 
 @frappe.whitelist()
@@ -1143,7 +1149,13 @@ def resolve_billing_dispute(name=None, note=None):
 @frappe.whitelist()
 @handle_errors
 def update_client_user(
-    name=None, full_name=None, department=None, email=None, start_date=None, remarks=None
+    name=None,
+    full_name=None,
+    department=None,
+    email=None,
+    username=None,
+    start_date=None,
+    remarks=None,
 ):
     from nexgen_msp.api.internal.services.user_service import UserService
 
@@ -1152,6 +1164,7 @@ def update_client_user(
         full_name=full_name,
         department=department,
         email=email,
+        username=username,
         start_date=start_date,
         remarks=remarks,
     )
