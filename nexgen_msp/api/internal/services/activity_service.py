@@ -1,6 +1,10 @@
 import frappe
 
-from nexgen_msp.api.internal.services.request_service import ADMIN_ROLES, RequestService
+from nexgen_msp.api.internal.services.request_service import (
+    ADMIN_ROLES,
+    CUSTOMER_STATUS,
+    RequestService,
+)
 
 KINDS = (
     "invoice",
@@ -77,7 +81,7 @@ class ActivityService:
         cap = start + page_length + 25
 
         events = []
-        base = {"cap": cap}
+        base = {"cap": cap, "customer_status": CUSTOMER_STATUS}
 
         def window(column):
             clause = ""
@@ -134,7 +138,7 @@ class ActivityService:
                 """
                 select name, customer, request_type, status, modified as `on`
                 from `tabMSP Service Request`
-                where 1 = 1{customers}{window}
+                where status != %(customer_status)s{customers}{window}
                 order by modified desc limit %(cap)s
                 """,
                 column="modified",

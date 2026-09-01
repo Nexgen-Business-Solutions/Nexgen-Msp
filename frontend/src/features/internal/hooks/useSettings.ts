@@ -87,3 +87,21 @@ export const useRunUserImport = () =>
       );
     },
   });
+
+export const useRunAssetImport = () =>
+  useMutation({
+    mutationFn: async (variables: {
+      file: File;
+      dryRun: boolean;
+      fillBlanksOnly: boolean;
+    }) => {
+      const uploaded = await internal.uploadUserList(variables.file);
+      const shape = await internal.describeAssetFile(uploaded.file_url);
+      const report = await internal.runAssetImport(
+        uploaded.file_url,
+        variables.dryRun ? 1 : 0,
+        variables.fillBlanksOnly ? 1 : 0
+      );
+      return { shape, report };
+    },
+  });

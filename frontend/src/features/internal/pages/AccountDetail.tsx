@@ -12,6 +12,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import ConfirmModal from '@/shared/components/ConfirmModal';
+import PersonRightsPanel from '../components/PersonRightsPanel';
 import { useSession } from '@/shared/hooks/useSession';
 import {
   useResendTeamInvitation,
@@ -145,75 +146,71 @@ export default function AccountDetail() {
           </span>
         </div>
 
+        {/* only what can actually be done to this account: an action that could never
+            apply is not shown greyed out, it is not shown at all */}
         <div className="mt-4 flex flex-wrap gap-2.5">
-          <button
-            type="button"
-            onClick={() => resend.mutate(account.name)}
-            disabled={!account.can_invite || !account.enabled || resend.isLoading}
-            title={
-              account.can_invite
-                ? 'Email a fresh link to set a password'
-                : 'This account holds no role and is linked to no one, so there is nothing to invite it to.'
-            }
-            className={ACTION_CLASS}
-          >
-            <KeyRound size={15} />
-            {resend.isSuccess ? 'Invitation sent' : 'Send a password link'}
-          </button>
-
-          {otherRoles.map((role) => (
+          {account.can_invite && account.enabled && (
             <button
-              key={role}
               type="button"
-              onClick={() => setPromoting(role)}
-              disabled={!account.role || isRoot || setRole.isLoading}
-              title={
-                account.role
-                  ? `Move this account to ${role}`
-                  : 'Only a staff account carries an MSP role.'
-              }
+              onClick={() => resend.mutate(account.name)}
+              disabled={resend.isLoading}
+              title="Email a fresh link to set a password"
               className={ACTION_CLASS}
             >
-              <ShieldCheck size={15} />
-              Make {ROLE_LABEL[role] ?? role}
+              <KeyRound size={15} />
+              {resend.isSuccess ? 'Invitation sent' : 'Send a password link'}
             </button>
-          ))}
+          )}
 
-          <button
-            type="button"
-            onClick={() => setSwitching(true)}
-            disabled={isSelf || isRoot || setEnabled.isLoading}
-            title={
-              isSelf
-                ? 'You cannot disable your own account.'
-                : account.enabled
+          {account.role &&
+            !isRoot &&
+            otherRoles.map((role) => (
+              <button
+                key={role}
+                type="button"
+                onClick={() => setPromoting(role)}
+                disabled={setRole.isLoading}
+                title={`Move this account to ${role}`}
+                className={ACTION_CLASS}
+              >
+                <ShieldCheck size={15} />
+                Make {ROLE_LABEL[role] ?? role}
+              </button>
+            ))}
+
+          {!isSelf && !isRoot && (
+            <button
+              type="button"
+              onClick={() => setSwitching(true)}
+              disabled={setEnabled.isLoading}
+              title={
+                account.enabled
                   ? 'Take this access away, keeping the account and its trail'
                   : 'Give this access back'
-            }
-            className={
-              account.enabled
-                ? 'inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400'
-                : ACTION_CLASS
-            }
-          >
-            {account.enabled ? <UserX size={15} /> : <UserCheck size={15} />}
-            {account.enabled ? 'Disable access' : 'Enable access'}
-          </button>
+              }
+              className={
+                account.enabled
+                  ? 'inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400'
+                  : ACTION_CLASS
+              }
+            >
+              {account.enabled ? <UserX size={15} /> : <UserCheck size={15} />}
+              {account.enabled ? 'Disable access' : 'Enable access'}
+            </button>
+          )}
 
-          <button
-            type="button"
-            onClick={() => setResettingTotp(true)}
-            disabled={!account.two_factor || resetTotp.isLoading}
-            title={
-              account.two_factor
-                ? 'Their authenticator stops working and they enrol again'
-                : 'This account has not set up two-factor authentication yet.'
-            }
-            className={ACTION_CLASS}
-          >
-            <KeyRound size={15} />
-            Reset two-factor
-          </button>
+          {account.two_factor && (
+            <button
+              type="button"
+              onClick={() => setResettingTotp(true)}
+              disabled={resetTotp.isLoading}
+              title="Their authenticator stops working and they enrol again"
+              className={ACTION_CLASS}
+            >
+              <KeyRound size={15} />
+              Reset two-factor
+            </button>
+          )}
 
           {account.client_user && (
             <button
@@ -260,6 +257,8 @@ export default function AccountDetail() {
           />
         </div>
       </div>
+
+      {account.client_user && <PersonRightsPanel clientUser={account.client_user.name} />}
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <Panel title="Person on file">

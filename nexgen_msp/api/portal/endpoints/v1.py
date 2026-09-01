@@ -89,6 +89,24 @@ def get_request_filter_options(customer=None):
 
 @frappe.whitelist()
 @handle_errors
+def approve_request(name=None, reason=None):
+    return PortalService.approve_request(name=name, reason=reason)
+
+
+@frappe.whitelist()
+@handle_errors
+def reject_request(name=None, reason=None):
+    return PortalService.reject_request(name=name, reason=reason)
+
+
+@frappe.whitelist()
+@handle_errors
+def get_my_approval_rights(customer=None):
+    return PortalService.my_approval_rights(customer=customer)
+
+
+@frappe.whitelist()
+@handle_errors
 def get_request(name=None):
     return PortalService.get_request(name=name)
 

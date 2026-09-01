@@ -73,3 +73,24 @@ export const useDeleteRate = (customer: string) =>
 
 export const useSetEligibility = (customer: string) =>
   useRateMutation(customer, internal.setServiceEligibility);
+
+export const authorityKeys = {
+  one: (customer: string) => ['internal', 'authority', customer] as const,
+};
+
+export const useCustomerAuthority = (customer?: string) =>
+  useQuery({
+    queryKey: authorityKeys.one(customer ?? ''),
+    queryFn: ({ signal }) => internal.getCustomerAuthority(customer as string, signal),
+    enabled: Boolean(customer),
+  });
+
+export const useSaveCustomerAuthority = (customer: string) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: internal.saveCustomerAuthority,
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: authorityKeys.one(customer) }),
+  });
+};

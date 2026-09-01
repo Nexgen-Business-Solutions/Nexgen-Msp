@@ -1,0 +1,66 @@
+{
+ "actions": [],
+ "creation": "2026-09-01 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "client_user",
+  "full_name",
+  "department",
+  "column_break_rights",
+  "can_submit",
+  "can_approve"
+ ],
+ "fields": [
+  {
+   "fieldname": "client_user",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Person",
+   "options": "MSP Client User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "full_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "department",
+   "fieldtype": "Data",
+   "label": "Limited To Department"
+  },
+  {
+   "fieldname": "column_break_rights",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "can_submit",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "May Submit"
+  },
+  {
+   "default": "1",
+   "fieldname": "can_approve",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "May Approve"
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nexgen MSP",
+ "name": "MSP Approver",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

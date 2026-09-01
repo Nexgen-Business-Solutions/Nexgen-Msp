@@ -611,10 +611,15 @@ export default function BillingRunDetail() {
         loading={action.isLoading}
         error={action.error as Error | undefined}
         onClose={() => setInvoicing(false)}
-        onConfirm={async (dimensions) => {
+        onConfirm={async (dimensions, exchangeRate) => {
           // a refusal keeps the dialog up with the values typed, so nothing is retyped
           const step = data.can_approve ? 'finalise' : 'invoice';
-          if (await run(step, { dimensions: JSON.stringify(dimensions) })) {
+          if (
+            await run(step, {
+              dimensions: JSON.stringify(dimensions),
+              ...(exchangeRate ? { exchange_rate: exchangeRate } : {}),
+            })
+          ) {
             setInvoicing(false);
           }
         }}

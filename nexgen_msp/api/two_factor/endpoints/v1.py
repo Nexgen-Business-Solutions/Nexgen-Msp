@@ -50,6 +50,14 @@ def verify_two_factor(code=None):
 
 
 @frappe.whitelist()
+# five a minute, the same cap every password check in this app gets
+@user_rate_limit(limit=5, seconds=60, scope="totp_self_reset")
+@handle_errors
+def reset_own_two_factor(password=None):
+    return TwoFactorService.reset_own(password=password)
+
+
+@frappe.whitelist()
 @handle_errors
 def reset_two_factor(user=None):
     return TwoFactorService.reset(user=user)

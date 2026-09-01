@@ -73,6 +73,8 @@ before_login = ["nexgen_msp.utils.native_login_guard.block_native_login"]
 
 after_migrate = [
 	"nexgen_msp.utils.notifications.ensure_templates",
+	"nexgen_msp.utils.currency_setup.ensure_currency_settings",
+	"nexgen_msp.utils.seeds.ensure_seeds",
 	"nexgen_msp.utils.import_mappings.ensure_mappings",
 	"nexgen_msp.utils.permissions.keep_technicians_off_desk",
 ]

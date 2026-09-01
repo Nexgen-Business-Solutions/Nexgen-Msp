@@ -6,7 +6,7 @@ from nexgen_msp.utils import remarks as remarks_util
 
 from nexgen_msp.utils.catalogue import security_item
 
-from nexgen_msp.api.internal.services.request_service import RequestService
+from nexgen_msp.api.internal.services.request_service import CUSTOMER_STATUS, RequestService
 from nexgen_msp.api.internal.services.user_service import UserService
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
@@ -284,11 +284,12 @@ class DeviceService:
                 from `tabMSP Service Request` sr
                 left join `tabUser` requester on requester.name = sr.requester
                 where sr.customer = %(customer)s
+                  and sr.status != %(customer_status)s
                 order by field(sr.status, 'Completed', 'Rejected', 'Cancelled') asc,
                          sr.creation desc
                 limit 30
                 """,
-                {"customer": doc.customer},
+                {"customer": doc.customer, "customer_status": CUSTOMER_STATUS},
                 as_dict=True,
             ),
         }
@@ -377,10 +378,11 @@ class DeviceService:
             from `tabMSP Service Request` sr
             join `tabMSP Service Request Line` srl on srl.parent = sr.name
             where srl.managed_device = %(device)s
+              and sr.status != %(customer_status)s
             order by sr.creation desc
             limit 10
             """,
-            {"device": device},
+            {"device": device, "customer_status": CUSTOMER_STATUS},
             as_dict=True,
         )
 
@@ -420,11 +422,12 @@ class DeviceService:
                 from `tabMSP Service Request` sr
                 left join `tabUser` requester on requester.name = sr.requester
                 where sr.customer = %(customer)s
+                  and sr.status != %(customer_status)s
                 order by field(sr.status, 'Completed', 'Rejected', 'Cancelled') asc,
                          sr.creation desc
                 limit 30
                 """,
-                {"customer": doc.customer},
+                {"customer": doc.customer, "customer_status": CUSTOMER_STATUS},
                 as_dict=True,
             ),
             "device_types": frappe.get_meta("MSP Managed Device")

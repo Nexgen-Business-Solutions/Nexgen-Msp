@@ -5,6 +5,7 @@ import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import StatusBadge from '@/shared/components/StatusBadge';
 import RequestActionModal from '../components/RequestActionModal';
 import InvoiceSettingsForm from '../components/InvoiceSettingsForm';
+import AssetImportPanel from '../components/AssetImportPanel';
 import UserImportPanel from '../components/UserImportPanel';
 import type { RequestActionRow } from '@/lib/api/internal';
 import { useDeleteRequestAction, useRequestActionList } from '../hooks/useSettings';
@@ -21,7 +22,7 @@ const SECTIONS = [
     id: 'import',
     icon: Upload,
     label: 'Import',
-    blurb: 'Drop the user list and see what it would change before it changes anything.',
+    blurb: 'Rehearse first — nothing is written until you say so.',
   },
   {
     id: 'request-actions',
@@ -96,7 +97,12 @@ export default function Settings() {
 
           {section === 'invoice' && <InvoiceSettingsForm />}
 
-          {section === 'import' && <UserImportPanel />}
+          {section === 'import' && (
+            <div className="space-y-5">
+              <UserImportPanel />
+              <AssetImportPanel />
+            </div>
+          )}
 
           {section === 'request-actions' && (
           <div className="max-h-[62vh] overflow-auto px-5 pb-4">

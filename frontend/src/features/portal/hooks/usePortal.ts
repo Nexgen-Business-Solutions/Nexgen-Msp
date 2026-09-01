@@ -323,3 +323,22 @@ export const useDeviceChoices = () => {
     staleTime: 60 * 1000,
   });
 };
+
+export const useMyApprovalRights = () =>
+  useQuery({
+    queryKey: ['portal', 'approvalRights'] as const,
+    queryFn: ({ signal }) => portal.getMyApprovalRights(signal),
+    staleTime: 60 * 1000,
+  });
+
+export const useDecideRequest = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (variables: { name: string; approve: boolean; reason?: string }) =>
+      variables.approve
+        ? portal.approveRequest(variables.name, variables.reason)
+        : portal.rejectRequest(variables.name, variables.reason ?? ''),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['portal'] }),
+  });
+};

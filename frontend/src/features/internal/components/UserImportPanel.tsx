@@ -132,12 +132,6 @@ const UserImportPanel: React.FC = () => {
   return (
     <div className="space-y-6 px-5 pb-6">
       <div>
-        <p className="text-sm text-slate-500">
-          Drop the user list and run the rehearsal: it reports what would happen without writing
-          anything. Nothing is ever created twice — a person already on file is updated, never
-          duplicated.
-        </p>
-
         {(unresolved.length > 0 || missingItems.length > 0) && (
           <div className="mt-3 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
             <TriangleAlert size={16} className="mt-0.5 shrink-0 text-amber-600" />
@@ -209,10 +203,7 @@ const UserImportPanel: React.FC = () => {
           <span className="text-sm text-slate-700">
             Only fill what is empty
             <span className="mt-0.5 block text-xs text-slate-400">
-              On, the sheet fills gaps and never overwrites: a field already recorded here, a
-              device already handed to someone, and the billing dates all stay as they are.
-              Off, the sheet restates the billing dates and gives every device back to the
-              holder it names.
+              Nothing recorded here is overwritten.
             </span>
           </span>
         </label>
@@ -267,7 +258,7 @@ const UserImportPanel: React.FC = () => {
       <div className="space-y-3 border-t border-slate-100 pt-5">
         <Accordion
           title="Companies"
-          hint="Which customer each company in the file already is here."
+          hint="Which customer each company stands for."
           badge={warningBadge(unresolved.length)}
         >
           <div className="max-h-[62vh] overflow-auto">
@@ -366,7 +357,7 @@ const UserImportPanel: React.FC = () => {
 
         <Accordion
           title="Services"
-          hint="Which article each service column bills against."
+          hint="Which article each service column bills."
           badge={warningBadge(missingItems.length)}
         >
           <div className="max-h-[62vh] overflow-auto">

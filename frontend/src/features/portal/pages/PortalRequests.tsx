@@ -1,11 +1,15 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, FilePlus2 } from 'lucide-react';
+import { Eye, FilePlus2, ShieldCheck } from 'lucide-react';
 import DataTable from '@/shared/components/DataTable';
 import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
 import StatusBadge from '@/shared/components/StatusBadge';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
-import { usePortalRequestList, usePortalRequestOptions } from '../hooks/usePortal';
+import {
+  useMyApprovalRights,
+  usePortalRequestList,
+  usePortalRequestOptions,
+} from '../hooks/usePortal';
 
 const COLUMNS = ['Request', 'Type', 'Priority', 'Status', 'Raised', ''];
 
@@ -16,6 +20,7 @@ const EMPTY: FilterState = { status: '', priority: '', request_type: '' };
 export default function PortalRequests() {
   const navigate = useNavigate();
   const options = usePortalRequestOptions();
+  const rights = useMyApprovalRights();
 
   const [filters, setFilters] = useState<FilterState>(EMPTY);
   const [search, setSearch] = useState('');
@@ -38,8 +43,31 @@ export default function PortalRequests() {
     setStart(0);
   };
 
+  const awaiting = rights.data?.can_approve ? rights.data.awaiting : 0;
+
   return (
     <div className="space-y-5 px-6 pb-6 pt-4">
+      {awaiting > 0 && (
+        <button
+          type="button"
+          onClick={() => apply({ ...EMPTY, status: 'Awaiting Customer Approval' })}
+          className="flex w-full items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50/70 px-5 py-4 text-left transition-colors hover:bg-amber-50"
+        >
+          <span className="flex items-start gap-2.5">
+            <ShieldCheck size={18} className="mt-0.5 shrink-0 text-amber-600" />
+            <span>
+              <span className="block text-sm font-semibold text-amber-900">
+                {awaiting} request{awaiting > 1 ? 's' : ''} waiting for your accord
+              </span>
+              <span className="mt-0.5 block text-sm text-amber-800">
+                They reach Nexgen only once you have approved them.
+              </span>
+            </span>
+          </span>
+          <span className="shrink-0 text-sm font-semibold text-amber-800">Review them</span>
+        </button>
+      )}
+
       <FilterBar
         values={filters}
         search={search}

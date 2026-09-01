@@ -812,6 +812,17 @@ export type InvoiceDimension = {
   options: string[];
 };
 
+export type ExchangePreview = {
+  needed: boolean;
+  currency: string | null;
+  company_currency: string | null;
+  company?: string;
+  rate?: number | null;
+};
+
+export const getExchangePreview = (name: string, signal?: AbortSignal) =>
+  get<ExchangePreview>(`${BASE}.get_exchange_preview`, { name }, signal);
+
 export const getInvoiceDimensions = (signal?: AbortSignal) =>
   get<InvoiceDimension[]>(`${BASE}.get_invoice_dimensions`, undefined, signal);
 
@@ -1529,6 +1540,58 @@ export type InvoiceSettings = {
   portal_url: string | null;
 };
 
+export type Approver = {
+  client_user: string;
+  full_name: string | null;
+  department: string | null;
+  can_submit: boolean;
+  can_approve: boolean;
+};
+
+export type CustomerAuthority = {
+  customer: string;
+  enabled: boolean;
+  approvers: Approver[];
+  candidates: {
+    name: string;
+    full_name: string;
+    department: string | null;
+    portal_user: string | null;
+  }[];
+};
+
+export type PersonRights = {
+  client_user: string;
+  customer: string;
+  has_portal: boolean;
+  named: boolean;
+  department: string | null;
+  can_submit: boolean;
+  can_approve: boolean;
+};
+
+export const getPersonRights = (client_user: string, signal?: AbortSignal) =>
+  get<PersonRights>(`${BASE}.get_person_rights`, { client_user }, signal);
+
+export const setPersonRights = (client_user: string, rights: Record<string, unknown>) =>
+  post<PersonRights>(`${BASE}.set_person_rights`, {
+    client_user,
+    rights: JSON.stringify(rights),
+  });
+
+export const getCustomerAuthority = (customer: string, signal?: AbortSignal) =>
+  get<CustomerAuthority>(`${BASE}.get_customer_authority`, { customer }, signal);
+
+export const saveCustomerAuthority = (payload: {
+  customer: string;
+  enabled: number;
+  approvers: Approver[];
+}) =>
+  post<CustomerAuthority>(`${BASE}.save_customer_authority`, {
+    ...payload,
+    approvers: JSON.stringify(payload.approvers),
+  });
+
 export type CustomerMapping = {
   excel_label: string;
   customer_id: string;
@@ -1557,6 +1620,26 @@ export type ImportReport = {
   skipped: Record<string, number>;
   exceptions: { row: number; name?: string; reason: string }[];
 };
+
+export type AssetFileShape = {
+  headers: string[];
+  recognised: Partial<Record<'hostname' | 'serial_number' | 'username', string>>;
+  missing: string[];
+};
+
+export type AssetImportReport = {
+  dry_run: boolean;
+  rows_read: number;
+  updated: Record<string, number>;
+  skipped: Record<string, number>;
+  exceptions: { row: number; reason: string }[];
+};
+
+export const describeAssetFile = (file_url: string) =>
+  post<AssetFileShape>(`${BASE}.describe_asset_file`, { file_url });
+
+export const runAssetImport = (file_url: string, dry_run: number, fill_blanks_only: number) =>
+  post<AssetImportReport>(`${BASE}.run_asset_import`, { file_url, dry_run, fill_blanks_only });
 
 export const getImportMappings = (signal?: AbortSignal) =>
   get<ImportMappings>(`${BASE}.get_import_mappings`, undefined, signal);

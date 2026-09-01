@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { Building2, ChevronDown, LogOut, Mail, Users } from 'lucide-react';
+import { Building2, ChevronDown, LogOut, Mail, ShieldCheck, Users } from 'lucide-react';
 import { logout } from '@/lib/api/client';
+import MyTwoFactorModal from '@/features/auth/components/MyTwoFactorModal';
 import { useSession } from '@/shared/hooks/useSession';
 import ConfirmModal from '@/shared/components/ConfirmModal';
 
@@ -25,6 +26,7 @@ const UserMenu: React.FC = () => {
 
   const [open, setOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [securityOpen, setSecurityOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -119,6 +121,18 @@ const UserMenu: React.FC = () => {
               type="button"
               onClick={() => {
                 setOpen(false);
+                setSecurityOpen(true);
+              }}
+              className="flex w-full items-center gap-3 border-t border-slate-100 px-4 py-3 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900"
+            >
+              <ShieldCheck size={15} className="shrink-0" />
+              Two-factor authentication
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
                 setConfirmOpen(true);
               }}
               className="flex w-full items-center gap-3 border-t border-slate-100 px-4 py-3 text-sm font-medium text-slate-600 transition-colors hover:bg-red-50 hover:text-red-600"
@@ -129,6 +143,8 @@ const UserMenu: React.FC = () => {
           </div>
         )}
       </div>
+
+      <MyTwoFactorModal open={securityOpen} onClose={() => setSecurityOpen(false)} />
 
       <ConfirmModal
         open={confirmOpen}

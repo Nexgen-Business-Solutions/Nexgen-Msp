@@ -20,6 +20,10 @@ OPEN_STATUSES = (
 
 CLOSED_STATUSES = ("Completed", "Rejected", "Cancelled")
 
+# a request still waiting for its own company's accord has not reached us: it stays out of
+# every internal queue and every count until the customer has decided
+CUSTOMER_STATUS = "Awaiting Customer Approval"
+
 REQUEST_STATUSES = OPEN_STATUSES + CLOSED_STATUSES
 
 REQUEST_TYPES = ("Add", "Change", "Suspend", "Resume", "Remove", "Mixed")
@@ -115,7 +119,11 @@ class RequestService:
 
         return {
             "customers": [customer for customer in customers if customer],
-            "statuses": select_options("MSP Service Request", "status"),
+            "statuses": [
+                status
+                for status in select_options("MSP Service Request", "status")
+                if status != CUSTOMER_STATUS
+            ],
             "open_statuses": list(OPEN_STATUSES),
             # only an administrator handles disputes, so only they can filter on them
             "request_types": (
@@ -131,6 +139,10 @@ class RequestService:
     def _list_conditions(search, status, priority, request_type, customer, scope):
         conditions = []
         params = {}
+
+        # not ours until the customer has agreed to it
+        conditions.append("sr.status != %(customer_status)s")
+        params["customer_status"] = CUSTOMER_STATUS
 
         # a billing dispute is a commercial matter, so it stays out of the technician queue
         if not RequestService._roles().intersection(ADMIN_ROLES):
@@ -309,6 +321,10 @@ class RequestService:
 
         doc = frappe.get_doc("MSP Service Request", name)
 
+        # not ours until the customer has agreed to it, whatever the address bar says
+        if doc.status == CUSTOMER_STATUS:
+            raise NotFoundError(f"Service Request {name} not found.", "NOT_FOUND")
+
         lines = frappe.db.sql(
             """
             select
@@ -443,6 +459,9 @@ class RequestService:
             raise NotFoundError(f"Service Request {name} not found.", "NOT_FOUND")
 
         doc = frappe.get_doc("MSP Service Request", name)
+
+        if doc.status == CUSTOMER_STATUS:
+            raise NotFoundError(f"Service Request {name} not found.", "NOT_FOUND")
 
         if doc.status in CLOSED_STATUSES:
             raise ValidationError(

@@ -229,3 +229,21 @@ export const useDeleteClientUser = () => {
     },
   });
 };
+
+export const usePersonRights = (clientUser?: string) =>
+  useQuery({
+    queryKey: ['internal', 'personRights', clientUser] as const,
+    queryFn: ({ signal }) => internal.getPersonRights(clientUser as string, signal),
+    enabled: Boolean(clientUser),
+  });
+
+export const useSetPersonRights = (clientUser: string) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (rights: Record<string, unknown>) =>
+      internal.setPersonRights(clientUser, rights),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ['internal', 'personRights', clientUser] }),
+  });
+};

@@ -62,5 +62,8 @@ export const verifyTwoFactor = (code: string) =>
 export const getTwoFactorStatus = (signal?: AbortSignal) =>
   get<TwoFactorStatus>(`${TFA}.get_two_factor_status`, undefined, signal);
 
+export const resetOwnTwoFactor = (password: string) =>
+  post<{ ok: true; user: string; enabled: false }>(`${TFA}.reset_own_two_factor`, { password });
+
 export const resetTwoFactor = (user: string) =>
   post<{ ok: true; user: string; enabled: false }>(`${TFA}.reset_two_factor`, { user });

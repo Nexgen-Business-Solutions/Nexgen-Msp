@@ -143,3 +143,11 @@ export const useBillingInvoice = (run?: string, enabled = true) =>
     queryFn: ({ signal }) => internal.getBillingInvoice(run as string, signal),
     enabled: enabled && Boolean(run),
   });
+
+export const useExchangePreview = (run: string | undefined, enabled: boolean) =>
+  useQuery({
+    queryKey: ['internal', 'billing', 'exchange', run] as const,
+    queryFn: ({ signal }) => internal.getExchangePreview(run as string, signal),
+    enabled: Boolean(run) && enabled,
+    staleTime: 60 * 1000,
+  });

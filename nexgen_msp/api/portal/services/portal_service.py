@@ -2,7 +2,7 @@ import frappe
 
 from nexgen_msp.utils.catalogue import security_item
 
-from nexgen_msp.utils import permissions
+from nexgen_msp.utils import approval, permissions
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 CLIENT_USER_FIELDS = [
@@ -507,8 +507,28 @@ class PortalService:
             "modified": doc.modified,
             "rejection_reason": doc.rejection_reason,
             "reviewed_on": doc.technical_approved_at,
+            "can_decide": PortalService._may_decide(doc),
             "lines": lines,
         }
+
+    @staticmethod
+    def _may_decide(doc):
+        """Whether the caller is the one this request is waiting on.
+
+        The same rule _decide enforces, answered before the fact so the portal only offers
+        the accord to whoever can actually give it.
+        """
+        if doc.status != "Awaiting Customer Approval":
+            return False
+
+        rights = approval.rights_of(doc.customer)
+
+        if not rights.get("can_approve"):
+            return False
+
+        return all(
+            approval.covers(rights, row.client_user) for row in doc.lines if row.client_user
+        )
 
     @staticmethod
     def get_user_detail(client_user=None):
@@ -705,6 +725,10 @@ class PortalService:
         lines = [PortalService._scoped_line(line, customer) for line in lines]
         lines = [PortalService._resolved_action(line) for line in lines]
 
+        PortalService._guard_may_submit(customer)
+
+        opening_status, approved_by = PortalService._opening_status(customer)
+
         doc = frappe.get_doc(
             {
                 "doctype": "MSP Service Request",
@@ -713,7 +737,7 @@ class PortalService:
                 "priority": priority or "Medium",
                 # a request opened by the team is not a request from the customer
                 "source": "Internal" if permissions.is_internal() else "Portal",
-                "status": "Submitted",
+                "status": opening_status,
                 "requester": frappe.session.user,
                 "lines": [
                     {
@@ -744,11 +768,240 @@ class PortalService:
             }
         ).insert()
 
+        if approved_by:
+            # raised by someone who may approve their own: the accord is theirs, recorded
+            # rather than left implicit
+            doc.db_set("customer_approved_by", approved_by, update_modified=False)
+            doc.db_set("customer_approved_at", frappe.utils.now(), update_modified=False)
+
         frappe.db.commit()
 
-        PortalService._acknowledge(doc)
+        if doc.status == "Awaiting Customer Approval":
+            PortalService._ask_for_approval(doc)
+        else:
+            PortalService._acknowledge(doc)
 
         return PortalService.get_request(doc.name)
+
+    @staticmethod
+    def my_approval_rights(customer=None):
+        """What the signed-in person may do, so the portal knows what to offer."""
+        customer = PortalService._resolve_customer(customer)
+        rights = approval.rights_of(customer)
+
+        return {
+            "customer": customer,
+            "has_authority": approval.has_approvers(customer),
+            "can_submit": rights.get("can_submit", True) if rights else True,
+            "can_approve": bool(rights.get("can_approve")),
+            "department": rights.get("department"),
+            "awaiting": frappe.db.count(
+                "MSP Service Request",
+                {"customer": customer, "status": "Awaiting Customer Approval"},
+            )
+            if rights.get("can_approve")
+            else 0,
+        }
+
+    @staticmethod
+    def approve_request(name=None, reason=None):
+        """The customer's own accord, which is what sends the request to Nexgen."""
+        return PortalService._decide(name, approve=True, reason=reason)
+
+    @staticmethod
+    def reject_request(name=None, reason=None):
+        """Refused inside the company: it stops here and never reaches Nexgen."""
+        return PortalService._decide(name, approve=False, reason=reason)
+
+    @staticmethod
+    def _decide(name, approve, reason=None):
+        if not name or not frappe.db.exists("MSP Service Request", name):
+            raise NotFoundError(f"Service Request {name} not found.", "NOT_FOUND")
+
+        doc = frappe.get_doc("MSP Service Request", name)
+
+        # a portal caller only ever sees their own company; this makes it explicit
+        PortalService._resolve_customer(doc.customer)
+
+        if doc.status != "Awaiting Customer Approval":
+            raise ValidationError(
+                f"This request is {doc.status.lower()} and is no longer waiting for an accord.",
+                "INVALID_TRANSITION",
+            )
+
+        rights = approval.rights_of(doc.customer)
+
+        if not rights.get("can_approve"):
+            raise ValidationError(
+                "You are not allowed to approve requests for this company.",
+                "PERMISSION_DENIED",
+                403,
+            )
+
+        # an approver limited to a department decides for that department only
+        for row in doc.lines:
+            if row.client_user and not approval.covers(rights, row.client_user):
+                raise ValidationError(
+                    "This request concerns someone outside the department you decide for.",
+                    "PERMISSION_DENIED",
+                    403,
+                )
+
+        reason = (reason or "").strip()
+
+        if not approve and not reason:
+            raise ValidationError("A reason is required to refuse.", "VALIDATION_ERROR")
+
+        doc.status = "Submitted" if approve else "Rejected"
+        doc.customer_approved_by = frappe.session.user
+        doc.customer_approved_at = frappe.utils.now()
+
+        if reason:
+            doc.rejection_reason = reason
+
+        doc.save(ignore_permissions=True)
+        doc.add_comment(
+            "Comment",
+            f"{'Approved' if approve else 'Refused'} by {frappe.session.user}"
+            + (f": {reason}" if reason else ""),
+        )
+        frappe.db.commit()
+
+        PortalService._tell_requester(doc, approve, reason)
+
+        return PortalService.get_request(doc.name)
+
+    @staticmethod
+    def _ask_for_approval(doc):
+        """Tell the people who can decide that something is waiting for them."""
+        from nexgen_msp.utils import notifications
+
+        authority = approval.authority_for(doc.customer)
+
+        if not authority:
+            return
+
+        recipients = []
+
+        for row in authority.approvers:
+            if not row.can_approve:
+                continue
+
+            address = frappe.db.get_value("MSP Client User", row.client_user, "portal_user")
+
+            if address and address != doc.requester:
+                recipients.append(address)
+
+        if not recipients:
+            return
+
+        notifications.send(
+            "MSP Request Awaiting Approval",
+            recipients,
+            {
+                "full_name": "",
+                "request": doc.name,
+                "customer": doc.customer,
+                "raised_by": frappe.db.get_value("User", doc.requester, "full_name")
+                or doc.requester,
+                "summary": notifications.summary_table(
+                    [
+                        ("Request", doc.name),
+                        ("Services requested", str(len(doc.lines))),
+                        ("Raised on", frappe.utils.format_datetime(doc.creation)),
+                    ]
+                ),
+                "link": notifications.portal_url(f"/requests/{doc.name}"),
+            },
+            reference_doctype="MSP Service Request",
+            reference_name=doc.name,
+        )
+
+    @staticmethod
+    def _tell_requester(doc, approve, reason):
+        from nexgen_msp.utils import notifications
+
+        if doc.requester == frappe.session.user:
+            return
+
+        approver = frappe.utils.get_fullname(frappe.session.user)
+
+        if approve:
+            notifications.send(
+                "MSP Request Approved By Customer",
+                [doc.requester],
+                {
+                    "full_name": frappe.db.get_value("User", doc.requester, "full_name")
+                    or doc.requester,
+                    "request": doc.name,
+                    "approver": approver,
+                    "summary": notifications.summary_table(
+                        [("Request", doc.name), ("Approved by", approver)]
+                    ),
+                    "link": notifications.portal_url(f"/requests/{doc.name}"),
+                },
+                reference_doctype="MSP Service Request",
+                reference_name=doc.name,
+            )
+            return
+
+        notifications.send(
+            "MSP Request Decision",
+            [doc.requester],
+            {
+                "full_name": frappe.db.get_value("User", doc.requester, "full_name")
+                or doc.requester,
+                "request": doc.name,
+                "outcome": "refused",
+                "headline": f"{approver} did not approve this request.",
+                "summary": notifications.summary_table(
+                    [("Request", doc.name), ("Refused by", approver)]
+                ),
+                "reason_block": f"<p>{frappe.utils.escape_html(reason)}</p>" if reason else "",
+                "link": notifications.portal_url(f"/requests/{doc.name}"),
+            },
+            reference_doctype="MSP Service Request",
+            reference_name=doc.name,
+        )
+
+    @staticmethod
+    def _guard_may_submit(customer):
+        """Refuse a request from someone whose line says they may not raise one.
+
+        Only bites on people the matrix names. Anyone not in it keeps what they have always
+        had, because naming someone is a deliberate act and switching the matrix on must not
+        silently take the portal away from every other employee.
+        """
+        if permissions.is_internal():
+            return
+
+        rights = approval.rights_of(customer)
+
+        if rights and not rights.get("can_submit"):
+            raise ValidationError(
+                "You are not allowed to raise requests for this company.",
+                "PERMISSION_DENIED",
+                403,
+            )
+
+    @staticmethod
+    def _opening_status(customer):
+        """Where a new request starts, and who has already agreed to it.
+
+        Nothing changes for a customer who has named no approver: their request reaches
+        Nexgen as it always did.
+
+        Someone who may both raise and approve does both in one gesture — the request is
+        agreed the moment they open it, and the accord is recorded in their name. Giving
+        both rights to one person is itself the decision; there is nothing more to switch on.
+        """
+        if permissions.is_internal() or not approval.has_approvers(customer):
+            return "Submitted", None
+
+        if approval.may("can_approve", customer):
+            return "Submitted", frappe.session.user
+
+        return "Awaiting Customer Approval", None
 
     @staticmethod
     def list_catalogue(customer=None):

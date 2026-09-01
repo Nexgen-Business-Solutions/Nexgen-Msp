@@ -15,6 +15,9 @@ export type SessionContext = {
   customer?: string | null;
   department?: string | null;
   client_user?: string | null;
+  two_factor_enabled?: boolean;
+  two_factor_passed?: boolean;
+  session_expiry_seconds?: number;
   is_portal_user?: boolean;
   is_internal_user?: boolean;
 };

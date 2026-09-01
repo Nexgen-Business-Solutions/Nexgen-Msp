@@ -99,6 +99,23 @@ TEMPLATES = {
         + BUTTON.format(url="link", label="Follow my request")
         + MUTED.format(text="You will be notified as soon as it has been reviewed."),
     },
+    "MSP Request Awaiting Approval": {
+        "subject": "{{ request }} needs your approval - {{ app_name }}",
+        "body": HEADING.format(text="A request is waiting for you")
+        + "<p>Hello {{ full_name }},</p>"
+        + "<p>{{ raised_by }} has raised a request for {{ customer }}. It reaches Nexgen only "
+        + "once you have approved it.</p>"
+        + "{{ summary }}"
+        + BUTTON.format(url="link", label="Review it"),
+    },
+    "MSP Request Approved By Customer": {
+        "subject": "{{ request }} approved - {{ app_name }}",
+        "body": HEADING.format(text="Your request has been approved")
+        + "<p>Hello {{ full_name }},</p>"
+        + "<p>{{ approver }} approved your request, and it has reached our team.</p>"
+        + "{{ summary }}"
+        + BUTTON.format(url="link", label="Follow my request"),
+    },
     "MSP Request Decision": {
         "subject": "{{ request }} {{ outcome }} - {{ app_name }}",
         "body": HEADING.format(text="Your request has been reviewed")

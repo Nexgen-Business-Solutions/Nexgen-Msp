@@ -483,14 +483,22 @@ def billing_period_status(contract=None, period_start=None, period_end=None):
 
 @frappe.whitelist()
 @handle_errors
-def finalise_billing_run(name=None, dimensions=None):
-    return _billing().finalise(name=name, dimensions=dimensions)
+def get_exchange_preview(name=None):
+    return _billing().exchange_preview(name=name)
 
 
 @frappe.whitelist()
 @handle_errors
-def invoice_billing_run(name=None, dimensions=None):
-    return _billing().create_invoice(name=name, dimensions=dimensions)
+def finalise_billing_run(name=None, dimensions=None, exchange_rate=None):
+    return _billing().finalise(name=name, dimensions=dimensions, exchange_rate=exchange_rate)
+
+
+@frappe.whitelist()
+@handle_errors
+def invoice_billing_run(name=None, dimensions=None, exchange_rate=None):
+    return _billing().create_invoice(
+        name=name, dimensions=dimensions, exchange_rate=exchange_rate
+    )
 
 
 def _dimensions():
@@ -677,6 +685,36 @@ def list_customer_devices(customer=None, exclude_holder=None):
 @handle_errors
 def find_device_hostname(customer=None, hostname=None):
     return _devices().find_hostname(customer=customer, hostname=hostname)
+
+
+def _authority():
+    from nexgen_msp.api.internal.services.authority_service import AuthorityService
+
+    return AuthorityService
+
+
+@frappe.whitelist()
+@handle_errors
+def get_person_rights(client_user=None):
+    return _authority().rights_of_person(client_user=client_user)
+
+
+@frappe.whitelist()
+@handle_errors
+def set_person_rights(client_user=None, rights=None):
+    return _authority().set_rights_of_person(client_user=client_user, rights=rights)
+
+
+@frappe.whitelist()
+@handle_errors
+def get_customer_authority(customer=None):
+    return _authority().get_authority(customer=customer)
+
+
+@frappe.whitelist()
+@handle_errors
+def save_customer_authority(customer=None, enabled=1, approvers=None):
+    return _authority().save_authority(customer=customer, enabled=enabled, approvers=approvers)
 
 
 @frappe.whitelist()
@@ -1124,6 +1162,20 @@ def save_import_mappings(customers=None, services=None):
 @handle_errors
 def upload_user_list():
     return _settings().upload_user_list()
+
+
+@frappe.whitelist()
+@handle_errors
+def describe_asset_file(file_url=None):
+    return _settings().describe_asset_file(file_url=file_url)
+
+
+@frappe.whitelist()
+@handle_errors
+def run_asset_import(file_url=None, dry_run=1, fill_blanks_only=1):
+    return _settings().run_asset_import(
+        file_url=file_url, dry_run=dry_run, fill_blanks_only=fill_blanks_only
+    )
 
 
 @frappe.whitelist()

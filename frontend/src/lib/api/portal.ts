@@ -165,6 +165,24 @@ export type UserChoice = {
   serial_numbers: string | null;
 };
 
+export type ApprovalRights = {
+  customer: string;
+  has_authority: boolean;
+  can_submit: boolean;
+  can_approve: boolean;
+  department: string | null;
+  awaiting: number;
+};
+
+export const getMyApprovalRights = (signal?: AbortSignal) =>
+  get<ApprovalRights>(`${BASE}.get_my_approval_rights`, undefined, signal);
+
+export const approveRequest = (name: string, reason?: string) =>
+  post<ServiceRequestDetail>(`${BASE}.approve_request`, { name, reason });
+
+export const rejectRequest = (name: string, reason: string) =>
+  post<ServiceRequestDetail>(`${BASE}.reject_request`, { name, reason });
+
 export const listUserChoices = (customer?: string, signal?: AbortSignal) =>
   get<UserChoice[]>(`${BASE}.list_user_choices`, { customer }, signal);
 
@@ -228,6 +246,7 @@ export type PortalRequestDetail = {
   modified: string;
   rejection_reason: string | null;
   reviewed_on: string | null;
+  can_decide: boolean;
   lines: PortalRequestLine[];
 };
 

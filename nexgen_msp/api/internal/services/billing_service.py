@@ -19,6 +19,9 @@ LIVE_CONTRACT_STATUSES = ("Active", "Suspended")
 
 MONTHS_PER_PERIOD = {"Monthly": 1, "Quarterly": 3, "Annually": 12}
 
+# days are billed five at a time, rounded up: six days are charged ten, three are charged five
+DAY_BLOCK = 5
+
 # the invoiced quantity is a number of months, and half months are routine
 
 DISPLAY_ONLY = (
@@ -91,14 +94,20 @@ class BillingService:
         return months
 
     @staticmethod
-    def _round_half_month(months, live_days):
-        """Bill in half-month steps, and never give away a service that really did run."""
-        rounded = round(months * 2.0) / 2.0
+    def _billed_days(days, days_in_month):
+        """Days are billed in blocks of five, rounded up.
 
-        if not rounded and live_days:
-            return 0.5
+        A service that ran six days is charged ten, three days is charged five. Rounding
+        up is what makes a service that really ran impossible to bill at nothing, so no
+        floor is needed underneath.
 
-        return rounded
+        Capped at the month itself: a full month is a month, never more. Without the cap
+        a 31-day month would round to 35 and bill 1.13 instalments.
+        """
+        if days <= 0:
+            return 0
+
+        return min(-(-days // DAY_BLOCK) * DAY_BLOCK, days_in_month)
 
     @staticmethod
     def _billable_months(method, assignment, period_start, period_end):
@@ -126,15 +135,15 @@ class BillingService:
             live_days += days
 
             if method == "Daily Actual Days":
-                months += days / days_in_month
+                months += BillingService._billed_days(days, days_in_month) / days_in_month
             elif method == "30-Day Convention":
-                months += days / 30.0
+                months += BillingService._billed_days(days, 30) / 30.0
             elif method == "Start Next Month":
                 months += 0.0 if start >= window_start and start <= window_end else 1.0
             else:
                 months += 1.0
 
-        return BillingService._round_half_month(months, live_days), live_days
+        return flt(months, 3), live_days
 
     @staticmethod
     def _covered_window(assignment, period_start, period_end):
@@ -516,7 +525,7 @@ class BillingService:
                     "period_days": period_days,
                     "covered_from": covered_from,
                     "covered_to": covered_to,
-                    "billable_months": flt(months, 2),
+                    "billable_months": flt(months, 3),
                     "gross_amount": flt(gross, 2),
                     "discount_percent": flt(discount, 2),
                     "discount_source": discount_source,
@@ -711,7 +720,7 @@ class BillingService:
             "exception_count": len(lines) - len(billable),
             "exceptions_by_code": exceptions,
             "total_amount": flt(sum(line["amount"] for line in billable), 2),
-            "total_months": flt(sum(line["billable_months"] for line in billable), 2),
+            "total_months": flt(sum(line["billable_months"] for line in billable), 3),
         }
 
     @staticmethod
@@ -869,7 +878,7 @@ class BillingService:
         return BillingService.get_run(name)
 
     @staticmethod
-    def finalise(name=None, dimensions=None):
+    def finalise(name=None, dimensions=None, exchange_rate=None):
         """Freeze the run and draw its invoice in one go.
 
         Between the two there is nothing left to decide: freezing is what forbids changing
@@ -888,7 +897,7 @@ class BillingService:
 
         try:
             doc.submit()
-            BillingService.create_invoice(name, dimensions)
+            BillingService.create_invoice(name, dimensions, exchange_rate)
         except Exception:
             frappe.db.rollback(save_point=savepoint)
             raise
@@ -920,6 +929,114 @@ class BillingService:
         frappe.db.commit()
 
         return BillingService.get_run(name)
+
+    @staticmethod
+    def exchange_preview(name=None):
+        """What the ledger will use to record a run billed in another currency.
+
+        Shown before invoicing rather than after: an operator who sees CAD appear under a
+        USD contract deserves to know where the figure comes from, and to correct it if the
+        automatic answer is wrong.
+        """
+        BillingService._guard_admin()
+
+        if not name or not frappe.db.exists("MSP Billing Run", name):
+            raise NotFoundError(f"Billing Run {name} not found.", "NOT_FOUND")
+
+        run = frappe.db.get_value("MSP Billing Run", name, ["currency"], as_dict=True)
+        company = frappe.defaults.get_global_default("company")
+        company_currency = frappe.db.get_value("Company", company, "default_currency")
+
+        if not run.currency or run.currency == company_currency:
+            return {"needed": False, "currency": run.currency, "company_currency": company_currency}
+
+        from erpnext.setup.utils import get_exchange_rate
+
+        try:
+            rate = flt(get_exchange_rate(run.currency, company_currency, frappe.utils.today()))
+        except Exception:
+            rate = 0.0
+
+        return {
+            "needed": True,
+            "currency": run.currency,
+            "company_currency": company_currency,
+            "company": company,
+            "rate": rate or None,
+        }
+
+    @staticmethod
+    def _conversion_rate(currency, company_currency, company, override=None):
+        """What one unit of the billing currency is worth in the books.
+
+        Selling and accounting are two different questions: the customer is billed in their
+        own currency, and the same invoice is recorded in the company's. Only the second
+        needs a rate.
+
+        Asked of ERPNext rather than read straight from the table, because ERPNext knows
+        where to look — a rate already on file, then the online provider configured in
+        Currency Exchange Settings, which it stores as it goes. A rate typed by hand wins
+        over both, and is filed as a Currency Exchange record so the invoice rests on a
+        record rather than on a keystroke.
+        """
+        if not currency or currency == company_currency:
+            return None
+
+        if override:
+            rate = flt(override)
+
+            if rate <= 0:
+                raise ValidationError(
+                    "The exchange rate must be a positive number.", "VALIDATION_ERROR"
+                )
+
+            BillingService._remember_rate(currency, company_currency, rate)
+
+            return rate
+
+        from erpnext.setup.utils import get_exchange_rate
+
+        try:
+            rate = flt(get_exchange_rate(currency, company_currency, frappe.utils.today()))
+        except Exception:
+            rate = 0.0
+
+        if rate > 0:
+            return rate
+
+        # nothing on file and nothing online: the operator has to say what it is worth
+        raise ValidationError(
+            f"This contract bills in {currency} while {company} keeps its books in "
+            f"{company_currency}, and no rate could be found — neither on file nor from the "
+            "online provider. Enter the rate to use.",
+            "EXCHANGE_RATE_REQUIRED",
+            400,
+        )
+
+    @staticmethod
+    def _remember_rate(currency, company_currency, rate):
+        today = frappe.utils.today()
+        name = frappe.db.get_value(
+            "Currency Exchange",
+            {"from_currency": currency, "to_currency": company_currency, "date": today},
+            "name",
+        )
+
+        if name:
+            frappe.db.set_value("Currency Exchange", name, "exchange_rate", rate)
+            return
+
+        frappe.get_doc(
+            {
+                "doctype": "Currency Exchange",
+                "date": today,
+                "from_currency": currency,
+                "to_currency": company_currency,
+                "exchange_rate": rate,
+                "for_selling": 1,
+                "for_buying": 1,
+            }
+        ).insert(ignore_permissions=True)
 
     @staticmethod
     def _create_order(doc, items, company, conversion_rate, dimensions=None):
@@ -1014,7 +1131,7 @@ class BillingService:
         return grouped
 
     @staticmethod
-    def create_invoice(name=None, dimensions=None):
+    def create_invoice(name=None, dimensions=None, exchange_rate=None):
         """Group the frozen lines into an order, then the invoice drawn from it.
 
         The order carries no approval of its own — it is there so the sale follows the
@@ -1066,7 +1183,7 @@ class BillingService:
                 ),
                 # the headcount behind the line, printed in its own column
                 "msp_billed_count": bucket["targets"],
-                "qty": flt(bucket["months"], 2),
+                "qty": flt(bucket["months"], 3),
                 "uom": BILLING_UOM,
                 "conversion_factor": 1,
                 "rate": flt(flt(rate, 2) * (1 - flt(discount) / 100.0), 2),
@@ -1095,21 +1212,9 @@ class BillingService:
         for item in items:
             item["income_account"] = income_account
 
-        conversion_rate = None
-
-        if doc.currency and doc.currency != company_currency:
-            conversion_rate = frappe.db.get_value(
-                "Currency Exchange",
-                {"from_currency": doc.currency, "to_currency": company_currency},
-                "exchange_rate",
-                order_by="date desc",
-            )
-            if not conversion_rate:
-                raise ValidationError(
-                    f"The contract bills in {doc.currency} but {company} keeps its books in "
-                    f"{company_currency}. Create a Currency Exchange record before invoicing.",
-                    "VALIDATION_ERROR",
-                )
+        conversion_rate = BillingService._conversion_rate(
+            doc.currency, company_currency, company, exchange_rate
+        )
 
         order = BillingService._create_order(doc, items, company, conversion_rate, dimensions)
         invoice = BillingService._invoice_from_order(order, conversion_rate, dimensions)
@@ -2116,7 +2221,7 @@ class BillingService:
                         "item_code": service_item,
                         "description": f"{frappe.db.get_value('Item', service_item, 'item_name') or service_item}"
                         f" — credit for {period_label}",
-                        "qty": flt(bucket["months"], 2),
+                        "qty": flt(bucket["months"], 3),
                         "uom": BILLING_UOM,
                         "conversion_factor": 1,
                         "rate": flt(rate, 2),

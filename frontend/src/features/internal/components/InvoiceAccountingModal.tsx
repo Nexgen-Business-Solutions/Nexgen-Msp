@@ -4,7 +4,7 @@ import Modal from '@/shared/components/Modal';
 import FieldLabel from '@/shared/components/FieldLabel';
 import Select from '@/shared/components/Select';
 import type { BillingRunDetail } from '@/lib/api/internal';
-import { useInvoiceDimensions } from '../hooks/useBilling';
+import { useExchangePreview, useInvoiceDimensions } from '../hooks/useBilling';
 
 type Props = {
   open: boolean;
@@ -12,7 +12,7 @@ type Props = {
   loading?: boolean;
   error?: Error;
   onClose: () => void;
-  onConfirm: (dimensions: Record<string, string>) => void;
+  onConfirm: (dimensions: Record<string, string>, exchangeRate?: string) => void;
 };
 
 const FREEZES = 'Freezing the run and drawing its invoice, in one step.';
@@ -33,7 +33,15 @@ const InvoiceAccountingModal: React.FC<Props> = ({
   onConfirm,
 }) => {
   const dimensions = useInvoiceDimensions(open);
+  const exchange = useExchangePreview(run?.name, open);
   const [values, setValues] = useState<Record<string, string>>({});
+  const [rate, setRate] = useState('');
+
+  // the automatic answer fills the box; typing over it is what an operator does when the
+  // provider is wrong or silent
+  useEffect(() => {
+    if (open && exchange.data?.rate) setRate(String(exchange.data.rate));
+  }, [open, exchange.data?.rate]);
 
   const fields = useMemo(() => dimensions.data ?? [], [dimensions.data]);
 
@@ -51,6 +59,8 @@ const InvoiceAccountingModal: React.FC<Props> = ({
   }, [open, fields]);
 
   const missing = fields.filter((field) => field.mandatory && !values[field.fieldname]);
+  const needsRate = Boolean(exchange.data?.needed);
+  const rateMissing = needsRate && !Number(rate);
 
   // what the run holds today; ERPNext recomputes the authoritative figures on creation
   const lines = (run?.lines ?? []).filter((line) => !line.exception_code);
@@ -76,8 +86,8 @@ const InvoiceAccountingModal: React.FC<Props> = ({
           </button>
           <button
             type="button"
-            onClick={() => onConfirm(values)}
-            disabled={missing.length > 0 || loading || dimensions.isLoading}
+            onClick={() => onConfirm(values, needsRate ? rate : undefined)}
+            disabled={missing.length > 0 || rateMissing || loading || dimensions.isLoading}
             className="flex min-w-[9rem] items-center justify-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {loading ? (
@@ -92,6 +102,42 @@ const InvoiceAccountingModal: React.FC<Props> = ({
       }
     >
       <div className="space-y-6">
+        {needsRate && (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+              Recorded in your books
+            </p>
+            <p className="mt-2 text-sm text-slate-600">
+              The customer is billed in{' '}
+              <span className="font-semibold">{exchange.data?.currency}</span>, and that never
+              changes. {exchange.data?.company} keeps its books in{' '}
+              <span className="font-semibold">{exchange.data?.company_currency}</span>, so the
+              same invoice is recorded there at this rate.
+            </p>
+
+            <div className="mt-3 flex flex-wrap items-end gap-3">
+              <div>
+                <FieldLabel required>
+                  1 {exchange.data?.currency} = ? {exchange.data?.company_currency}
+                </FieldLabel>
+                <input
+                  type="number"
+                  step="0.0001"
+                  min="0"
+                  value={rate}
+                  onChange={(event) => setRate(event.target.value)}
+                  className="h-10 w-44 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                />
+              </div>
+              <p className="pb-2 text-xs text-slate-400">
+                {exchange.data?.rate
+                  ? 'Fetched automatically — correct it if it is wrong.'
+                  : 'No rate could be found automatically. Type the one to use.'}
+              </p>
+            </div>
+          </div>
+        )}
+
         <div>
           <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
             Customer & contract

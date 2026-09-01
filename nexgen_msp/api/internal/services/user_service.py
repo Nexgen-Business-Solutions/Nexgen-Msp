@@ -7,7 +7,11 @@ from nexgen_msp.utils.meta import select_options
 
 from nexgen_msp.utils.catalogue import security_item
 
-from nexgen_msp.api.internal.services.request_service import ADMIN_ROLES, RequestService
+from nexgen_msp.api.internal.services.request_service import (
+    ADMIN_ROLES,
+    CUSTOMER_STATUS,
+    RequestService,
+)
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 
@@ -412,10 +416,11 @@ class UserService:
             from `tabMSP Service Request` sr
             join `tabMSP Service Request Line` srl on srl.parent = sr.name
             where srl.client_user = %(user)s
+              and sr.status != %(customer_status)s
             order by sr.creation desc
             limit 10
             """,
-            {"user": name},
+            {"user": name, "customer_status": CUSTOMER_STATUS},
             as_dict=True,
         )
 
@@ -432,11 +437,12 @@ class UserService:
                 from `tabMSP Service Request` sr
                 left join `tabUser` requester on requester.name = sr.requester
                 where sr.customer = %(customer)s
+                  and sr.status != %(customer_status)s
                 order by field(sr.status, 'Completed', 'Rejected', 'Cancelled') asc,
                          sr.creation desc
                 limit 30
                 """,
-                {"customer": user.customer},
+                {"customer": user.customer, "customer_status": CUSTOMER_STATUS},
                 as_dict=True,
             ),
             "device_types": frappe.get_meta("MSP Managed Device")

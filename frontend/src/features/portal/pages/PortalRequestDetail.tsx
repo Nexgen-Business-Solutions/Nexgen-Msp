@@ -1,7 +1,8 @@
+import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, CircleCheck, CircleX, Clock, Quote } from 'lucide-react';
+import { AlertCircle, ArrowLeft, CircleCheck, CircleX, Clock, Quote, ShieldCheck } from 'lucide-react';
 import StatusBadge from '@/shared/components/StatusBadge';
-import { useServiceRequest } from '../hooks/usePortal';
+import { useDecideRequest, useServiceRequest } from '../hooks/usePortal';
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
 
@@ -28,6 +29,9 @@ const OUTCOME = {
 
 export default function PortalRequestDetail() {
   const { name = '' } = useParams();
+  const decide = useDecideRequest();
+  const [reason, setReason] = useState('');
+  const [refusing, setRefusing] = useState(false);
   const navigate = useNavigate();
   const { data, isLoading, error } = useServiceRequest(name);
 
@@ -84,6 +88,76 @@ export default function PortalRequestDetail() {
           <p className="mt-4 text-xs text-slate-500">
             Reviewed by Nexgen on {fmtDate(data.reviewed_on)}
           </p>
+        )}
+
+        {data.status === 'Awaiting Customer Approval' && (
+          <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+            {data.can_decide ? (
+              <>
+                <p className="text-sm font-semibold text-amber-900">
+                  This request is waiting for your accord
+                </p>
+                <p className="mt-1 text-sm text-amber-800">
+                  It reaches Nexgen only once you have approved it. Nothing is provisioned or
+                  billed before that.
+                </p>
+
+                {decide.error instanceof Error && (
+                  <p className="mt-3 flex items-start gap-2 text-sm font-medium text-red-700">
+                    <AlertCircle size={15} className="mt-0.5 shrink-0" />
+                    {decide.error.message}
+                  </p>
+                )}
+
+                {refusing && (
+                  <textarea
+                    rows={2}
+                    autoFocus
+                    value={reason}
+                    onChange={(event) => setReason(event.target.value)}
+                    placeholder="Why are you refusing? The person who raised it will read this."
+                    className="mt-3 w-full resize-y rounded-lg border border-amber-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-amber-500 focus:ring-4 focus:ring-amber-100"
+                  />
+                )}
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={decide.isLoading}
+                    onClick={() =>
+                      refusing
+                        ? decide.mutate({ name: data.name, approve: false, reason })
+                        : decide.mutate({ name: data.name, approve: true })
+                    }
+                    className={
+                      refusing
+                        ? 'inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:opacity-60'
+                        : 'inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-60'
+                    }
+                  >
+                    {refusing ? <CircleX size={15} /> : <ShieldCheck size={15} />}
+                    {refusing ? 'Confirm the refusal' : 'Approve and send to Nexgen'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={decide.isLoading}
+                    onClick={() => {
+                      setRefusing(!refusing);
+                      setReason('');
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-4 py-2.5 text-sm font-semibold text-amber-800 transition-colors hover:bg-amber-100"
+                  >
+                    {refusing ? 'Cancel' : 'Refuse it'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-amber-800">
+                Waiting for approval inside your company. It reaches Nexgen once someone with
+                that right has agreed to it.
+              </p>
+            )}
+          </div>
         )}
       </div>
 

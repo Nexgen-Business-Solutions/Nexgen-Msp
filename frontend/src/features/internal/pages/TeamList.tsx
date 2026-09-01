@@ -218,26 +218,34 @@ export default function TeamList() {
                       <RowActionsMenu
                         actions={
                           [
-                            {
-                              label: 'Resend the invitation',
-                              icon: KeyRound,
-                              onClick: () => resend.mutate(member.name),
-                              disabled: !member.enabled,
-                            },
-                            ...(options.data?.roles ?? [])
-                              .filter((role) => role !== member.role)
-                              .map((role) => ({
-                                label: `Make ${ROLE_LABEL[role] ?? role}`,
-                                icon: ShieldCheck,
-                                disabled: !member.role,
-                                onClick: () => setRole.mutate({ email: member.name, role }),
-                              })),
-                            {
-                              label: 'Reset two-factor',
-                              icon: KeyRound,
-                              disabled: !member.two_factor,
-                              onClick: () => setTarget({ member, action: 'reset2fa' }),
-                            },
+                            // the menu offers what applies to this account and nothing else
+                            ...(member.enabled
+                              ? [
+                                  {
+                                    label: 'Resend the invitation',
+                                    icon: KeyRound,
+                                    onClick: () => resend.mutate(member.name),
+                                  },
+                                ]
+                              : []),
+                            ...(member.role
+                              ? (options.data?.roles ?? [])
+                                  .filter((role) => role !== member.role)
+                                  .map((role) => ({
+                                    label: `Make ${ROLE_LABEL[role] ?? role}`,
+                                    icon: ShieldCheck,
+                                    onClick: () => setRole.mutate({ email: member.name, role }),
+                                  }))
+                              : []),
+                            ...(member.two_factor
+                              ? [
+                                  {
+                                    label: 'Reset two-factor',
+                                    icon: KeyRound,
+                                    onClick: () => setTarget({ member, action: 'reset2fa' }),
+                                  },
+                                ]
+                              : []),
                             {
                               label: member.enabled ? 'Disable the account' : 'Enable the account',
                               icon: member.enabled ? UserX : UserCheck,

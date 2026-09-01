@@ -255,6 +255,24 @@ class SettingsService:
         )
 
     @staticmethod
+    def describe_asset_file(file_url=None):
+        SettingsService._guard_admin()
+
+        from nexgen_msp.api.excel_import.services.asset_import_service import AssetImportService
+
+        return AssetImportService.describe(file_url=file_url)
+
+    @staticmethod
+    def run_asset_import(file_url=None, dry_run=1, fill_blanks_only=1):
+        SettingsService._guard_admin()
+
+        from nexgen_msp.api.excel_import.services.asset_import_service import AssetImportService
+
+        return AssetImportService.import_assets(
+            file_url=file_url, dry_run=dry_run, fill_blanks_only=fill_blanks_only
+        )
+
+    @staticmethod
     def dispute_window():
         """How many days after its date an invoice can still be contested."""
         days = frappe.db.get_single_value("MSP Invoice Settings", "dispute_window_days")

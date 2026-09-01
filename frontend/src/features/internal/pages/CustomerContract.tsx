@@ -15,6 +15,7 @@ import ConfirmModal from '@/shared/components/ConfirmModal';
 import RowActionsMenu, { type RowAction } from '@/shared/components/RowActionsMenu';
 import ContractModal from '../components/ContractModal';
 import CustomerModal from '../components/CustomerModal';
+import AuthorityPanel from '../components/AuthorityPanel';
 import MspContractModal from '../components/MspContractModal';
 import RateModal from '../components/RateModal';
 import type { ContractRate, MspContractDetail } from '@/lib/api/internal';
@@ -601,6 +602,8 @@ export default function CustomerContract() {
         profile={profile}
         onClose={() => setContractOpen(false)}
       />
+
+      <AuthorityPanel customer={customer} />
 
       <MspContractModal
         open={agreementOpen}

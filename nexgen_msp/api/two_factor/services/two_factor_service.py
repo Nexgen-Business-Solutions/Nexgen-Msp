@@ -20,6 +20,7 @@ from frappe.utils import get_url, now_datetime
 from frappe.utils.password import decrypt, encrypt
 
 from nexgen_msp.utils.auth_audit import (
+    EVENT_BAD_PASSWORD,
     EVENT_REAUTH_OTP_INVALID,
     EVENT_SETUP_CONTEXT_INVALID,
     EVENT_SETUP_OTP_INVALID,
@@ -203,6 +204,47 @@ class TwoFactorService:
             "user": user,
             "session_expiry_seconds": TwoFactorService.session_expiry_seconds(),
         }
+
+    @staticmethod
+    def reset_own(password=None):
+        """Undo one's own second factor, proving the account password first.
+
+        The password rather than the current code, deliberately. The commonest reason to
+        reset is a lost or replaced phone, and someone who no longer has the authenticator
+        could never produce a code — the screen would help nobody. What this screen has to
+        guard against is a session left open on an unattended machine, and a password does
+        that: whoever walks past does not know it.
+
+        Sessions are left open. The reset takes effect at the next sign-in, where the app
+        already refuses to let anyone in without a second factor and walks them through
+        setting up a new one.
+        """
+        user = TwoFactorService._require_user()
+
+        if not TwoFactorService.has_secret(user):
+            raise ValidationError(
+                _("Two-factor authentication is not set up on this account."),
+                "TWO_FA_NOT_CONFIGURED",
+            )
+
+        if not password:
+            raise ValidationError(_("Your password is required."), "VALIDATION_ERROR")
+
+        from frappe.utils.password import check_password
+
+        try:
+            check_password(user, password)
+        except frappe.AuthenticationError:
+            record_auth_failure(EVENT_BAD_PASSWORD, user, detail="self reset")
+            raise ValidationError(_("That password is not right."), "AUTHENTICATION_FAILED")
+
+        frappe.defaults.clear_default(
+            key=TwoFactorService._key(user), parent=DEFAULTS_PARENT_2FA
+        )
+        frappe.cache().delete_value(f"{PENDING_SETUP_PREFIX}{user}")
+        frappe.db.commit()
+
+        return {"ok": True, "user": user, "enabled": False}
 
     @staticmethod
     def reset(user=None):
