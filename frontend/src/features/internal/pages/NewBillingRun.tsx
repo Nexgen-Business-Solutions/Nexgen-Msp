@@ -179,14 +179,25 @@ export default function NewBillingRun() {
   // the invoice is read service by service before it is read person by person, so the run
   // says how many of each it carries before listing who they belong to
   const perService = useMemo(() => {
-    const tally = new Map<string, { name: string; count: number; months: number; amount: number }>();
+    const tally = new Map<
+      string,
+      { name: string; count: number; months: number; amount: number; partial: number }
+    >();
 
     for (const line of kept) {
       const key = line.service_item;
-      const row = tally.get(key) ?? { name: line.service_name || key, count: 0, months: 0, amount: 0 };
+      const row = tally.get(key) ?? {
+        name: line.service_name || key,
+        count: 0,
+        months: 0,
+        amount: 0,
+        partial: 0,
+      };
       row.count += 1;
       row.months += line.billable_months;
       row.amount += line.amount;
+      // why the months never quite match the line count: some ran only part of the period
+      if (line.billable_months < 1) row.partial += 1;
       tally.set(key, row);
     }
 
@@ -697,6 +708,11 @@ export default function NewBillingRun() {
                         {row.months.toFixed(1)} months · {row.amount.toLocaleString()}{' '}
                         {result?.currency ?? ''}
                       </p>
+                      {row.partial > 0 && (
+                        <p className="mt-0.5 text-xs text-amber-600">
+                          {row.partial} part of the month only
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>

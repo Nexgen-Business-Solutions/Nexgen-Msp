@@ -40,6 +40,7 @@ const AssignServiceModal: React.FC<Props> = ({ open, detail, defaultRequest, onC
   const [hostname, setHostname] = useState('');
   const [serial, setSerial] = useState('');
   const [deviceType, setDeviceType] = useState('');
+  const [username, setUsername] = useState('');
   const [interfaces, setInterfaces] = useState<DeviceInterface[]>([]);
 
   const activeDevices = useMemo(
@@ -58,6 +59,7 @@ const AssignServiceModal: React.FC<Props> = ({ open, detail, defaultRequest, onC
     setDevice(activeDevices[0]?.name ?? '');
     setHostname('');
     setSerial('');
+    setUsername('');
     setDeviceType('');
     setInterfaces([]);
     assign.reset();
@@ -75,6 +77,14 @@ const AssignServiceModal: React.FC<Props> = ({ open, detail, defaultRequest, onC
   const declaredScope = detail.catalogue.find((item) => item.name === service)?.scope;
   const canChooseScope = declaredScope === 'Both';
   const requiresDevice = declaredScope === 'Device' || (canChooseScope && targetScope === 'Device');
+
+  // the two facts the request cannot be closed without: asked for here, where the machine
+  // and the licence are still in front of whoever is doing the work
+  const chosenDevice = activeDevices.find((item) => item.name === device);
+  const wantsSerial =
+    requiresDevice && mode === 'existing' && Boolean(chosenDevice) && !chosenDevice?.serial_number;
+  const wantsUsername =
+    (declaredScope === 'User' || declaredScope === 'Both') && !detail.user.username;
 
   const update = (position: number, patch: Partial<DeviceInterface>) =>
     setInterfaces((current) =>
@@ -96,7 +106,9 @@ const AssignServiceModal: React.FC<Props> = ({ open, detail, defaultRequest, onC
         device_mode: requiresDevice ? mode : 'none',
         managed_device: requiresDevice && mode === 'existing' ? device : undefined,
         hostname: requiresDevice && mode === 'new' ? hostname.trim() : undefined,
-        serial_number: requiresDevice && mode === 'new' ? serial.trim() : undefined,
+        serial_number:
+          requiresDevice && (mode === 'new' || wantsSerial) ? serial.trim() || undefined : undefined,
+        username: wantsUsername ? username.trim() || undefined : undefined,
         device_type: requiresDevice ? deviceType || undefined : undefined,
         interfaces: requiresDevice ? interfaces.filter((i) => i.mac_address.trim()) : undefined,
         notes: notes.trim() || undefined,
@@ -333,6 +345,46 @@ const AssignServiceModal: React.FC<Props> = ({ open, detail, defaultRequest, onC
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {(wantsSerial || wantsUsername) && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3.5">
+            <p className="text-sm font-semibold text-amber-900">
+              Missing for this service
+            </p>
+            <p className="mt-0.5 text-xs text-amber-800">
+              The request cannot be closed without {wantsSerial && wantsUsername
+                ? 'these'
+                : 'this'}. Fill {wantsSerial && wantsUsername ? 'them' : 'it'} in now if you have{' '}
+              {wantsSerial && wantsUsername ? 'them' : 'it'} to hand.
+            </p>
+
+            {wantsSerial && (
+              <div className="mt-3">
+                <span className={labelClass}>Serial number of {chosenDevice?.hostname}</span>
+                <input
+                  type="text"
+                  value={serial}
+                  onChange={(event) => setSerial(event.target.value)}
+                  placeholder="Read it off the machine"
+                  className={inputClass}
+                />
+              </div>
+            )}
+
+            {wantsUsername && (
+              <div className="mt-3">
+                <span className={labelClass}>Username for {detail.user.full_name}</span>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  placeholder="The account name on the licence"
+                  className={inputClass}
+                />
+              </div>
+            )}
           </div>
         )}
 

@@ -19,6 +19,12 @@ const OUTCOME = {
     iconClass: 'text-red-600',
     label: 'Declined',
   },
+  Cancelled: {
+    icon: CircleX,
+    className: 'border-slate-100 bg-slate-50/60',
+    iconClass: 'text-slate-400',
+    label: 'Cancelled',
+  },
   Pending: {
     icon: Clock,
     className: 'border-amber-100 bg-amber-50/60',

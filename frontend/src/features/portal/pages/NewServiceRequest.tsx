@@ -291,6 +291,25 @@ export default function NewServiceRequest() {
                           </dl>
                         );
                       })()}
+                      {(() => {
+                        const picked = form.userFor(line.client_user);
+                        if (!picked || picked.username) return null;
+
+                        return (
+                          <div className="mt-3">
+                            <span className={labelClass}>Username</span>
+                            <input
+                              type="text"
+                              value={line.new_user_username}
+                              onChange={(event) =>
+                                form.updateLine(line.key, 'new_user_username', event.target.value)
+                              }
+                              placeholder="If you already know it"
+                              className={inputClass}
+                            />
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
 
@@ -374,6 +393,30 @@ export default function NewServiceRequest() {
                           <p className="mt-1 text-xs text-red-600">{errors.managed_device}</p>
                         )}
                       </div>
+
+                      {(() => {
+                        if (!line.managed_device || line.managed_device === form.newDeviceValue) {
+                          return null;
+                        }
+
+                        const picked = form.deviceFor(line.managed_device);
+                        if (!picked || picked.serial_number) return null;
+
+                        return (
+                          <div>
+                            <span className={labelClass}>Serial number</span>
+                            <input
+                              type="text"
+                              value={line.new_device_serial}
+                              onChange={(event) =>
+                                form.updateLine(line.key, 'new_device_serial', event.target.value)
+                              }
+                              placeholder="If you have it to hand"
+                              className={inputClass}
+                            />
+                          </div>
+                        );
+                      })()}
 
                       {line.managed_device === form.newDeviceValue && (
                         <div>

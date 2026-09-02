@@ -2,6 +2,7 @@ import frappe
 
 from nexgen_msp.utils.catalogue import security_item
 
+from nexgen_msp.api.internal.services.request_service import effective_line_status
 from nexgen_msp.utils import approval, permissions
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
@@ -496,6 +497,9 @@ class PortalService:
             as_dict=True,
         )
 
+        for line in lines:
+            line["line_status"] = effective_line_status(line.get("line_status"), doc.status)
+
         return {
             "name": doc.name,
             "customer": doc.customer,
@@ -768,6 +772,8 @@ class PortalService:
             }
         ).insert()
 
+        PortalService._record_supplied_facts(doc)
+
         if approved_by:
             # raised by someone who may approve their own: the accord is theirs, recorded
             # rather than left implicit
@@ -782,6 +788,46 @@ class PortalService:
             PortalService._acknowledge(doc)
 
         return PortalService.get_request(doc.name)
+
+    @staticmethod
+    def _record_supplied_facts(doc):
+        """Keep the username and serial the customer happened to know.
+
+        Neither is asked of them, but when they do supply one for a person or a machine we
+        already hold, it is a fact about that record and belongs on it — it is also what
+        the technician is later refused a closure for not having.
+
+        Only ever fills a blank: a value already on file was put there by someone who had
+        the machine in their hands, and is not overwritten from a form.
+        """
+        for row in doc.lines:
+            username = (row.new_user_username or "").strip()
+
+            if username and row.client_user:
+                held = frappe.db.get_value("MSP Client User", row.client_user, "username")
+                if not (held or "").strip():
+                    frappe.db.set_value("MSP Client User", row.client_user, "username", username)
+
+            serial = (row.new_device_serial or "").strip()
+
+            if not serial or not row.managed_device:
+                continue
+
+            held = frappe.db.get_value("MSP Managed Device", row.managed_device, "serial_number")
+
+            if (held or "").strip():
+                continue
+
+            clash = frappe.db.get_value(
+                "MSP Managed Device", {"serial_number": serial, "name": ["!=", row.managed_device]}, "hostname"
+            )
+
+            if clash:
+                raise ValidationError(
+                    f"Serial {serial} is already recorded against {clash}.", "VALIDATION_ERROR"
+                )
+
+            frappe.db.set_value("MSP Managed Device", row.managed_device, "serial_number", serial)
 
     @staticmethod
     def my_approval_rights(customer=None):

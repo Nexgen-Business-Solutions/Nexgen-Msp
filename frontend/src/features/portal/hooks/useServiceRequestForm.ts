@@ -98,7 +98,8 @@ const toPayloadLines = (line: FormLine, deviceServices: Set<string>): NewRequest
       is_new_user: line.isNewUser ? 1 : 0,
       is_new_device: toRegister ? 1 : 0,
       new_device_label: toRegister ? line.new_device_label.trim() : undefined,
-      new_device_serial: toRegister ? line.new_device_serial.trim() || undefined : undefined,
+      // sent for a machine we already hold too: it is how a serial we never had gets filled
+      new_device_serial: line.new_device_serial.trim() || undefined,
       client_user: line.isNewUser || onDevice ? undefined : line.client_user,
       managed_device: onDevice ? line.managed_device : undefined,
       new_user_full_name: line.isNewUser ? line.new_user_full_name.trim() : undefined,
@@ -106,9 +107,7 @@ const toPayloadLines = (line: FormLine, deviceServices: Set<string>): NewRequest
       new_user_department: line.isNewUser
         ? line.new_user_department.trim() || undefined
         : undefined,
-      new_user_username: line.isNewUser
-        ? line.new_user_username.trim() || undefined
-        : undefined,
+      new_user_username: line.new_user_username.trim() || undefined,
       requested_service: service,
       requested_effective_date: line.requested_effective_date || undefined,
       comment: line.comment || undefined,
@@ -285,6 +284,7 @@ export const useServiceRequestForm = (onCreated?: (request: ServiceRequestDetail
           label: row.hostname,
           description: [row.device_type, row.serial_number].filter(Boolean).join(' · ') || undefined,
         })),
+    deviceFor: (device: string) => (devices.data ?? []).find((row) => row.name === device),
     newDeviceValue: NEW_DEVICE,
     loadingOptions: catalogue.isLoading || users.isLoading || devices.isLoading,
   };

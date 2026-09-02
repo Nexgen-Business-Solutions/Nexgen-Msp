@@ -29,7 +29,7 @@ import {
   useChangeDeviceStatus,
 } from '../hooks/useDevices';
 
-const COLUMNS = ['Device', 'Customer', 'Type', 'Network interfaces', 'Active services', 'Inactive services', ''];
+const COLUMNS = ['Device', 'Customer', 'Network interfaces', 'Active services', 'Inactive services', ''];
 
 const INTERFACE_LABEL: Record<string, string> = {
   'Wi-Fi': 'MAC WIFI',
@@ -228,12 +228,17 @@ export default function DevicesList() {
                       ) : (
                         <p className="text-xs text-slate-400">Unassigned</p>
                       )}
+                      {row.serial_number ? (
+                        <p className="mt-0.5 font-mono text-xs text-slate-500">
+                          {row.serial_number}
+                        </p>
+                      ) : (
+                        <p className="mt-0.5 text-xs text-slate-300">No serial</p>
+                      )}
+                      <p className="text-xs text-slate-400">{row.device_type}</p>
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
                       {row.customer}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                      {row.device_type}
                     </td>
                     <td className="px-4 py-3">
                       {row.interfaces?.length ? (

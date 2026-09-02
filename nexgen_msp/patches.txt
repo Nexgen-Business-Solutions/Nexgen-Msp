@@ -22,3 +22,4 @@ nexgen_msp.patches.seed_device_holders
 nexgen_msp.patches.flag_current_holder
 nexgen_msp.patches.close_retired_holders
 nexgen_msp.patches.flag_username_services
+nexgen_msp.patches.close_abandoned_lines

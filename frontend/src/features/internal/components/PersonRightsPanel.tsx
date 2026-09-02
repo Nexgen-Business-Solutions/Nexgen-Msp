@@ -80,8 +80,8 @@ const PersonRightsPanel: React.FC<Props> = ({ clientUser }) => {
         {Boolean(current?.can_approve) && (
           <p className="mt-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
             <ShieldCheck size={16} className="mt-0.5 shrink-0 text-amber-600" />
-            Requests from {data.customer} now wait for an accord inside the company before
-            reaching us.
+            Their own requests now reach us straight away. Everyone else at {data.customer}{' '}
+            waits for their accord.
           </p>
         )}
       </div>

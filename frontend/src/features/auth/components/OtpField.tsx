@@ -26,18 +26,32 @@ const OtpField: React.FC<Props> = ({ value, onChange, onComplete, disabled, auto
     return clean;
   };
 
+  const eraseAt = (index: number) => {
+    const current = value.padEnd(SIZE, ' ').split('');
+    const target = current[index].trim() ? index : Math.max(0, index - 1);
+
+    current[target] = ' ';
+    push(current.join('').replace(/\s/g, ''));
+    boxes.current[target]?.focus();
+  };
+
   const typeAt = (index: number, raw: string) => {
     const typed = raw.replace(/\D/g, '');
-    if (!typed) return;
+
+    // the box reports an empty value when its digit is taken out, which is a deletion and
+    // not a no-op — returning here is what used to make backspace do nothing
+    if (!typed) {
+      eraseAt(index);
+      return;
+    }
 
     const current = value.padEnd(SIZE, ' ').split('');
     typed.split('').forEach((digit, offset) => {
       if (index + offset < SIZE) current[index + offset] = digit;
     });
 
-    const clean = push(current.join('').replace(/\s/g, ''));
-    const landing = Math.min(index + typed.length, SIZE - 1);
-    if (clean.length < SIZE) boxes.current[landing]?.focus();
+    push(current.join('').replace(/\s/g, ''));
+    boxes.current[Math.min(index + typed.length, SIZE - 1)]?.focus();
   };
 
   return (
@@ -59,8 +73,9 @@ const OtpField: React.FC<Props> = ({ value, onChange, onComplete, disabled, auto
             typeAt(0, event.clipboardData.getData('text'));
           }}
           onKeyDown={(event) => {
-            if (event.key === 'Backspace' && !digit.trim() && index > 0) {
-              boxes.current[index - 1]?.focus();
+            if (event.key === 'Backspace' || event.key === 'Delete') {
+              event.preventDefault();
+              eraseAt(index);
             }
             if (event.key === 'ArrowLeft' && index > 0) boxes.current[index - 1]?.focus();
             if (event.key === 'ArrowRight' && index < SIZE - 1) boxes.current[index + 1]?.focus();

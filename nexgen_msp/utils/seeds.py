@@ -6,15 +6,21 @@ start clean — the opposite of what a seed is for. These three are the ones a s
 work without: the billing unit, the actions a customer may ask for, and the letterhead an
 invoice is printed with.
 
-Each is only touched while the evidence of it is missing, so a value corrected in
-production survives the next deployment. The values themselves stay in the patches, which
-remain the single place they are written down.
+The first two are structure, and are restored whenever they are missing: without them the
+app cannot run at all. The third is editorial — an address, a bank, a footer — so it is
+written once and then left alone, because an empty field there is a decision someone is
+entitled to make.
+
+The values themselves stay in the patches, which remain the single place they are written
+down.
 """
 
 import frappe
 
 from nexgen_msp.patches import billing_month_uom, seed_invoice_settings, seed_request_actions
 from nexgen_msp.utils.catalogue import BILLING_UOM
+
+SETTINGS_MARKER = "msp_invoice_defaults_seeded"
 
 
 def ensure_seeds():
@@ -47,10 +53,16 @@ def _actions():
 
 
 def _invoice_settings():
-    """The issuer and bank an invoice is printed with."""
-    if frappe.db.get_single_value("MSP Invoice Settings", "issuer_name"):
+    """The issuer, the bank and the address invited customers are sent to.
+
+    Once per site: whoever later clears the portal address, or rewrites the footer, keeps
+    that through every deployment that follows.
+    """
+    if frappe.db.get_default(SETTINGS_MARKER):
         return None
 
     seed_invoice_settings.execute()
+    frappe.db.set_default(SETTINGS_MARKER, "1")
+    frappe.db.commit()
 
     return "invoice settings"

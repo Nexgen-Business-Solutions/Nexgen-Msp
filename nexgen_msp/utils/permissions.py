@@ -26,6 +26,20 @@ def has_customer_permission(user, customer):
     )
 
 
+def is_customer_contact(user=None):
+    """An account bound to a customer belongs to that customer, whatever else it holds.
+
+    This is the fact a staff role must never override: a contact who is also given an
+    internal role would otherwise reach every customer in the book.
+    """
+    user = user or frappe.session.user
+
+    if not user or user in ("Administrator", "Guest"):
+        return False
+
+    return bool(frappe.db.exists("User Permission", {"user": user, "allow": "Customer"}))
+
+
 def is_internal(user=None):
     """Nexgen staff, who serve every customer rather than belonging to one."""
     user = user or frappe.session.user
@@ -33,24 +47,36 @@ def is_internal(user=None):
     if user == "Administrator":
         return True
 
+    if is_customer_contact(user):
+        return False
+
     return bool(set(frappe.get_roles(user)).intersection(INTERNAL_ROLES + MANAGE_ACCESS_ROLES))
 
 
 def get_allowed_customers(user=None):
     """Which customers this account may act for.
 
-    A portal contact is bound to their own by a User Permission. Staff are bound to none:
-    they work across the whole book, which is what lets a technician raise a request on a
-    customer's behalf.
+    A permission on a customer is what makes an account that customer's contact, and it
+    wins over anything else the account carries. A staff role added to such an account —
+    by hand in the desk, or by a mis-click on the account page — must not turn a customer's
+    contact into someone who sees the whole book.
+
+    Staff hold no such permission, and that absence is what gives them every customer: it
+    is what lets a technician raise a request on a customer's behalf.
     """
     user = user or frappe.session.user
+
+    permitted = frappe.db.get_all(
+        "User Permission", filters={"user": user, "allow": "Customer"}, pluck="for_value"
+    )
+
+    if permitted:
+        return permitted
 
     if is_internal(user):
         return frappe.db.get_all("Customer", pluck="name")
 
-    return frappe.db.get_all(
-        "User Permission", filters={"user": user, "allow": "Customer"}, pluck="for_value"
-    )
+    return []
 
 
 def add_customer_permission(user, customer):

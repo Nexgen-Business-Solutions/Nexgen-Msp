@@ -168,6 +168,12 @@ export const useSetLineStatus = () =>
       internal.setRequestLineStatus(variables)
   );
 
+export const useSetDeliveryDetail = () =>
+  useDetailMutation(
+    (variables: { name: string; idx: number; serial_number?: string; username?: string }) =>
+      internal.setRequestDeliveryDetail(variables)
+  );
+
 
 
 export const useInternalDashboard = () =>

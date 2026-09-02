@@ -33,7 +33,9 @@ class SessionService:
         )
 
         is_portal = PORTAL_ROLE in roles
-        is_internal = any(role in roles for role in INTERNAL_ROLES)
+        is_internal = any(role in roles for role in INTERNAL_ROLES) and not (
+            permissions.is_customer_contact(user)
+        )
 
         profile = frappe.db.get_value(
             "MSP Client User", {"portal_user": user}, ["name", "department"], as_dict=True

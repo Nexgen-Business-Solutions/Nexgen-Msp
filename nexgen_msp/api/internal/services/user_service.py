@@ -589,6 +589,7 @@ class UserService:
         device_type=None,
         interfaces=None,
         serial_number=None,
+        username=None,
         notes=None,
         source_request=None,
         target_scope=None,
@@ -688,12 +689,51 @@ class UserService:
             }
         ).insert()
 
+        # what the service will later be refused a closure for not having, taken while the
+        # technician still has the machine and the licence in front of them
+        UserService._record_identifiers(user.name, device, serial_number, username)
+
         reference = f" in reference to {source_request}" if source_request else ""
         assignment.add_comment("Comment", f"Opened by {frappe.session.user}{reference}.")
         remarks_util.on_assignment(assignment, "granted", notes)
         frappe.db.commit()
 
         return UserService.get_user(client_user)
+
+    @staticmethod
+    def _record_identifiers(client_user, device, serial_number, username):
+        """Fill the serial and the account name the closure will ask for.
+
+        Only where nothing is on file: a value already recorded was put there by someone
+        who had the machine in their hands, and is not overwritten from a form.
+        """
+        serial = (serial_number or "").strip()
+
+        if serial and device:
+            held = frappe.db.get_value("MSP Managed Device", device, "serial_number")
+
+            if not (held or "").strip():
+                clash = frappe.db.get_value(
+                    "MSP Managed Device",
+                    {"serial_number": serial, "name": ["!=", device]},
+                    "hostname",
+                )
+
+                if clash:
+                    raise ValidationError(
+                        f"Serial {serial} is already recorded against {clash}.",
+                        "VALIDATION_ERROR",
+                    )
+
+                frappe.db.set_value("MSP Managed Device", device, "serial_number", serial)
+
+        account = (username or "").strip()
+
+        if account and client_user:
+            held = frappe.db.get_value("MSP Client User", client_user, "username")
+
+            if not (held or "").strip():
+                frappe.db.set_value("MSP Client User", client_user, "username", account)
 
     @staticmethod
     def change_service(

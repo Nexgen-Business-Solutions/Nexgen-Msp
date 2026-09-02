@@ -67,6 +67,14 @@ def run_request_action(name=None, action=None, reason=None):
 
 @frappe.whitelist()
 @handle_errors
+def set_request_delivery_detail(name=None, idx=None, serial_number=None, username=None):
+    return RequestService.set_delivery_detail(
+        name=name, idx=idx, serial_number=serial_number, username=username
+    )
+
+
+@frappe.whitelist()
+@handle_errors
 def set_request_line_status(name=None, idx=None, line_status=None, reason=None):
     return RequestService.set_line_status(
         name=name, idx=idx, line_status=line_status, reason=reason
@@ -293,6 +301,7 @@ def assign_user_service(
     device_type=None,
     interfaces=None,
     serial_number=None,
+    username=None,
     notes=None,
     source_request=None,
     target_scope=None,
@@ -309,6 +318,7 @@ def assign_user_service(
         device_type=device_type,
         interfaces=interfaces,
         serial_number=serial_number,
+        username=username,
         notes=notes,
         source_request=source_request,
         target_scope=target_scope,

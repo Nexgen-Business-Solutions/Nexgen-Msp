@@ -67,6 +67,10 @@ export type RequestDetailLine = {
   requested_quantity: number;
   requested_effective_date: string | null;
   comment: string | null;
+  device_serial: string | null;
+  client_username: string | null;
+  needs_serial: boolean;
+  needs_username: boolean;
   line_status: string;
   rejection_reason: string | null;
 };
@@ -120,6 +124,13 @@ export const getRequestStats = (params: RequestListParams = {}, signal?: AbortSi
 
 export const listRequests = (params: RequestListParams = {}, signal?: AbortSignal) =>
   get<Paginated<RequestRow>>(`${BASE}.list_requests`, params, signal);
+
+export const setRequestDeliveryDetail = (payload: {
+  name: string;
+  idx: number;
+  serial_number?: string;
+  username?: string;
+}) => post<RequestDetail>(`${BASE}.set_request_delivery_detail`, payload);
 
 export const getRequest = (name: string, signal?: AbortSignal) =>
   get<RequestDetail>(`${BASE}.get_request`, { name }, signal);
@@ -412,6 +423,7 @@ export const assignUserService = (payload: {
   device_type?: string;
   interfaces?: DeviceInterface[];
   serial_number?: string;
+  username?: string;
   notes?: string;
   source_request?: string;
   target_scope?: 'User' | 'Device';

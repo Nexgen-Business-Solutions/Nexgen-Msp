@@ -61,7 +61,10 @@ const AuthorityPanel: React.FC<Props> = ({ customer }) => {
     setDirty(true);
   };
 
-  const approves = rows.some((row) => row.can_approve);
+  // what is actually in force, not what is merely ticked: the sentence states a fact, so
+  // it must not appear before Save has made it true
+  const approves = (authority.data?.approvers ?? []).some((row) => row.can_approve);
+  const willApprove = rows.some((row) => row.can_approve);
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
@@ -99,11 +102,13 @@ const AuthorityPanel: React.FC<Props> = ({ customer }) => {
         </div>
       )}
 
-      {approves && (
+      {(approves || willApprove) && (
         <div className="mx-5 mb-3 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
           <ShieldCheck size={16} className="mt-0.5 shrink-0 text-amber-600" />
           <p className="text-sm text-amber-800">
-            Their requests now wait for an accord inside the company before reaching us.
+            {approves
+              ? 'Requests from everyone else here now wait for one of them. Their own reach us straight away.'
+              : 'Once saved, requests from everyone else here will wait for one of them. Their own will still reach us straight away.'}
           </p>
         </div>
       )}

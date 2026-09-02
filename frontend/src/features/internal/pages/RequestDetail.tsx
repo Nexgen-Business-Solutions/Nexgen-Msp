@@ -15,6 +15,7 @@ import {
 import Modal from '@/shared/components/Modal';
 import StatusBadge from '@/shared/components/StatusBadge';
 import CreateUserModal from '../components/CreateUserModal';
+import DeliveryDetailsModal, { outstanding } from '../components/DeliveryDetailsModal';
 import { useRequestDetail, useRunRequestAction, useSetLineStatus } from '../hooks/useRequests';
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
@@ -33,6 +34,7 @@ export default function RequestDetail() {
   const setLine = useSetLineStatus();
 
   const [prompt, setPrompt] = useState<ReasonPrompt | null>(null);
+  const [askingDetails, setAskingDetails] = useState(false);
   const [reason, setReason] = useState('');
   const [newUserLine, setNewUserLine] = useState<{
     idx: number;
@@ -136,11 +138,18 @@ export default function RequestDetail() {
                   key={action.action}
                   type="button"
                   disabled={runAction.isLoading}
-                  onClick={() =>
+                  onClick={() => {
+                    // the closure is refused without them, so they are asked for here
+                    // rather than reported as an error after the fact
+                    if (action.action === 'complete' && outstanding(data).length) {
+                      setAskingDetails(true);
+                      return;
+                    }
+
                     action.needs_reason
                       ? openPrompt({ kind: 'action', action: action.action, label: action.label })
-                      : runAction.mutate({ name, action: action.action })
-                  }
+                      : runAction.mutate({ name, action: action.action });
+                  }}
                   className={`inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-60 ${
                     destructive
                       ? 'border border-red-200 bg-white text-red-600 hover:bg-red-50'
@@ -373,6 +382,17 @@ export default function RequestDetail() {
           })}
         </div>
       </div>
+
+      {askingDetails && (
+        <DeliveryDetailsModal
+          request={data}
+          onClose={() => setAskingDetails(false)}
+          onComplete={() => {
+            setAskingDetails(false);
+            runAction.mutate({ name, action: 'complete' });
+          }}
+        />
+      )}
 
       <CreateUserModal
         open={Boolean(newUserLine)}
