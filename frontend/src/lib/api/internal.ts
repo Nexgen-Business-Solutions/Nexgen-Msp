@@ -1,4 +1,4 @@
-import { get, post, postForm } from './client';
+import { download, get, post, postForm } from './client';
 import type { Paginated } from './portal';
 
 const BASE = 'nexgen_msp.api.internal.endpoints.v1';
@@ -1310,31 +1310,24 @@ export type BillingBreakdown = {
 export const getBillingBreakdown = (name: string, signal?: AbortSignal) =>
   get<BillingBreakdown>(`${BASE}.get_billing_breakdown`, { name }, signal);
 
-export const breakdownFileUrl = (run: string) =>
-  `/api/method/${BASE}.download_billing_breakdown?name=${encodeURIComponent(run)}`;
+export const downloadBreakdownFile = (run: string) =>
+  download(`${BASE}.download_billing_breakdown`, { name: run }, `${run}-breakdown.xlsx`);
 
-/** The sheet is streamed by the server, so it is fetched as a plain download URL. */
-const exportUrl = (method: string, params: Record<string, unknown>) => {
-  const search = new URLSearchParams();
-  Object.entries(params).forEach(([key, value]) => {
-    if (value === undefined || value === null || value === '') return;
-    search.append(key, String(value));
-  });
-  const query = search.toString();
-  return `/api/method/${BASE}.${method}${query ? `?${query}` : ''}`;
-};
+/** The sheet is streamed by the server, and travels through the client like anything else. */
+const exportSheet = (method: string, params: Record<string, unknown>, name: string) =>
+  download(`${BASE}.${method}`, params, name);
 
-export const usersExportUrl = (params: UserListParams = {}) =>
-  exportUrl('export_users', params as Record<string, unknown>);
+export const exportUsers = (params: UserListParams = {}) =>
+  exportSheet('export_users', params as Record<string, unknown>, 'users.xlsx');
 
-export const devicesExportUrl = (params: DeviceListParams = {}) =>
-  exportUrl('export_devices', params as Record<string, unknown>);
+export const exportDevices = (params: DeviceListParams = {}) =>
+  exportSheet('export_devices', params as Record<string, unknown>, 'devices.xlsx');
 
-export const requestsExportUrl = (params: RequestListParams = {}) =>
-  exportUrl('export_requests', params as Record<string, unknown>);
+export const exportRequests = (params: RequestListParams = {}) =>
+  exportSheet('export_requests', params as Record<string, unknown>, 'requests.xlsx');
 
-export const invoicePdfUrl = (run: string) =>
-  `/api/method/${BASE}.download_billing_invoice?name=${encodeURIComponent(run)}`;
+export const downloadInvoicePdf = (run: string) =>
+  download(`${BASE}.download_billing_invoice`, { name: run }, `${run}.pdf`);
 
 export type CreditableLine = BillingRunLine & {
   credited_months: number;
@@ -1364,9 +1357,6 @@ export const createCreditNote = (payload: {
     lines: JSON.stringify(payload.lines),
     reason: payload.reason,
   });
-
-export const issueCreditNote = (name: string) =>
-  post<BillingRunDetail>(`${BASE}.issue_credit_note`, { name });
 
 export type BillingDueRow = {
   contract: string;
@@ -1553,7 +1543,7 @@ export type InvoiceSettings = {
 };
 
 export type Approver = {
-  client_user: string;
+  user: string;
   full_name: string | null;
   department: string | null;
   can_submit: boolean;
@@ -1564,32 +1554,24 @@ export type CustomerAuthority = {
   customer: string;
   enabled: boolean;
   approvers: Approver[];
-  candidates: {
-    name: string;
-    full_name: string;
-    department: string | null;
-    portal_user: string | null;
-  }[];
+  candidates: { user: string; full_name: string }[];
 };
 
-export type PersonRights = {
-  client_user: string;
-  customer: string;
-  has_portal: boolean;
+export type AccountRights = {
+  user: string;
+  customer: string | null;
+  is_customer_account: boolean;
   named: boolean;
   department: string | null;
   can_submit: boolean;
   can_approve: boolean;
 };
 
-export const getPersonRights = (client_user: string, signal?: AbortSignal) =>
-  get<PersonRights>(`${BASE}.get_person_rights`, { client_user }, signal);
+export const getAccountRights = (user: string, signal?: AbortSignal) =>
+  get<AccountRights>(`${BASE}.get_account_rights`, { user }, signal);
 
-export const setPersonRights = (client_user: string, rights: Record<string, unknown>) =>
-  post<PersonRights>(`${BASE}.set_person_rights`, {
-    client_user,
-    rights: JSON.stringify(rights),
-  });
+export const setAccountRights = (user: string, rights: Record<string, unknown>) =>
+  post<AccountRights>(`${BASE}.set_account_rights`, { user, rights: JSON.stringify(rights) });
 
 export const getCustomerAuthority = (customer: string, signal?: AbortSignal) =>
   get<CustomerAuthority>(`${BASE}.get_customer_authority`, { customer }, signal);
@@ -1683,8 +1665,8 @@ export type TeamMember = {
   role: string | null;
   roles: string[];
   kind: string;
+  role_label: string | null;
   customers: string[];
-  client_user: string | null;
   two_factor: boolean;
 };
 
@@ -1707,17 +1689,11 @@ export type TeamMemberDetail = {
   last_login: string | null;
   last_password_reset_date: string | null;
   kind: string;
+  role_label: string | null;
   role: string | null;
   roles: string[];
   desk_access: boolean;
   customers: string[];
-  client_user: {
-    name: string;
-    full_name: string | null;
-    customer: string | null;
-    lifecycle_status: string | null;
-    email: string | null;
-  } | null;
   sign_ins: SignIn[];
   two_factor: boolean;
   is_self: boolean;
@@ -1732,16 +1708,29 @@ export const listTeam = (
   signal?: AbortSignal
 ) => get<TeamMember[]>(`${BASE}.list_team`, params, signal);
 
-export const getTeamOptions = (signal?: AbortSignal) =>
-  get<{ roles: string[]; kinds: string[] }>(`${BASE}.get_team_options`, undefined, signal);
+export type RoleChoice = { value: string; label: string };
 
-export const inviteTeamMember = (payload: {
+export type TeamOptions = {
+  internal_roles: RoleChoice[];
+  customer_roles: RoleChoice[];
+  roles: string[];
+  labels: Record<string, string>;
+  kinds: string[];
+  customers: string[];
+};
+
+export const getTeamOptions = (signal?: AbortSignal) =>
+  get<TeamOptions>(`${BASE}.get_team_options`, undefined, signal);
+
+export const createAccount = (payload: {
   email: string;
   first_name: string;
   last_name?: string;
+  kind: 'internal' | 'customer';
   role: string;
+  customer?: string;
   send_email?: number;
-}) => post<TeamMember[]>(`${BASE}.invite_team_member`, payload);
+}) => post<TeamMember>(`${BASE}.create_account`, payload);
 
 export const resendTeamInvitation = (email: string) =>
   post<{ sent_to: string }>(`${BASE}.resend_team_invitation`, { email });
@@ -1776,8 +1765,4 @@ export const setBillingLineDiscount = (payload: {
   discount_percent: number;
 }) => post<BillingRunDetail>(`${BASE}.set_billing_line_discount`, payload);
 
-export const inviteClientUserToPortal = (payload: { name: string; email?: string }) =>
-  post<UserDetail>(`${BASE}.invite_client_user_to_portal`, payload);
 
-export const revokeClientUserPortal = (name: string) =>
-  post<UserDetail>(`${BASE}.revoke_client_user_portal`, { name });

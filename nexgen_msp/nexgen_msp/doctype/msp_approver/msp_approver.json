@@ -5,7 +5,7 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
-  "client_user",
+  "user",
   "full_name",
   "department",
   "column_break_rights",
@@ -14,11 +14,11 @@
  ],
  "fields": [
   {
-   "fieldname": "client_user",
+   "fieldname": "user",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Person",
-   "options": "MSP Client User",
+   "label": "Account",
+   "options": "User",
    "reqd": 1
   },
   {

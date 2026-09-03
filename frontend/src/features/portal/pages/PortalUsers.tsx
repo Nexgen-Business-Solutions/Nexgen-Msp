@@ -6,7 +6,7 @@ import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
 import StatusBadge from '@/shared/components/StatusBadge';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import KpiCard from '@/shared/components/KpiCard';
-import { useClientUserPage, usePortalSummary, useSubscribedServices } from '../hooks/usePortal';
+import { useClientUserPage, usePortalFilterOptions, usePortalSummary, useSubscribedServices } from '../hooks/usePortal';
 
 const COLUMNS = ['Person', 'Department', 'Email', 'Since', 'Status', ''];
 
@@ -27,6 +27,7 @@ export default function PortalUsers() {
 
   const summary = usePortalSummary();
   const services = useSubscribedServices();
+  const filterOptions = usePortalFilterOptions();
   const list = useClientUserPage({
     search: search || undefined,
     status: (filters.status as string) || undefined,
@@ -103,7 +104,7 @@ export default function PortalUsers() {
             label: 'Status',
             kind: 'select',
             allLabel: 'Any status',
-            options: ['Active', 'Disabled', 'Archived'].map((value) => ({
+            options: (filterOptions.data?.user_statuses ?? []).map((value) => ({
               value,
               label: value,
             })),

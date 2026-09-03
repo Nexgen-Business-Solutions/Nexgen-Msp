@@ -23,7 +23,7 @@ import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import CreditNoteModal from '../components/CreditNoteModal';
 import InvoiceAccountingModal from '../components/InvoiceAccountingModal';
 import InvoicePanel from '../components/InvoicePanel';
-import { breakdownFileUrl, invoicePdfUrl, salesInvoiceDeskUrl } from '@/lib/api/internal';
+import { downloadBreakdownFile, downloadInvoicePdf, salesInvoiceDeskUrl } from '@/lib/api/internal';
 import { useBillingRun, useRunAction, useSetLineDiscount } from '../hooks/useBilling';
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
@@ -355,21 +355,23 @@ export default function BillingRunDetail() {
             </button>
           )}
           {data.invoice_submitted && (
-            <a
-              href={invoicePdfUrl(data.name)}
+            <button
+              type="button"
+              onClick={() => downloadInvoicePdf(data.name)}
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
             >
               <Printer size={15} />
               Invoice PDF
-            </a>
+            </button>
           )}
-          <a
-            href={breakdownFileUrl(data.name)}
+          <button
+            type="button"
+            onClick={() => downloadBreakdownFile(data.name)}
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
           >
             <FileSpreadsheet size={15} />
             Breakdown file
-          </a>
+          </button>
           {data.can_resolve_dispute && (
             <button
               type="button"

@@ -29,7 +29,7 @@ const DEFAULTS: RequestFilterState = {
   priority: '',
   request_type: '',
   customer: '',
-  scope: 'open',
+  scope: 'all',
   start: 0,
   pageLength: 20,
 };

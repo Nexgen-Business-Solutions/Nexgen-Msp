@@ -9,7 +9,7 @@ ADMIN_ROLES = ("MSP System Admin", "System Manager", "Administrator")
 
 DISPUTE_TYPE = "Billing Dispute"
 # everyone who works the floor: everything but the money
-TECHNICIAN_ROLES = ("MSP Operator", "MSP Technician") + ADMIN_ROLES
+TECHNICIAN_ROLES = ("MSP Technician",) + ADMIN_ROLES
 
 OPEN_STATUSES = (
     "Draft",
@@ -265,7 +265,7 @@ class RequestService:
                 timestampdiff(hour, sr.creation, now()) as age_hours
             from `tabMSP Service Request` sr
             {where}
-            order by field(sr.priority, 'Urgent', 'High', 'Medium', 'Low'), sr.creation asc
+            order by sr.creation desc
             limit {page_length} offset {start}
             """,
             params,
@@ -903,21 +903,19 @@ class RequestService:
         if doc.source == "Portal" and doc.requester:
             addresses.append(doc.requester)
 
-        for row in doc.lines:
-            person = row.client_user
-
-            if not person and row.managed_device:
-                person = frappe.db.get_value(
-                    "MSP Managed Device", row.managed_device, "assigned_client_user"
-                )
-
-            if not person:
-                continue
-
-            portal = frappe.db.get_value("MSP Client User", person, "portal_user")
-
-            if portal:
-                addresses.append(portal)
+        # the people a request is about no longer sign in — a seat we service and a login
+        # are separate things — so the company hears through the accounts it holds
+        addresses.extend(
+            frappe.db.sql_list(
+                """
+                select distinct up.user
+                from `tabUser Permission` up
+                join `tabUser` u on u.name = up.user
+                where up.allow = 'Customer' and up.for_value = %(customer)s and u.enabled = 1
+                """,
+                {"customer": doc.customer},
+            )
+        )
 
         return [
             address

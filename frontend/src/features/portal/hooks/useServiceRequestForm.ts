@@ -81,9 +81,11 @@ const validateLine = (line: FormLine, deviceServices: Set<string>): LineErrors =
   const needsDevice = line.services.some((service) => deviceServices.has(service));
 
   if (needsDevice) {
-    if (!line.managed_device) errors.managed_device = 'Pick the device, or ask us to register one.';
-    else if (line.managed_device === NEW_DEVICE && !line.new_device_label.trim())
-      errors.new_device_label = 'Describe the device to register.';
+    // the customer says whether the machine is one we already hold or a new one; what it is
+    // called and what is engraved on it is collected by whoever carries the work out
+    if (!line.managed_device) {
+      errors.managed_device = 'Say whether this is a machine we already hold, or a new one.';
+    }
   }
 
   return errors;
@@ -135,7 +137,9 @@ export const useServiceRequestForm = (
     () =>
       new Set(
         (catalogue.data?.items ?? [])
-          .filter((item) => item.scope === 'Device')
+          // 'Both' is a device service too — the server treats it that way everywhere, and
+          // leaving it out here meant such a request never asked which machine it was for
+          .filter((item) => item.scope === 'Device' || item.scope === 'Both')
           .map((item) => item.name)
       ),
     [catalogue.data]
@@ -146,6 +150,8 @@ export const useServiceRequestForm = (
       (catalogue.data?.items ?? []).map((item) => ({
         value: item.name,
         label: item.item_name || item.name,
+        // asking is allowed either way; saying so up front avoids a surprise at review
+        description: item.covered ? undefined : 'Not in your contract yet',
       })),
     [catalogue.data]
   );
@@ -284,11 +290,16 @@ export const useServiceRequestForm = (
     userFor: (clientUser: string) => usersByName.get(clientUser),
     devicesFor: (clientUser: string) =>
       (devices.data ?? [])
-        .filter((row) => row.assigned_client_user === clientUser && row.status === 'Active')
+        // a machine that is damaged, returned or in stock is exactly what a request is
+        // often about, so every machine they hold is offered, its state shown beside it
+        .filter((row) => row.assigned_client_user === clientUser)
         .map((row) => ({
           value: row.name,
           label: row.hostname,
-          description: [row.device_type, row.serial_number].filter(Boolean).join(' · ') || undefined,
+          description:
+            [row.status !== 'Active' ? row.status : null, row.device_type, row.serial_number]
+              .filter(Boolean)
+              .join(' · ') || undefined,
         })),
     deviceFor: (device: string) => (devices.data ?? []).find((row) => row.name === device),
     newDeviceValue: NEW_DEVICE,

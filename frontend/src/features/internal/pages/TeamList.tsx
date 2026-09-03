@@ -18,11 +18,7 @@ import {
 
 const COLUMNS = ['Account', 'Kind', 'Scope', 'Desk', '2FA', 'Last seen', 'Status', ''];
 
-const ROLE_LABEL: Record<string, string> = {
-  'MSP System Admin': 'administrator',
-  'MSP Operator': 'operator',
-  'MSP Technician': 'technician',
-};
+
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'Never');
 
@@ -39,6 +35,7 @@ export default function TeamList() {
   );
 
   const options = useTeamOptions();
+  const labels = options.data?.labels ?? {};
   const list = useTeam({
     search: search || undefined,
     kind: (filters.kind as string) || undefined,
@@ -57,7 +54,7 @@ export default function TeamList() {
       total: rows.length,
       admins: rows.filter((row) => row.kind === 'Administrator').length,
       technicians: rows.filter((row) => row.kind === 'Technician').length,
-      portal: rows.filter((row) => row.kind === 'Portal contact').length,
+      portal: rows.filter((row) => row.roles.some((role) => role.startsWith('MSP Customer'))).length,
       disabled: rows.filter((row) => !row.enabled).length,
     }),
     [rows]
@@ -72,7 +69,7 @@ export default function TeamList() {
           className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
         >
           <Plus size={15} />
-          Add a staff account
+          Add an account
         </button>
       </div>
 
@@ -176,7 +173,7 @@ export default function TeamList() {
                   <td className="px-4 py-3 text-sm text-slate-600">
                     {member.customers.length > 0 ? (
                       member.customers.join(', ')
-                    ) : member.kind === 'Portal contact' ? (
+                    ) : member.roles.some((role) => role.startsWith('MSP Customer')) ? (
                       <span className="text-amber-600">No customer linked</span>
                     ) : (
                       <span className="text-slate-400">All customers</span>
@@ -232,7 +229,7 @@ export default function TeamList() {
                               ? (options.data?.roles ?? [])
                                   .filter((role) => role !== member.role)
                                   .map((role) => ({
-                                    label: `Make ${ROLE_LABEL[role] ?? role}`,
+                                    label: `Make ${labels[role] ?? role}`,
                                     icon: ShieldCheck,
                                     onClick: () => setRole.mutate({ email: member.name, role }),
                                   }))

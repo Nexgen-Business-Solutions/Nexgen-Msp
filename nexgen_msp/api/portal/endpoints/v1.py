@@ -93,6 +93,12 @@ def list_requests(
 
 @frappe.whitelist()
 @handle_errors
+def get_portal_filter_options(customer=None):
+    return PortalService.portal_filter_options(customer=customer)
+
+
+@frappe.whitelist()
+@handle_errors
 def get_request_filter_options(customer=None):
     return PortalService.request_filter_options(customer=customer)
 

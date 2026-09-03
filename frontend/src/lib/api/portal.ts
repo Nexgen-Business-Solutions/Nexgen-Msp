@@ -1,4 +1,4 @@
-import { get, post } from './client';
+import { download, get, post } from './client';
 
 const BASE = 'nexgen_msp.api.portal.endpoints.v1';
 
@@ -117,6 +117,8 @@ export type CatalogueItem = {
   stock_uom: string;
   description: string | null;
   scope: string;
+  /** 1 when a live contract already covers it; asking for the rest is still allowed */
+  covered: number;
 };
 
 export type ListParams = {
@@ -183,6 +185,15 @@ export const approveRequest = (name: string, reason?: string) =>
 
 export const rejectRequest = (name: string, reason: string) =>
   post<ServiceRequestDetail>(`${BASE}.reject_request`, { name, reason });
+
+export type PortalFilterOptions = {
+  user_statuses: string[];
+  device_statuses: string[];
+  device_types: string[];
+};
+
+export const getPortalFilterOptions = (customer?: string, signal?: AbortSignal) =>
+  get<PortalFilterOptions>(`${BASE}.get_portal_filter_options`, { customer }, signal);
 
 export const listUserChoices = (customer?: string, signal?: AbortSignal) =>
   get<UserChoice[]>(`${BASE}.list_user_choices`, { customer }, signal);
@@ -297,7 +308,11 @@ export const getUserDetail = (clientUser: string, signal?: AbortSignal) =>
   get<PortalUserDetail>(`${BASE}.get_user_detail`, { client_user: clientUser }, signal);
 
 export const listCatalogue = (customer?: string, signal?: AbortSignal) =>
-  get<{ items: CatalogueItem[]; count: number }>(`${BASE}.list_catalogue`, { customer }, signal);
+  get<{ items: CatalogueItem[]; count: number; covered: number }>(
+    `${BASE}.list_catalogue`,
+    { customer },
+    signal
+  );
 
 export const createRequest = (payload: {
   customer?: string;
@@ -458,11 +473,11 @@ export const listBilling = (customer?: string, signal?: AbortSignal) =>
 export const getBillingDetail = (name: string, signal?: AbortSignal) =>
   get<PortalBillingDetail>(`${BASE}.get_billing_detail`, { name }, signal);
 
-export const invoiceDownloadUrl = (name: string) =>
-  `/api/method/${BASE}.download_invoice?name=${encodeURIComponent(name)}`;
+export const downloadInvoice = (name: string) =>
+  download(`${BASE}.download_invoice`, { name }, `${name}.pdf`);
 
-export const breakdownDownloadUrl = (name: string) =>
-  `/api/method/${BASE}.download_breakdown?name=${encodeURIComponent(name)}`;
+export const downloadBreakdown = (name: string) =>
+  download(`${BASE}.download_breakdown`, { name }, `${name}-breakdown.xlsx`);
 
 export type ReportFilterOptions = {
   services: { value: string; label: string }[];

@@ -105,11 +105,13 @@ export const useUserFilters = () => {
   return { filters, patch, clear, activeCount };
 };
 
-export const useUserFilterOptions = () =>
+export const useUserFilterOptions = (enabled = true) =>
   useQuery({
     queryKey: userKeys.options(),
     queryFn: ({ signal }) => internal.getUserFilterOptions(signal),
     staleTime: 5 * 60 * 1000,
+    // staff only: a customer contact asking for it is refused, three times over with retries
+    enabled,
   });
 
 export const useUserStats = (params: internal.UserListParams = {}) =>
@@ -198,25 +200,6 @@ export const useUpdateClientUser = () => {
   });
 };
 
-const usePortalAccessMutation = <TVariables>(
-  mutationFn: (variables: TVariables) => Promise<internal.UserDetail>
-) => {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn,
-    onSuccess: (detail) => {
-      queryClient.setQueryData(userKeys.detail(detail.user.name), detail);
-      queryClient.invalidateQueries({ queryKey: [...userKeys.all, 'list'] });
-    },
-  });
-};
-
-export const useInviteToPortal = () =>
-  usePortalAccessMutation(internal.inviteClientUserToPortal);
-
-export const useRevokePortalAccess = () =>
-  usePortalAccessMutation((name: string) => internal.revokeClientUserPortal(name));
 
 export const useDeleteClientUser = () => {
   const queryClient = useQueryClient();
@@ -230,20 +213,4 @@ export const useDeleteClientUser = () => {
   });
 };
 
-export const usePersonRights = (clientUser?: string) =>
-  useQuery({
-    queryKey: ['internal', 'personRights', clientUser] as const,
-    queryFn: ({ signal }) => internal.getPersonRights(clientUser as string, signal),
-    enabled: Boolean(clientUser),
-  });
 
-export const useSetPersonRights = (clientUser: string) => {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (rights: Record<string, unknown>) =>
-      internal.setPersonRights(clientUser, rights),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ['internal', 'personRights', clientUser] }),
-  });
-};

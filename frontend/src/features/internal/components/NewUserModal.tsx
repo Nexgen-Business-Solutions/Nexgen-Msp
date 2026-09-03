@@ -21,6 +21,7 @@ const NewUserModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
   const [fullName, setFullName] = useState('');
   const [department, setDepartment] = useState('');
   const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [startDate, setStartDate] = useState(today());
 
   useEffect(() => {
@@ -29,6 +30,7 @@ const NewUserModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
     setFullName('');
     setDepartment('');
     setEmail('');
+    setUsername('');
     setStartDate(today());
     create.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -41,6 +43,7 @@ const NewUserModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
         full_name: fullName.trim(),
         department: department.trim() || undefined,
         email: email.trim() || undefined,
+        username: username.trim() || undefined,
         start_date: startDate || undefined,
       });
       onCreated(created.name);
@@ -126,6 +129,20 @@ const NewUserModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
               onChange={(event) => setEmail(event.target.value)}
               className={inputClass}
             />
+          </div>
+          <div>
+            <FieldLabel>Username</FieldLabel>
+            <input
+              type="text"
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+              placeholder="If you already know it"
+              className={inputClass}
+            />
+            <p className="mt-1 text-xs text-slate-400">
+              The account name a licence is issued against. It can be filled in later, when the
+              service is delivered.
+            </p>
           </div>
           <div>
             <FieldLabel>In service since</FieldLabel>

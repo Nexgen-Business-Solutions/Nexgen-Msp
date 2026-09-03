@@ -1,8 +1,8 @@
 import React from 'react';
 import { AlertCircle, ShieldCheck } from 'lucide-react';
-import { usePersonRights, useSetPersonRights } from '../hooks/useUsers';
+import { useAccountRights, useSetAccountRights } from '../hooks/useTeam';
 
-type Props = { clientUser: string };
+type Props = { user: string };
 
 const RIGHTS: { key: string; label: string; hint: string }[] = [
   { key: 'can_submit', label: 'Raise requests', hint: 'They may open a request from the portal' },
@@ -13,10 +13,10 @@ const RIGHTS: { key: string; label: string; hint: string }[] = [
   },
 ];
 
-/** One person's line in their company's authority matrix, edited where they live. */
-const PersonRightsPanel: React.FC<Props> = ({ clientUser }) => {
-  const rights = usePersonRights(clientUser);
-  const save = useSetPersonRights(clientUser);
+/** What one account decides for its company, edited where the account lives. */
+const PersonRightsPanel: React.FC<Props> = ({ user }) => {
+  const rights = useAccountRights(user);
+  const save = useSetAccountRights(user);
 
   const data = rights.data;
   const current = (save.data ?? data) as Record<string, unknown> | undefined;
@@ -31,26 +31,15 @@ const PersonRightsPanel: React.FC<Props> = ({ clientUser }) => {
     });
   };
 
-  if (!data) return null;
+  if (!data || !data.is_customer_account) return null;
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
       <div className="px-5 py-4">
-        <h2 className="text-base font-semibold text-slate-900">What they may do for their company</h2>
+        <h2 className="text-base font-semibold text-slate-900">What they decide for their company</h2>
         <p className="mt-0.5 text-sm text-slate-400">
-          Given to this person by name. Everything here also shows on {data.customer}, where the
-          whole matrix lives.
+          Given to this account by name, for {data.customer}.
         </p>
-
-        {!data.has_portal && (
-          <div className="mt-3 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
-            <AlertCircle size={16} className="mt-0.5 shrink-0 text-amber-600" />
-            <p className="text-sm text-amber-800">
-              They have no portal access yet, so they cannot sign in to approve anything. Invite
-              them first.
-            </p>
-          </div>
-        )}
 
         {save.error instanceof Error && (
           <div className="mt-3 flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">

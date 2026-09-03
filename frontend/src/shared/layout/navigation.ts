@@ -19,12 +19,18 @@ import {
 export type NavItem = {
   id: string;
   label: string;
+  /** hidden from a Customer Operator, who does everything here except the money */
+  needsInvoices?: boolean;
   icon: LucideIcon;
   path: string;
   end?: boolean;
 };
 
-export const PORTAL_ROLE = 'MSP Customer Portal Manager';
+export const CUSTOMER_MANAGER_ROLE = 'MSP Customer Manager';
+export const CUSTOMER_OPERATOR_ROLE = 'MSP Customer Operator';
+
+/** The customer side, mirroring permissions.CUSTOMER_ROLES on the server. */
+export const CUSTOMER_ROLES = [CUSTOMER_MANAGER_ROLE, CUSTOMER_OPERATOR_ROLE];
 export const ADMIN_ROLES = ['MSP System Admin', 'System Manager', 'Administrator'];
 export const INTERNAL_ROLES = [
   'MSP System Admin',
@@ -56,7 +62,7 @@ export const PORTAL_NAV: NavItem[] = [
   { id: 'portal-users', label: 'Users', icon: Users, path: '/msp/users' },
   { id: 'portal-devices', label: 'Devices', icon: Laptop, path: '/msp/devices' },
   { id: 'portal-services', label: 'Services', icon: Layers, path: '/msp/services' },
-  { id: 'portal-invoices', label: 'Invoices', icon: Receipt, path: '/msp/invoices' },
+  { id: 'portal-invoices', label: 'Invoices', icon: Receipt, path: '/msp/invoices', needsInvoices: true },
 ];
 
 export const PORTAL_PAGES: NavItem[] = [
@@ -70,8 +76,15 @@ export const PAGE_FALLBACK: NavItem = {
   path: '/msp',
 };
 
+/**
+ * An account of a customer, and of no other kind.
+ *
+ * Both customer roles count, not just the manager: an operator was falling through to the
+ * internal sidebar because only one of the two was named here.
+ */
 export const isPortalOnly = (roles: string[] = []) =>
-  roles.includes(PORTAL_ROLE) && !roles.some((role) => INTERNAL_ROLES.includes(role));
+  roles.some((role) => CUSTOMER_ROLES.includes(role)) &&
+  !roles.some((role) => INTERNAL_ROLES.includes(role));
 
 export const isAdmin = (roles: string[] = []) => roles.some((role) => ADMIN_ROLES.includes(role));
 
@@ -86,11 +99,16 @@ const COMMERCIAL: NavItem[] = [
 ];
 
 /** The sidebar, grouped. The first entry stands alone above the groups. */
+/** A Customer Operator does everything a Customer Manager does, except the money. */
+const seesInvoices = (roles: string[] = []) => !roles.includes(CUSTOMER_OPERATOR_ROLE);
+
 export const getSectionsForRoles = (roles: string[] = []): NavSection[] => {
   if (isPortalOnly(roles)) {
+    const items = PORTAL_NAV.filter((item) => !item.needsInvoices || seesInvoices(roles));
+
     return [
-      { id: 'top', label: null, items: PORTAL_NAV.slice(0, 1) },
-      { id: 'company', label: 'My company', items: PORTAL_NAV.slice(1) },
+      { id: 'top', label: null, items: items.slice(0, 1) },
+      { id: 'company', label: 'My company', items: items.slice(1) },
     ];
   }
 
@@ -119,7 +137,12 @@ export const getNavForRoles = (roles: string[] = []) =>
   getSectionsForRoles(roles).flatMap((section) => section.items);
 
 export const getPagesForRoles = (roles: string[] = []) =>
-  isPortalOnly(roles) ? [...PORTAL_NAV, ...PORTAL_PAGES] : getNavForRoles(roles);
+  isPortalOnly(roles)
+    ? [
+        ...PORTAL_NAV.filter((item) => !item.needsInvoices || seesInvoices(roles)),
+        ...PORTAL_PAGES,
+      ]
+    : getNavForRoles(roles);
 
 export const findNavItem = (pathname: string, items: NavItem[]): NavItem => {
   const matches = items.filter(

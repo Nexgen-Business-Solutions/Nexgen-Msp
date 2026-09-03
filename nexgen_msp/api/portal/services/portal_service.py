@@ -1,5 +1,7 @@
 import frappe
 
+from nexgen_msp.utils.meta import select_options
+
 from nexgen_msp.utils.catalogue import security_item
 
 from nexgen_msp.api.internal.services.request_service import effective_line_status
@@ -294,6 +296,22 @@ class PortalService:
             """,
             {"customer": customer, "service": service},
         )
+
+    @staticmethod
+    def portal_filter_options(customer=None):
+        """The axes a customer may narrow their own people and machines on.
+
+        Read from the doctypes rather than written out here: a status added to a Select was
+        invisible to the portal while these lists were typed by hand, and half a device
+        register could not be filtered to.
+        """
+        PortalService._resolve_customer(customer)
+
+        return {
+            "user_statuses": select_options("MSP Client User", "lifecycle_status"),
+            "device_statuses": select_options("MSP Managed Device", "status"),
+            "device_types": select_options("MSP Managed Device", "device_type"),
+        }
 
     @staticmethod
     def list_client_users(customer=None, search=None, status=None, service=None, start=0, page_length=20):
@@ -674,10 +692,6 @@ class PortalService:
         device = line.get("managed_device")
 
         if line.get("is_new_device"):
-            if not (line.get("new_device_label") or "").strip():
-                raise ValidationError(
-                    "Describe the device you want registered.", "VALIDATION_ERROR"
-                )
             line["target_scope"] = "User"
             line["managed_device"] = None
             return line
@@ -956,10 +970,9 @@ class PortalService:
             if not row.can_approve:
                 continue
 
-            address = frappe.db.get_value("MSP Client User", row.client_user, "portal_user")
-
-            if address and address != doc.requester:
-                recipients.append(address)
+            # the matrix names accounts now: the address is the account itself
+            if row.user and row.user != doc.requester:
+                recipients.append(row.user)
 
         if not recipients:
             return
@@ -1074,26 +1087,30 @@ class PortalService:
 
     @staticmethod
     def list_catalogue(customer=None):
-        """Only what the customer's live contract covers — they cannot order the rest."""
+        """Every service that can be asked for, with the contract shown rather than enforced.
+
+        A customer with no contract yet used to see an empty list and no reason for it. Asking
+        is not ordering: the request still reaches us and is still reviewed, and the contract
+        can be drawn up afterwards. What each line does say is whether it is already covered,
+        so whoever handles the request knows a rate has to be agreed first.
+        """
         customer = PortalService._resolve_customer(customer)
 
-        covered = frappe.db.sql(
-            """
-            select distinct cs.service_item
-            from `tabMSP Contract` c
-            join `tabMSP Contract Service` cs on cs.parent = c.name
-            where c.customer = %(customer)s and c.status in ('Active', 'Suspended')
-            """,
-            {"customer": customer},
-            pluck=True,
+        covered = set(
+            frappe.db.sql_list(
+                """
+                select distinct cs.service_item
+                from `tabMSP Contract` c
+                join `tabMSP Contract Service` cs on cs.parent = c.name
+                where c.customer = %(customer)s and c.status in ('Active', 'Suspended')
+                """,
+                {"customer": customer},
+            )
         )
-
-        if not covered:
-            return {"items": [], "count": 0}
 
         items = frappe.get_all(
             "Item",
-            filters={"disabled": 0, "is_stock_item": 0, "name": ["in", covered]},
+            filters={"disabled": 0, "is_stock_item": 0},
             fields=["name", "item_name", "stock_uom", "description", "msp_service_scope"],
             order_by="item_name asc",
             limit_page_length=0,
@@ -1101,8 +1118,9 @@ class PortalService:
 
         for item in items:
             item["scope"] = item.pop("msp_service_scope", None) or "User"
+            item["covered"] = 1 if item["name"] in covered else 0
 
-        return {"items": items, "count": len(items)}
+        return {"items": items, "count": len(items), "covered": len(covered)}
 
     @staticmethod
     def list_users_with_services(customer=None, search=None, status=None, start=0, page_length=20):
@@ -1388,6 +1406,7 @@ class PortalService:
     @staticmethod
     def list_billing(customer=None):
         """Every invoiced period this customer can review."""
+        PortalService._guard_invoices()
         customer = PortalService._resolve_customer(customer)
 
         return frappe.db.sql(
@@ -1415,6 +1434,8 @@ class PortalService:
     @staticmethod
     def get_billing_detail(name=None):
         """What is behind an invoice: who, on which machine, and over which period."""
+        PortalService._guard_invoices()
+
         if not name:
             raise ValidationError("name is required.", "VALIDATION_ERROR")
 
@@ -1552,8 +1573,31 @@ class PortalService:
         }
 
     @staticmethod
+    def _guard_invoices():
+        """Who may come near the money on this door.
+
+        A customer contact, unless their company put them on the role that leaves the
+        invoices out. Of our own people, only an administrator: a technician has no billing
+        screen internally either, and this door must not become the way around that.
+        """
+        if permissions.is_internal():
+            if not set(frappe.get_roles()).intersection(permissions.MANAGE_ACCESS_ROLES):
+                raise ValidationError(
+                    "Billing is not part of your access.", "PERMISSION_DENIED", 403
+                )
+
+            return
+
+        if not permissions.may_see_invoices():
+            raise ValidationError(
+                "Invoices are not part of your access.", "PERMISSION_DENIED", 403
+            )
+
+    @staticmethod
     def _billing_run_for_customer(name):
         """Resolve a run the caller is actually entitled to see, or refuse."""
+        PortalService._guard_invoices()
+
         if not name:
             raise ValidationError("name is required.", "VALIDATION_ERROR")
 

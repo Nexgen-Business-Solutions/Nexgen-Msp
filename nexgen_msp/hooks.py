@@ -19,9 +19,9 @@ fixtures = [
 				"in",
 				[
 					"MSP System Admin",
-					"MSP Operator",
+					"MSP Customer Operator",
 					"MSP Technician",
-					"MSP Customer Portal Manager",
+					"MSP Customer Manager",
 				],
 			]
 		],

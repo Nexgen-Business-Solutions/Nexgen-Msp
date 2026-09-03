@@ -41,12 +41,12 @@ def portal_origin():
 
 
 def guard(*args, **kwargs):
-	"""Send people to the door that is theirs.
+	"""Send an invited user who lands on the desk back to the application.
 
-	An invited user who lands on the desk is not committing an offence, so they are shown
-	their portal rather than told they lack a permission. And when the portal answers on its
-	own address, each audience is kept on the address meant for it — a courtesy, not a
-	barrier: what actually separates them is the permission model.
+	Nobody is ever moved between hostnames. Frappe writes its session cookie without a
+	Domain, so it belongs to the host that issued it: carrying someone across to the portal
+	address would hand them a host their session was never given to, and drop them on the
+	login screen. The portal address is therefore used only in the links we email out.
 	"""
 	request = getattr(frappe.local, "request", None)
 
@@ -59,19 +59,6 @@ def guard(*args, **kwargs):
 		return
 
 	is_website_user = (frappe.session.data or {}).get("user_type") == "Website User"
-	origin = portal_origin()
 
 	if is_website_user and _wants_desk(request.path):
-		raise SeeOther(f"{origin}{HOME}" if origin else HOME)
-
-	if not origin:
-		return
-
-	here = request.host_url.rstrip("/")
-	there = origin
-
-	if is_website_user and here != there:
-		raise SeeOther(f"{there}{request.full_path.rstrip('?')}")
-
-	if not is_website_user and here == there:
-		raise SeeOther(f"{frappe.utils.get_url()}{request.full_path.rstrip('?')}")
+		raise SeeOther(HOME)

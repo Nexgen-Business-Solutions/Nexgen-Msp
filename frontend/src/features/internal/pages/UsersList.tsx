@@ -125,7 +125,7 @@ export default function UsersList() {
         }
         onClear={clear}
         onRefresh={() => list.refetch()}
-        exportUrl={internal.usersExportUrl(statsParams)}
+        onExport={() => internal.exportUsers(statsParams)}
         fields={[
           {
             key: 'customer',

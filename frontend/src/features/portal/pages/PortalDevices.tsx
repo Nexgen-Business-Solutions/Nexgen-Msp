@@ -6,7 +6,7 @@ import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
 import StatusBadge from '@/shared/components/StatusBadge';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import KpiCard from '@/shared/components/KpiCard';
-import { useDevicePage, usePortalSummary, useSubscribedServices } from '../hooks/usePortal';
+import { useDevicePage, usePortalFilterOptions, usePortalSummary, useSubscribedServices } from '../hooks/usePortal';
 
 const COLUMNS = ['Machine', 'Held by', 'Since', 'Status', ''];
 
@@ -27,6 +27,7 @@ export default function PortalDevices() {
 
   const summary = usePortalSummary();
   const services = useSubscribedServices();
+  const filterOptions = usePortalFilterOptions();
   const list = useDevicePage({
     search: search || undefined,
     status: (filters.status as string) || undefined,
@@ -103,7 +104,10 @@ export default function PortalDevices() {
             label: 'Status',
             kind: 'select',
             allLabel: 'Any status',
-            options: ['Active', 'Retired'].map((value) => ({ value, label: value })),
+            options: (filterOptions.data?.device_statuses ?? []).map((value) => ({
+              value,
+              label: value,
+            })),
           },
         ]}
       />

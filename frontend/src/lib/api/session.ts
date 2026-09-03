@@ -19,6 +19,7 @@ export type SessionContext = {
   two_factor_passed?: boolean;
   session_expiry_seconds?: number;
   is_portal_user?: boolean;
+  can_see_invoices?: boolean;
   is_internal_user?: boolean;
 };
 

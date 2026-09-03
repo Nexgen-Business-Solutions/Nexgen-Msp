@@ -27,6 +27,7 @@ import Settings from '@/features/internal/pages/Settings';
 import PortalRequestDetail from '@/features/portal/pages/PortalRequestDetail';
 import PortalUserDetail from '@/features/portal/pages/PortalUserDetail';
 import RoleDetail from './RoleDetail';
+import InvoiceGuard from './guards/InvoiceGuard';
 import AdminGuard from './guards/AdminGuard';
 import CustomersList from '@/features/internal/pages/CustomersList';
 import ServicesList from '@/features/internal/pages/ServicesList';
@@ -57,9 +58,22 @@ export const router = createBrowserRouter([
     ),
     children: [
       { index: true, element: <RoleHome /> },
-      { path: 'services', element: <PortalServices /> },
-      { path: 'invoices', element: <PortalBilling /> },
-      { path: 'invoices/:name', element: <PortalInvoiceDetail /> },
+      {
+        path: 'invoices',
+        element: (
+          <InvoiceGuard>
+            <PortalBilling />
+          </InvoiceGuard>
+        ),
+      },
+      {
+        path: 'invoices/:name',
+        element: (
+          <InvoiceGuard>
+            <PortalInvoiceDetail />
+          </InvoiceGuard>
+        ),
+      },
       { path: 'requests/new', element: <NewServiceRequest /> },
       {
         path: 'requests',
@@ -120,9 +134,14 @@ export const router = createBrowserRouter([
       {
         path: 'services',
         element: (
-          <AdminGuard>
-            <ServicesList />
-          </AdminGuard>
+          <RoleDetail
+            portal={<PortalServices />}
+            internal={
+              <AdminGuard>
+                <ServicesList />
+              </AdminGuard>
+            }
+          />
         ),
       },
       {

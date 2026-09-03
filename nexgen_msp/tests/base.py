@@ -1,0 +1,149 @@
+"""What every test here needs: a customer of its own, and nothing left behind.
+
+The suite runs against a real site with real data, so nothing it makes may collide with
+what is already there and nothing may survive it. Every record it creates carries the
+ZZTEST prefix and is torn down in reverse order.
+
+Accounts are removed with SQL rather than delete_doc: a User that a service has just
+committed is often still held by Frappe's own document lock, and a test must not hang
+waiting for it.
+"""
+
+import frappe
+from frappe.tests import IntegrationTestCase
+
+PREFIX = "ZZTEST"
+
+
+class MSPTestCase(IntegrationTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        frappe.set_user("Administrator")
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self._trash = []
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+
+        for doctype, name in reversed(self._trash):
+            try:
+                if doctype == "User":
+                    self._purge_account(name)
+                elif frappe.db.exists(doctype, name):
+                    frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+            except Exception:
+                frappe.db.rollback()
+
+        frappe.db.commit()
+
+    # ------------------------------------------------------------------ helpers
+    def track(self, doctype, name):
+        self._trash.append((doctype, name))
+        return name
+
+    def _purge_account(self, email):
+        for contact in frappe.get_all("Contact", filters={"user": email}, pluck="name"):
+            frappe.db.sql("delete from `tabDynamic Link` where parenttype='Contact' and parent=%s", contact)
+            frappe.db.sql("delete from `tabContact Email` where parent=%s", contact)
+            frappe.db.sql("delete from `tabContact` where name=%s", contact)
+
+        frappe.db.sql("delete from `tabUser Permission` where user=%s", email)
+        frappe.db.sql("delete from `tabHas Role` where parent=%s", email)
+        frappe.db.sql("delete from `tabUser` where name=%s", email)
+
+    def make_customer(self, suffix="A"):
+        name = f"{PREFIX} Customer {suffix}"
+
+        if not frappe.db.exists("Customer", name):
+            frappe.get_doc(
+                {
+                    "doctype": "Customer",
+                    "customer_name": name,
+                    "customer_type": "Company",
+                    "customer_group": frappe.db.get_value("Customer Group", {"is_group": 0}, "name"),
+                    "territory": frappe.db.get_value("Territory", {"is_group": 0}, "name"),
+                }
+            ).insert(ignore_permissions=True)
+
+        frappe.db.commit()
+
+        return self.track("Customer", name)
+
+    def make_service(self, suffix="A", scope="User"):
+        """A billable service in the catalogue, at the scope the test needs."""
+        code = f"{PREFIX}-SVC-{suffix}"
+
+        if not frappe.db.exists("Item", code):
+            frappe.get_doc(
+                {
+                    "doctype": "Item",
+                    "item_code": code,
+                    "item_name": f"{PREFIX} Service {suffix}",
+                    "item_group": frappe.db.get_value("Item Group", {"is_group": 0}, "name"),
+                    "is_stock_item": 0,
+                    "stock_uom": "Month",
+                    "msp_service_scope": scope,
+                }
+            ).insert(ignore_permissions=True)
+        else:
+            frappe.db.set_value("Item", code, "msp_service_scope", scope)
+
+        frappe.db.commit()
+
+        return self.track("Item", code)
+
+    def make_person(self, customer, full_name="Someone", department=None):
+        doc = frappe.get_doc(
+            {
+                "doctype": "MSP Client User",
+                "customer": customer,
+                "full_name": f"{PREFIX} {full_name}",
+                "department": department,
+            }
+        ).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        return self.track("MSP Client User", doc.name)
+
+    def make_device(self, customer, hostname="BOX", holder=None, serial=None):
+        doc = frappe.get_doc(
+            {
+                "doctype": "MSP Managed Device",
+                "customer": customer,
+                "hostname": f"{PREFIX}-{hostname}",
+                "device_type": "PC",
+                "status": "Active",
+                "serial_number": serial,
+                "assigned_client_user": holder,
+            }
+        ).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        return self.track("MSP Managed Device", doc.name)
+
+    def make_account(self, kind, role, customer=None, suffix="a"):
+        from nexgen_msp.api.internal.services.team_service import TeamService
+
+        email = f"{PREFIX.lower()}.{suffix}@example.invalid"
+        self._purge_account(email)
+        frappe.db.commit()
+
+        TeamService.create_account(
+            email=email,
+            first_name=f"{PREFIX} {suffix}",
+            kind=kind,
+            role=role,
+            customer=customer,
+            send_email=0,
+        )
+
+        return self.track("User", email)
+
+    def action(self, action_type="Add"):
+        name = frappe.db.get_value("MSP Request Action", {"action_type": action_type}, "name")
+        self.assertIsNotNone(name, f"no request action of type {action_type} is seeded")
+
+        return name

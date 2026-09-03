@@ -49,10 +49,30 @@
  "name": "MSP Approval Authority",
  "owner": "Administrator",
  "permissions": [
-  {"create": 1, "delete": 1, "email": 1, "print": 1, "read": 1, "role": "System Manager", "share": 1, "write": 1},
-  {"create": 1, "delete": 1, "email": 1, "print": 1, "read": 1, "role": "MSP System Admin", "share": 1, "write": 1},
-  {"read": 1, "role": "MSP Operator"},
-  {"read": 1, "role": "MSP Technician"}
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "MSP System Admin",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "MSP Technician"
+  }
  ],
  "sort_field": "modified",
  "sort_order": "DESC",

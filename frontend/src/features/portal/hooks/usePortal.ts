@@ -163,6 +163,16 @@ export const usePortalUserDetail = (clientUser?: string) =>
     enabled: Boolean(clientUser),
   });
 
+export const usePortalFilterOptions = () => {
+  const customer = usePortalFilters((state) => state.customer);
+
+  return useQuery({
+    queryKey: ['portal', 'filter-options', customer] as const,
+    queryFn: ({ signal }) => portal.getPortalFilterOptions(customer || undefined, signal),
+    staleTime: 10 * 60 * 1000,
+  });
+};
+
 export const useSubscribedServices = () => {
   const customer = usePortalFilters((state) => state.customer);
 

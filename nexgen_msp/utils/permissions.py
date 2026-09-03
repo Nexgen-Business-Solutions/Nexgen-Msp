@@ -2,9 +2,27 @@ import frappe
 
 from nexgen_msp.utils.errors import ValidationError
 
-PORTAL_ROLES = ("MSP Customer Portal Manager",)
-INTERNAL_ROLES = ("MSP System Admin", "MSP Operator", "MSP Technician")
+# Two families, and an account belongs to exactly one of them. A customer role means the
+# account answers for one company; an internal role means it answers for all of them. An
+# account holding both would be a contradiction the permission model cannot express, so it
+# is refused rather than resolved.
+CUSTOMER_ROLES = ("MSP Customer Manager", "MSP Customer Operator")
+INTERNAL_ROLES = ("MSP System Admin", "MSP Technician")
 MANAGE_ACCESS_ROLES = ("MSP System Admin", "System Manager")
+
+# kept under its old name for the code that still reads it as "the role a contact holds"
+PORTAL_ROLES = CUSTOMER_ROLES
+
+CUSTOMER_MANAGER_ROLE = "MSP Customer Manager"
+CUSTOMER_OPERATOR_ROLE = "MSP Customer Operator"
+
+# what a person is shown, which is not what the database calls it
+ROLE_LABELS = {
+    "MSP System Admin": "Administrator",
+    "MSP Technician": "Technician",
+    "MSP Customer Manager": "Customer Manager",
+    "MSP Customer Operator": "Customer Operator",
+}
 
 
 def guard_can_manage_access():
@@ -24,6 +42,65 @@ def has_customer_permission(user, customer):
             "User Permission", {"user": user, "allow": "Customer", "for_value": customer}
         )
     )
+
+
+def may_see_invoices(user=None):
+    """Whether this account is allowed near the money.
+
+    The two customer roles are otherwise the same — both raise requests, both approve when
+    the authority matrix says so. The invoices are the whole difference, so the rule is
+    written here once rather than guessed at on each screen.
+    """
+    user = user or frappe.session.user
+
+    return CUSTOMER_OPERATOR_ROLE not in set(frappe.get_roles(user))
+
+
+def family_of(role):
+    """Which side of the fence a role sits on."""
+    if role in CUSTOMER_ROLES:
+        return "customer"
+
+    return "internal" if role in INTERNAL_ROLES else None
+
+
+def held_roles(user):
+    """The application roles this account carries, by family."""
+    held = set(frappe.get_roles(user))
+
+    return {
+        "customer": sorted(held.intersection(CUSTOMER_ROLES)),
+        "internal": sorted(held.intersection(INTERNAL_ROLES)),
+    }
+
+
+def guard_single_family(user, role):
+    """Refuse a role that would put an account on both sides at once.
+
+    Not corrected silently: an account that was meant to be a contact and is being handed
+    an internal role is a mistake someone should see, not one to paper over.
+    """
+    family = family_of(role)
+
+    if not family:
+        raise ValidationError(f"'{role}' is not a role this application grants.", "VALIDATION_ERROR")
+
+    other = "internal" if family == "customer" else "customer"
+    conflicting = held_roles(user)[other]
+
+    if conflicting:
+        raise ValidationError(
+            f"{user} already holds {', '.join(conflicting)}. An account belongs either to a "
+            "customer or to Nexgen, never to both — remove that role first.",
+            "VALIDATION_ERROR",
+        )
+
+    if family == "customer" and not get_allowed_customers(user):
+        raise ValidationError(
+            f"{user} is not linked to any customer, so it cannot hold a customer role. "
+            "Give it a customer first.",
+            "VALIDATION_ERROR",
+        )
 
 
 def is_customer_contact(user=None):
@@ -352,9 +429,25 @@ def reconcile_all_customer_permissions():
 
 
 def ensure_customer_contact(user_doc, customer):
+    """The contact that says this account belongs to that customer.
+
+    Frappe already makes a contact of its own when a user is created, so the link is added
+    to that one rather than a second contact being made beside it — two contacts for one
+    person is how a company ends up looking like two.
+    """
     existing = get_customer_contact(user_doc.name, customer)
+
     if existing:
         return existing, False
+
+    orphan = frappe.db.get_value("Contact", {"user": user_doc.name}, "name")
+
+    if orphan:
+        doc = frappe.get_doc("Contact", orphan)
+        doc.append("links", {"link_doctype": "Customer", "link_name": customer})
+        doc.save(ignore_permissions=True)
+
+        return doc.name, False
 
     contact = frappe.get_doc(
         {
@@ -382,7 +475,7 @@ def keep_technicians_off_desk():
 	):
 		roles = set(frappe.get_roles(user))
 
-		if not roles.intersection({"MSP Operator", "MSP Technician"}):
+		if not roles.intersection({"MSP Technician"} | set(CUSTOMER_ROLES)):
 			continue
 
 		if roles.intersection({"MSP System Admin", "System Manager", "Administrator"}):

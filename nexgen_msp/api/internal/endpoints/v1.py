@@ -705,14 +705,14 @@ def _authority():
 
 @frappe.whitelist()
 @handle_errors
-def get_person_rights(client_user=None):
-    return _authority().rights_of_person(client_user=client_user)
+def get_account_rights(user=None):
+    return _authority().get_account_rights(user=user)
 
 
 @frappe.whitelist()
 @handle_errors
-def set_person_rights(client_user=None, rights=None):
-    return _authority().set_rights_of_person(client_user=client_user, rights=rights)
+def set_account_rights(user=None, rights=None):
+    return _authority().set_account_rights(user=user, rights=rights)
 
 
 @frappe.whitelist()
@@ -1122,12 +1122,16 @@ def get_team_options():
 
 @frappe.whitelist()
 @handle_errors
-def invite_team_member(email=None, first_name=None, last_name=None, role=None, send_email=1):
-    return _team().invite(
+def create_account(
+    email=None, first_name=None, last_name=None, kind=None, role=None, customer=None, send_email=1
+):
+    return _team().create_account(
         email=email,
         first_name=first_name,
         last_name=last_name,
+        kind=kind,
         role=role,
+        customer=customer,
         send_email=send_email,
     )
 
@@ -1238,19 +1242,3 @@ def set_billing_line_discount(name=None, service_assignment=None, discount_perce
     return _billing().set_line_discount(
         name=name, service_assignment=service_assignment, discount_percent=discount_percent
     )
-
-
-@frappe.whitelist()
-@handle_errors
-def invite_client_user_to_portal(name=None, email=None):
-    from nexgen_msp.api.internal.services.user_service import UserService
-
-    return UserService.invite_to_portal(name=name, email=email)
-
-
-@frappe.whitelist()
-@handle_errors
-def revoke_client_user_portal(name=None):
-    from nexgen_msp.api.internal.services.user_service import UserService
-
-    return UserService.revoke_portal_access(name=name)

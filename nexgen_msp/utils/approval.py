@@ -37,21 +37,15 @@ def has_approvers(customer):
     return bool(doc and any(row.can_approve for row in doc.approvers))
 
 
-def client_user_for(user=None):
-    """The person behind a portal session."""
+def rights_of(customer, user=None):
+    """What the signed-in account may do at this customer. Empty when it holds nothing.
+
+    Read off the account, not the person's file: approving is something a login does, and a
+    seat we service no longer carries one.
+    """
     user = user or frappe.session.user
 
     if not user or user == "Guest":
-        return None
-
-    return frappe.db.get_value("MSP Client User", {"portal_user": user}, "name")
-
-
-def rights_of(customer, user=None):
-    """What the signed-in person may do at this customer. Empty when they hold nothing."""
-    person = client_user_for(user)
-
-    if not person:
         return {}
 
     doc = authority_for(customer)
@@ -59,13 +53,13 @@ def rights_of(customer, user=None):
     if not doc:
         return {}
 
-    row = next((line for line in doc.approvers if line.client_user == person), None)
+    row = next((line for line in doc.approvers if line.user == user), None)
 
     if not row:
         return {}
 
     return {
-        "client_user": person,
+        "user": user,
         "department": (row.department or "").strip() or None,
         **{right: bool(row.get(right)) for right in RIGHTS},
     }
@@ -76,10 +70,11 @@ def may(right, customer, user=None):
 
 
 def covers(rights, client_user):
-    """Whether an approver's scope reaches this person.
+    """Whether an approver's scope reaches the person a request line is about.
 
     A row limited to a department decides for that department only; an unlimited row
-    decides for the whole company.
+    decides for the whole company. The department is still read off the person being
+    served, because that is what a request is about.
     """
     if not rights:
         return False

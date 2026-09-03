@@ -52,7 +52,7 @@ type Props = {
     title?: string;
   };
   /** Where the sheet of the current selection is served from. */
-  exportUrl?: string;
+  onExport?: () => void;
 };
 
 const inputClass =
@@ -86,7 +86,7 @@ const FilterBar: React.FC<Props> = ({
   onClear,
   onRefresh,
   toggle,
-  exportUrl,
+  onExport,
 }) => {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<FilterState>(values);
@@ -196,11 +196,16 @@ const FilterBar: React.FC<Props> = ({
           </button>
         )}
 
-        {exportUrl && (
-          <a href={exportUrl} className={ghost} title="Download what is shown, as a sheet">
+        {onExport && (
+          <button
+            type="button"
+            onClick={onExport}
+            className={ghost}
+            title="Download what is shown, as a sheet"
+          >
             <Download size={16} />
             <span className="hidden lg:inline">Export</span>
-          </a>
+          </button>
         )}
 
         {onRefresh && (

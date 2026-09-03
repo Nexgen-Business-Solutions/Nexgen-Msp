@@ -4,22 +4,12 @@ import KpiCard from '@/shared/components/KpiCard';
 import DataTable from '@/shared/components/DataTable';
 import StatusBadge from '@/shared/components/StatusBadge';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
-import { breakdownDownloadUrl, invoiceDownloadUrl } from '@/lib/api/portal';
+import { downloadInvoice, downloadBreakdown } from '@/lib/api/portal';
 import { usePortalBilling } from '../hooks/usePortal';
 
 const COLUMNS = ['Period', 'Invoice', 'Services', 'Issued', 'Status', 'Total', ''];
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
-
-// a link click is never caught by a popup blocker, unlike window.open
-const download = (url: string) => {
-  const link = document.createElement('a');
-  link.href = url;
-  link.rel = 'noreferrer';
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-};
 
 const periodLabel = (start: string, end: string) => {
   const from = new Date(start);
@@ -124,12 +114,12 @@ export default function PortalBilling() {
                     {
                       label: 'Download invoice',
                       icon: Printer,
-                      onClick: () => download(invoiceDownloadUrl(row.name)),
+                      onClick: () => downloadInvoice(row.name),
                     },
                     {
                       label: 'Download breakdown',
                       icon: FileSpreadsheet,
-                      onClick: () => download(breakdownDownloadUrl(row.name)),
+                      onClick: () => downloadBreakdown(row.name),
                     },
                   ]}
                 />

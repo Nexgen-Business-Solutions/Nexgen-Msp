@@ -83,11 +83,11 @@
   },
   {
    "read": 1,
-   "role": "MSP Operator"
+   "role": "MSP Customer Manager"
   },
   {
    "read": 1,
-   "role": "MSP Customer Portal Manager"
+   "role": "MSP Customer Operator"
   }
  ],
  "sort_field": "modified",

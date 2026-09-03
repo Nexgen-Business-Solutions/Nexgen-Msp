@@ -28,10 +28,13 @@ const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) :
 const fmtMoment = (value?: string | null) =>
   value ? String(value).slice(0, 16).replace('T', ' ') : 'Never';
 
+// keyed on what the server calls each role, so a renamed role shows up here rather than
+// falling silently through to the "no role" badge
 const KIND_STYLE: Record<string, { icon: typeof ShieldCheck; className: string }> = {
   Administrator: { icon: ShieldCheck, className: 'bg-emerald-50 text-emerald-700' },
   Technician: { icon: Wrench, className: 'bg-blue-50 text-blue-700' },
-  'Portal contact': { icon: Building2, className: 'bg-slate-100 text-slate-700' },
+  'Customer Manager': { icon: Building2, className: 'bg-slate-100 text-slate-700' },
+  'Customer Operator': { icon: Building2, className: 'bg-slate-100 text-slate-700' },
   'No role': { icon: UserX, className: 'bg-amber-50 text-amber-700' },
 };
 
@@ -60,11 +63,7 @@ const Fact = ({ label, value }: { label: string; value: React.ReactNode }) => (
   </div>
 );
 
-const ROLE_LABEL: Record<string, string> = {
-  'MSP System Admin': 'administrator',
-  'MSP Operator': 'operator',
-  'MSP Technician': 'technician',
-};
+
 
 const ACTION_CLASS =
   'inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400';
@@ -109,6 +108,8 @@ export default function AccountDetail() {
   const KindIcon = kind.icon;
   const isSelf = account.name === session.data?.user;
   const isRoot = account.name === 'Administrator';
+  // the readable names come with the options, so a renamed role is never shown raw
+  const labels = options.data?.labels ?? {};
   const otherRoles = (options.data?.roles ?? []).filter((role) => role !== account.role);
 
   return (
@@ -174,7 +175,7 @@ export default function AccountDetail() {
                 className={ACTION_CLASS}
               >
                 <ShieldCheck size={15} />
-                Make {ROLE_LABEL[role] ?? role}
+                Make {labels[role] ?? role}
               </button>
             ))}
 
@@ -212,16 +213,6 @@ export default function AccountDetail() {
             </button>
           )}
 
-          {account.client_user && (
-            <button
-              type="button"
-              onClick={() => navigate(`/msp/users/${account.client_user!.name}`)}
-              className={ACTION_CLASS}
-            >
-              <Building2 size={15} />
-              Open their file
-            </button>
-          )}
         </div>
 
         <div className="mt-5 grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-4">
@@ -250,7 +241,7 @@ export default function AccountDetail() {
             value={
               account.customers.length > 0
                 ? account.customers.join(', ')
-                : account.kind === 'Portal contact'
+                : account.roles.some((role) => role.startsWith('MSP Customer'))
                   ? 'Nothing — no customer linked'
                   : 'Every customer'
             }
@@ -258,37 +249,9 @@ export default function AccountDetail() {
         </div>
       </div>
 
-      {account.client_user && <PersonRightsPanel clientUser={account.client_user.name} />}
+      <PersonRightsPanel user={account.name} />
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <Panel title="Person on file">
-          {account.client_user ? (
-            <div className="grid grid-cols-2 gap-x-8 gap-y-3 pt-1">
-              <Fact
-                label="Name"
-                value={
-                  <button
-                    type="button"
-                    onClick={() => navigate(`/msp/users/${account.client_user!.name}`)}
-                    className="font-medium text-blue-600 transition-colors hover:text-blue-700"
-                  >
-                    {account.client_user.full_name || account.client_user.name}
-                  </button>
-                }
-              />
-              <Fact label="Customer" value={account.client_user.customer || 'N/A'} />
-              <Fact label="Status" value={account.client_user.lifecycle_status || 'N/A'} />
-              <Fact label="Email on file" value={account.client_user.email || 'N/A'} />
-            </div>
-          ) : (
-            <p className="py-8 text-center text-sm text-slate-500">
-              {account.role
-                ? 'Staff accounts are not attached to a customer file.'
-                : 'This account is not attached to anyone. It should either be given a role or removed.'}
-            </p>
-          )}
-        </Panel>
-
+      <div className="grid grid-cols-1 gap-5">
         <Panel title="Recent sign-ins">
           {account.sign_ins.length > 0 ? (
             <table className="w-full">

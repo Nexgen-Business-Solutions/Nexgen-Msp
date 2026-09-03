@@ -1,6 +1,7 @@
 declare global {
   interface Window {
     csrf_token?: string;
+    frappe?: { csrf_token?: string };
   }
 }
 
@@ -30,11 +31,43 @@ export class FrappeError extends Error {
 const isUsableToken = (value?: string | null) =>
   Boolean(value) && value !== 'None' && value !== '{{ frappe.session.csrf_token }}';
 
-const getCsrfToken = () => {
-  if (isUsableToken(window.csrf_token)) return window.csrf_token as string;
+const decodeToken = (value?: string | null) => {
+  if (!value) return '';
 
-  const meta = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-  return isUsableToken(meta) ? (meta as string) : '';
+  try {
+    return decodeURIComponent(value).trim();
+  } catch {
+    return value.trim();
+  }
+};
+
+const cookie = (name: string) =>
+  decodeToken(
+    document.cookie
+      .split('; ')
+      .find((row) => row.startsWith(`${name}=`))
+      ?.split('=')[1]
+  );
+
+/**
+ * The token this session expects, from wherever it is freshest.
+ *
+ * The page's own copy is only right until the session changes; the cookie is what Frappe
+ * rewrites when it does. Reading one source alone is what turned a renewed session into
+ * "Invalid Request" on every save.
+ */
+const getCsrfToken = () => {
+  const candidates = [
+    window.csrf_token,
+    window.frappe?.csrf_token,
+    document.querySelector('meta[name="csrf-token"]')?.getAttribute('content'),
+    cookie('csrf_token'),
+    cookie('csrftoken'),
+  ];
+
+  const found = candidates.map(decodeToken).find(isUsableToken);
+
+  return found || '';
 };
 
 const parseServerMessages = (raw?: string) => {
@@ -86,7 +119,7 @@ export const setSessionLostHandler = (handler: () => void) => {
   onSessionLost = handler;
 };
 
-export const csrfHeaders = (): Record<string, string> => {
+const csrfHeaders = (): Record<string, string> => {
   const token = getCsrfToken();
   return token ? { 'X-Frappe-CSRF-Token': token } : {};
 };
@@ -250,16 +283,60 @@ export const postForm = async <T>(method: string, body: FormData, retried = fals
   return message as T;
 };
 
-export const logout = () => post<unknown>('logout');
-
-export const getLoggedUser = async () => {
-  const response = await fetch('/api/method/frappe.auth.get_logged_user', {
+/**
+ * A file the server streams, fetched under the same rules as everything else.
+ *
+ * A download used to be a bare <a href> to /api/method/…: no error parsing, and a session
+ * that had ended answered with Frappe's own error page inside a saved file rather than
+ * sending anyone back to the login.
+ */
+export const download = async (
+  method: string,
+  params: Record<string, unknown> = {},
+  fallbackName = 'download'
+): Promise<void> => {
+  const response = await fetch(`/api/method/${method}${buildQuery(params)}`, {
     credentials: 'include',
-    headers: { Accept: 'application/json' },
+    headers: { ...csrfHeaders() },
   });
 
-  if (!response.ok) return null;
+  if (!response.ok) {
+    if (response.status === 401) onSessionLost();
 
-  const payload = (await response.json()) as { message?: string };
-  return payload?.message && payload.message !== 'Guest' ? payload.message : null;
+    let payload: FrappeErrorBody | null = null;
+
+    try {
+      payload = JSON.parse(await response.text()) as FrappeErrorBody;
+    } catch {
+      payload = null;
+    }
+
+    throw new FrappeError(
+      stripHtml(
+        parseServerMessages(payload?._server_messages) ||
+          (payload?.message as string) ||
+          response.statusText
+      ),
+      response.status,
+      undefined,
+      payload?.exc_type
+    );
+  }
+
+  const disposition = response.headers.get('Content-Disposition') || '';
+  const named = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
+  const blob = await response.blob();
+  const href = URL.createObjectURL(blob);
+
+  // a link click is never caught by a popup blocker, unlike window.open
+  const link = document.createElement('a');
+  link.href = href;
+  link.download = decodeURIComponent(named?.[1] || fallbackName);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(href);
 };
+
+export const logout = () => post<unknown>('logout');
+

@@ -130,7 +130,7 @@ export default function DevicesList() {
         }
         onClear={clear}
         onRefresh={() => list.refetch()}
-        exportUrl={internal.devicesExportUrl(statsParams)}
+        onExport={() => internal.exportDevices(statsParams)}
         fields={[
           {
             key: 'customer',

@@ -1,6 +1,8 @@
 [pre_model_sync]
 nexgen_msp.patches.prefix_doctypes_with_msp
 nexgen_msp.patches.prefix_portal_role
+nexgen_msp.patches.operator_becomes_customer_role
+nexgen_msp.patches.shorten_customer_manager_role
 nexgen_msp.patches.profiles_to_contracts
 nexgen_msp.patches.billing_month_uom
 nexgen_msp.patches.backfill_billable_months
@@ -8,6 +10,7 @@ nexgen_msp.patches.invoiced_means_posted
 nexgen_msp.patches.link_runs_to_contracts
 
 [post_model_sync]
+nexgen_msp.patches.approvers_point_at_accounts
 nexgen_msp.patches.seed_request_actions
 nexgen_msp.patches.seed_invoice_settings
 nexgen_msp.patches.stamp_last_billed

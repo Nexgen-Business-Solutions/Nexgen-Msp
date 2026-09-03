@@ -41,9 +41,25 @@ const useTeamMutation = <TVariables>(fn: (variables: TVariables) => Promise<unkn
   });
 };
 
-export const useInviteTeamMember = () => useTeamMutation(internal.inviteTeamMember);
+export const useCreateAccount = () => useTeamMutation(internal.createAccount);
 export const useSetTeamRole = () => useTeamMutation(internal.setTeamRole);
 export const useSetTeamEnabled = () => useTeamMutation(internal.setTeamEnabled);
 export const useResendTeamInvitation = () => useTeamMutation(internal.resendTeamInvitation);
 
 export const useResetTwoFactor = () => useTeamMutation((user: string) => resetTwoFactor(user));
+
+export const useAccountRights = (user?: string) =>
+  useQuery({
+    queryKey: ['team', 'rights', user] as const,
+    queryFn: ({ signal }) => internal.getAccountRights(user as string, signal),
+    enabled: Boolean(user),
+  });
+
+export const useSetAccountRights = (user: string) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (rights: Record<string, unknown>) => internal.setAccountRights(user, rights),
+    onSuccess: (data) => queryClient.setQueryData(['team', 'rights', user], data),
+  });
+};

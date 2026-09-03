@@ -270,7 +270,7 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "MSP Operator",
+   "role": "MSP Customer Manager",
    "share": 1,
    "write": 1
   },
@@ -282,7 +282,7 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "MSP Customer Portal Manager",
+   "role": "MSP Customer Operator",
    "share": 1,
    "write": 1
   }

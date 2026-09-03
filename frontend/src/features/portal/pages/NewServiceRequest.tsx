@@ -1,5 +1,5 @@
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { AlertCircle, Copy, Info, Plus, Trash2, TriangleAlert, UserPlus, Users } from 'lucide-react';
+import { AlertCircle, Copy, Info, Plus, Trash2, TriangleAlert, UserPlus, Users, X } from 'lucide-react';
 import Select from '@/shared/components/Select';
 import ServiceStateHint from '../components/ServiceStateHint';
 import { NEW_DEVICE, useServiceRequestForm } from '../hooks/useServiceRequestForm';
@@ -29,7 +29,7 @@ export default function NewServiceRequest() {
   const onBehalf = !isPortalOnly(session?.roles);
   const customer = usePortalFilters((state) => state.customer);
   const setCustomer = usePortalFilters((state) => state.setCustomer);
-  const options = useUserFilterOptions();
+  const options = useUserFilterOptions(onBehalf);
 
   if (onBehalf && !customer) {
     return (
@@ -322,19 +322,53 @@ export default function NewServiceRequest() {
 
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                     <div >
-                      <span className={labelClass}>Service</span>
+                      <span className={labelClass}>Services</span>
                       <Select
                         className="w-full"
                         searchable
-                        value={line.services[0] ?? ''}
-                        onChange={(value) => form.updateLine(line.key, 'services', value ? [value] : [])}
-                        options={form.options.services}
-                        placeholder="Select a service"
+                        value=""
+                        onChange={(value) => {
+                          if (!value || line.services.includes(value)) return;
+                          form.updateLine(line.key, 'services', [...line.services, value]);
+                        }}
+                        options={form.options.services.filter(
+                          (option) => !line.services.includes(option.value)
+                        )}
+                        placeholder="Add a service"
                       />
+
+                      {line.services.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {line.services.map((service) => (
+                            <span
+                              key={service}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 py-1 pl-2.5 pr-1.5 text-xs font-medium text-blue-800"
+                            >
+                              {form.options.services.find((o) => o.value === service)?.label ??
+                                service}
+                              <button
+                                type="button"
+                                aria-label={`Remove ${service}`}
+                                onClick={() =>
+                                  form.updateLine(
+                                    line.key,
+                                    'services',
+                                    line.services.filter((item) => item !== service)
+                                  )
+                                }
+                                className="rounded p-0.5 text-blue-500 transition-colors hover:bg-blue-100 hover:text-blue-800"
+                              >
+                                <X size={12} />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
                       {showErrors && errors.services && (
                         <p className="mt-1 text-xs text-red-600">{errors.services}</p>
                       )}
-                      {!line.isNewUser && (
+                      {!line.isNewUser && line.services.length === 1 && (
                         <ServiceStateHint
                           serviceItem={line.services[0]}
                           clientUser={line.client_user || undefined}
@@ -377,81 +411,90 @@ export default function NewServiceRequest() {
                   </div>
 
                   {line.services.some((service) => form.deviceServices.has(service)) && (
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                      <div className="sm:col-span-2">
-                        <span className={labelClass}>Device concerned</span>
-                        <Select
-                          className="w-full"
-                          value={line.managed_device}
-                          onChange={(value) => form.updateLine(line.key, 'managed_device', value)}
-                          placeholder="Select the device"
-                          options={[
-                            ...(line.isNewUser || !line.client_user
-                              ? []
-                              : form.devicesFor(line.client_user)),
-                            {
-                              value: form.newDeviceValue,
-                              label: 'Not registered yet',
-                              description: 'Ask us to register a new machine',
-                            },
-                          ]}
-                        />
-                        {showErrors && errors.managed_device && (
-                          <p className="mt-1 text-xs text-red-600">{errors.managed_device}</p>
-                        )}
+                    <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3.5">
+                      <span className={labelClass}>
+                        Which machine is this for?
+                      </span>
+                      <p className="-mt-1 mb-2 text-xs text-slate-500">
+                        One of these services runs on a machine. Tell us which one — we take its
+                        details when we carry the work out.
+                      </p>
+
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => form.updateLine(line.key, 'managed_device', '')}
+                          className={`rounded-lg border px-3.5 py-2 text-sm font-medium transition-colors ${
+                            line.managed_device && line.managed_device !== form.newDeviceValue
+                              ? 'border-blue-500 bg-white text-blue-700'
+                              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                          }`}
+                        >
+                          One we already hold
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            form.updateLine(line.key, 'managed_device', form.newDeviceValue)
+                          }
+                          className={`rounded-lg border px-3.5 py-2 text-sm font-medium transition-colors ${
+                            line.managed_device === form.newDeviceValue
+                              ? 'border-blue-500 bg-white text-blue-700'
+                              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                          }`}
+                        >
+                          A new one
+                        </button>
                       </div>
 
-                      {(() => {
-                        if (!line.managed_device || line.managed_device === form.newDeviceValue) {
-                          return null;
-                        }
+                      {line.managed_device !== form.newDeviceValue && (
+                        <div className="mt-3">
+                          <Select
+                            className="w-full"
+                            searchable
+                            value={line.managed_device}
+                            onChange={(value) => form.updateLine(line.key, 'managed_device', value)}
+                            placeholder="Select the machine"
+                            options={
+                              line.isNewUser || !line.client_user
+                                ? []
+                                : form.devicesFor(line.client_user)
+                            }
+                          />
+                        </div>
+                      )}
 
-                        const picked = form.deviceFor(line.managed_device);
-                        if (!picked || picked.serial_number) return null;
-
-                        return (
+                      {line.managed_device === form.newDeviceValue && (
+                        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                           <div>
-                            <span className={labelClass}>Serial number</span>
+                            <span className={labelClass}>Name it, if you know it</span>
+                            <input
+                              type="text"
+                              value={line.new_device_label}
+                              onChange={(event) =>
+                                form.updateLine(line.key, 'new_device_label', event.target.value)
+                              }
+                              placeholder="Optional"
+                              className={inputClass}
+                            />
+                          </div>
+                          <div>
+                            <span className={labelClass}>Serial number, if you have it</span>
                             <input
                               type="text"
                               value={line.new_device_serial}
                               onChange={(event) =>
                                 form.updateLine(line.key, 'new_device_serial', event.target.value)
                               }
-                              placeholder="If you have it to hand"
+                              placeholder="Optional"
                               className={inputClass}
                             />
                           </div>
-                        );
-                      })()}
-
-                      {line.managed_device === form.newDeviceValue && (
-                        <div>
-                          <span className={labelClass}>Which device?</span>
-                          <input
-                            type="text"
-                            value={line.new_device_label}
-                            onChange={(event) =>
-                              form.updateLine(line.key, 'new_device_label', event.target.value)
-                            }
-                            placeholder="New Dell laptop, delivered Monday"
-                            className={inputClass}
-                          />
-                          {showErrors && errors.new_device_label && (
-                            <p className="mt-1 text-xs text-red-600">{errors.new_device_label}</p>
-                          )}
-
-                          <span className={`${labelClass} mt-3`}>Serial number</span>
-                          <input
-                            type="text"
-                            value={line.new_device_serial}
-                            onChange={(event) =>
-                              form.updateLine(line.key, 'new_device_serial', event.target.value)
-                            }
-                            placeholder="If you have it to hand"
-                            className={inputClass}
-                          />
                         </div>
+                      )}
+
+                      {showErrors && errors.managed_device && (
+                        <p className="mt-2 text-xs text-red-600">{errors.managed_device}</p>
                       )}
                     </div>
                   )}

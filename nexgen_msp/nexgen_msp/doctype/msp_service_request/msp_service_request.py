@@ -71,8 +71,8 @@ class MSPServiceRequest(Document):
 
 	def validate_line_scope(self, row):
 		if row.get("is_new_device"):
-			if not row.get("new_device_label"):
-				frappe.throw(_("Row {0}: describe the device to be registered.").format(row.idx))
+			# what the machine is called and what is engraved on it are collected by whoever
+			# carries the work out; the customer only says that it is a new one
 			if row.get("managed_device"):
 				frappe.throw(
 					_("Row {0}: cannot select an existing device for a new device line.").format(row.idx)

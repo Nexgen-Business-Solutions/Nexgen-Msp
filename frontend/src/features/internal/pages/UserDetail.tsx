@@ -8,7 +8,6 @@ import {
   PauseCircle,
   Pencil,
   PlayCircle,
-  Send,
   Plus,
   Trash2,
   ShieldCheck,
@@ -23,7 +22,6 @@ import ServiceActionModal, { type ServiceAction } from '../components/ServiceAct
 import DeviceServiceModal from '../components/DeviceServiceModal';
 import AddDeviceModal from '../components/AddDeviceModal';
 import EditClientUserModal from '../components/EditClientUserModal';
-import PortalInviteModal from '../components/PortalInviteModal';
 import { userKeys, useDeleteClientUser, useUserDetail } from '../hooks/useUsers';
 import ConfirmModal from '@/shared/components/ConfirmModal';
 
@@ -81,7 +79,6 @@ export default function UserDetail() {
   const detail = useUserDetail(name);
   const [assignOpen, setAssignOpen] = useState(false);
   const [editingUser, setEditingUser] = useState(false);
-  const [inviting, setInviting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const remove = useDeleteClientUser();
 
@@ -181,17 +178,6 @@ export default function UserDetail() {
                   Delete
                 </button>
               )}
-              {isAdmin && (
-                <button
-                  type="button"
-                  onClick={() => setInviting(true)}
-                  disabled={['Disabled', 'Archived'].includes(user.lifecycle_status)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-40"
-                >
-                  <Send size={13} />
-                  {user.portal_user ? 'Resend invitation' : 'Invite to portal'}
-                </button>
-              )}
             </div>
 
             <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-4">
@@ -227,12 +213,6 @@ export default function UserDetail() {
                 <p className="text-xs font-medium text-slate-400">Last billed on</p>
                 <p className="mt-0.5 text-sm text-slate-700">
                   {user.last_billed_on ? fmtDate(user.last_billed_on) : 'Never'}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs font-medium text-slate-400">Portal access</p>
-                <p className="mt-0.5 text-sm text-slate-700">
-                  {user.portal_user ? user.portal_user : 'No'}
                 </p>
               </div>
             </div>
@@ -501,12 +481,6 @@ export default function UserDetail() {
       </Panel>
 
       <DeviceServiceModal device={deviceService} onClose={() => setDeviceService(null)} />
-
-      <PortalInviteModal
-        open={inviting}
-        user={user}
-        onClose={() => setInviting(false)}
-      />
 
       <EditClientUserModal
         open={editingUser}

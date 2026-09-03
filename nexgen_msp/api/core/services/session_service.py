@@ -2,10 +2,8 @@ import frappe
 
 from nexgen_msp.utils import permissions
 
-PORTAL_ROLE = "MSP Customer Portal Manager"
 INTERNAL_ROLES = (
     "MSP System Admin",
-    "MSP Operator",
     "MSP Technician",
     "System Manager",
     "Administrator",
@@ -32,7 +30,7 @@ class SessionService:
             as_dict=True,
         )
 
-        is_portal = PORTAL_ROLE in roles
+        is_portal = bool(set(roles).intersection(permissions.CUSTOMER_ROLES))
         is_internal = any(role in roles for role in INTERNAL_ROLES) and not (
             permissions.is_customer_contact(user)
         )
@@ -60,6 +58,7 @@ class SessionService:
             "client_user": profile.name if profile else None,
             "is_portal_user": is_portal and not is_internal,
             "is_internal_user": is_internal,
+            "can_see_invoices": permissions.may_see_invoices(user),
             # the second factor, and the deadline it is bound to: the client
             # counts down to the moment Frappe drops the session and a fresh
             # code will be asked for

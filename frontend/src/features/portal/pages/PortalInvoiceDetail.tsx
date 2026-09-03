@@ -4,7 +4,7 @@ import { AlertCircle, ArrowLeft, Clock, FileSpreadsheet, Printer, ShieldAlert } 
 import Modal from '@/shared/components/Modal';
 import FieldLabel from '@/shared/components/FieldLabel';
 import StatusBadge from '@/shared/components/StatusBadge';
-import { breakdownDownloadUrl, invoiceDownloadUrl } from '@/lib/api/portal';
+import { downloadInvoice, downloadBreakdown } from '@/lib/api/portal';
 import { useDisputeInvoice, usePortalBillingDetail } from '../hooks/usePortal';
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
@@ -111,20 +111,22 @@ export default function PortalInvoiceDetail() {
         )}
 
         <div className="mt-5 flex flex-wrap items-center gap-2">
-          <a
-            href={invoiceDownloadUrl(run.name)}
+          <button
+            type="button"
+            onClick={() => downloadInvoice(run.name)}
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
           >
             <Printer size={15} />
             Invoice PDF
-          </a>
-          <a
-            href={breakdownDownloadUrl(run.name)}
+          </button>
+          <button
+            type="button"
+            onClick={() => downloadBreakdown(run.name)}
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
           >
             <FileSpreadsheet size={15} />
             Breakdown file
-          </a>
+          </button>
           {data.can_dispute && (
             <button
               type="button"

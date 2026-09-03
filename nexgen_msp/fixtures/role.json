@@ -33,9 +33,9 @@
   "home_page": null,
   "is_custom": 0,
   "modified": "2026-08-13 18:35:45.623924",
-  "name": "MSP Operator",
+  "name": "MSP Customer Operator",
   "restrict_to_domain": null,
-  "role_name": "MSP Operator",
+  "role_name": "MSP Customer Operator",
   "two_factor_auth": 0
  },
  {
@@ -46,9 +46,9 @@
   "home_page": null,
   "is_custom": 0,
   "modified": "2026-08-13 18:35:45.626970",
-  "name": "MSP Customer Portal Manager",
+  "name": "MSP Customer Manager",
   "restrict_to_domain": null,
-  "role_name": "MSP Customer Portal Manager",
+  "role_name": "MSP Customer Manager",
   "two_factor_auth": 0
  }
 ]
