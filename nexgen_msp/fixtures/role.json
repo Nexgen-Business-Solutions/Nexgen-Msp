@@ -46,9 +46,9 @@
   "home_page": null,
   "is_custom": 0,
   "modified": "2026-08-13 18:35:45.626970",
-  "name": "Customer Portal Manager",
+  "name": "MSP Customer Portal Manager",
   "restrict_to_domain": null,
-  "role_name": "Customer Portal Manager",
+  "role_name": "MSP Customer Portal Manager",
   "two_factor_auth": 0
  }
 ]

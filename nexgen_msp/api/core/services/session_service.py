@@ -2,7 +2,7 @@ import frappe
 
 from nexgen_msp.utils import permissions
 
-PORTAL_ROLE = "Customer Portal Manager"
+PORTAL_ROLE = "MSP Customer Portal Manager"
 INTERNAL_ROLES = (
     "MSP System Admin",
     "MSP Operator",
@@ -37,8 +37,12 @@ class SessionService:
             permissions.is_customer_contact(user)
         )
 
-        profile = frappe.db.get_value(
-            "MSP Client User", {"portal_user": user}, ["name", "department"], as_dict=True
+        profile = permissions.contact_profile(user, customers)
+
+        # a contact's company is the one on their own record, not whichever permission
+        # happened to sort first — the two can disagree, and the record is the truth
+        here = (profile.customer if profile and profile.customer in customers else None) or (
+            customers[0] if customers else None
         )
 
         return {
@@ -51,7 +55,7 @@ class SessionService:
             "user_type": details.user_type if details else None,
             "roles": roles,
             "customers": customers,
-            "customer": customers[0] if customers else None,
+            "customer": here,
             "department": profile.department if profile else None,
             "client_user": profile.name if profile else None,
             "is_portal_user": is_portal and not is_internal,

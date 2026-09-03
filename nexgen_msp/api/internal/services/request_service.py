@@ -889,11 +889,50 @@ class RequestService:
 
 
     @staticmethod
+    def _people_to_tell(doc):
+        """Who at the customer should hear what became of this request.
+
+        Whoever raised it from the portal, and the people it is actually about — a request
+        we opened on a customer's behalf still has to reach them, and that is most of them.
+
+        Our own staff are left out: they are the ones deciding, and telling them by email
+        what they have just done in front of them is noise.
+        """
+        addresses = []
+
+        if doc.source == "Portal" and doc.requester:
+            addresses.append(doc.requester)
+
+        for row in doc.lines:
+            person = row.client_user
+
+            if not person and row.managed_device:
+                person = frappe.db.get_value(
+                    "MSP Managed Device", row.managed_device, "assigned_client_user"
+                )
+
+            if not person:
+                continue
+
+            portal = frappe.db.get_value("MSP Client User", person, "portal_user")
+
+            if portal:
+                addresses.append(portal)
+
+        return [
+            address
+            for address in dict.fromkeys(addresses)
+            if address and not permissions.is_internal(address)
+        ]
+
+    @staticmethod
     def _notify_requester(doc, action, reason=None):
         """Tell the customer what became of their request. Never let mail break the transition."""
         from nexgen_msp.utils import notifications
 
-        if not doc.requester or doc.source != "Portal":
+        people = RequestService._people_to_tell(doc)
+
+        if not people:
             return
 
         decided = {
@@ -918,20 +957,27 @@ class RequestService:
         )
 
         context = {
-            "full_name": frappe.db.get_value("User", doc.requester, "full_name") or doc.requester,
             "request": doc.name,
             "summary": summary,
             "link": notifications.portal_url(f"/requests/{doc.name}"),
         }
 
+        def tell(template):
+            # one mail each, so everyone is greeted by their own name
+            for address in people:
+                notifications.send(
+                    template,
+                    [address],
+                    {
+                        **context,
+                        "full_name": frappe.db.get_value("User", address, "full_name") or address,
+                    },
+                    reference_doctype="MSP Service Request",
+                    reference_name=doc.name,
+                )
+
         if action == "complete":
-            notifications.send(
-                "MSP Request Completed",
-                [doc.requester],
-                context,
-                reference_doctype="MSP Service Request",
-                reference_name=doc.name,
-            )
+            tell("MSP Request Completed")
             return
 
         outcome, headline = decided[action]
@@ -945,10 +991,4 @@ class RequestService:
             else ""
         )
 
-        notifications.send(
-            "MSP Request Decision",
-            [doc.requester],
-            context,
-            reference_doctype="MSP Service Request",
-            reference_name=doc.name,
-        )
+        tell("MSP Request Decision")

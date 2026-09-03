@@ -21,7 +21,7 @@ fixtures = [
 					"MSP System Admin",
 					"MSP Operator",
 					"MSP Technician",
-					"Customer Portal Manager",
+					"MSP Customer Portal Manager",
 				],
 			]
 		],
@@ -77,6 +77,7 @@ after_migrate = [
 	"nexgen_msp.utils.seeds.ensure_seeds",
 	"nexgen_msp.utils.import_mappings.ensure_mappings",
 	"nexgen_msp.utils.permissions.keep_technicians_off_desk",
+	"nexgen_msp.utils.permissions.reconcile_all_customer_permissions",
 ]
 
 # Each item in the list will be shown as an app in the apps page
@@ -132,6 +133,8 @@ after_migrate = [
 # role_home_page = {
 # 	"Role": "home_page"
 # }
+
+page_renderer = ["nexgen_msp.utils.route_fallback.CaseMismatchedRoute"]
 
 website_route_rules = [
 	{"from_route": "/msp", "to_route": "msp"},

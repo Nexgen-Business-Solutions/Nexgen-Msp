@@ -2,7 +2,7 @@ import frappe
 
 from nexgen_msp.utils.errors import ValidationError
 
-PORTAL_ROLES = ("Customer Portal Manager",)
+PORTAL_ROLES = ("MSP Customer Portal Manager",)
 INTERNAL_ROLES = ("MSP System Admin", "MSP Operator", "MSP Technician")
 MANAGE_ACCESS_ROLES = ("MSP System Admin", "System Manager")
 
@@ -67,7 +67,10 @@ def get_allowed_customers(user=None):
     user = user or frappe.session.user
 
     permitted = frappe.db.get_all(
-        "User Permission", filters={"user": user, "allow": "Customer"}, pluck="for_value"
+        "User Permission",
+        filters={"user": user, "allow": "Customer"},
+        pluck="for_value",
+        order_by="for_value asc",
     )
 
     if permitted:
@@ -77,6 +80,32 @@ def get_allowed_customers(user=None):
         return frappe.db.get_all("Customer", pluck="name")
 
     return []
+
+
+def contact_profile(user=None, allowed=None):
+    """The record that says who this account is at the customer it may act for.
+
+    An address can carry more than one record — the same person invited at two companies,
+    or a row left behind by an earlier invitation. Picking whichever one the database
+    returns first would name a company the account has no rights to, so the choice is made
+    against what it is actually allowed.
+    """
+    user = user or frappe.session.user
+
+    rows = frappe.db.get_all(
+        "MSP Client User",
+        filters={"portal_user": user},
+        fields=["name", "customer", "department"],
+        order_by="modified desc",
+    )
+
+    if not rows:
+        return None
+
+    if allowed is None:
+        allowed = get_allowed_customers(user)
+
+    return next((row for row in rows if row.customer in allowed), rows[0])
 
 
 def add_customer_permission(user, customer):
@@ -236,29 +265,90 @@ def get_linked_customers(contact_doc):
     ]
 
 
+def customers_from_contacts(user):
+    """Every customer this account is a contact of.
+
+    Read across all of its contact records, not one: an invitation creates a contact per
+    customer, so a person invited at two companies has two — and judging by a single one
+    would call the other company's access stale.
+    """
+    return set(
+        frappe.db.sql_list(
+            """
+            select distinct dl.link_name
+            from `tabContact` c
+            join `tabDynamic Link` dl on dl.parent = c.name
+            where c.user = %s
+              and dl.link_doctype = 'Customer'
+              and ifnull(dl.link_name, '') != ''
+            """,
+            user,
+        )
+    )
+
+
+def reconcile_customer_permissions(user):
+    """Make the permissions say exactly what the contacts say.
+
+    The contact is where an account is declared to belong to a customer; the permission is
+    only how Frappe enforces it. When the two drift — a permission added by hand, or a
+    contact unlinked without it — the contact wins, and access follows the declaration
+    rather than a leftover row.
+
+    An account with no contact at all is left alone: nothing declares it, so there is
+    nothing to reconcile it against.
+    """
+    declared = customers_from_contacts(user)
+
+    if not declared:
+        return 0, 0
+
+    added = sum(1 for customer in declared if add_customer_permission(user, customer))
+
+    stale = [
+        row.name
+        for row in frappe.db.get_all(
+            "User Permission",
+            filters={"user": user, "allow": "Customer"},
+            fields=["name", "for_value"],
+        )
+        if row.for_value not in declared
+    ]
+
+    for name in stale:
+        frappe.delete_doc("User Permission", name, ignore_permissions=True)
+
+    return added, len(stale)
+
+
 def sync_contact_user_permission(doc, method=None):
     if not doc.get("user"):
         return
 
-    customers = get_linked_customers(doc)
-    if not customers:
-        return
+    reconcile_customer_permissions(doc.user)
 
-    for customer in customers:
-        add_customer_permission(doc.user, customer)
 
-    stale = [
-        row
-        for row in frappe.db.get_all(
-            "User Permission",
-            filters={"user": doc.user, "allow": "Customer"},
-            fields=["name", "for_value"],
-        )
-        if row.for_value not in customers
-    ]
+def reconcile_all_customer_permissions():
+    """Sweep the drift that built up before the contacts were the last word."""
+    users = frappe.db.sql_list(
+        """
+        select distinct c.user
+        from `tabContact` c
+        join `tabDynamic Link` dl on dl.parent = c.name
+        where ifnull(c.user, '') != '' and dl.link_doctype = 'Customer'
+        """
+    )
 
-    for row in stale:
-        frappe.delete_doc("User Permission", row.name, ignore_permissions=True)
+    added = removed = 0
+
+    for user in users:
+        gained, lost = reconcile_customer_permissions(user)
+        added += gained
+        removed += lost
+
+    if added or removed:
+        frappe.db.commit()
+        print(f"  portal access: {added} permission(s) added, {removed} stale one(s) removed")
 
 
 def ensure_customer_contact(user_doc, customer):

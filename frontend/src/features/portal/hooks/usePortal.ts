@@ -74,6 +74,29 @@ export const useDevices = (limit?: number) => {
   return { ...query, filters };
 };
 
+/** The people and machines listings, which page and filter on their own. */
+export const useClientUserPage = (params: portal.ListParams) => {
+  const customer = usePortalFilters((state) => state.customer);
+  const scoped = { ...params, customer: customer || undefined };
+
+  return useQuery({
+    queryKey: portalKeys.list('clientUsers', customer, scoped),
+    queryFn: ({ signal }) => portal.listClientUsers(scoped, signal),
+    keepPreviousData: true,
+  });
+};
+
+export const useDevicePage = (params: portal.ListParams) => {
+  const customer = usePortalFilters((state) => state.customer);
+  const scoped = { ...params, customer: customer || undefined };
+
+  return useQuery({
+    queryKey: portalKeys.list('devices', customer, scoped),
+    queryFn: ({ signal }) => portal.listDevices(scoped, signal),
+    keepPreviousData: true,
+  });
+};
+
 export const useServiceAssignments = (clientUser?: string, limit?: number) => {
   const { customer, filters, params } = useListParams('services', limit);
   const scoped = { ...params, client_user: clientUser || undefined };
@@ -220,26 +243,6 @@ export const usePortalBillingDetail = (name?: string) =>
     queryFn: ({ signal }) => portal.getBillingDetail(name as string, signal),
     enabled: Boolean(name),
   });
-
-export const useReportFilterOptions = () => {
-  const customer = usePortalFilters((state) => state.customer);
-
-  return useQuery({
-    queryKey: [...portalKeys.all, 'reportOptions', customer] as const,
-    queryFn: ({ signal }) => portal.getReportFilterOptions(customer || undefined, signal),
-    staleTime: 5 * 60 * 1000,
-  });
-};
-
-export const useReportRows = (query: portal.ReportQuery) => {
-  const customer = usePortalFilters((state) => state.customer);
-
-  return useQuery({
-    queryKey: [...portalKeys.all, 'reportRows', customer, query] as const,
-    queryFn: ({ signal }) => portal.listReportRows({ ...query, customer } as never, signal),
-    keepPreviousData: true,
-  });
-};
 
 export const usePortalRequestOptions = () => {
   const customer = usePortalFilters((state) => state.customer);

@@ -5,12 +5,12 @@ import {
   FilePlus2,
   Inbox,
   Laptop,
+  Layers,
   LayoutDashboard,
   History,
   Package,
   Receipt,
   Settings2,
-  Table2,
   UserCog,
   Users,
   type LucideIcon,
@@ -24,7 +24,7 @@ export type NavItem = {
   end?: boolean;
 };
 
-export const PORTAL_ROLE = 'Customer Portal Manager';
+export const PORTAL_ROLE = 'MSP Customer Portal Manager';
 export const ADMIN_ROLES = ['MSP System Admin', 'System Manager', 'Administrator'];
 export const INTERNAL_ROLES = [
   'MSP System Admin',
@@ -52,8 +52,10 @@ const ACTIVITY: NavItem = {
 
 export const PORTAL_NAV: NavItem[] = [
   { id: 'portal-dashboard', label: 'Portal Dashboard', icon: LayoutDashboard, path: '/msp', end: true },
-  { id: 'portal-reports', label: 'Reports', icon: Table2, path: '/msp/reports' },
   { id: 'portal-requests', label: 'Requests', icon: Inbox, path: '/msp/requests' },
+  { id: 'portal-users', label: 'Users', icon: Users, path: '/msp/users' },
+  { id: 'portal-devices', label: 'Devices', icon: Laptop, path: '/msp/devices' },
+  { id: 'portal-services', label: 'Services', icon: Layers, path: '/msp/services' },
   { id: 'portal-invoices', label: 'Invoices', icon: Receipt, path: '/msp/invoices' },
 ];
 

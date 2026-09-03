@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertCircle, Copy, Info, Plus, Trash2, TriangleAlert, UserPlus, Users } from 'lucide-react';
 import Select from '@/shared/components/Select';
 import ServiceStateHint from '../components/ServiceStateHint';
@@ -14,7 +14,14 @@ const inputClass =
 
 export default function NewServiceRequest() {
   const navigate = useNavigate();
-  const form = useServiceRequestForm(() => navigate('/msp'));
+  // a listing can send someone here about one person, machine or service — the first line
+  // opens already pointed at it
+  const [params] = useSearchParams();
+  const form = useServiceRequestForm(() => navigate('/msp'), {
+    client_user: params.get('client_user') ?? undefined,
+    managed_device: params.get('device') ?? undefined,
+    service: params.get('service') ?? undefined,
+  });
 
   // staff serve every customer, so they must say who they are acting for; a contact
   // has only their own and never sees this

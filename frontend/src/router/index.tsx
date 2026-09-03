@@ -5,7 +5,9 @@ import ResetPassword from '@/features/auth/pages/ResetPassword';
 import AppLayout from '@/shared/layout/AppLayout';
 import AuthGuard from './guards/AuthGuard';
 import RoleHome from './RoleHome';
-import PortalReports from '@/features/portal/pages/PortalReports';
+import PortalUsers from '@/features/portal/pages/PortalUsers';
+import PortalDevices from '@/features/portal/pages/PortalDevices';
+import PortalServices from '@/features/portal/pages/PortalServices';
 import PortalRequests from '@/features/portal/pages/PortalRequests';
 import PortalInvoiceDetail from '@/features/portal/pages/PortalInvoiceDetail';
 import PortalBilling from '@/features/portal/pages/PortalBilling';
@@ -55,7 +57,7 @@ export const router = createBrowserRouter([
     ),
     children: [
       { index: true, element: <RoleHome /> },
-      { path: 'reports', element: <PortalReports /> },
+      { path: 'services', element: <PortalServices /> },
       { path: 'invoices', element: <PortalBilling /> },
       { path: 'invoices/:name', element: <PortalInvoiceDetail /> },
       { path: 'requests/new', element: <NewServiceRequest /> },
@@ -65,11 +67,7 @@ export const router = createBrowserRouter([
       },
       {
         path: 'users',
-        element: (
-          <InternalGuard>
-            <UsersList />
-          </InternalGuard>
-        ),
+        element: <RoleDetail portal={<PortalUsers />} internal={<UsersList />} />,
       },
       {
         path: 'users/:name',
@@ -77,11 +75,7 @@ export const router = createBrowserRouter([
       },
       {
         path: 'devices',
-        element: (
-          <InternalGuard>
-            <DevicesList />
-          </InternalGuard>
-        ),
+        element: <RoleDetail portal={<PortalDevices />} internal={<DevicesList />} />,
       },
       {
         path: 'devices/:name',

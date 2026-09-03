@@ -282,10 +282,29 @@ class PortalService:
         }
 
     @staticmethod
-    def list_client_users(customer=None, search=None, status=None, start=0, page_length=20):
+    def _holders_of(service, customer, field):
+        """Who or what currently holds one service at this customer."""
+        return frappe.db.sql_list(
+            f"""
+            select distinct sa.{field}
+            from `tabMSP Service Assignment` sa
+            where sa.customer = %(customer)s
+              and sa.service_item = %(service)s
+              and ifnull(sa.{field}, '') != ''
+            """,
+            {"customer": customer, "service": service},
+        )
+
+    @staticmethod
+    def list_client_users(customer=None, search=None, status=None, service=None, start=0, page_length=20):
         filters = PortalService._base_filters(customer)
         if status:
             filters["lifecycle_status"] = status
+
+        if service:
+            # arriving from the services listing: show only the people who hold that one
+            held = PortalService._holders_of(service, filters["customer"], "client_user")
+            filters["name"] = ["in", held or [""]]
 
         return PortalService._paginated(
             "MSP Client User", CLIENT_USER_FIELDS, filters, search, ["full_name", "email"], start, page_length
@@ -360,10 +379,14 @@ class PortalService:
         )
 
     @staticmethod
-    def list_devices(customer=None, search=None, status=None, start=0, page_length=20):
+    def list_devices(customer=None, search=None, status=None, service=None, start=0, page_length=20):
         filters = PortalService._base_filters(customer)
         if status:
             filters["status"] = status
+
+        if service:
+            held = PortalService._holders_of(service, filters["customer"], "managed_device")
+            filters["name"] = ["in", held or [""]]
 
         result = PortalService._paginated(
             "MSP Managed Device", DEVICE_FIELDS, filters, search, ["hostname", "serial_number"], start, page_length
@@ -1308,7 +1331,11 @@ class PortalService:
                     "Say which customer you are acting for.", "VALIDATION_ERROR"
                 )
 
-            return allowed[0]
+            # the company on their own record, so the portal and the profile menu never
+            # disagree about who the caller is working for
+            profile = permissions.contact_profile(frappe.session.user, allowed)
+
+            return profile.customer if profile and profile.customer in allowed else allowed[0]
 
         if customer not in allowed:
             raise ValidationError(

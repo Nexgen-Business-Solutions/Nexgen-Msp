@@ -172,11 +172,29 @@ export default function CustomerContract() {
               </button>
             </div>
 
-            <p className="mt-1 text-sm text-slate-500">
-              {profileDetails.data?.counts.users ?? 0} users ·{' '}
-              {profileDetails.data?.counts.devices ?? 0} devices ·{' '}
-              {profileDetails.data?.counts.contracts ?? 0} contract
-              {(profileDetails.data?.counts.contracts ?? 0) === 1 ? '' : 's'}
+            <p className="mt-1 flex flex-wrap items-center gap-1.5 text-sm text-slate-500">
+              {/* this page is the commercial side; the people and the machines live on
+                  their own screens, and these are the way through to them */}
+              <button
+                type="button"
+                onClick={() => navigate(`/msp/users?customer=${encodeURIComponent(customer)}`)}
+                className="font-medium text-blue-600 transition-colors hover:text-blue-800 hover:underline"
+              >
+                {profileDetails.data?.counts.users ?? 0} users
+              </button>
+              ·
+              <button
+                type="button"
+                onClick={() => navigate(`/msp/devices?customer=${encodeURIComponent(customer)}`)}
+                className="font-medium text-blue-600 transition-colors hover:text-blue-800 hover:underline"
+              >
+                {profileDetails.data?.counts.devices ?? 0} devices
+              </button>
+              ·
+              <span>
+                {profileDetails.data?.counts.contracts ?? 0} contract
+                {(profileDetails.data?.counts.contracts ?? 0) === 1 ? '' : 's'}
+              </span>
             </p>
 
             {hasCustomerDetails ? (

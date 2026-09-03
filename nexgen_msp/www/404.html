@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Page not found — Nexgen MSP</title>
+  <link rel="icon" type="image/png" href="/assets/nexgen_msp/images/Logo80X80.jpg" />
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%);
+      color: #fff;
+      padding: 1.5rem;
+    }
+    .card { text-align: center; max-width: 30rem; }
+    .brand { display: flex; align-items: center; justify-content: center; gap: 0.625rem; margin-bottom: 2rem; }
+    .brand img { width: 34px; height: 34px; border-radius: 7px; }
+    .brand span { font-size: 1rem; font-weight: 600; letter-spacing: 0.01em; }
+    .code { font-size: 4.5rem; font-weight: 700; line-height: 1; margin: 0; letter-spacing: -0.02em; }
+    .msg { font-size: 1.0625rem; margin: 0.75rem 0 0; opacity: 0.92; }
+    .hint { font-size: 0.875rem; margin: 0.5rem 0 2rem; opacity: 0.65; }
+    .actions { display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap; }
+    .btn {
+      display: inline-block;
+      padding: 0.6875rem 1.375rem;
+      border-radius: 0.5rem;
+      font-weight: 600;
+      font-size: 0.9375rem;
+      text-decoration: none;
+      background: #fff;
+      color: #1d4ed8;
+      transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.9; }
+    .btn.ghost { background: transparent; color: #fff; border: 1px solid rgba(255, 255, 255, 0.55); }
+  </style>
+</head>
+
+<body>
+  <div class="card">
+    <div class="brand">
+      <img src="/assets/nexgen_msp/images/Logo80X80.jpg" alt="" />
+      <span>Nexgen MSP</span>
+    </div>
+    <p class="code">404</p>
+    <p class="msg">This page does not exist.</p>
+    <p class="hint">The address may have changed, or it was never there.</p>
+    <div class="actions">
+      <a class="btn" href="/msp">Back to the app</a>
+      <a class="btn ghost" href="javascript:history.back()">Go back</a>
+    </div>
+  </div>
+</body>
+
+</html>

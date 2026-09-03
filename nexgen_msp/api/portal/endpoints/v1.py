@@ -30,17 +30,27 @@ def list_device_choices(customer=None):
 
 @frappe.whitelist()
 @handle_errors
-def list_client_users(customer=None, search=None, status=None, start=0, page_length=20):
+def list_client_users(customer=None, search=None, status=None, service=None, start=0, page_length=20):
     return PortalService.list_client_users(
-        customer=customer, search=search, status=status, start=start, page_length=page_length
+        customer=customer,
+        search=search,
+        status=status,
+        service=service,
+        start=start,
+        page_length=page_length,
     )
 
 
 @frappe.whitelist()
 @handle_errors
-def list_devices(customer=None, search=None, status=None, start=0, page_length=20):
+def list_devices(customer=None, search=None, status=None, service=None, start=0, page_length=20):
     return PortalService.list_devices(
-        customer=customer, search=search, status=status, start=start, page_length=page_length
+        customer=customer,
+        search=search,
+        status=status,
+        service=service,
+        start=start,
+        page_length=page_length,
     )
 
 

@@ -7,7 +7,7 @@ from nexgen_msp.utils.errors import NotFoundError, ValidationError
 STAFF_ROLES = ("MSP System Admin", "MSP Operator", "MSP Technician")
 
 # customer contacts are accounts too, and belong on the same page
-PORTAL_ROLES = ("Customer Portal Manager",)
+PORTAL_ROLES = ("MSP Customer Portal Manager",)
 
 def _classify(email, held):
 	if email == "Administrator" or "MSP System Admin" in held:

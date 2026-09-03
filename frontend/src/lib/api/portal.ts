@@ -123,6 +123,7 @@ export type ListParams = {
   customer?: string;
   search?: string;
   status?: string;
+  service?: string;
   start?: number;
   page_length?: number;
 };

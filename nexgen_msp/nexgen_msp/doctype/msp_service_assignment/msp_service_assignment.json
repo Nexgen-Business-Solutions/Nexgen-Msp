@@ -344,7 +344,7 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Customer Portal Manager",
+   "role": "MSP Customer Portal Manager",
    "share": 1,
    "write": 1
   }

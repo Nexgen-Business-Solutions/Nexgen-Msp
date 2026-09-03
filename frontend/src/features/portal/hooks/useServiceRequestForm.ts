@@ -38,19 +38,22 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 let lineCounter = 0;
 
-const emptyLine = (): FormLine => {
+/** What a "raise a request about this" link carries over from a listing. */
+export type LineSeed = { client_user?: string; managed_device?: string; service?: string };
+
+const emptyLine = (seed?: LineSeed): FormLine => {
   lineCounter += 1;
   return {
     key: `line-${lineCounter}`,
     action: '',
     isNewUser: false,
-    client_user: '',
+    client_user: seed?.client_user ?? '',
     new_user_full_name: '',
     new_user_department: '',
     new_user_email: '',
     new_user_username: '',
-    services: [],
-    managed_device: '',
+    services: seed?.service ? [seed.service] : [],
+    managed_device: seed?.managed_device ?? '',
     new_device_label: '',
     new_device_serial: '',
     requested_effective_date: today(),
@@ -114,9 +117,12 @@ const toPayloadLines = (line: FormLine, deviceServices: Set<string>): NewRequest
     };
   });
 
-export const useServiceRequestForm = (onCreated?: (request: ServiceRequestDetail) => void) => {
+export const useServiceRequestForm = (
+  onCreated?: (request: ServiceRequestDetail) => void,
+  seed?: LineSeed
+) => {
   const [priority, setPriority] = useState<string>('Medium');
-  const [lines, setLines] = useState<FormLine[]>([emptyLine()]);
+  const [lines, setLines] = useState<FormLine[]>([emptyLine(seed)]);
   const actions = useRequestActions();
   const [touched, setTouched] = useState(false);
 
