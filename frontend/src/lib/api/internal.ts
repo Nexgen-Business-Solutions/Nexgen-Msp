@@ -1,4 +1,4 @@
-import { get, post } from './client';
+import { get, post, postForm } from './client';
 import type { Paginated } from './portal';
 
 const BASE = 'nexgen_msp.api.internal.endpoints.v1';
@@ -1663,30 +1663,11 @@ export const saveImportMappings = (payload: ImportMappings) =>
   });
 
 /** The file goes up as multipart, which the JSON transport cannot carry. */
-export const uploadUserList = async (file: File) => {
+export const uploadUserList = (file: File) => {
   const body = new FormData();
   body.append('file', file);
 
-  const token =
-    window.csrf_token ||
-    document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
-    '';
-
-  const response = await fetch(`/api/method/${BASE}.upload_user_list`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: token ? { 'X-Frappe-CSRF-Token': token } : {},
-    body,
-  });
-
-  const payload = await response.json().catch(() => null);
-  const message = payload?.message ?? payload;
-
-  if (!response.ok || message?.success === false) {
-    throw new Error(message?.error || payload?.message || 'The file could not be uploaded.');
-  }
-
-  return message as { file_url: string; file_name: string };
+  return postForm<{ file_url: string; file_name: string }>(`${BASE}.upload_user_list`, body);
 };
 
 export const runUserImport = (file_url: string, dry_run: number, fill_blanks_only: number) =>

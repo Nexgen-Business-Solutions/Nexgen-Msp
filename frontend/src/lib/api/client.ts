@@ -73,7 +73,58 @@ const buildQuery = (params?: Record<string, unknown>) => {
   return query ? `?${query}` : '';
 };
 
-export const request = async <T>(method: string, options: RequestOptions = {}): Promise<T> => {
+/**
+ * Told when the server no longer knows who the caller is.
+ *
+ * The application already holds an authentication state and a guard that acts on it, so a
+ * lost session is reported to that state rather than turned into a message each screen has
+ * to render on its own.
+ */
+let onSessionLost: () => void = () => {};
+
+export const setSessionLostHandler = (handler: () => void) => {
+  onSessionLost = handler;
+};
+
+export const csrfHeaders = (): Record<string, string> => {
+  const token = getCsrfToken();
+  return token ? { 'X-Frappe-CSRF-Token': token } : {};
+};
+
+/** What the session expects now, and whether it still knows the caller. */
+const askTheSession = async () => {
+  try {
+    const response = await fetch('/api/method/nexgen_msp.api.core.endpoints.v1.get_csrf_token', {
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    });
+
+    if (!response.ok) return { token: '', authenticated: false };
+
+    const payload = (await response.json()) as {
+      message?: { csrf_token?: string; authenticated?: boolean };
+    };
+    const fresh = payload?.message?.csrf_token;
+
+    if (isUsableToken(fresh)) {
+      window.csrf_token = fresh;
+    }
+
+    return {
+      token: isUsableToken(fresh) ? (fresh as string) : '',
+      authenticated: Boolean(payload?.message?.authenticated),
+    };
+  } catch {
+    // offline, or nothing answering: not a reason to sign anyone out
+    return { token: '', authenticated: true };
+  }
+};
+
+export const request = async <T>(
+  method: string,
+  options: RequestOptions = {},
+  retried = false
+): Promise<T> => {
   const { method: verb = 'POST', params, signal } = options;
   const csrfToken = getCsrfToken();
   const isGet = verb === 'GET';
@@ -87,7 +138,7 @@ export const request = async <T>(method: string, options: RequestOptions = {}): 
       headers: {
         Accept: 'application/json',
         ...(isGet ? {} : { 'Content-Type': 'application/json' }),
-        ...(csrfToken ? { 'X-Frappe-CSRF-Token': csrfToken } : {}),
+        ...csrfHeaders(),
       },
       ...(isGet ? {} : { body: JSON.stringify(params || {}) }),
     }
@@ -112,6 +163,21 @@ export const request = async <T>(method: string, options: RequestOptions = {}): 
     const serverMessage = parseServerMessages(payload?._server_messages);
     const structured = body && typeof body === 'object' ? body : null;
 
+    // a session renewed since the page was served: take the token it expects and try once
+    if (!retried && !isGet && payload?.exc_type === 'CSRFTokenError') {
+      const { token, authenticated } = await askTheSession();
+
+      if (!authenticated) {
+        onSessionLost();
+      } else if (token && token !== csrfToken) {
+        return request<T>(method, options, true);
+      }
+    }
+
+    if (response.status === 401) {
+      onSessionLost();
+    }
+
     throw new FrappeError(
       stripHtml(
         structured?.error || serverMessage || (payload?.message as string) || response.statusText
@@ -135,45 +201,53 @@ export const get = <T>(method: string, params?: Record<string, unknown>, signal?
 export const post = <T>(method: string, params?: Record<string, unknown>, signal?: AbortSignal) =>
   request<T>(method, { method: 'POST', params, signal });
 
-export interface LoginResponse {
-  message: string;
-  home_page?: string;
-  full_name?: string;
-}
-
-export const login = async (usr: string, pwd: string) => {
+/** A multipart write, carried by the same rules as every other one. */
+export const postForm = async <T>(method: string, body: FormData, retried = false): Promise<T> => {
   const csrfToken = getCsrfToken();
 
-  const response = await fetch('/api/method/login', {
+  const response = await fetch(`/api/method/${method}`, {
     method: 'POST',
     credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      ...(csrfToken ? { 'X-Frappe-CSRF-Token': csrfToken } : {}),
-    },
-    body: JSON.stringify({ usr, pwd }),
+    headers: { Accept: 'application/json', ...csrfHeaders() },
+    body,
   });
 
-  const text = await response.text();
-  let payload: FrappeErrorBody | null = null;
+  const payload = (await response.json().catch(() => null)) as
+    | (FrappeErrorBody & Record<string, unknown>)
+    | null;
+  const message = (payload && 'message' in payload ? payload.message : payload) as
+    | (FrappeErrorBody & Record<string, unknown>)
+    | null;
 
-  try {
-    payload = text ? JSON.parse(text) : null;
-  } catch {
-    payload = null;
-  }
+  if (!response.ok || message?.success === false) {
+    if (!retried && payload?.exc_type === 'CSRFTokenError') {
+      const { token, authenticated } = await askTheSession();
 
-  if (!response.ok) {
+      if (!authenticated) {
+        onSessionLost();
+      } else if (token && token !== csrfToken) {
+        return postForm<T>(method, body, true);
+      }
+    }
+
+    if (response.status === 401) {
+      onSessionLost();
+    }
+
     throw new FrappeError(
-      stripHtml(parseServerMessages(payload?._server_messages) || payload?.message || response.statusText),
+      stripHtml(
+        message?.error ||
+          parseServerMessages(payload?._server_messages) ||
+          (payload?.message as string) ||
+          response.statusText
+      ),
       response.status,
-      undefined,
+      message?.code,
       payload?.exc_type
     );
   }
 
-  return payload as LoginResponse;
+  return message as T;
 };
 
 export const logout = () => post<unknown>('logout');
