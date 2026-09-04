@@ -1,0 +1,233 @@
+name: Bug report
+description: Report a defect or unexpected behavior
+title: '[Bug]: '
+labels: []
+assignees: []
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe the bug clearly.
+      placeholder: Explain the defect or unexpected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: steps_to_reproduce
+    attributes:
+      label: Steps to reproduce
+      description: List the steps needed to reproduce the bug.
+      placeholder: "1. Open... 2. Select... 3. Click... 4. Observe... \n"
+    validations:
+      required: true
+  - type: textarea
+    id: expected_result
+    attributes:
+      label: Expected result
+      description: What should have happened?
+      placeholder: Describe the expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: actual_result
+    attributes:
+      label: Actual result
+      description: What happened instead?
+      placeholder: Describe the actual behavior you observed.
+    validations:
+      required: true
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      description: Select the environment where the bug occurred.
+      options:
+        - Local
+        - Hosted development
+        - Staging
+        - Production
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: browser_device
+    attributes:
+      label: Browser or device
+      description: Enter the browser, operating system, or device where the bug occurred.
+      placeholder: 'Example: Chrome on Windows 11'
+    validations:
+      required: false
+  - type: input
+    id: version_commit
+    attributes:
+      label: Version or commit
+      description: Enter the application version or commit hash, if known.
+      placeholder: 'Example: v2.4.1 or a1b2c3d'
+    validations:
+      required: false
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Impact
+      description: Select the impact level of the bug.
+      options:
+        - Low
+        - Medium
+        - High
+        - Critical
+    validations:
+      required: false
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: Attach screenshots or screen recordings if available.
+      placeholder: Drag and drop screenshots or screen recordings here.
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Paste relevant logs, error messages, or stack traces.
+      placeholder: "Paste the relevant logs here.\n\nRemove passwords, access tokens, API keys, and other sensitive information.\n"
+      render: shell
+    validations:
+      required: false
+  - type: textarea
+    id: fix_changes
+    attributes:
+      label: Changes required or implemented
+      description: Describe the changes that must be made, or the changes already implemented, to fix the bug.
+      placeholder: "Describe: \"Uknown\" if not yet known and just reporting - The required code or configuration changes - Any database migrations or patches - Any tests that must be added or updated \n"
+    validations:
+      required: false
+  - type: checkboxes
+    id: fixes_progress
+    attributes:
+      label: Fixes progress
+      description: Select the investigation and implementation steps that have already been completed.
+      options:
+        - label: Bug is reproduced
+        - label: Root cause is identified
+        - label: Fix is implemented
+        - label: Tests are added or updated if needed
+        - label: Fix is validated on staging
+    validations:
+      required: false
+  - type: checkboxes
+    id: definition_of_done
+    attributes:
+      label: Definition of done
+      description: Complete the applicable checks before closing the bug.
+      options:
+        - label: The fix has been implemented
+        - label: The reported behavior has been verified
+        - label: Tests have been added or updated, and confirmed
+        - label: The fix has been validated in the applicable environment
+    validations:
+      required: false
+  - type: input
+    id: testing-link
+    attributes:
+      label: Kiwi TCMS Test Plan or Test Case
+      description: Link the relevant Kiwi TCMS test plan, test case, or test execution.
+      placeholder: https://kiwitcms.example.com/...
+    validations:
+      required: true
+  - type: input
+    id: planned-start-date
+    attributes:
+      label: Planned Start date
+      description: Enter the planned start date using YYYY-MM-DD.
+      placeholder: YYYY-MM-DD
+    validations:
+      required: true
+  - type: input
+    id: planned-end-date
+    attributes:
+      label: Planned End date
+      description: Enter the planned completion date using YYYY-MM-DD.
+      placeholder: YYYY-MM-DD
+    validations:
+      required: true
+  - type: textarea
+    id: responsible-assignees
+    attributes:
+      label: Responsible assignees
+      description: "Enter one or more GitHub usernames, separated by commas or new lines. Do not include display names or email addresses.\n"
+      placeholder: "@developer-one\n@developer-two\n"
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: "---\n"
+  - type: markdown
+    attributes:
+      value: "## Network details\n\nComplete the following fields if the bug involves an API or network request.\nRemove authorization headers, cookies, tokens, passwords, and personal data.\n"
+  - type: dropdown
+    id: request_method
+    attributes:
+      label: Request method
+      description: Select the HTTP method used by the request.
+      options:
+        - GET
+        - POST
+        - PUT
+        - PATCH
+        - DELETE
+        - OPTIONS
+        - Other
+    validations:
+      required: false
+  - type: input
+    id: request_url
+    attributes:
+      label: Requested URL
+      description: Enter the requested endpoint without sensitive query parameters.
+      placeholder: 'Example: POST /api/resource/Sales Order'
+    validations:
+      required: false
+  - type: input
+    id: status_code
+    attributes:
+      label: Status code
+      description: Enter the returned HTTP status code or network error.
+      placeholder: 'Example: 500, 403, CORS error, or Failed to fetch'
+    validations:
+      required: false
+  - type: textarea
+    id: request_headers
+    attributes:
+      label: Request headers
+      description: Paste relevant request headers. Remove authorization, cookies, tokens, and sensitive information.
+      placeholder: "Content-Type: application/json\nAccept: application/json\n"
+      render: shell
+    validations:
+      required: false
+  - type: textarea
+    id: request_payload
+    attributes:
+      label: Request payload
+      description: Paste the request body or payload, if available. Remove sensitive information.
+      placeholder: "{\n  \"example\": \"value\"\n}\n"
+      render: json
+    validations:
+      required: false
+  - type: textarea
+    id: response_body
+    attributes:
+      label: Response
+      description: Paste the response body returned by the server.
+      placeholder: "{\n  \"message\": \"Example error response\"\n}\n"
+      render: json
+    validations:
+      required: false
+  - type: input
+    id: request_duration
+    attributes:
+      label: Request duration
+      description: Enter the request duration, if relevant.
+      placeholder: 'Example: 850 ms or timed out after 30 seconds'
+    validations:
+      required: false
