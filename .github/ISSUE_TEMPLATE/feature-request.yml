@@ -1,0 +1,131 @@
+name: Feature request
+description: Request a new capability or business feature
+title: '[Feature]: '
+labels: []
+assignees: []
+type: Feature
+body:
+  - type: textarea
+    id: business-need
+    attributes:
+      label: Business need
+      description: Explain the business need or client request.
+      placeholder: Describe the problem, business requirement, or client request.
+    validations:
+      required: true
+  - type: textarea
+    id: user-story
+    attributes:
+      label: User story
+      description: Describe the feature from the user's perspective.
+      placeholder: "As a [user role],\nI want [capability],\nso that [business value].\n"
+    validations:
+      required: true
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed solution
+      description: Describe the expected feature or behavior.
+      placeholder: Explain how you expect the feature to work.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: List the conditions that must be satisfied for this feature to be considered complete.
+      placeholder: "- [ ] First acceptance criterion\n- [ ] Second acceptance criterion\n- [ ] Third acceptance criterion\n"
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+      description: List any technical, business, or design dependencies.
+      placeholder: "- Dependency 1\n- Dependency 2\n"
+    validations:
+      required: false
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes and screenshots
+      description: Add supporting details, links, documents, or screenshots.
+      placeholder: Add any additional information here. You can also drag and drop screenshots into this field.
+    validations:
+      required: false
+  - type: checkboxes
+    id: definition-of-ready
+    attributes:
+      label: Definition of Ready
+      description: An issue is Ready for Sprint only when all applicable items are complete.
+      options:
+        - label: The requirement is clear.
+        - label: The business value is understood.
+        - label: Acceptance criteria are defined.
+        - label: Priority is assigned.
+        - label: Dependencies are identified.
+        - label: Required design, technical, or client information is available.
+        - label: The issue is small enough to complete within one sprint, or it is split into smaller issues.
+        - label: The owner or responsible developer is assigned.
+        - label: The issue has the correct labels.
+        - label: The issue is added to the correct sprint or milestone.
+  - type: textarea
+    id: planning-artifacts
+    attributes:
+      label: Planning Artifacts
+      description: "Optionally attach or link any relevant planning material,\nsuch as a BPMN diagram, SIPOC diagram, flowchart,\nwireframe, technical design, or other supporting document.\n"
+      placeholder: "Paste a link here or drag and drop a file.\nBPMN, SIPOC, flowchart,...\n"
+    validations:
+      required: false
+  - type: checkboxes
+    id: definition-of-done
+    attributes:
+      label: Definition of Done
+      description: An issue is Done only when all applicable items are complete.
+      options:
+        - label: Code is completed.
+        - label: Pull request is linked to the issue.
+        - label: The change was tested locally or on staging.
+        - label: Documentation was updated if needed.
+        - label: Product Owner, requester, or client accepted the result when required.
+        - label: Tests were added or updated where appropriate.
+  - type: input
+    id: testing-link
+    attributes:
+      label: Kiwi TCMS Test Plan or Test Case
+      description: Link the relevant Kiwi TCMS test plan, test case, or test execution.
+      placeholder: https://kiwitcms.example.com/...
+    validations:
+      required: true
+  - type: textarea
+    id: deployment-notes
+    attributes:
+      label: Deployment Notes
+      description: "Describe any deployment steps, migrations, configuration changes,\nenvironment variables, dependencies, rollback instructions,\nor other operational considerations.\n"
+      placeholder: Enter deployment notes, or write "Not applicable."
+    validations:
+      required: false
+  - type: input
+    id: planned-start-date
+    attributes:
+      label: Planned Start date
+      description: Enter the planned start date using YYYY-MM-DD.
+      placeholder: YYYY-MM-DD
+    validations:
+      required: true
+  - type: input
+    id: planned-end-date
+    attributes:
+      label: Planned End date
+      description: Enter the planned completion date using YYYY-MM-DD.
+      placeholder: YYYY-MM-DD
+    validations:
+      required: true
+  - type: textarea
+    id: responsible-assignees
+    attributes:
+      label: Responsible assignees
+      description: "Enter one or more GitHub usernames, separated by commas or new lines. Do not include display names or email addresses.\n"
+      placeholder: "@developer-one\n@developer-two\n"
+    validations:
+      required: true
