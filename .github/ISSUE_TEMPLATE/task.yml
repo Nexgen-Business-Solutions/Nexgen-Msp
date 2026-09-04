@@ -1,0 +1,74 @@
+name: Task
+description: Technical task, configuration task, refactoring, or internal work
+title: '[Task]: '
+labels: []
+assignees: []
+type: Task
+body:
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: Describe the work to be completed and the expected outcome.
+      placeholder: "Explain:\n- What needs to be done\n- Why the work is needed\n- What the expected result should be\n"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps
+      description: List the actions required to complete the task.
+      placeholder: "- [ ] First action\n- [ ] Second action\n- [ ] Third action\n"
+    validations:
+      required: true
+  - type: textarea
+    id: technical_notes
+    attributes:
+      label: Technical notes
+      description: Add technical details, affected files, systems, dependencies, or implementation considerations.
+      placeholder: "Include relevant information such as:\n- Affected files or components\n- APIs or services involved\n- Database changes or patches\n- Configuration changes\n- Dependencies\n- Technical constraints\n"
+    validations:
+      required: false
+  - type: checkboxes
+    id: definition_of_done
+    attributes:
+      label: Definition of done
+      description: Complete the applicable checks before closing the task.
+      options:
+        - label: The planned implementation or configuration changes are complete
+        - label: The task objective and acceptance criteria have been verified
+        - label: Tests have been added or updated and are passing, or testing was confirmed
+    validations:
+      required: false
+  - type: input
+    id: testing-link
+    attributes:
+      label: Kiwi TCMS Test Plan or Test Case
+      description: Link the relevant Kiwi TCMS test plan, test case, or test execution.
+      placeholder: https://kiwitcms.example.com/...
+    validations:
+      required: true
+  - type: input
+    id: planned-start-date
+    attributes:
+      label: Planned Start date
+      description: Enter the planned start date using YYYY-MM-DD.
+      placeholder: YYYY-MM-DD
+    validations:
+      required: true
+  - type: input
+    id: planned-end-date
+    attributes:
+      label: Planned End date
+      description: Enter the planned completion date using YYYY-MM-DD.
+      placeholder: YYYY-MM-DD
+    validations:
+      required: true
+  - type: textarea
+    id: responsible-assignees
+    attributes:
+      label: Responsible assignees
+      description: "Enter one or more GitHub usernames, separated by commas or new lines. Do not include display names or email addresses.\n"
+      placeholder: "@developer-one\n@developer-two\n"
+    validations:
+      required: true
