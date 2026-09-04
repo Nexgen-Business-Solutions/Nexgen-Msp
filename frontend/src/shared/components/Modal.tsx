@@ -19,7 +19,7 @@ export type ModalProps = {
 
 const TONES: Record<ModalTone, { surround: string; icon: string }> = {
   blue: { surround: 'bg-blue-50', icon: 'text-blue-600' },
-  indigo: { surround: 'bg-indigo-50', icon: 'text-indigo-600' },
+  indigo: { surround: 'bg-slate-50', icon: 'text-slate-600' },
   emerald: { surround: 'bg-emerald-50', icon: 'text-emerald-600' },
   amber: { surround: 'bg-amber-50', icon: 'text-amber-600' },
   red: { surround: 'bg-red-50', icon: 'text-red-600' },

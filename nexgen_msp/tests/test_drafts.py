@@ -226,7 +226,8 @@ class TestTheDraft(MSPTestCase):
             frappe.db.get_value("MSP Service Request", name, "customer_approved_by"), self.decider
         )
 
-    def test_sent_with_nobody_to_agree_it_reaches_us_at_once(self):
+    def test_sent_by_someone_who_may_approve_it_reaches_us_at_once(self):
+        self.grant(self.author)
         name, _ = self.draft_of(self.author)
 
         sent = self.as_user(
@@ -255,6 +256,7 @@ class TestTheDraft(MSPTestCase):
         self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Draft")
 
     def test_once_sent_it_is_no_longer_a_draft_to_edit_or_throw_away(self):
+        self.grant(self.author)
         name, _ = self.draft_of(self.author)
         self.as_user(
             self.author,

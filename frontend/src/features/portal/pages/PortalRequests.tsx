@@ -122,11 +122,11 @@ export default function PortalRequests() {
           setPageLength(size);
           setStart(0);
         }}
-        action={{
-          label: 'New request',
-          icon: FilePlus2,
-          onClick: () => navigate('/msp/requests/new'),
-        }}
+        action={
+          rights.data?.can_submit === false
+            ? undefined
+            : { label: 'New request', icon: FilePlus2, onClick: () => navigate('/msp/requests/new') }
+        }
       >
         {rows.map((row) => (
           <tr

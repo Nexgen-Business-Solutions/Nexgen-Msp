@@ -11,8 +11,6 @@ from nexgen_msp.api.internal.services.contract_service import ContractService
 from nexgen_msp.utils.catalogue import BILLING_UOM
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
-OPEN_ASSIGNMENT_STATUSES = ("Pending Setup", "Active", "Suspended", "Pending Removal", "Ended")
-
 BILLABLE_OPERATIONAL = ("Pending Setup", "Active", "Pending Removal", "Ended")
 
 LIVE_CONTRACT_STATUSES = ("Active", "Suspended")

@@ -6,7 +6,7 @@ import { FrappeError } from '@/lib/api/client';
 import { requestPasswordReset } from '@/lib/api/auth';
 
 const inputClass =
-  'w-full rounded-lg border border-gray-300 bg-gray-50/60 px-3.5 py-2.5 text-sm text-gray-900 transition-all duration-200 placeholder:text-gray-400 focus:border-blue-500 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-200';
+  'w-full rounded-lg border border-slate-300 bg-slate-50/60 px-3.5 py-2.5 text-sm text-slate-900 transition-all duration-200 placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-200';
 
 const errorMessageFor = (err: unknown) => {
   if (err instanceof FrappeError) {
@@ -65,7 +65,7 @@ export default function ForgotPassword() {
 
           <Link
             to="/msp/login"
-            className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 px-6 py-3 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+            className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 px-6 py-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
           >
             <ArrowLeft className="h-4 w-4" />
             Back to sign in
@@ -84,7 +84,7 @@ export default function ForgotPassword() {
           )}
 
           <div>
-            <label htmlFor="email" className="mb-1.5 block text-xs font-semibold text-gray-700">
+            <label htmlFor="email" className="mb-1.5 block text-xs font-semibold text-slate-700">
               Email address
             </label>
             <input

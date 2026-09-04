@@ -5,7 +5,6 @@ import frappe
 from nexgen_msp.utils.catalogue import BILLING_UOM
 
 from nexgen_msp.api.excel_import.services import excel_parser
-from nexgen_msp.utils import permissions
 from nexgen_msp.utils import device_holders as holders
 
 FIELD_HOLDERS = "holder_log"
@@ -33,14 +32,10 @@ class ExcelImportService:
         dry_run=1,
         company=None,
         create_items=1,
-        create_portal_users=0,
-        send_welcome_email=0,
         fill_blanks_only=1,
     ):
         dry_run = frappe.utils.cint(dry_run)
         create_items = frappe.utils.cint(create_items)
-        create_portal_users = frappe.utils.cint(create_portal_users)
-        send_welcome_email = frappe.utils.cint(send_welcome_email)
 
         # the application has been running in production: what a person corrected there is
         # worth more than what the sheet still says. Left on, the import only fills gaps —
@@ -67,10 +62,6 @@ class ExcelImportService:
                 "service_assignments": 0,
                 "assignments_active": 0,
                 "assignments_ended": 0,
-                "portal_users": 0,
-                "portal_contacts": 0,
-                "user_permissions": 0,
-                "invitations_sent": 0,
                 "customers_stamped": 0,
             },
             "updated": {
@@ -86,10 +77,6 @@ class ExcelImportService:
                 "assignments_existing": 0,
                 "invalid_macs": 0,
                 "inconsistent_dates": 0,
-                "rows_without_email": 0,
-                "invalid_emails": 0,
-                "duplicate_emails": 0,
-                "portal_access_failed": 0,
             },
             "exceptions": [],
         }
@@ -108,7 +95,6 @@ class ExcelImportService:
             scopes = {key: (row.scope or "User") for key, row in service_map.items()}
 
             hostname_seen = {}
-            email_seen = {}
 
             for record in records:
                 if not record["full_name"] or not record["company"]:
@@ -147,25 +133,6 @@ class ExcelImportService:
                         record, customer, client_user, device, items, scopes, report
                     )
 
-                    if create_portal_users:
-                        portal_savepoint = f"portal_{record['row_number']}"
-                        frappe.db.savepoint(portal_savepoint)
-                        try:
-                            ExcelImportService._create_portal_access(
-                                record, customer, client_user, email_seen, send_welcome_email, report
-                            )
-                        except Exception as portal_error:
-                            frappe.db.rollback(save_point=portal_savepoint)
-                            frappe.clear_messages()
-                            report["skipped"]["portal_access_failed"] += 1
-                            report["exceptions"].append(
-                                {
-                                    "row": record["row_number"],
-                                    "name": record["full_name"],
-                                    "reason": "Portal access skipped: "
-                                    + ExcelImportService._clean_message(portal_error),
-                                }
-                            )
                 except Exception as e:
                     frappe.db.rollback(save_point=savepoint)
                     frappe.clear_messages()
@@ -603,55 +570,6 @@ class ExcelImportService:
             report["updated"]["network_interfaces"] += added
 
     @staticmethod
-    def _create_portal_access(record, customer, client_user, email_seen, send_welcome_email, report):
-        email = (record["email"] or "").strip().lower()
-
-        if not email:
-            report["skipped"]["rows_without_email"] += 1
-            return
-
-        if not EMAIL_PATTERN.match(email):
-            report["skipped"]["invalid_emails"] += 1
-            report["exceptions"].append(
-                {"row": record["row_number"], "reason": f"Invalid email ignored: {email}"}
-            )
-            return
-
-        if email in email_seen:
-            report["skipped"]["duplicate_emails"] += 1
-            report["exceptions"].append(
-                {
-                    "row": record["row_number"],
-                    "reason": f"Email {email} already used by row {email_seen[email]}",
-                }
-            )
-            return
-
-        email_seen[email] = record["row_number"]
-
-        names = (record["full_name"] or "").split()
-        first_name = names[0] if names else email
-        last_name = " ".join(names[1:]) or None
-
-        user, user_created = permissions.ensure_portal_user(email, first_name, last_name, 0)
-        permissions.add_role(user, permissions.PORTAL_ROLES[0])
-
-        permission_added = permissions.add_customer_permission(email, customer)
-        contact, contact_created = permissions.ensure_customer_contact(user, customer)
-
-        frappe.db.set_value("MSP Client User", client_user, "portal_user", user.name)
-
-        if user_created:
-            report["created"]["portal_users"] += 1
-        if contact_created:
-            report["created"]["portal_contacts"] += 1
-        if permission_added:
-            report["created"]["user_permissions"] += 1
-
-        if send_welcome_email and user_created:
-            permissions.send_portal_invitation(user, customer)
-            report["created"]["invitations_sent"] += 1
-
     @staticmethod
     def _create_assignments(record, customer, client_user, device, items, scopes, report):
         for key, lifecycle in record["services"].items():

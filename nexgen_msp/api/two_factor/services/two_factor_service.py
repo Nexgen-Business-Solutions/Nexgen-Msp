@@ -95,13 +95,16 @@ class TwoFactorService:
 
     @staticmethod
     def session_expiry_seconds():
-        """How long Frappe lets a session sit idle, from System Settings.
+        """How long this session may sit idle, read from the session itself.
 
-        Read from Frappe rather than from a setting of our own, so the moment a
-        second code is demanded again is the moment the session dies.
+        A customer session carries the administrator's limit, a staff session the site's;
+        either way the moment a second code is demanded again is the moment the session
+        dies.
         """
         try:
-            return int(get_expiry_in_seconds())
+            own = (frappe.session.data or {}).get("session_expiry") if frappe.session else None
+
+            return int(get_expiry_in_seconds(own))
         except Exception:
             return 6 * 60 * 60
 

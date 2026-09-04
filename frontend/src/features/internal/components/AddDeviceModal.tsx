@@ -23,6 +23,8 @@ type Props = {
   interfaceTypes: string[];
   requests: CustomerRequestRef[];
   defaultRequest?: string;
+  /** What the request already says about the machine, so nobody types it twice. */
+  initial?: { hostname?: string | null; device_type?: string | null; serial_number?: string | null };
   onClose: () => void;
 };
 
@@ -50,6 +52,7 @@ const AddDeviceModal: React.FC<Props> = ({
   interfaceTypes,
   requests,
   defaultRequest,
+  initial,
   onClose,
 }) => {
   const navigate = useNavigate();
@@ -79,9 +82,9 @@ const AddDeviceModal: React.FC<Props> = ({
     setHandOverDate(today());
     setHandOverNote('');
     handOver.reset();
-    setHostname('');
-    setDeviceType('');
-    setSerial('');
+    setHostname(initial?.hostname ?? '');
+    setDeviceType(initial?.device_type ?? '');
+    setSerial(initial?.serial_number ?? '');
     setAssignedDate(today());
     setSourceRequest(defaultRequest ?? '');
     setInterfaces([
@@ -136,6 +139,7 @@ const AddDeviceModal: React.FC<Props> = ({
         serial_number: serial.trim() || undefined,
         assigned_date: assignedDate || undefined,
         interfaces: interfaces.filter((item) => item.mac_address.trim()),
+        source_request: sourceRequest || undefined,
       });
 
       onClose();

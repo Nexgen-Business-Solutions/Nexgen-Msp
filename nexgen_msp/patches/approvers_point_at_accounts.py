@@ -9,7 +9,9 @@ def execute():
 
 	A line whose person had no account is dropped — there was nobody behind it to approve.
 	"""
-	if not frappe.db.has_column("MSP Approver", "client_user"):
+	if not frappe.db.has_column("MSP Approver", "client_user") or not frappe.db.has_column(
+		"MSP Client User", "portal_user"
+	):
 		return
 
 	rows = frappe.db.sql(

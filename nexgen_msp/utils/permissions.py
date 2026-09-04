@@ -160,30 +160,24 @@ def get_allowed_customers(user=None):
 
 
 def contact_profile(user=None, allowed=None):
-    """The record that says who this account is at the customer it may act for.
+    """The company this account is a contact of, among those it may act for.
 
-    An address can carry more than one record — the same person invited at two companies,
-    or a row left behind by an earlier invitation. Picking whichever one the database
-    returns first would name a company the account has no rights to, so the choice is made
-    against what it is actually allowed.
+    An address can be a contact at more than one company. Picking whichever one the
+    database returns first would name a company the account has no rights to, so the
+    choice is made against what it is actually allowed.
     """
     user = user or frappe.session.user
+    linked = customers_from_contacts(user)
 
-    rows = frappe.db.get_all(
-        "MSP Client User",
-        filters={"portal_user": user},
-        fields=["name", "customer", "department"],
-        order_by="modified desc",
-    )
-
-    if not rows:
+    if not linked:
         return None
 
     if allowed is None:
         allowed = get_allowed_customers(user)
 
-    return next((row for row in rows if row.customer in allowed), rows[0])
+    customer = next((name for name in allowed if name in linked), None) or sorted(linked)[0]
 
+    return frappe._dict(customer=customer)
 
 def add_customer_permission(user, customer):
     if has_customer_permission(user, customer):
@@ -231,29 +225,6 @@ def remove_roles(user_doc, roles):
     user_doc.set("roles", kept)
     user_doc.save(ignore_permissions=True)
     return True
-
-
-def ensure_portal_user(email, first_name=None, last_name=None, send_welcome_email=0):
-    if frappe.db.exists("User", email):
-        return frappe.get_doc("User", email), False
-
-    if not first_name:
-        raise ValidationError(
-            "first_name is required to create a new portal user.", "VALIDATION_ERROR"
-        )
-
-    user = frappe.get_doc(
-        {
-            "doctype": "User",
-            "email": email,
-            "first_name": first_name,
-            "last_name": last_name,
-            "user_type": "Website User",
-            "send_welcome_email": frappe.utils.cint(send_welcome_email),
-        }
-    ).insert(ignore_permissions=True)
-
-    return user, True
 
 
 def get_customer_contact(user, customer):
@@ -312,26 +283,6 @@ def ensure_invitation_template():
     ).insert(ignore_permissions=True)
 
     return INVITATION_TEMPLATE
-
-
-def send_portal_invitation(user_doc, customer):
-    from nexgen_msp.utils import notifications
-
-    link = notifications.on_portal_host(user_doc._reset_password(send_email=False))
-
-    notifications.send(
-        "MSP Portal Invitation",
-        [user_doc.name],
-        {
-            "full_name": user_doc.full_name or user_doc.name,
-            "customer": customer,
-            "link": link,
-        },
-        reference_doctype="User",
-        reference_name=user_doc.name,
-    )
-
-    return link
 
 
 def get_linked_customers(contact_doc):

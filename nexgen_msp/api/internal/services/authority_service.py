@@ -62,6 +62,9 @@ class AuthorityService:
                 for row in (doc.approvers if doc else [])
             ],
             "candidates": _accounts_of(customer),
+            # said on the page as well as by mail: a company nobody can raise for, or
+            # nobody can agree for, is stuck
+            "gaps": approval.gaps(customer),
         }
 
     @staticmethod
@@ -137,6 +140,8 @@ class AuthorityService:
                 doc.save(ignore_permissions=True)
                 frappe.db.commit()
 
+            approval.warn_admins_of_gaps(customer)
+
             return AuthorityService.get_account_rights(user)
 
         if row:
@@ -147,6 +152,8 @@ class AuthorityService:
 
         doc.save(ignore_permissions=True)
         frappe.db.commit()
+
+        approval.warn_admins_of_gaps(customer)
 
         return AuthorityService.get_account_rights(user)
 

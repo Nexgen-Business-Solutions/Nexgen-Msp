@@ -85,3 +85,93 @@ def covers(rights, client_user):
         return True
 
     return (frappe.db.get_value("MSP Client User", client_user, "department") or "") == wanted
+
+
+# ---------------------------------------------------------------- the gaps
+def gaps(customer):
+    """Whether this company still has someone to raise a request, and someone to agree.
+
+    Raising is open to every enabled account of the company except those the matrix names
+    without the right; agreeing belongs only to those it names with it.
+    """
+    accounts = frappe.db.sql_list(
+        """
+        select distinct up.user
+        from `tabUser Permission` up
+        join `tabUser` u on u.name = up.user
+        where up.allow = 'Customer' and up.for_value = %(customer)s and u.enabled = 1
+        """,
+        {"customer": customer},
+    )
+    doc = authority_for(customer)
+    named = {row.user: row for row in (doc.approvers if doc else [])}
+
+    raisers = [
+        user for user in accounts if user not in named or named[user].can_submit
+    ]
+    approvers = [
+        user for user, row in named.items() if row.can_approve and user in accounts
+    ]
+
+    return {
+        "accounts": len(accounts),
+        "nobody_may_raise": not raisers,
+        "nobody_may_approve": not approvers,
+    }
+
+
+def warn_admins_of_gaps(customer, request=None):
+    """Tell our administrators when a company can no longer raise, or no longer agree.
+
+    Said once per state: the same gap is not repeated at every request, and a gap that
+    closes and reopens is announced again. Mail never breaks what triggered it.
+    """
+    from nexgen_msp.utils import notifications
+
+    try:
+        state = gaps(customer)
+        signature = (
+            f"{int(state['nobody_may_raise'])}{int(state['nobody_may_approve'])}"
+            if state["nobody_may_raise"] or state["nobody_may_approve"]
+            else ""
+        )
+        marker = f"msp_authority_gap::{customer}"
+
+        if frappe.db.get_default(marker) == signature:
+            return False
+
+        frappe.db.set_default(marker, signature)
+
+        if not signature:
+            return False
+
+        admins = frappe.db.sql_list(
+            """
+            select distinct hr.parent
+            from `tabHas Role` hr
+            join `tabUser` u on u.name = hr.parent
+            where hr.role = 'MSP System Admin' and u.enabled = 1 and u.name != 'Administrator'
+            """
+        )
+
+        missing = []
+        if state["nobody_may_raise"]:
+            missing.append("nobody at this company may raise a request")
+        if state["nobody_may_approve"]:
+            missing.append("nobody at this company may approve a request")
+
+        return notifications.send(
+            "MSP Authority Gap",
+            admins,
+            {
+                "full_name": "",
+                "customer": customer,
+                "missing": "; ".join(missing),
+                "request": request or "",
+                "accounts": state["accounts"],
+                "link": frappe.utils.get_url(f"/msp/customers/{customer}"),
+            },
+        )
+    except Exception:
+        frappe.log_error(title="Authority gap warning failed", message=frappe.get_traceback())
+        return False

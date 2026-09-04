@@ -300,12 +300,12 @@ export default function InternalDashboard() {
             icon={ShieldAlert}
             tone="alert"
             accent="slate"
-            label="Unprotected devices"
-            value={data?.hygiene.unprotected_devices ?? 0}
-            caption="Active devices with no endpoint protection"
+            label="Devices without services"
+            value={data?.hygiene.devices_without_services ?? 0}
+            caption="Active devices with no active service"
             loading={isLoading}
-            onView={() => openKpi('unprotected_devices')}
-            viewLabel="List the unprotected devices"
+            onView={() => openKpi('devices_without_services')}
+            viewLabel="List the devices without services"
           />
         </div>
       </Section>

@@ -3,6 +3,7 @@
 import frappe
 
 from nexgen_msp.api.internal.services.authority_service import AuthorityService
+from nexgen_msp.api.portal.services.portal_service import PortalService
 from nexgen_msp.utils import approval
 from nexgen_msp.utils.errors import ValidationError
 
@@ -84,3 +85,104 @@ class TestApproval(MSPTestCase):
 
     def test_a_customer_with_no_approver_changes_nothing(self):
         self.assertFalse(approval.has_approvers(self.customer))
+
+
+class TestACompanyNobodyCanActFor(MSPTestCase):
+    """Our administrators hear when a company has nobody to raise, or nobody to agree."""
+
+    def setUp(self):
+        super().setUp()
+        self.customer = self.make_customer()
+        self.marker = f"msp_authority_gap::{self.customer}"
+        self.admin = self.make_account("internal", "MSP System Admin", suffix="gpa")
+        self.operator = self.make_account("customer", "MSP Customer Operator", self.customer, suffix="gpo")
+        # opening the account already warned once; each test starts from silence
+        frappe.db.set_default(self.marker, "")
+        frappe.db.delete("Email Queue")
+        frappe.db.commit()
+
+    def tearDown(self):
+        frappe.db.set_default(self.marker, "")
+        super().tearDown()
+
+    def mails_to_admin(self):
+        return frappe.db.sql(
+            """
+            select eq.name from `tabEmail Queue` eq
+            join `tabEmail Queue Recipient` r on r.parent = eq.name
+            where r.recipient = %s and eq.message like %s
+            """,
+            (self.admin, "%A company is stuck%"),
+        )
+
+    def test_an_unnamed_account_may_raise_but_nobody_may_approve(self):
+        state = approval.gaps(self.customer)
+
+        self.assertEqual(state["accounts"], 1)
+        self.assertFalse(state["nobody_may_raise"])
+        self.assertTrue(state["nobody_may_approve"])
+
+    def test_naming_the_only_account_approve_only_leaves_nobody_to_raise(self):
+        self.grant(self.operator, can_submit=0, can_approve=1)
+
+        state = approval.gaps(self.customer)
+        self.assertTrue(state["nobody_may_raise"])
+        self.assertFalse(state["nobody_may_approve"])
+
+    def test_both_rights_on_one_account_close_every_gap(self):
+        self.grant(self.operator, can_submit=1, can_approve=1)
+
+        state = approval.gaps(self.customer)
+        self.assertFalse(state["nobody_may_raise"])
+        self.assertFalse(state["nobody_may_approve"])
+
+    def test_a_disabled_approver_no_longer_counts(self):
+        self.grant(self.operator, can_submit=1, can_approve=1)
+        frappe.db.set_value("User", self.operator, "enabled", 0)
+
+        state = approval.gaps(self.customer)
+        self.assertEqual(state["accounts"], 0)
+        self.assertTrue(state["nobody_may_raise"])
+        self.assertTrue(state["nobody_may_approve"])
+
+    def test_the_administrator_is_told_once_per_state(self):
+        self.assertTrue(approval.warn_admins_of_gaps(self.customer))
+        self.assertEqual(len(self.mails_to_admin()), 1)
+
+        # the same gap is not repeated
+        self.assertFalse(approval.warn_admins_of_gaps(self.customer))
+        self.assertEqual(len(self.mails_to_admin()), 1)
+
+        # closed, nothing is said; reopened, it is said again
+        self.grant(self.operator, can_submit=1, can_approve=1)
+        self.assertEqual(len(self.mails_to_admin()), 1)
+        self.grant(self.operator, can_submit=1, can_approve=0)
+        self.assertEqual(len(self.mails_to_admin()), 2)
+
+    def test_a_request_waiting_on_nobody_tells_the_administrator_which_one(self):
+        person = self.make_person(self.customer, "Subject")
+        service = self.make_service("GP", scope="User")
+
+        frappe.set_user(self.operator)
+        try:
+            out = PortalService.create_request(
+                customer=self.customer,
+                request_type="Add",
+                lines=[
+                    {
+                        "request_action": self.action(),
+                        "action": "Add",
+                        "target_scope": "User",
+                        "client_user": person,
+                        "requested_service": service,
+                    }
+                ],
+            )
+        finally:
+            frappe.set_user("Administrator")
+        name = self.track("MSP Service Request", out["name"])
+
+        self.assertEqual(out["status"], "Awaiting Customer Approval")
+        mails = self.mails_to_admin()
+        self.assertEqual(len(mails), 1)
+        self.assertIn(name, frappe.db.get_value("Email Queue", mails[0][0], "message"))

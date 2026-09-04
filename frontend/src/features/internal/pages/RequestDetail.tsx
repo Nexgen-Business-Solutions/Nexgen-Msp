@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   AlertCircle,
@@ -8,21 +8,57 @@ import {
   CircleAlert,
   UserPlus,
   Laptop,
-  Quote,
   TriangleAlert,
   X,
 } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
 import StatusBadge from '@/shared/components/StatusBadge';
 import CreateUserModal from '../components/CreateUserModal';
-import DeliveryDetailsModal, { outstanding } from '../components/DeliveryDetailsModal';
+import AddDeviceModal from '../components/AddDeviceModal';
+import { useUserDetail } from '../hooks/useUsers';
+import DeliveryDetailsModal from '../components/DeliveryDetailsModal';
+import { outstanding } from '../lib/delivery';
 import { useRequestDetail, useRunRequestAction, useSetLineStatus } from '../hooks/useRequests';
+import type { RequestDetailLine } from '@/lib/api/internal';
+import RequestLinesByPerson, { type PersonLine } from '@/shared/components/RequestLinesByPerson';
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
 const fmtStamp = (value?: string | null) =>
   value ? String(value).slice(0, 16).replace('T', ' ') : null;
 
 const DESTRUCTIVE = ['reject', 'cancel'];
+
+/** A line as the technician reads it: the person first, then what was asked for them. */
+const asPersonLine = (line: RequestDetailLine, extra?: React.ReactNode): PersonLine => {
+  // a device line names nobody, but the machine has a holder and that is who it is about
+  const person = line.client_user || line.device_holder;
+  // "new" only until the record exists: a line linked to a person is about them
+  const isNewUser = Boolean(line.is_new_user) && !person;
+
+  return {
+    idx: line.idx,
+    person,
+    personName: isNewUser ? line.new_user_full_name : line.client_user_name,
+    isNewUser,
+    username: isNewUser ? line.new_user_username : line.client_username,
+    department: isNewUser ? line.new_user_department : line.client_user_department,
+    email: line.new_user_email,
+    needsPortalAccess: Boolean(line.needs_portal_access),
+    action: line.action,
+    actionLabel: line.action_label,
+    service: line.requested_service_name || line.requested_service,
+    onDevice: Boolean(line.managed_device || line.is_new_device),
+    isNewDevice: Boolean(line.is_new_device),
+    deviceName: line.is_new_device ? line.new_device_label : line.device_hostname,
+    serial: line.is_new_device ? line.new_device_serial : line.device_serial,
+    deviceType: line.is_new_device ? line.new_device_type : line.device_type,
+    requestedFor: line.requested_effective_date,
+    status: line.line_status,
+    comment: line.comment,
+    rejectionReason: line.rejection_reason,
+    extra,
+  };
+};
 
 type ReasonPrompt = { kind: 'action'; action: string; label: string } | { kind: 'line'; idx: number };
 
@@ -41,7 +77,15 @@ export default function RequestDetail() {
     full_name: string | null;
     department: string | null;
     email: string | null;
+    username: string | null;
   } | null>(null);
+
+  // the machine a request asked for is registered from here, for the person it names
+  const [registering, setRegistering] = useState<{
+    person: string;
+    initial: { hostname: string | null; device_type: string | null; serial_number: string | null };
+  } | null>(null);
+  const holder = useUserDetail(registering?.person);
 
   const data = detail.data;
   const actionError = (runAction.error ?? setLine.error) as Error | undefined;
@@ -146,9 +190,11 @@ export default function RequestDetail() {
                       return;
                     }
 
-                    action.needs_reason
-                      ? openPrompt({ kind: 'action', action: action.action, label: action.label })
-                      : runAction.mutate({ name, action: action.action });
+                    if (action.needs_reason) {
+                      openPrompt({ kind: 'action', action: action.action, label: action.label });
+                    } else {
+                      runAction.mutate({ name, action: action.action });
+                    }
                   }}
                   className={`inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-60 ${
                     destructive
@@ -191,195 +237,125 @@ export default function RequestDetail() {
           </div>
         )}
 
-        <div className="space-y-4 px-6 py-5">
-          {data.lines.map((line) => {
-            const target = line.is_new_user ? line.new_user_full_name : line.client_user_name;
-            const department = line.is_new_user
-              ? line.new_user_department
-              : line.client_user_department;
-            const check = checkFor(line.idx);
+        <div className="px-6 py-5">
+          <RequestLinesByPerson
+            lines={data.lines.map((line) => {
+              const check = checkFor(line.idx);
 
-            return (
-              <div
-                key={line.idx}
-                className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/60 px-4 py-3">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <span className="flex h-6 w-6 items-center justify-center rounded-md bg-slate-200 text-xs font-bold text-slate-600 tabular-nums">
-                      {line.idx}
-                    </span>
-                    <StatusBadge value={line.action} />
-                    <span className="text-sm font-semibold text-slate-900">
-                      {line.requested_service_name || line.requested_service}
-                    </span>
-                    <StatusBadge value={line.line_status} />
-                  </div>
+              return asPersonLine(
+                line,
+                check && (
+                  <p
+                    className={`mt-0.5 inline-flex items-center gap-1 text-xs font-medium ${
+                      check.priced ? 'text-slate-500' : 'text-amber-700'
+                    }`}
+                  >
+                    {check.priced ? <Check size={12} /> : <CircleAlert size={12} />}
+                    {check.priced
+                      ? review?.shows_rates && check.rate !== null
+                        ? `Rate ${check.rate.toLocaleString()} ${review.currency ?? ''}`
+                        : 'Rate set in contract'
+                      : 'No rate — delivered but never billed'}
+                    {check.duplicate ? ` · already held (${check.duplicate})` : ''}
+                  </p>
+                )
+              );
+            })}
+            headerActions={({ first, lines }) => {
+              const source = data.lines.find((line) => line.idx === first.idx);
+              const wantsDevice = lines.some((line) => line.isNewDevice);
 
-                  <div className="flex items-center gap-2">
-                    {data.can_decide_lines && line.line_status === 'Pending' && (
+              return (
+                <>
+                  {wantsDevice && first.person && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const asked = data.lines.find(
+                          (line) =>
+                            line.is_new_device && lines.some((row) => row.idx === line.idx)
+                        );
+                        setRegistering({
+                          person: first.person as string,
+                          initial: {
+                            hostname: asked?.new_device_label ?? null,
+                            device_type: asked?.new_device_type ?? null,
+                            serial_number: asked?.new_device_serial ?? null,
+                          },
+                        });
+                      }}
+                      title="Register this machine for them, with what the request already says"
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-slate-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-700"
+                    >
+                      <Laptop size={15} />
+                      Register device
+                    </button>
+                  )}
+
+                  {first.person && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        navigate(`/msp/users/${first.person}?ref=${encodeURIComponent(name)}`)
+                      }
+                      title="Open this user, with the request pre-selected"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-900"
+                    >
+                      Open profile
+                      <ArrowUpRight size={15} />
+                    </button>
+                  )}
+
+                  {first.isNewUser && source && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setNewUserLine({
+                          idx: source.idx,
+                          full_name: source.new_user_full_name,
+                          department: source.new_user_department,
+                          email: source.new_user_email,
+                          username: source.new_user_username,
+                        })
+                      }
+                      title="Create this person, then continue on their profile"
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
+                    >
+                      <UserPlus size={15} />
+                      Create user
+                    </button>
+                  )}
+                </>
+              );
+            }}
+            rowActions={
+              data.can_decide_lines
+                ? (line) =>
+                    line.status === 'Pending' && (
                       <>
                         <button
                           type="button"
                           onClick={() =>
                             setLine.mutate({ name, idx: line.idx, line_status: 'Approved' })
                           }
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-50"
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-50"
                         >
-                          <Check size={15} />
+                          <Check size={13} />
                           Approve
                         </button>
                         <button
                           type="button"
                           onClick={() => openPrompt({ kind: 'line', idx: line.idx })}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50"
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-50"
                         >
-                          <X size={15} />
+                          <X size={13} />
                           Reject
                         </button>
                       </>
-                    )}
-
-                    {line.is_new_device && line.client_user && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          navigate(
-                            `/msp/users/${line.client_user}?ref=${encodeURIComponent(name)}&device=new`
-                          )
-                        }
-                        title="Register this machine, with the request kept in context"
-                        className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700"
-                      >
-                        <Laptop size={15} />
-                        Register device
-                      </button>
-                    )}
-
-                    {line.client_user && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          navigate(`/msp/users/${line.client_user}?ref=${encodeURIComponent(name)}`)
-                        }
-                        title="Open this user, with the request pre-selected"
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-900"
-                      >
-                        Open profile
-                        <ArrowUpRight size={15} />
-                      </button>
-                    )}
-
-                    {!line.client_user && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setNewUserLine({
-                            idx: line.idx,
-                            full_name: line.new_user_full_name,
-                            department: line.new_user_department,
-                            email: line.new_user_email,
-                          })
-                        }
-                        title="Create this person, then continue on their profile"
-                        className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
-                      >
-                        <UserPlus size={15} />
-                        Create user
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <div className="space-y-4 p-4">
-                  {line.comment && (
-                    <div className="rounded-lg border border-blue-100 bg-blue-50/60 p-3.5">
-                      <div className="flex items-center gap-2">
-                        <Quote size={13} className="text-blue-600" />
-                        <span className="text-xs font-semibold uppercase tracking-wider text-blue-700">
-                          Customer note
-                        </span>
-                      </div>
-                      <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
-                        {line.comment}
-                      </p>
-                    </div>
-                  )}
-
-                  {check && (
-                    <div className="flex flex-wrap items-center gap-4 rounded-lg border border-slate-200 bg-slate-50/60 px-3.5 py-2.5">
-                      <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                        Commercial check
-                      </span>
-                      <span
-                        className={`inline-flex items-center gap-1.5 text-xs font-medium ${
-                          check.priced ? 'text-emerald-700' : 'text-amber-700'
-                        }`}
-                      >
-                        {check.priced ? <Check size={13} /> : <CircleAlert size={13} />}
-                        {check.priced
-                          ? review?.shows_rates && check.rate !== null
-                            ? `Rate ${check.rate.toLocaleString()} ${review.currency ?? ''}`
-                            : 'Rate set in contract'
-                          : 'No rate — this would be delivered but never billed'}
-                      </span>
-                      {check.duplicate && (
-                        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-700">
-                          <CircleAlert size={13} />
-                          Already held ({check.duplicate})
-                        </span>
-                      )}
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-                    <div>
-                      <p className="text-xs font-medium text-slate-400">User</p>
-                      <p className="mt-0.5 text-sm font-semibold text-slate-900">
-                        {target || 'N/A'}
-                        {line.is_new_user ? (
-                          <span className="ml-1.5 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-indigo-700">
-                            new
-                          </span>
-                        ) : null}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-medium text-slate-400">Department</p>
-                      <p className="mt-0.5 text-sm text-slate-700">{department || 'N/A'}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-medium text-slate-400">Device</p>
-                      {line.is_new_device ? (
-                        <p className="mt-0.5 text-sm font-semibold text-indigo-700">
-                          {line.new_device_label}
-                          <span className="ml-1.5 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-indigo-700">
-                            to register
-                          </span>
-                        </p>
-                      ) : (
-                        <p className="mt-0.5 text-sm text-slate-700">
-                          {line.device_hostname || 'N/A'}
-                        </p>
-                      )}
-                    </div>
-                    <div>
-                      <p className="text-xs font-medium text-slate-400">Requested for</p>
-                      <p className="mt-0.5 text-sm text-slate-700">
-                        {fmtDate(line.requested_effective_date)}
-                      </p>
-                    </div>
-                  </div>
-
-                  {line.rejection_reason && (
-                    <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
-                      Rejected — {line.rejection_reason}
-                    </p>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+                    )
+                : undefined
+            }
+          />
         </div>
       </div>
 
@@ -400,11 +376,27 @@ export default function RequestDetail() {
         customer={data.customer}
         line={newUserLine}
         onClose={() => setNewUserLine(null)}
-        onCreated={(clientUser) => {
+        onCreated={() => {
+          // the person now exists: their card turns into an existing one, and the machine
+          // they were owed can be registered from right here
           setNewUserLine(null);
-          navigate(`/msp/users/${clientUser}?ref=${encodeURIComponent(name)}`);
         }}
       />
+
+      {registering && holder.data && (
+        <AddDeviceModal
+          open
+          clientUser={registering.person}
+          userName={holder.data.user.full_name}
+          customer={data.customer}
+          deviceTypes={holder.data.device_types}
+          interfaceTypes={holder.data.interface_types}
+          requests={holder.data.customer_requests}
+          defaultRequest={name}
+          initial={registering.initial}
+          onClose={() => setRegistering(null)}
+        />
+      )}
 
       <Modal
         open={Boolean(prompt)}

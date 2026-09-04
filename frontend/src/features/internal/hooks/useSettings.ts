@@ -40,6 +40,21 @@ export const useSaveRequestAction = () => useActionMutation(internal.saveRequest
 export const useDeleteRequestAction = () =>
   useActionMutation((name: string) => internal.deleteRequestAction(name));
 
+export const usePortalSettings = () =>
+  useQuery({
+    queryKey: [...settingsKeys.all, 'portal'] as const,
+    queryFn: ({ signal }) => internal.getPortalSettings(signal),
+  });
+
+export const useSavePortalSettings = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: internal.savePortalSettings,
+    onSuccess: (data) => queryClient.setQueryData([...settingsKeys.all, 'portal'], data),
+  });
+};
+
 export const useInvoiceSettings = () =>
   useQuery({
     queryKey: [...settingsKeys.all, 'invoice'] as const,

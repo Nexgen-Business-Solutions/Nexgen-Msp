@@ -16,9 +16,9 @@ import { useActivity, useActivityOptions } from '../hooks/useActivity';
 
 const TONES: Record<ActivityKind, { icon: typeof Inbox; surround: string; color: string }> = {
   invoice: { icon: Receipt, surround: 'bg-emerald-50', color: 'text-emerald-600' },
-  credit_note: { icon: ReceiptText, surround: 'bg-rose-50', color: 'text-rose-600' },
+  credit_note: { icon: ReceiptText, surround: 'bg-slate-50', color: 'text-slate-600' },
   request: { icon: Inbox, surround: 'bg-blue-50', color: 'text-blue-600' },
-  user: { icon: UserPlus, surround: 'bg-indigo-50', color: 'text-indigo-600' },
+  user: { icon: UserPlus, surround: 'bg-slate-50', color: 'text-slate-600' },
   device: { icon: Laptop, surround: 'bg-slate-100', color: 'text-slate-600' },
   service_started: { icon: PlugZap, surround: 'bg-emerald-50', color: 'text-emerald-600' },
   service_ended: { icon: PowerOff, surround: 'bg-amber-50', color: 'text-amber-600' },

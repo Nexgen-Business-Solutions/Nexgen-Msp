@@ -129,16 +129,16 @@ class TestWhereLinksPoint(MSPTestCase):
     def setUp(self):
         super().setUp()
         self.customer = self.make_customer()
-        self.kept = frappe.db.get_single_value("MSP Invoice Settings", "portal_url")
+        self.kept = frappe.db.get_single_value("MSP Portal Settings", "portal_url")
         frappe.db.set_value(
-            "MSP Invoice Settings", "MSP Invoice Settings", "portal_url", "https://portal.test"
+            "MSP Portal Settings", "MSP Portal Settings", "portal_url", "https://portal.test"
         )
         frappe.db.commit()
         frappe.clear_cache()
 
     def tearDown(self):
         frappe.db.set_value(
-            "MSP Invoice Settings", "MSP Invoice Settings", "portal_url", self.kept
+            "MSP Portal Settings", "MSP Portal Settings", "portal_url", self.kept
         )
         frappe.db.commit()
         frappe.clear_cache()

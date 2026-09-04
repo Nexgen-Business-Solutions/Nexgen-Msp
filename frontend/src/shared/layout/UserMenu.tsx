@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { Building2, ChevronDown, LogOut, Mail, ShieldCheck, Users } from 'lucide-react';
+import { Building2, ChevronDown, LogOut, Mail, ShieldCheck } from 'lucide-react';
 import { logout } from '@/lib/api/client';
 import MyTwoFactorModal from '@/features/auth/components/MyTwoFactorModal';
 import { useSession } from '@/shared/hooks/useSession';
@@ -65,7 +65,6 @@ const UserMenu: React.FC = () => {
   const details = [
     { icon: Mail, value: email },
     { icon: Building2, value: session?.customer },
-    { icon: Users, value: session?.department },
   ].filter((item) => Boolean(item.value));
 
   return (

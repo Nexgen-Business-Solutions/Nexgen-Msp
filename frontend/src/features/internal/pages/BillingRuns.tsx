@@ -358,7 +358,7 @@ export default function BillingRuns() {
                         </span>
                       )}
                       {row.adjustment_of && (
-                        <span className="ml-1.5 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-indigo-700">
+                        <span className="ml-1.5 rounded bg-slate-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-slate-700">
                           adj
                         </span>
                       )}

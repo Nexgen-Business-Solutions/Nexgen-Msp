@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  getPagesForRoles,
   CUSTOMER_OPERATOR_ROLE,
   INTERNAL_ROLES,
   CUSTOMER_MANAGER_ROLE,
@@ -109,5 +110,22 @@ describe('what staff see', () => {
 describe('an account with no role', () => {
   it('is not treated as a customer', () => {
     expect(isPortalOnly([])).toBe(false);
+  });
+});
+
+describe('someone who only decides at their company', () => {
+  it('is not offered the New Request entry', () => {
+    const roles = ['MSP Customer Manager'];
+    const offered = getPagesForRoles(roles, true).map((item) => item.id);
+    const withheld = getPagesForRoles(roles, false).map((item) => item.id);
+
+    expect(offered).toContain('portal-new-request');
+    expect(withheld).not.toContain('portal-new-request');
+    expect(withheld.length).toBe(offered.length - 1);
+  });
+
+  it('changes nothing for staff, who never go through the matrix', () => {
+    const roles = ['MSP Technician'];
+    expect(getPagesForRoles(roles, false)).toEqual(getPagesForRoles(roles, true));
   });
 });

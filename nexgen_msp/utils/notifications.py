@@ -107,6 +107,16 @@ TEMPLATES = {
         + "{{ summary }}"
         + BUTTON.format(url="link", label="Open the request"),
     },
+    "MSP Authority Gap": {
+        "subject": "{{ customer }}: {{ missing }} - {{ app_name }}",
+        "body": HEADING.format(text="A company is stuck")
+        + "<p>Hello {{ full_name }},</p>"
+        + "<p>At <b>{{ customer }}</b>, {{ missing }}. "
+        + "{% if request %}Request {{ request }} is waiting on an accord nobody can give.{% endif %}</p>"
+        + "<p>The company has {{ accounts }} enabled account(s). Name the right person on the "
+        + "authority matrix, or open an account for them.</p>"
+        + BUTTON.format(url="link", label="Open the customer"),
+    },
     "MSP Request Awaiting Approval": {
         "subject": "{{ request }} needs your approval - {{ app_name }}",
         "body": HEADING.format(text="A request is waiting for you")

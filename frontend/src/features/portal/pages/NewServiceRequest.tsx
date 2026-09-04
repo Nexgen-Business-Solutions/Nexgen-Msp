@@ -9,6 +9,7 @@ import { useSession } from '@/shared/hooks/useSession';
 import { isPortalOnly } from '@/shared/layout/navigation';
 import { useUserFilterOptions } from '@/features/internal/hooks/useUsers';
 import { usePortalFilters } from '../store/usePortalFilters';
+import { useMyApprovalRights } from '../hooks/usePortal';
 
 const labelClass = 'mb-1.5 block text-xs font-semibold text-slate-700';
 const inputClass =
@@ -20,6 +21,7 @@ export default function NewServiceRequest() {
   // opens already pointed at it
   const [params] = useSearchParams();
   const [givingUp, setGivingUp] = useState(false);
+  const rights = useMyApprovalRights();
   const form = useServiceRequestForm(
     () => navigate('/msp/requests'),
     {
@@ -27,7 +29,8 @@ export default function NewServiceRequest() {
       managed_device: params.get('device') ?? undefined,
       service: params.get('service') ?? undefined,
     },
-    params.get('draft') ?? undefined
+    params.get('draft') ?? undefined,
+    params.get('from') ?? undefined
   );
 
   // staff serve every customer, so they must say who they are acting for; a contact
@@ -37,6 +40,24 @@ export default function NewServiceRequest() {
   const customer = usePortalFilters((state) => state.customer);
   const setCustomer = usePortalFilters((state) => state.setCustomer);
   const options = useUserFilterOptions(onBehalf);
+
+  // someone who only decides at their company raises nothing; the server refuses too
+  if (rights.data?.can_submit === false) {
+    return (
+      <div className="px-6 pb-6 pt-4">
+        <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50/70 p-5">
+          <Info size={18} className="mt-0.5 shrink-0 text-amber-700" />
+          <div>
+            <p className="text-sm font-semibold text-amber-900">You may not raise requests</p>
+            <p className="mt-1 text-sm text-amber-800">
+              Your account decides on your company's requests but does not open them. Ask
+              Nexgen if that should change.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (form.reopening) {
     return (

@@ -53,3 +53,4 @@ jspm_packages/
 
 # Aider AI Chat
 .aider*
+nexgen_msp/public/node_modules

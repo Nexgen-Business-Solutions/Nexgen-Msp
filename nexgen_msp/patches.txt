@@ -13,6 +13,7 @@ nexgen_msp.patches.link_runs_to_contracts
 nexgen_msp.patches.approvers_point_at_accounts
 nexgen_msp.patches.seed_request_actions
 nexgen_msp.patches.seed_invoice_settings
+nexgen_msp.patches.portal_url_moves_home
 nexgen_msp.patches.stamp_last_billed
 nexgen_msp.patches.restate_last_billed
 nexgen_msp.patches.free_customer_flag
@@ -20,7 +21,6 @@ nexgen_msp.patches.billing_discounts
 nexgen_msp.patches.backfill_covered_until
 nexgen_msp.patches.invoice_billed_count
 nexgen_msp.patches.service_invoice_label
-nexgen_msp.patches.flag_protection_service
 nexgen_msp.patches.remarks_to_log
 nexgen_msp.patches.seed_device_holders
 nexgen_msp.patches.flag_current_holder

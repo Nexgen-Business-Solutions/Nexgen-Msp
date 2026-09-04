@@ -19,7 +19,7 @@ export default function CustomersList() {
   const [search, setSearch] = useState('');
   const [liveOnly, setLiveOnly] = useState(false);
 
-  const all = data ?? [];
+  const all = useMemo(() => data ?? [], [data]);
 
   const rows = useMemo(() => {
     const needle = search.trim().toLowerCase();

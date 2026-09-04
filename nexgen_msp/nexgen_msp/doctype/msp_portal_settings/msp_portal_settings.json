@@ -1,0 +1,47 @@
+{
+ "actions": [],
+ "creation": "2026-09-04 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "portal_url",
+  "customer_session_timeout"
+ ],
+ "fields": [
+  {
+   "fieldname": "portal_url",
+   "fieldtype": "Data",
+   "label": "Portal URL",
+   "options": "URL"
+  },
+  {
+   "fieldname": "customer_session_timeout",
+   "fieldtype": "Select",
+   "label": "Customer Session Timeout",
+   "options": "\n1 hour\n2 hours\n4 hours\n8 hours\n1 day\n3 days\n7 days",
+   "default": "8 hours"
+  }
+ ],
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-09-04 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nexgen MSP",
+ "name": "MSP Portal Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

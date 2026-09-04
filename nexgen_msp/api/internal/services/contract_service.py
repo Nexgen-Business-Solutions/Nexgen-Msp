@@ -2,8 +2,7 @@ import frappe
 
 from nexgen_msp.api.internal.services.request_service import ADMIN_ROLES
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
-
-OPEN_ASSIGNMENT_STATUSES = ("Pending Setup", "Active", "Suspended", "Pending Removal")
+from nexgen_msp.utils.assignments import OPEN_ASSIGNMENT_STATUSES
 
 LIVE_CONTRACT_STATUSES = ("Active", "Suspended")
 

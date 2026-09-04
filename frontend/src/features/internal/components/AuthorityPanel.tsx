@@ -23,6 +23,8 @@ const AuthorityPanel: React.FC<Props> = ({ customer }) => {
 
   const rows = authority.data?.approvers ?? [];
   const approves = rows.some((row) => row.can_approve);
+  const gaps = authority.data?.gaps;
+  const stuck = Boolean(gaps && (gaps.nobody_may_raise || gaps.nobody_may_approve));
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
@@ -33,20 +35,30 @@ const AuthorityPanel: React.FC<Props> = ({ customer }) => {
         </p>
       </div>
 
-      {approves && (
+      {stuck && gaps && (
         <div className="mx-5 mb-3 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
           <ShieldCheck size={16} className="mt-0.5 shrink-0 text-amber-600" />
           <p className="text-sm text-amber-800">
-            Requests from everyone else here now wait for one of them. Their own reach us
-            straight away.
+            {gaps.nobody_may_approve && gaps.nobody_may_raise
+              ? 'Nobody at this company may raise a request, and nobody may approve one. '
+              : gaps.nobody_may_approve
+                ? 'Nobody at this company may approve a request: every request from here waits until someone is named. '
+                : 'Nobody at this company may raise a request. '}
+            Name the right person on their account page
+            {gaps.accounts === 0 ? ', or open an account for them' : ''}.
           </p>
         </div>
       )}
 
-      {rows.length === 0 ? (
-        <p className="px-5 pb-5 text-sm text-slate-400">
-          Nobody here decides yet — their requests reach us straight away.
+      {!stuck && approves && (
+        <p className="px-5 pb-3 text-sm text-slate-500">
+          Requests from everyone else here wait for one of them. Their own reach us straight
+          away.
         </p>
+      )}
+
+      {rows.length === 0 ? (
+        <p className="px-5 pb-5 text-sm text-slate-400">Nobody is named here yet.</p>
       ) : (
         <div className="max-h-[26rem] overflow-auto px-5 pb-4">
           <table className="w-full">

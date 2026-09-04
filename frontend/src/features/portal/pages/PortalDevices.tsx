@@ -7,6 +7,7 @@ import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import KpiCard from '@/shared/components/KpiCard';
 import * as portal from '@/lib/api/portal';
 import { useDevicePage, usePortalFilterOptions, usePortalSummary, useSubscribedServices } from '../hooks/usePortal';
+import { useMyApprovalRights } from '../hooks/usePortal';
 
 const COLUMNS = ['Device', 'Network interfaces', 'Active services', 'Inactive services', ''];
 
@@ -22,6 +23,8 @@ const INTERFACE_ORDER = ['Wi-Fi', 'LAN', 'Extra', 'Other'];
 const EMPTY: FilterState = { status: '', service: '' };
 
 export default function PortalDevices() {
+  const rights = useMyApprovalRights();
+  const canSubmit = rights.data?.can_submit !== false;
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const [filters, setFilters] = useState<FilterState>({
@@ -75,9 +78,9 @@ export default function PortalDevices() {
           icon={ShieldAlert}
           tone="alert"
           accent="slate"
-          label="Unprotected"
-          value={summary.data?.unprotected_devices ?? 0}
-          caption="Active with no security service"
+          label="No service"
+          value={summary.data?.devices_without_services ?? 0}
+          caption="Active, with no active service"
           loading={summary.isLoading}
           onView={() => apply({ status: 'Active' })}
         />
@@ -213,12 +216,16 @@ export default function PortalDevices() {
               <div className="flex justify-end">
                 <RowActionsMenu
                   actions={[
+                    ...(canSubmit
+                      ? [
                     {
                       label: 'Raise a request for this machine',
                       icon: FilePlus2,
                       onClick: () =>
                         navigate(`/msp/requests/new?device=${encodeURIComponent(row.name)}`),
                     },
+                        ]
+                      : []),
                   ]}
                 />
               </div>

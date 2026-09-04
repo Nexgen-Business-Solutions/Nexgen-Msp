@@ -95,7 +95,7 @@ const asDeviceRow = (data: DeviceDetailData): DeviceRow => ({
   inactive_services: data.services.filter((row) =>
     ['Ended', 'Cancelled'].includes(row.operational_status)
   ).length,
-  protected: 0,
+  has_services: 0,
   interfaces: data.interfaces,
 });
 

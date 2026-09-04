@@ -179,7 +179,9 @@ const toFormLines = (detail: PortalRequestDetail): FormLine[] => {
 export const useServiceRequestForm = (
   onCreated?: (request: ServiceRequestDetail) => void,
   seed?: LineSeed,
-  reopen?: string
+  reopen?: string,
+  /** A request to start from — a refused one, corrected and sent again as a new one. */
+  copyFrom?: string
 ) => {
   const [priority, setPriority] = useState<string>('Medium');
   const [lines, setLines] = useState<FormLine[]>([emptyLine(seed)]);
@@ -188,7 +190,8 @@ export const useServiceRequestForm = (
 
   const [draft, setDraft] = useState<string | null>(reopen ?? null);
   const [loaded, setLoaded] = useState(false);
-  const saved = useServiceRequest(reopen);
+  const source = reopen ?? copyFrom;
+  const saved = useServiceRequest(source);
   const catalogue = useCatalogue();
   const filterOptions = usePortalFilterOptions();
   const users = useUserChoices();
@@ -300,14 +303,15 @@ export const useServiceRequestForm = (
     mutation.reset();
   };
 
-  // a draft opened from the listing fills the form once, then behaves like any other
+  // a draft opened from the listing, or a refused request being corrected, fills the form
+  // once, then behaves like any other
   useEffect(() => {
-    if (!reopen || loaded || !saved.data) return;
+    if (!source || loaded || !saved.data) return;
 
     setPriority(saved.data.priority || 'Medium');
     setLines(toFormLines(saved.data));
     setLoaded(true);
-  }, [reopen, loaded, saved.data]);
+  }, [source, loaded, saved.data]);
 
   const payload = () => ({
     priority,
@@ -362,7 +366,7 @@ export const useServiceRequestForm = (
     reset,
     submit,
     save,
-    reopening: Boolean(reopen) && !loaded,
+    reopening: Boolean(source) && !loaded,
     discard,
     draft,
     // a request is made of services: until one is picked there is nothing to put aside

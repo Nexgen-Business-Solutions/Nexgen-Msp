@@ -17,7 +17,6 @@
   "comment",
   "line_status",
   "rejection_reason",
-  "fulfilled_assignment",
   "is_new_user",
   "new_user_full_name",
   "new_user_department",
@@ -116,14 +115,6 @@
    "fieldtype": "Small Text",
    "label": "Rejection Reason",
    "mandatory_depends_on": "eval:doc.line_status==\"Rejected\""
-  },
-  {
-   "fieldname": "fulfilled_assignment",
-   "fieldtype": "Link",
-   "label": "Fulfilled Assignment",
-   "options": "MSP Service Assignment",
-   "read_only": 1,
-   "no_copy": 1
   },
   {
    "default": "0",

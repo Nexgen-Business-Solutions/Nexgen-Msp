@@ -41,7 +41,7 @@ const INTERFACE_LABEL: Record<string, string> = {
 const INTERFACE_ORDER = ['Wi-Fi', 'LAN', 'Extra', 'Other'];
 
 const COVERAGE_OPTIONS = [
-  { value: 'no_security', label: 'No endpoint protection', description: 'Active, unprotected' },
+  { value: 'no_service', label: 'No active service', description: 'Active, nothing running on it' },
   { value: 'unassigned', label: 'Not assigned to anyone', description: 'Active, no holder' },
   { value: 'no_mac', label: 'No MAC recorded', description: 'Identification incomplete' },
 ];
@@ -87,11 +87,11 @@ export default function DevicesList() {
           icon={ShieldAlert}
           tone="alert"
           accent="slate"
-          label="Unprotected"
-          value={stats.data?.unprotected_devices ?? 0}
-          caption="Active devices with no security service"
+          label="No service"
+          value={stats.data?.devices_without_services ?? 0}
+          caption="Active devices with no active service"
           loading={stats.isLoading}
-          onView={() => patch({ coverage: 'no_security', status: '' })}
+          onView={() => patch({ coverage: 'no_service', status: '' })}
         />
         <KpiCard
           icon={UserX}
@@ -271,11 +271,6 @@ export default function DevicesList() {
                       <span className="inline-flex min-w-[2rem] justify-center rounded-lg bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 tabular-nums">
                         {row.active_services}
                       </span>
-                      {!row.protected && row.status === 'Active' && (
-                        <span className="ml-1.5 text-xs font-medium text-amber-600">
-                          unprotected
-                        </span>
-                      )}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3">
                       <span

@@ -4,16 +4,14 @@ from nexgen_msp.api.internal.services.contract_service import ContractService
 from nexgen_msp.utils import device_holders as holders
 from nexgen_msp.utils import remarks as remarks_util
 
-from nexgen_msp.utils.catalogue import security_item
 
 from nexgen_msp.api.internal.services.request_service import CUSTOMER_STATUS, RequestService
 from nexgen_msp.api.internal.services.user_service import UserService
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
+from nexgen_msp.utils.assignments import OPEN_ASSIGNMENT_STATUSES
 
 
-OPEN_ASSIGNMENT_STATUSES = ("Pending Setup", "Active", "Suspended", "Pending Removal")
-
-COVERAGE_FILTERS = ("no_security", "unassigned", "no_mac")
+COVERAGE_FILTERS = ("no_service", "unassigned", "no_mac")
 
 MAX_PAGE_LENGTH = 200
 
@@ -48,7 +46,7 @@ class DeviceService:
         RequestService._guard_internal()
 
         where, params = DeviceService._conditions(search, customer, status, device_type, coverage)
-        params = {**params, "item": security_item(), "open": OPEN_ASSIGNMENT_STATUSES}
+        params = {**params, "open": OPEN_ASSIGNMENT_STATUSES}
 
         def count(predicate):
             clause = f"{where} and {predicate}" if where else f" where {predicate}"
@@ -58,12 +56,11 @@ class DeviceService:
 
         return {
             "active_devices": count("device.status = 'Active'"),
-            "unprotected_devices": count(
+            "devices_without_services": count(
                 """device.status = 'Active'
                    and not exists (
                        select 1 from `tabMSP Service Assignment` sa
                        where sa.managed_device = device.name
-                         and sa.service_item = %(item)s
                          and sa.operational_status in %(open)s
                    )"""
             ),
@@ -82,7 +79,7 @@ class DeviceService:
     @staticmethod
     def _conditions(search, customer, status, device_type, coverage):
         conditions = []
-        params = {"item": security_item(), "open": OPEN_ASSIGNMENT_STATUSES}
+        params = {"open": OPEN_ASSIGNMENT_STATUSES}
 
         if customer:
             conditions.append("device.customer = %(customer)s")
@@ -96,13 +93,12 @@ class DeviceService:
             conditions.append("device.device_type = %(device_type)s")
             params["device_type"] = device_type
 
-        if coverage == "no_security":
+        if coverage == "no_service":
             conditions.append("device.status = 'Active'")
             conditions.append(
                 """not exists (
                     select 1 from `tabMSP Service Assignment` sa
                     where sa.managed_device = device.name
-                      and sa.service_item = %(item)s
                       and sa.operational_status in %(open)s
                 )"""
             )
@@ -194,9 +190,8 @@ class DeviceService:
                 exists (
                     select 1 from `tabMSP Service Assignment` sa
                     where sa.managed_device = device.name
-                      and sa.service_item = %(item)s
                       and sa.operational_status in %(open)s
-                ) as protected
+                ) as has_services
             {base_from}
             {where}
             order by device.hostname asc
@@ -912,9 +907,44 @@ class DeviceService:
         source_request = UserService._checked_request(source_request, customer)
         reference = f" in reference to {source_request}" if source_request else ""
         doc.add_comment("Comment", f"Registered by {frappe.session.user}{reference}.")
+
+        if source_request:
+            DeviceService._claim_request_lines(doc, source_request, assigned_client_user)
+
         frappe.db.commit()
 
         return {"name": doc.name, "hostname": doc.hostname, "customer": doc.customer}
+
+    @staticmethod
+    def _claim_request_lines(device, source_request, holder):
+        """The lines that asked for this machine are now about it.
+
+        The customer named the machine once and asked for several things on it. Matched by
+        the name they gave; failing that, the one machine this person was still owed.
+        Until now the line was about the person, since the machine did not exist; it becomes
+        a device line, the way one raised on an existing machine is written: the machine
+        named, the holder read from it. The request must still save afterwards.
+        """
+        request = frappe.get_doc("MSP Service Request", source_request)
+        waiting = [
+            line for line in request.lines if line.is_new_device and not line.managed_device
+        ]
+        named = (device.hostname or "").strip().lower()
+        claimed = [
+            line for line in waiting if (line.new_device_label or "").strip().lower() == named
+        ]
+
+        if not claimed and holder:
+            theirs = [line for line in waiting if line.client_user == holder]
+            labels = {(line.new_device_label or "").strip().lower() for line in theirs}
+            if len(labels) == 1:
+                claimed = theirs
+
+        for line in claimed:
+            line.db_set("managed_device", device.name)
+            line.db_set("is_new_device", 0)
+            line.db_set("target_scope", "Device")
+            line.db_set("client_user", None)
 
     @staticmethod
     def list_customer_devices(customer=None, exclude_holder=None):

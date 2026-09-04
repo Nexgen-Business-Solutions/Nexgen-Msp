@@ -257,6 +257,8 @@ class TestWhoHearsAboutANewRequest(MSPTestCase):
         self.person = self.make_person(self.customer, "Asker")
         self.service = self.make_service("N", scope="User")
         self.contact = self.make_account("customer", "MSP Customer Manager", self.customer, suffix="c")
+        # holding both rights, their word reaches us at once — which is what this class is about
+        self.grant(self.contact)
         self.tech = self.make_account("internal", "MSP Technician", suffix="t")
 
     def raise_one(self):
@@ -356,6 +358,7 @@ class TestDrafts(MSPTestCase):
         self.two = self.make_person(self.customer, "Two")
         self.service = self.make_service("D", scope="User")
         self.author = self.make_account("customer", "MSP Customer Manager", self.customer, suffix="a")
+        self.grant(self.author)
         self.colleague = self.make_account("customer", "MSP Customer Operator", self.customer, suffix="b")
         self.tech = self.make_account("internal", "MSP Technician", suffix="t")
 
@@ -498,6 +501,7 @@ class TestDraftsAreNotWork(MSPTestCase):
         self.person = self.make_person(self.customer, "Subject")
         self.service = self.make_service("W", scope="User")
         self.author = self.make_account("customer", "MSP Customer Manager", self.customer, suffix="a")
+        self.grant(self.author)
 
     def dashboard(self):
         from nexgen_msp.api.internal.services.dashboard_service import DashboardService
@@ -581,6 +585,7 @@ class TestDraftsAreNotChecked(MSPTestCase):
         self.device = self.make_device(self.customer, hostname="BOX")
         self.device_service = self.make_service("DS", scope="Device")
         self.author = self.make_account("customer", "MSP Customer Manager", self.customer, suffix="a")
+        self.grant(self.author)
 
     def half_written(self):
         return [
@@ -649,3 +654,412 @@ class TestDraftsAreNotChecked(MSPTestCase):
 
         self.assertEqual(sent["name"], name)
         self.assertEqual(sent["status"], "Submitted")
+
+
+class TestTheTechnicianSeesWhatWasSupplied(MSPTestCase):
+    """Whatever the customer took the trouble to write must reach the person doing the work.
+
+    The username and the serial are the two the closure is later refused for, so a request
+    that carries them and a screen that drops them costs a phone call for nothing.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.customer = self.make_customer()
+        self.service = self.make_service("SUP", scope="User")
+        self.device_service = self.make_service("SUPD", scope="Device")
+        self.person = self.make_person(self.customer, "Known")
+        frappe.db.set_value("MSP Client User", self.person, "username", "k.known")
+        self.device = self.make_device(self.customer, hostname="KNOWN", serial="SN-KNOWN")
+        self.asker = self.make_account("customer", "MSP Customer Manager", self.customer, suffix="sup")
+        self.grant(self.asker)
+        self.tech = self.make_account("internal", "MSP Technician", suffix="sut")
+
+    def raise_with(self, *lines):
+        frappe.set_user(self.asker)
+        try:
+            out = PortalService.create_request(
+                customer=self.customer, request_type="Add", lines=list(lines)
+            )
+        finally:
+            frappe.set_user("Administrator")
+
+        return self.track("MSP Service Request", out["name"])
+
+    def as_tech(self, name):
+        frappe.set_user(self.tech)
+        try:
+            return RequestService.get_request(name)
+        finally:
+            frappe.set_user("Administrator")
+
+    def test_the_facts_on_file_reach_the_technician(self):
+        name = self.raise_with(
+            {
+                "request_action": self.action(),
+                "action": "Add",
+                "target_scope": "User",
+                "client_user": self.person,
+                "requested_service": self.service,
+            },
+            {
+                "request_action": self.action(),
+                "action": "Add",
+                "target_scope": "Device",
+                "managed_device": self.device,
+                "requested_service": self.device_service,
+            },
+        )
+
+        person_line, device_line = self.as_tech(name)["lines"]
+
+        self.assertEqual(person_line["client_username"], "k.known")
+        self.assertFalse(person_line["needs_username"])
+        self.assertEqual(device_line["device_serial"], "SN-KNOWN")
+        self.assertFalse(device_line["needs_serial"])
+
+    def test_what_the_customer_typed_for_a_new_person_reaches_the_technician(self):
+        name = self.raise_with(
+            {
+                "request_action": self.action(),
+                "action": "Add",
+                "target_scope": "User",
+                "is_new_user": 1,
+                "new_user_full_name": "Fresh Face",
+                "new_user_department": "Sales",
+                "new_user_email": "fresh@example.invalid",
+                "new_user_username": "f.face",
+                "needs_portal_access": 1,
+                "requested_service": self.service,
+            }
+        )
+
+        line = self.as_tech(name)["lines"][0]
+
+        self.assertEqual(line["new_user_full_name"], "Fresh Face")
+        self.assertEqual(line["new_user_department"], "Sales")
+        self.assertEqual(line["new_user_email"], "fresh@example.invalid")
+        self.assertEqual(line["new_user_username"], "f.face")
+        self.assertEqual(line["needs_portal_access"], 1)
+
+    def test_what_the_customer_typed_for_a_new_machine_reaches_the_technician(self):
+        name = self.raise_with(
+            {
+                "request_action": self.action(),
+                "action": "Add",
+                "target_scope": "Device",
+                "client_user": self.person,
+                "is_new_device": 1,
+                "new_device_label": "NEWBOX",
+                "new_device_type": "Phone",
+                "new_device_serial": "SN-NEW",
+                "requested_service": self.device_service,
+            }
+        )
+
+        line = self.as_tech(name)["lines"][0]
+
+        self.assertEqual(line["new_device_label"], "NEWBOX")
+        self.assertEqual(line["new_device_type"], "Phone")
+        self.assertEqual(line["new_device_serial"], "SN-NEW")
+
+    def test_the_action_the_customer_picked_is_named_not_only_its_verb(self):
+        name = self.raise_with(
+            {
+                "request_action": self.action(),
+                "action": "Add",
+                "target_scope": "User",
+                "client_user": self.person,
+                "requested_service": self.service,
+            }
+        )
+
+        line = self.as_tech(name)["lines"][0]
+
+        self.assertTrue(line["action_label"])
+        self.assertEqual(
+            line["action_label"],
+            frappe.db.get_value("MSP Request Action", line["request_action"], "title"),
+        )
+
+
+class TestCreatingThePersonARequestAskedFor(MSPTestCase):
+    """The customer writes a new person once and asks for several things for them."""
+
+    def setUp(self):
+        super().setUp()
+        self.customer = self.make_customer()
+        self.service_a = self.make_service("NPA", scope="User")
+        self.service_b = self.make_service("NPB", scope="User")
+        self.asker = self.make_account("customer", "MSP Customer Manager", self.customer, suffix="npa")
+        self.grant(self.asker)
+        self.tech = self.make_account("internal", "MSP Technician", suffix="npt")
+
+    def new_person_line(self, service, full_name="Fresh Face"):
+        return {
+            "request_action": self.action(),
+            "action": "Add",
+            "target_scope": "User",
+            "is_new_user": 1,
+            "new_user_full_name": full_name,
+            "new_user_username": "f.face",
+            "requested_service": service,
+        }
+
+    def test_creating_them_once_links_every_line_that_describes_them(self):
+        from nexgen_msp.api.internal.services.user_service import UserService
+
+        frappe.set_user(self.asker)
+        out = PortalService.create_request(
+            customer=self.customer,
+            request_type="Add",
+            lines=[
+                self.new_person_line(self.service_a),
+                self.new_person_line(self.service_b),
+                self.new_person_line(self.service_a, full_name="Someone Else"),
+            ],
+        )
+        frappe.set_user("Administrator")
+        name = self.track("MSP Service Request", out["name"])
+
+        frappe.set_user(self.tech)
+        try:
+            created = UserService.create_client_user(
+                full_name="Fresh Face",
+                username="f.face",
+                source_request=name,
+                request_line=1,
+            )
+        finally:
+            frappe.set_user("Administrator")
+        self.track("MSP Client User", created["name"])
+
+        linked = frappe.get_all(
+            "MSP Service Request Line",
+            filters={"parent": name},
+            fields=["idx", "client_user", "new_user_full_name", "is_new_user"],
+            order_by="idx",
+        )
+
+        self.assertEqual(linked[0].client_user, created["name"])
+        self.assertEqual(linked[1].client_user, created["name"], "the second service is theirs too")
+        self.assertIsNone(linked[2].client_user, "someone else is still to be created")
+        self.assertEqual([row.is_new_user for row in linked], [0, 0, 1])
+
+        # the request must still save now that they exist
+        frappe.get_doc("MSP Service Request", name).save(ignore_permissions=True)
+
+        frappe.set_user(self.tech)
+        try:
+            detail = RequestService.get_request(name)
+        finally:
+            frappe.set_user("Administrator")
+
+        self.assertEqual(
+            [line["client_user"] for line in detail["lines"]],
+            [created["name"], created["name"], None],
+        )
+
+
+class TestNothingClosesOnSomeoneWhoDoesNotExist(MSPTestCase):
+    def setUp(self):
+        super().setUp()
+        self.customer = self.make_customer()
+        self.service = self.make_service("NCX", scope="User")
+        self.device_service = self.make_service("NCD", scope="Device")
+        self.asker = self.make_account("customer", "MSP Customer Manager", self.customer, suffix="ncx")
+        self.grant(self.asker)
+        self.tech = self.make_account("internal", "MSP Technician", suffix="nct")
+
+    def as_tech(self, fn):
+        frappe.set_user(self.tech)
+        try:
+            return fn()
+        finally:
+            frappe.set_user("Administrator")
+
+    def in_progress(self, *lines):
+        frappe.set_user(self.asker)
+        try:
+            out = PortalService.create_request(
+                customer=self.customer, request_type="Add", lines=list(lines)
+            )
+        finally:
+            frappe.set_user("Administrator")
+        name = self.track("MSP Service Request", out["name"])
+
+        self.as_tech(lambda: RequestService.run_action(name, "start_review"))
+        for idx in range(1, len(lines) + 1):
+            self.as_tech(lambda: RequestService.set_line_status(name, idx, "Approved"))
+        self.as_tech(lambda: RequestService.run_action(name, "approve"))
+        self.as_tech(lambda: RequestService.run_action(name, "start_work"))
+
+        return name
+
+    def test_a_person_still_to_be_created_blocks_the_closure(self):
+        from nexgen_msp.api.internal.services.user_service import UserService
+
+        name = self.in_progress(
+            {
+                "request_action": self.action(),
+                "action": "Add",
+                "target_scope": "User",
+                "is_new_user": 1,
+                "new_user_full_name": "Fresh Face",
+                "requested_service": self.service,
+            }
+        )
+
+        with self.assertRaises(ValidationError) as caught:
+            self.as_tech(lambda: RequestService.run_action(name, "complete"))
+        self.assertIn("has not been created", str(caught.exception))
+
+        created = self.as_tech(
+            lambda: UserService.create_client_user(
+                full_name="Fresh Face", username="f.face", source_request=name, request_line=1
+            )
+        )
+        self.track("MSP Client User", created["name"])
+
+        self.as_tech(lambda: RequestService.run_action(name, "complete"))
+        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Completed")
+
+    def test_a_machine_still_to_be_registered_blocks_the_closure(self):
+        person = self.make_person(self.customer, "Holder")
+        frappe.db.set_value("MSP Client User", person, "username", "h.holder")
+
+        name = self.in_progress(
+            {
+                "request_action": self.action(),
+                "action": "Add",
+                "target_scope": "Device",
+                "client_user": person,
+                "is_new_device": 1,
+                "new_device_label": "NEWBOX",
+                "new_device_type": "PC",
+                "requested_service": self.device_service,
+            }
+        )
+
+        with self.assertRaises(ValidationError) as caught:
+            self.as_tech(lambda: RequestService.run_action(name, "complete"))
+        self.assertIn("has not been registered", str(caught.exception))
+
+    def test_registering_the_machine_from_the_request_links_the_line_and_lets_it_close(self):
+        from nexgen_msp.api.internal.services.user_service import UserService
+
+        person = self.make_person(self.customer, "Holder")
+        name = self.in_progress(
+            {
+                "request_action": self.action(),
+                "action": "Add",
+                "target_scope": "Device",
+                "client_user": person,
+                "is_new_device": 1,
+                "new_device_label": "NEWBOX",
+                "new_device_type": "PC",
+                "requested_service": self.device_service,
+            },
+            {
+                "request_action": self.action(),
+                "action": "Add",
+                "target_scope": "Device",
+                "client_user": person,
+                "is_new_device": 1,
+                "new_device_label": "NEWBOX",
+                "new_device_type": "PC",
+                "requested_service": self.service,
+            },
+        )
+
+        self.as_tech(
+            lambda: UserService.add_device(
+                client_user=person,
+                hostname="newbox",
+                device_type="PC",
+                serial_number="SN-NEWBOX",
+                source_request=name,
+            )
+        )
+        device = frappe.db.get_value("MSP Managed Device", {"hostname": "newbox"}, "name")
+        self.track("MSP Managed Device", device)
+
+        lines = frappe.get_all(
+            "MSP Service Request Line",
+            filters={"parent": name},
+            fields=["idx", "managed_device", "is_new_device", "client_user"],
+            order_by="idx",
+        )
+        self.assertEqual([row.managed_device for row in lines], [device, device])
+        self.assertEqual([row.is_new_device for row in lines], [0, 0])
+        self.assertEqual([row.client_user for row in lines], [None, None], "the holder is on the machine")
+
+        # the request must still save, and the technician now sees the machine, not a promise
+        frappe.get_doc("MSP Service Request", name).save(ignore_permissions=True)
+        detail = self.as_tech(lambda: RequestService.get_request(name))
+        self.assertEqual(detail["lines"][0]["device_holder"], person)
+        self.assertEqual(detail["lines"][0]["device_serial"], "SN-NEWBOX")
+
+        frappe.db.set_value("MSP Client User", person, "username", "h.holder")
+        self.as_tech(lambda: RequestService.run_action(name, "complete"))
+        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Completed")
+
+    def test_the_one_machine_owed_to_a_person_is_theirs_even_under_another_name(self):
+        from nexgen_msp.api.internal.services.user_service import UserService
+
+        person = self.make_person(self.customer, "Holder")
+        name = self.in_progress(
+            {
+                "request_action": self.action(),
+                "action": "Add",
+                "target_scope": "Device",
+                "client_user": person,
+                "is_new_device": 1,
+                "new_device_label": "the laptop",
+                "new_device_type": "Laptop",
+                "requested_service": self.device_service,
+            }
+        )
+
+        self.as_tech(
+            lambda: UserService.add_device(
+                client_user=person, hostname="LT-0042", device_type="Laptop",
+                serial_number="SN-LT42", source_request=name,
+            )
+        )
+        device = self.track("MSP Managed Device", frappe.db.get_value("MSP Managed Device", {"hostname": "LT-0042"}, "name"))
+
+        row = frappe.db.get_value(
+            "MSP Service Request Line", {"parent": name, "idx": 1},
+            ["managed_device", "is_new_device", "target_scope"], as_dict=True,
+        )
+        self.assertEqual((row.managed_device, row.is_new_device, row.target_scope), (device, 0, "Device"))
+
+    def test_a_machine_registered_outside_any_request_touches_no_line(self):
+        from nexgen_msp.api.internal.services.user_service import UserService
+
+        person = self.make_person(self.customer, "Holder")
+        name = self.in_progress(
+            {
+                "request_action": self.action(),
+                "action": "Add",
+                "target_scope": "Device",
+                "client_user": person,
+                "is_new_device": 1,
+                "new_device_label": "NEWBOX",
+                "new_device_type": "PC",
+                "requested_service": self.device_service,
+            }
+        )
+
+        self.as_tech(
+            lambda: UserService.add_device(
+                client_user=person, hostname="NEWBOX", device_type="PC", serial_number="SN-FREE"
+            )
+        )
+        self.track("MSP Managed Device", frappe.db.get_value("MSP Managed Device", {"hostname": "NEWBOX"}, "name"))
+
+        row = frappe.db.get_value(
+            "MSP Service Request Line", {"parent": name, "idx": 1}, ["managed_device", "is_new_device"], as_dict=True
+        )
+        self.assertEqual((row.managed_device, row.is_new_device), (None, 1))

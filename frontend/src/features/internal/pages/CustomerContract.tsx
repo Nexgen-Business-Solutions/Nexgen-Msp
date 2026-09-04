@@ -5,6 +5,7 @@ import {
   CircleCheck,
   CircleSlash,
   Coins,
+  ListChecks,
   Pencil,
   Plus,
   Trash2,
@@ -12,6 +13,7 @@ import {
 } from 'lucide-react';
 import StatusBadge from '@/shared/components/StatusBadge';
 import ConfirmModal from '@/shared/components/ConfirmModal';
+import Modal from '@/shared/components/Modal';
 import RowActionsMenu, { type RowAction } from '@/shared/components/RowActionsMenu';
 import ContractModal from '../components/ContractModal';
 import CustomerModal from '../components/CustomerModal';
@@ -87,6 +89,11 @@ export default function CustomerContract() {
   const liveAgreement =
     (agreements.data ?? []).find((row) => row.status === 'Active') ?? null;
   const [showEveryService, setShowEveryService] = useState(false);
+  // the services of one contract, read in a window of their own rather than crammed in a cell
+  const [servicesOf, setServicesOf] = useState<{
+    title: string;
+    services: { service_item: string; service_name: string }[];
+  } | null>(null);
   const setContractStatus = useSetMspContractStatus();
   const [ending, setEnding] = useState<string | null>(null);
   const [agreementOpen, setAgreementOpen] = useState(false);
@@ -333,20 +340,23 @@ export default function CustomerContract() {
                   <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
                     {row.billing_frequency}
                   </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-1">
-                      {row.services.map((service) => (
-                        <span
-                          key={service.service_item}
-                          className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700"
+                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                    {row.services.length === 0 ? (
+                      <span className="text-slate-400">None</span>
+                    ) : (
+                      <>
+                        <span className="tabular-nums">{row.services.length}</span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setServicesOf({ title: row.title || row.name, services: row.services })
+                          }
+                          className="ml-2 text-xs font-medium text-blue-600 hover:underline"
                         >
-                          {service.service_name}
-                        </span>
-                      ))}
-                      {row.services.length === 0 && (
-                        <span className="text-sm text-slate-400">None</span>
-                      )}
-                    </div>
+                          View details
+                        </button>
+                      </>
+                    )}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600 tabular-nums">
                     {row.run_count ?? 0}
@@ -613,6 +623,24 @@ export default function CustomerContract() {
           </div>
         )}
       </div>
+
+      <Modal
+        open={Boolean(servicesOf)}
+        onClose={() => setServicesOf(null)}
+        icon={ListChecks}
+        title={servicesOf?.title ?? ''}
+        subtitle={`${servicesOf?.services.length ?? 0} service(s) covered by this contract`}
+        widthClass="max-w-lg"
+      >
+        <ul className="divide-y divide-slate-100">
+          {(servicesOf?.services ?? []).map((service) => (
+            <li key={service.service_item} className="flex items-center justify-between py-2.5">
+              <span className="text-sm font-medium text-slate-900">{service.service_name}</span>
+              <span className="text-xs text-slate-500">{service.service_item}</span>
+            </li>
+          ))}
+        </ul>
+      </Modal>
 
       <ContractModal
         open={contractOpen}

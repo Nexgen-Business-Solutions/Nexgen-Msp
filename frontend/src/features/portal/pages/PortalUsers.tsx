@@ -7,12 +7,15 @@ import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import KpiCard from '@/shared/components/KpiCard';
 import * as portal from '@/lib/api/portal';
 import { useClientUserPage, usePortalFilterOptions, usePortalSummary, useSubscribedServices } from '../hooks/usePortal';
+import { useMyApprovalRights } from '../hooks/usePortal';
 
 const COLUMNS = ['User', 'Department', 'Device', 'Active services', 'Inactive services', ''];
 
 const EMPTY: FilterState = { status: '', service: '' };
 
 export default function PortalUsers() {
+  const rights = useMyApprovalRights();
+  const canSubmit = rights.data?.can_submit !== false;
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const [filters, setFilters] = useState<FilterState>({
@@ -188,12 +191,16 @@ export default function PortalUsers() {
                       icon: Eye,
                       onClick: () => navigate(`/msp/users/${row.name}`),
                     },
+                    ...(canSubmit
+                      ? [
                     {
                       label: 'Raise a request for them',
                       icon: FilePlus2,
                       onClick: () =>
                         navigate(`/msp/requests/new?client_user=${encodeURIComponent(row.name)}`),
                     },
+                        ]
+                      : []),
                   ]}
                 />
               </div>

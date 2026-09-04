@@ -13,35 +13,35 @@ type Props = {
 };
 
 const AuthShell: React.FC<Props> = ({ eyebrow, title, description, children, footer }) => (
-  <div className="relative h-full w-full overflow-y-auto overflow-x-hidden bg-linear-to-br from-blue-50 via-indigo-50 to-slate-100">
+  <div className="relative h-full w-full overflow-y-auto overflow-x-hidden bg-linear-to-br from-blue-50 via-slate-50 to-slate-100">
     {/* held in a layer of its own: clipping the page itself is what stopped it scrolling */}
     <div aria-hidden className="pointer-events-none fixed inset-0 overflow-hidden">
       <div className="absolute -top-32 -left-24 h-96 w-96 rounded-full bg-blue-300/25 blur-3xl" />
-      <div className="absolute top-1/3 -right-24 h-[28rem] w-[28rem] rounded-full bg-indigo-300/20 blur-3xl" />
+      <div className="absolute top-1/3 -right-24 h-[28rem] w-[28rem] rounded-full bg-slate-300/20 blur-3xl" />
       <div className="absolute bottom-0 right-0 h-[70vh] w-[45%] bg-blue-600/90 [clip-path:polygon(100%_0,100%_100%,0%_100%)]" />
-      <div className="absolute -bottom-16 left-1/4 h-72 w-72 rounded-full bg-sky-300/20 blur-3xl" />
+      <div className="absolute -bottom-16 left-1/4 h-72 w-72 rounded-full bg-slate-300/20 blur-3xl" />
     </div>
 
     <div className="relative flex min-h-screen items-center justify-center px-4 py-10">
       <div className="w-full max-w-sm rounded-2xl border border-white/60 bg-white shadow-2xl shadow-blue-950/10">
         <AppLogo />
 
-        <div className="border-t border-gray-100" />
+        <div className="border-t border-slate-100" />
 
         <div className="px-7 pt-6 pb-7">
           <p className="text-xs font-bold tracking-widest text-blue-700">{eyebrow}</p>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight text-gray-900">{title}</h1>
-          <p className="mt-2 text-sm leading-relaxed text-gray-500">{description}</p>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">{title}</h1>
+          <p className="mt-2 text-sm leading-relaxed text-slate-500">{description}</p>
 
           {children}
 
-          <div className="text-center text-sm text-gray-500 pt-6 border-t border-gray-100/80 flex flex-wrap gap-x-2 gap-y-1 items-center justify-center">
+          <div className="text-center text-sm text-slate-500 pt-6 border-t border-slate-100/80 flex flex-wrap gap-x-2 gap-y-1 items-center justify-center">
             {footer ?? (
               <>
                 <p>Powered by Nexgen</p>
                 <div className="flex items-center gap-1.5">
                   <ShieldCheckIcon className="h-4 w-4 text-blue-500" />
-                  <span className="text-xs text-gray-400">Secure sign-in</span>
+                  <span className="text-xs text-slate-400">Secure sign-in</span>
                 </div>
               </>
             )}
@@ -50,7 +50,7 @@ const AuthShell: React.FC<Props> = ({ eyebrow, title, description, children, foo
       </div>
     </div>
 
-    <footer className="pointer-events-none fixed bottom-0 left-0 p-6 text-sm text-left text-gray-600">
+    <footer className="pointer-events-none fixed bottom-0 left-0 p-6 text-sm text-left text-slate-600">
       &copy; {new Date().getFullYear()} Nexgen Business Solutions. All rights reserved.
     </footer>
   </div>

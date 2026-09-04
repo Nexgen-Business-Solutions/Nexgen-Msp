@@ -2,10 +2,9 @@ import frappe
 
 from nexgen_msp.utils.meta import select_options
 
-from nexgen_msp.utils.catalogue import security_item
 
 from nexgen_msp.api.internal.services.request_service import effective_line_status
-from nexgen_msp.utils import approval, permissions
+from nexgen_msp.utils import approval, identifiers, permissions
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 CLIENT_USER_FIELDS = [
@@ -156,8 +155,8 @@ KPI_SOURCES = {
         "order_by": "coalesce(holder.disabled_date, device_holder.disabled_date) desc",
         "key": "sa.name",
     },
-    "unprotected_devices": {
-        "title": "Unprotected devices",
+    "devices_without_services": {
+        "title": "Devices without services",
         "fields": [
             ("hostname", "Device", "device.hostname"),
             ("device_type", "Type", "device.device_type"),
@@ -173,7 +172,6 @@ KPI_SOURCES = {
               and not exists (
                   select 1 from `tabMSP Service Assignment` sa
                   where sa.managed_device = device.name
-                    and sa.service_item = %(security_item)s
                     and sa.operational_status not in ('Ended', 'Cancelled')
               )
         """,
@@ -229,7 +227,7 @@ class PortalService:
                 {**base, "status": ["in", ["Submitted", "Under Review"]]},
             ),
             "reclaimable_licences": PortalService._count_kpi("reclaimable_licences", customer),
-            "unprotected_devices": PortalService._count_kpi("unprotected_devices", customer),
+            "devices_without_services": PortalService._count_kpi("devices_without_services", customer),
             "catalogue_size": frappe.db.count("Item", {"disabled": 0, "is_stock_item": 0}),
         }
 
@@ -249,7 +247,6 @@ class PortalService:
             f"select count(*) {source['body']}",
             {
                 "customer": customer,
-                "security_item": security_item(),
                 "me": frappe.session.user,
             },
         )
@@ -267,7 +264,6 @@ class PortalService:
         selected = ", ".join(f"{expression} as `{key}`" for key, _label, expression in source["fields"])
         params = {
             "customer": customer,
-            "security_item": security_item(),
             "me": frappe.session.user,
         }
 
@@ -687,8 +683,11 @@ class PortalService:
                 srl.new_device_serial,
                 coalesce(cu.full_name, holder.full_name, srl.new_user_full_name) as user_name,
                 coalesce(cu.department, holder.department, srl.new_user_department) as department,
+                coalesce(cu.username, holder.username) as username,
                 coalesce(item.item_name, srl.requested_service) as service_name,
-                device.hostname,
+                coalesce(ra.title, srl.action) as action_label,
+                device.hostname, device.serial_number, device.device_type,
+                device.assigned_client_user as device_holder,
                 srl.requested_effective_date, srl.comment,
                 sa.operational_status as service_status,
                 sa.effective_start_date as service_start_date,
@@ -698,6 +697,7 @@ class PortalService:
             left join `tabMSP Managed Device` device on device.name = srl.managed_device
             left join `tabMSP Client User` holder on holder.name = device.assigned_client_user
             left join `tabItem` item on item.name = srl.requested_service
+            left join `tabMSP Request Action` ra on ra.name = srl.request_action
             left join `tabMSP Service Assignment` sa
                 on sa.source_request = srl.parent
                and sa.service_item = srl.requested_service
@@ -725,6 +725,9 @@ class PortalService:
             "rejection_reason": doc.rejection_reason,
             "reviewed_on": doc.technical_approved_at,
             "can_decide": PortalService._may_decide(doc),
+            # a request waiting on an accord nobody at the company can yet give is stuck, and
+            # the page has to say so rather than promise an approval that will never come
+            "has_approver": approval.has_approvers(doc.customer),
             "lines": lines,
         }
 
@@ -1113,7 +1116,6 @@ class PortalService:
             doc.priority = priority or doc.priority
             doc.set("lines", rows)
             doc.status = opening_status
-            doc.save(ignore_permissions=True)
         else:
             doc = frappe.get_doc(
                 {
@@ -1127,9 +1129,15 @@ class PortalService:
                     "requester": frappe.session.user,
                     "lines": rows,
                 }
-            ).insert()
+            )
 
+        # a serial or a username that breaks a rule refuses the request before it exists
         PortalService._record_supplied_facts(doc)
+
+        if name:
+            doc.save(ignore_permissions=True)
+        else:
+            doc.insert()
 
         if approved_by:
             # raised by someone who may approve their own: the accord is theirs, recorded
@@ -1158,33 +1166,8 @@ class PortalService:
         the machine in their hands, and is not overwritten from a form.
         """
         for row in doc.lines:
-            username = (row.new_user_username or "").strip()
-
-            if username and row.client_user:
-                held = frappe.db.get_value("MSP Client User", row.client_user, "username")
-                if not (held or "").strip():
-                    frappe.db.set_value("MSP Client User", row.client_user, "username", username)
-
-            serial = (row.new_device_serial or "").strip()
-
-            if not serial or not row.managed_device:
-                continue
-
-            held = frappe.db.get_value("MSP Managed Device", row.managed_device, "serial_number")
-
-            if (held or "").strip():
-                continue
-
-            clash = frappe.db.get_value(
-                "MSP Managed Device", {"serial_number": serial, "name": ["!=", row.managed_device]}, "hostname"
-            )
-
-            if clash:
-                raise ValidationError(
-                    f"Serial {serial} is already recorded against {clash}.", "VALIDATION_ERROR"
-                )
-
-            frappe.db.set_value("MSP Managed Device", row.managed_device, "serial_number", serial)
+            identifiers.record_username(row.client_user, row.new_user_username)
+            identifiers.record_serial(row.managed_device, row.new_device_serial)
 
     @staticmethod
     def my_approval_rights(customer=None):
@@ -1287,6 +1270,7 @@ class PortalService:
         authority = approval.authority_for(doc.customer)
 
         if not authority:
+            approval.warn_admins_of_gaps(doc.customer, request=doc.name)
             return
 
         recipients = []
@@ -1300,6 +1284,8 @@ class PortalService:
                 recipients.append(row.user)
 
         if not recipients:
+            # waiting on an accord nobody can give: our administrators hear of it
+            approval.warn_admins_of_gaps(doc.customer, request=doc.name)
             return
 
         notifications.send(
@@ -1395,14 +1381,15 @@ class PortalService:
     def _opening_status(customer):
         """Where a new request starts, and who has already agreed to it.
 
-        Nothing changes for a customer who has named no approver: their request reaches
-        Nexgen as it always did.
+        A request from the customer's side reaches Nexgen only once someone holding the
+        right to approve has agreed to it. Whether anyone at that company holds the right
+        yet changes nothing about the rule: without it the request waits inside the company,
+        and the page says so, rather than slipping through to our team.
 
         Someone who may both raise and approve does both in one gesture — the request is
-        agreed the moment they open it, and the accord is recorded in their name. Giving
-        both rights to one person is itself the decision; there is nothing more to switch on.
+        agreed the moment they open it, and the accord is recorded in their name.
         """
-        if permissions.is_internal() or not approval.has_approvers(customer):
+        if permissions.is_internal():
             return "Submitted", None
 
         if approval.may("can_approve", customer):

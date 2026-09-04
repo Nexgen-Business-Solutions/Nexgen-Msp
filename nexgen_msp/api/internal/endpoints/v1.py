@@ -1186,6 +1186,18 @@ def set_team_enabled(email=None, enabled=None):
 
 @frappe.whitelist()
 @handle_errors
+def get_portal_settings():
+    return _settings().get_portal_settings()
+
+
+@frappe.whitelist()
+@handle_errors
+def save_portal_settings(settings=None):
+    return _settings().save_portal_settings(settings=settings)
+
+
+@frappe.whitelist()
+@handle_errors
 def get_invoice_settings():
     return _settings().get_invoice_settings()
 

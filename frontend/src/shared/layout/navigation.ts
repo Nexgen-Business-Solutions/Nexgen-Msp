@@ -102,6 +102,9 @@ const COMMERCIAL: NavItem[] = [
 /** A Customer Operator does everything a Customer Manager does, except the money. */
 const seesInvoices = (roles: string[] = []) => !roles.includes(CUSTOMER_OPERATOR_ROLE);
 
+/** Someone who only decides at their company raises nothing: the entry is not offered. */
+const mayRaise = (item: NavItem, canSubmit: boolean) => canSubmit || item.id !== 'portal-new-request';
+
 export const getSectionsForRoles = (roles: string[] = []): NavSection[] => {
   if (isPortalOnly(roles)) {
     const items = PORTAL_NAV.filter((item) => !item.needsInvoices || seesInvoices(roles));
@@ -136,11 +139,11 @@ export const getSectionsForRoles = (roles: string[] = []): NavSection[] => {
 export const getNavForRoles = (roles: string[] = []) =>
   getSectionsForRoles(roles).flatMap((section) => section.items);
 
-export const getPagesForRoles = (roles: string[] = []) =>
+export const getPagesForRoles = (roles: string[] = [], canSubmit = true) =>
   isPortalOnly(roles)
     ? [
         ...PORTAL_NAV.filter((item) => !item.needsInvoices || seesInvoices(roles)),
-        ...PORTAL_PAGES,
+        ...PORTAL_PAGES.filter((item) => mayRaise(item, canSubmit)),
       ]
     : getNavForRoles(roles);
 

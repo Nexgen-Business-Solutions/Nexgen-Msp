@@ -68,6 +68,26 @@ const Fact = ({ label, value }: { label: string; value: React.ReactNode }) => (
 const ACTION_CLASS =
   'inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400';
 
+/** What each role opens — the old one always closes behind it. */
+const ROLE_CHANGE: Record<string, { title: string; gains: string }> = {
+  'MSP System Admin': {
+    title: 'Make them an administrator?',
+    gains: 'They will reach billing, contracts, settings and the Frappe desk.',
+  },
+  'MSP Technician': {
+    title: 'Make them a technician?',
+    gains: 'They will handle requests, people and devices, without billing, contracts or settings.',
+  },
+  'MSP Customer Manager': {
+    title: 'Make them a customer manager?',
+    gains: 'They will use the customer portal for their company, invoices included.',
+  },
+  'MSP Customer Operator': {
+    title: 'Make them a customer operator?',
+    gains: 'They will use the customer portal for their company, without the invoices.',
+  },
+};
+
 export default function AccountDetail() {
   const { email = '' } = useParams();
   const address = decodeURIComponent(email);
@@ -303,14 +323,8 @@ export default function AccountDetail() {
       <ConfirmModal
         open={Boolean(promoting)}
         tone="warning"
-        title={
-          promoting === 'MSP System Admin' ? 'Make them an administrator?' : 'Make them a technician?'
-        }
-        description={
-          promoting === 'MSP System Admin'
-            ? 'They will reach billing, contracts and settings, and the Frappe desk.'
-            : 'They keep requests, people and devices, and lose billing, contracts and settings.'
-        }
+        title={ROLE_CHANGE[promoting ?? '']?.title ?? 'Change their role?'}
+        description={`${ROLE_CHANGE[promoting ?? '']?.gains ?? ''} Their current role is taken away: an account holds one role only.`}
         confirmLabel="Change the role"
         loading={setRole.isLoading}
         onCancel={() => setPromoting(null)}

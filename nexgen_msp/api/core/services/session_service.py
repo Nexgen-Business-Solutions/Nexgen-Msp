@@ -54,8 +54,6 @@ class SessionService:
             "roles": roles,
             "customers": customers,
             "customer": here,
-            "department": profile.department if profile else None,
-            "client_user": profile.name if profile else None,
             "is_portal_user": is_portal and not is_internal,
             "is_internal_user": is_internal,
             "can_see_invoices": permissions.may_see_invoices(user),

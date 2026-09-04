@@ -33,7 +33,7 @@ def portal_origin():
 		return None
 
 	try:
-		origin = frappe.db.get_single_value("MSP Invoice Settings", "portal_url")
+		origin = frappe.db.get_single_value("MSP Portal Settings", "portal_url")
 	except Exception:
 		return None
 

@@ -47,7 +47,7 @@ export default function TeamList() {
   const resend = useResendTeamInvitation();
   const resetTotp = useResetTwoFactor();
 
-  const rows = list.data ?? [];
+  const rows = useMemo(() => list.data ?? [], [list.data]);
 
   const counts = useMemo(
     () => ({

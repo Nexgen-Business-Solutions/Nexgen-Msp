@@ -17,8 +17,8 @@ const TwoFactorChallenge: React.FC<Props> = ({ fullName, busy, error, onSubmit, 
   return (
     <div>
       <p className="text-xs font-bold tracking-widest text-blue-700">VERIFY IT IS YOU</p>
-      <h1 className="mt-2 text-2xl font-bold tracking-tight text-gray-900">Enter your code</h1>
-      <p className="mt-2 text-sm leading-relaxed text-gray-500">
+      <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">Enter your code</h1>
+      <p className="mt-2 text-sm leading-relaxed text-slate-500">
         {fullName ? `${fullName}, open` : 'Open'} your authenticator app and type the six digits it
         shows.
       </p>
@@ -62,7 +62,7 @@ const TwoFactorChallenge: React.FC<Props> = ({ fullName, busy, error, onSubmit, 
       <button
         type="button"
         onClick={onCancel}
-        className="mt-3 w-full text-center text-xs font-semibold text-gray-500 transition-colors hover:text-gray-700"
+        className="mt-3 w-full text-center text-xs font-semibold text-slate-500 transition-colors hover:text-slate-700"
       >
         Use another account
       </button>

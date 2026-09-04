@@ -184,6 +184,8 @@ export const useAddDevice = (clientUser: string) => {
       queryClient.setQueryData(userKeys.detail(clientUser), detail);
       queryClient.invalidateQueries({ queryKey: [...userKeys.all, 'list'] });
       queryClient.invalidateQueries({ queryKey: userKeys.stats() });
+      // a machine registered for a request turns that request's lines into device lines
+      queryClient.invalidateQueries({ queryKey: ['internal', 'requests'] });
     },
   });
 };

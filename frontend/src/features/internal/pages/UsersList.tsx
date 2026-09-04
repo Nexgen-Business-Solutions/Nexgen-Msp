@@ -12,9 +12,9 @@ import { useUserFilterOptions, useUserFilters, useUserList, useUserStats } from 
 const COVERAGE_OPTIONS = [
   { value: 'no_device', label: 'No device', description: 'Active users with no active device' },
   {
-    value: 'no_security',
-    label: 'No endpoint protection',
-    description: 'Active users whose device has no security service',
+    value: 'no_service',
+    label: 'Device without services',
+    description: 'Active users whose device runs no active service',
   },
   {
     value: 'disabled_with_services',
@@ -87,12 +87,12 @@ export default function UsersList() {
           icon={ShieldAlert}
           tone="alert"
           accent="slate"
-          label="Unprotected devices"
-          value={stats.data?.unprotected_devices ?? 0}
+          label="Devices without services"
+          value={stats.data?.devices_without_services ?? 0}
           caption="Active devices with no security"
           loading={stats.isLoading}
-          onView={() => patch({ coverage: 'no_security', status: '' })}
-          viewLabel="Show users without protection"
+          onView={() => patch({ coverage: 'no_service', status: '' })}
+          viewLabel="Show users whose device runs nothing"
         />
       </div>
 

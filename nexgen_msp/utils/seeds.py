@@ -17,7 +17,12 @@ down.
 
 import frappe
 
-from nexgen_msp.patches import billing_month_uom, seed_invoice_settings, seed_request_actions
+from nexgen_msp.patches import (
+    billing_month_uom,
+    portal_url_moves_home,
+    seed_invoice_settings,
+    seed_request_actions,
+)
 from nexgen_msp.utils.catalogue import BILLING_UOM
 
 SETTINGS_MARKER = "msp_invoice_defaults_seeded"
@@ -53,7 +58,7 @@ def _actions():
 
 
 def _invoice_settings():
-    """The issuer, the bank and the address invited customers are sent to.
+    """The issuer, the bank, and the address invited customers are sent to.
 
     Once per site: whoever later clears the portal address, or rewrites the footer, keeps
     that through every deployment that follows.
@@ -62,6 +67,7 @@ def _invoice_settings():
         return None
 
     seed_invoice_settings.execute()
+    portal_url_moves_home.execute()
     frappe.db.set_default(SETTINGS_MARKER, "1")
     frappe.db.commit()
 

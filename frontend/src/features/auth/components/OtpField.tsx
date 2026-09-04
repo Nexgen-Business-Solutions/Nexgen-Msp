@@ -80,7 +80,7 @@ const OtpField: React.FC<Props> = ({ value, onChange, onComplete, disabled, auto
             if (event.key === 'ArrowLeft' && index > 0) boxes.current[index - 1]?.focus();
             if (event.key === 'ArrowRight' && index < SIZE - 1) boxes.current[index + 1]?.focus();
           }}
-          className="h-12 w-full rounded-lg border border-gray-300 bg-gray-50/60 text-center text-lg font-semibold text-gray-900 tabular-nums transition-all placeholder:text-gray-300 focus:border-blue-500 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-200 disabled:opacity-60"
+          className="h-12 w-full rounded-lg border border-slate-300 bg-slate-50/60 text-center text-lg font-semibold text-slate-900 tabular-nums transition-all placeholder:text-slate-300 focus:border-blue-500 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-200 disabled:opacity-60"
         />
       ))}
     </div>

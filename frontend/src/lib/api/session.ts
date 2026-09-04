@@ -13,8 +13,6 @@ export type SessionContext = {
   roles: string[];
   customers: string[];
   customer?: string | null;
-  department?: string | null;
-  client_user?: string | null;
   two_factor_enabled?: boolean;
   two_factor_passed?: boolean;
   session_expiry_seconds?: number;

@@ -66,6 +66,7 @@ fixtures = [
 override_doctype_class = {"User": "nexgen_msp.overrides.user.MSPUser"}
 
 before_request = ["nexgen_msp.utils.gatekeeper.guard"]
+on_session_creation = ["nexgen_msp.utils.session_timeout.on_session_creation"]
 
 # Frappe's own username-and-password endpoint opens a session without ever
 # reaching our second factor. This runs before authenticate() and closes it.

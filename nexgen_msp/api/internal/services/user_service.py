@@ -1,11 +1,11 @@
 import frappe
 
 from nexgen_msp.api.internal.services.contract_service import ContractService
+from nexgen_msp.utils import identifiers
 from nexgen_msp.utils import remarks as remarks_util
 
 from nexgen_msp.utils.meta import select_options
 
-from nexgen_msp.utils.catalogue import security_item
 
 from nexgen_msp.api.internal.services.request_service import (
     ADMIN_ROLES,
@@ -13,15 +13,14 @@ from nexgen_msp.api.internal.services.request_service import (
     RequestService,
 )
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
+from nexgen_msp.utils.assignments import OPEN_ASSIGNMENT_STATUSES
 
-
-OPEN_ASSIGNMENT_STATUSES = ("Pending Setup", "Active", "Suspended", "Pending Removal")
 
 LIFECYCLE_STATUSES = ("Pending", "Active", "Disabled", "Archived")
 
 MAX_PAGE_LENGTH = 200
 
-COVERAGE_FILTERS = ("no_device", "no_security", "disabled_with_services")
+COVERAGE_FILTERS = ("no_device", "no_service", "disabled_with_services")
 
 
 class UserService:
@@ -78,7 +77,7 @@ class UserService:
         where, params = UserService._conditions(
             search, customer, status, department, service, coverage, portal
         )
-        params = {**params, "item": security_item()}
+        params = {**params}
 
         def count(predicate):
             clause = f"{where} and {predicate}" if where else f" where {predicate}"
@@ -107,7 +106,7 @@ class UserService:
         )
 
         # this one counts machines, so it is scoped through the people the filter kept
-        unprotected_devices = frappe.db.sql(
+        devices_without_services = frappe.db.sql(
             f"""
             select count(*)
             from `tabMSP Managed Device` device
@@ -117,7 +116,6 @@ class UserService:
               and not exists (
                   select 1 from `tabMSP Service Assignment` sa
                   where sa.managed_device = device.name
-                    and sa.service_item = %(item)s
                     and sa.operational_status in %(open)s
               )
             """,
@@ -128,13 +126,13 @@ class UserService:
             "active_users": active,
             "without_device": without_device,
             "disabled_with_services": disabled_with_services,
-            "unprotected_devices": unprotected_devices,
+            "devices_without_services": devices_without_services,
         }
 
     @staticmethod
     def _conditions(search, customer, status, department, service, coverage, portal):
         conditions = []
-        params = {"open": OPEN_ASSIGNMENT_STATUSES, "item": security_item()}
+        params = {"open": OPEN_ASSIGNMENT_STATUSES}
 
         if customer:
             conditions.append("cu.customer = %(customer)s")
@@ -175,7 +173,7 @@ class UserService:
                     where device.assigned_client_user = cu.name and device.status = 'Active'
                 )"""
             )
-        elif coverage == "no_security":
+        elif coverage == "no_service":
             conditions.append("cu.lifecycle_status = 'Active'")
             conditions.append(
                 """exists (
@@ -184,7 +182,6 @@ class UserService:
                       and not exists (
                           select 1 from `tabMSP Service Assignment` sa
                           where sa.managed_device = device.name
-                            and sa.service_item = %(item)s
                             and sa.operational_status in %(open)s
                       )
                 )"""
@@ -719,33 +716,8 @@ class UserService:
         Only where nothing is on file: a value already recorded was put there by someone
         who had the machine in their hands, and is not overwritten from a form.
         """
-        serial = (serial_number or "").strip()
-
-        if serial and device:
-            held = frappe.db.get_value("MSP Managed Device", device, "serial_number")
-
-            if not (held or "").strip():
-                clash = frappe.db.get_value(
-                    "MSP Managed Device",
-                    {"serial_number": serial, "name": ["!=", device]},
-                    "hostname",
-                )
-
-                if clash:
-                    raise ValidationError(
-                        f"Serial {serial} is already recorded against {clash}.",
-                        "VALIDATION_ERROR",
-                    )
-
-                frappe.db.set_value("MSP Managed Device", device, "serial_number", serial)
-
-        account = (username or "").strip()
-
-        if account and client_user:
-            held = frappe.db.get_value("MSP Client User", client_user, "username")
-
-            if not (held or "").strip():
-                frappe.db.set_value("MSP Client User", client_user, "username", account)
+        identifiers.record_serial(device, serial_number)
+        identifiers.record_username(client_user, username)
 
     @staticmethod
     def change_service(
@@ -854,7 +826,25 @@ class UserService:
                 None,
             )
             if row:
-                row.db_set("client_user", doc.name)
+                # the customer wrote this person once and asked for several things: every
+                # line describing them is now about the record just created, or the next
+                # line would offer to create them a second time
+                same_person = (row.new_user_full_name or "").strip().lower()
+                was_new = bool(row.is_new_user)
+
+                for line in request.lines:
+                    if line.client_user:
+                        continue
+                    if line.idx == row.idx or (
+                        was_new
+                        and line.is_new_user
+                        and (line.new_user_full_name or "").strip().lower() == same_person
+                    ):
+                        # no longer "new": the request must still save once they exist,
+                        # and a line on an existing machine names it, not them
+                        line.db_set("is_new_user", 0)
+                        if line.target_scope != "Device" or line.is_new_device:
+                            line.db_set("client_user", doc.name)
 
         reference = f" for {source_request}" if source_request else ""
         doc.add_comment("Comment", f"Created by {frappe.session.user}{reference}.")

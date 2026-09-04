@@ -17,9 +17,9 @@ type KpiCardProps = {
 
 const neutralAccents: Record<string, { bg: string; text: string }> = {
   blue: { bg: 'bg-blue-50', text: 'text-blue-600' },
-  sky: { bg: 'bg-sky-50', text: 'text-sky-600' },
+  sky: { bg: 'bg-slate-50', text: 'text-slate-600' },
   emerald: { bg: 'bg-emerald-50', text: 'text-emerald-600' },
-  indigo: { bg: 'bg-indigo-50', text: 'text-indigo-600' },
+  indigo: { bg: 'bg-slate-50', text: 'text-slate-600' },
   slate: { bg: 'bg-slate-100', text: 'text-slate-500' },
 };
 

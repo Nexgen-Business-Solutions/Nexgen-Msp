@@ -66,13 +66,14 @@ class TestTheRequestProcess(MSPTestCase):
         return name in [row["name"] for row in listed["rows"]]
 
     # ------------------------------------------- nobody decides at this customer
-    def test_with_no_approver_a_request_reaches_us_at_once(self):
+    def test_with_no_approver_a_request_still_waits(self):
+        """The matrix is the law, not a switch: no accord, nothing reaches us."""
         self.assertFalse(approval.has_approvers(self.customer))
 
         name, out = self.raise_one(self.asker)
 
-        self.assertEqual(out["status"], "Submitted")
-        self.assertTrue(self.reaches_us(name))
+        self.assertEqual(out["status"], "Awaiting Customer Approval")
+        self.assertFalse(self.reaches_us(name))
 
     # ------------------------------------------------ somebody decides, and waits
     def test_once_someone_may_approve_the_others_wait(self):
@@ -124,7 +125,7 @@ class TestTheRequestProcess(MSPTestCase):
         with self.assertRaises(ValidationError):
             self.raise_one(self.asker)
 
-    def test_someone_the_matrix_does_not_name_keeps_what_they_had(self):
+    def test_someone_the_matrix_does_not_name_may_still_raise_and_waits(self):
         """Naming an approver must not silently take the portal away from everyone else."""
         self.rights(self.decider, can_submit=1, can_approve=1)
 
@@ -224,3 +225,143 @@ class TestTheRequestProcess(MSPTestCase):
             self.as_user(self.decider, lambda: PortalService.approve_request(name))
 
         self.assertFalse(self.reaches_us(name))
+
+
+class TestARefusedRequestCanBeCorrected(MSPTestCase):
+    """Refused is not the end of the road: the author reads why, corrects, and sends again."""
+
+    def setUp(self):
+        super().setUp()
+        self.customer = self.make_customer()
+        self.track("MSP Approval Authority", self.customer)
+        self.person = self.make_person(self.customer, "Subject")
+        self.service = self.make_service("RC", scope="User")
+        self.asker = self.make_account("customer", "MSP Customer Operator", self.customer, suffix="rca")
+        self.decider = self.make_account("customer", "MSP Customer Manager", self.customer, suffix="rcd")
+        self.tech = self.make_account("internal", "MSP Technician", suffix="rct")
+
+    def as_user(self, email, fn):
+        frappe.set_user(email)
+        try:
+            return fn()
+        finally:
+            frappe.set_user("Administrator")
+
+    def line(self):
+        return {
+            "request_action": self.action(),
+            "action": "Add",
+            "target_scope": "User",
+            "client_user": self.person,
+            "requested_service": self.service,
+        }
+
+    def raise_one(self):
+        out = self.as_user(
+            self.asker,
+            lambda: PortalService.create_request(
+                customer=self.customer, request_type="Add", lines=[self.line()]
+            ),
+        )
+        return self.track("MSP Service Request", out["name"])
+
+    def test_refused_inside_the_company_it_stays_readable_and_can_be_raised_again(self):
+        AuthorityService.set_account_rights(self.decider, {"can_submit": 1, "can_approve": 1})
+        self.grant(self.asker, can_submit=1, can_approve=0)
+        name = self.raise_one()
+        self.as_user(self.decider, lambda: PortalService.reject_request(name, "wrong service"))
+
+        again = self.as_user(self.asker, lambda: PortalService.get_request(name))
+        self.assertEqual(again["status"], "Rejected")
+        self.assertEqual(again["lines"][0]["client_user"], self.person, "the form can be refilled")
+        self.assertIn(name, [r["name"] for r in self.as_user(self.asker, lambda: PortalService.list_requests(page_length=500))["rows"]])
+
+        resent = self.raise_one()
+        self.assertNotEqual(resent, name, "a fresh request, the refused one is kept as history")
+        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Rejected")
+
+    def test_refused_by_us_the_answer_is_readable_and_it_can_be_raised_again(self):
+        self.grant(self.asker)
+        name = self.raise_one()
+        self.as_user(self.tech, lambda: RequestService.run_action(name, "reject", "not covered"))
+
+        again = self.as_user(self.asker, lambda: PortalService.get_request(name))
+        self.assertEqual(again["status"], "Rejected")
+        self.assertEqual(again["rejection_reason"], "not covered")
+
+        resent = self.raise_one()
+        self.assertEqual(frappe.db.get_value("MSP Service Request", resent, "status"), "Submitted")
+
+
+class TestNothingSlipsThroughWithoutAnAccord(MSPTestCase):
+    """The matrix is the law, not a switch: without the right to approve, one waits."""
+
+    def setUp(self):
+        super().setUp()
+        self.customer = self.make_customer()
+        self.track("MSP Approval Authority", self.customer)
+        self.person = self.make_person(self.customer, "Subject")
+        self.service = self.make_service("NS", scope="User")
+        self.asker = self.make_account("customer", "MSP Customer Operator", self.customer, suffix="nsa")
+        self.tech = self.make_account("internal", "MSP Technician", suffix="nst")
+
+    def as_user(self, email, fn):
+        frappe.set_user(email)
+        try:
+            return fn()
+        finally:
+            frappe.set_user("Administrator")
+
+    def raise_one(self):
+        out = self.as_user(
+            self.asker,
+            lambda: PortalService.create_request(
+                customer=self.customer,
+                request_type="Add",
+                lines=[
+                    {
+                        "request_action": self.action(),
+                        "action": "Add",
+                        "target_scope": "User",
+                        "client_user": self.person,
+                        "requested_service": self.service,
+                    }
+                ],
+            ),
+        )
+        return self.track("MSP Service Request", out["name"]), out
+
+    def reaches_us(self, name):
+        listed = self.as_user(self.tech, lambda: RequestService.list_requests(page_length=500))
+        return name in [row["name"] for row in listed["rows"]]
+
+    def test_named_to_raise_but_not_to_approve_one_waits_even_with_no_approver_at_all(self):
+        AuthorityService.set_account_rights(self.asker, {"can_submit": 1, "can_approve": 0})
+        self.assertFalse(approval.has_approvers(self.customer))
+
+        name, out = self.raise_one()
+
+        self.assertEqual(out["status"], "Awaiting Customer Approval")
+        self.assertFalse(self.reaches_us(name), "nothing reaches us without an accord")
+        with self.assertRaises(NotFoundError):
+            self.as_user(self.tech, lambda: RequestService.get_request(name))
+
+        detail = self.as_user(self.asker, lambda: PortalService.get_request(name))
+        self.assertFalse(detail["has_approver"], "and the page can say nobody can approve yet")
+
+    def test_someone_the_matrix_does_not_name_waits_too(self):
+        name, out = self.raise_one()
+
+        self.assertEqual(out["status"], "Awaiting Customer Approval")
+        self.assertFalse(self.reaches_us(name))
+
+    def test_once_the_right_is_granted_the_waiting_request_can_be_agreed(self):
+        name, _ = self.raise_one()
+        decider = self.make_account("customer", "MSP Customer Manager", self.customer, suffix="nsd")
+        AuthorityService.set_account_rights(decider, {"can_submit": 1, "can_approve": 1})
+
+        self.assertTrue(self.as_user(self.asker, lambda: PortalService.get_request(name))["has_approver"])
+        self.as_user(decider, lambda: PortalService.approve_request(name))
+
+        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Submitted")
+        self.assertTrue(self.reaches_us(name))

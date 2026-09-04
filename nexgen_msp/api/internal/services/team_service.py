@@ -1,7 +1,7 @@
 import frappe
 
 from nexgen_msp.api.internal.services.contract_service import ContractService
-from nexgen_msp.utils import permissions
+from nexgen_msp.utils import approval, permissions
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 # An account belongs to one family or the other, never both. Within each, the most powerful
@@ -156,6 +156,16 @@ class TeamService:
 		return account
 
 	@staticmethod
+	def _after_account_change(email):
+		"""An account opened, re-roled or switched off can leave its company with nobody to
+		act: our administrators hear of it."""
+		if not permissions.is_customer_contact(email):
+			return
+
+		for customer in permissions.get_allowed_customers(email):
+			approval.warn_admins_of_gaps(customer)
+
+	@staticmethod
 	def options():
 		TeamService._guard()
 
@@ -247,6 +257,8 @@ class TeamService:
 		if frappe.utils.cint(send_email):
 			TeamService.send_invitation(user.name)
 
+		TeamService._after_account_change(user.name)
+
 		return TeamService.get_member(user.name)
 
 	@staticmethod
@@ -337,5 +349,7 @@ class TeamService:
 
 		frappe.db.set_value("User", email, "enabled", frappe.utils.cint(enabled))
 		frappe.db.commit()
+
+		TeamService._after_account_change(email)
 
 		return TeamService.list_members()

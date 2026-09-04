@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { FileText, ListChecks, Pencil, Plus, Trash2, Upload } from 'lucide-react';
+import { FileText, Globe, ListChecks, Pencil, Plus, Trash2, Upload } from 'lucide-react';
 import ConfirmModal from '@/shared/components/ConfirmModal';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import StatusBadge from '@/shared/components/StatusBadge';
 import RequestActionModal from '../components/RequestActionModal';
 import InvoiceSettingsForm from '../components/InvoiceSettingsForm';
+import PortalSettingsForm from '../components/PortalSettingsForm';
 import AssetImportPanel from '../components/AssetImportPanel';
 import UserImportPanel from '../components/UserImportPanel';
 import type { RequestActionRow } from '@/lib/api/internal';
@@ -17,6 +18,12 @@ const SECTIONS = [
     label: 'Invoice',
     icon: FileText,
     blurb: 'The issuer block and the wire details printed on every invoice.',
+  },
+  {
+    id: 'portal',
+    label: 'Portal',
+    icon: Globe,
+    blurb: 'What customer accounts are given when they sign in.',
   },
   {
     id: 'import',
@@ -96,6 +103,8 @@ export default function Settings() {
           </div>
 
           {section === 'invoice' && <InvoiceSettingsForm />}
+
+          {section === 'portal' && <PortalSettingsForm />}
 
           {section === 'import' && (
             <div className="space-y-5">

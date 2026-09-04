@@ -8,7 +8,13 @@ type Props = {
   open: boolean;
   request: string;
   customer: string;
-  line: { idx: number; full_name: string | null; department: string | null; email: string | null } | null;
+  line: {
+    idx: number;
+    full_name: string | null;
+    department: string | null;
+    email: string | null;
+    username: string | null;
+  } | null;
   onCreated: (clientUser: string) => void;
   onClose: () => void;
 };
@@ -32,6 +38,7 @@ const CreateUserModal: React.FC<Props> = ({
   const [fullName, setFullName] = useState('');
   const [department, setDepartment] = useState('');
   const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [startDate, setStartDate] = useState(today());
 
   useEffect(() => {
@@ -39,6 +46,7 @@ const CreateUserModal: React.FC<Props> = ({
     setFullName(line.full_name ?? '');
     setDepartment(line.department ?? '');
     setEmail(line.email ?? '');
+    setUsername(line.username ?? '');
     setStartDate(today());
     create.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -53,6 +61,7 @@ const CreateUserModal: React.FC<Props> = ({
         full_name: fullName.trim(),
         department: department.trim() || undefined,
         email: email.trim() || undefined,
+        username: username.trim() || undefined,
         start_date: startDate || undefined,
         source_request: request,
         request_line: line.idx,
@@ -124,6 +133,16 @@ const CreateUserModal: React.FC<Props> = ({
               type="email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
+              placeholder="Optional"
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <span className={labelClass}>Username</span>
+            <input
+              type="text"
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
               placeholder="Optional"
               className={inputClass}
             />

@@ -1,10 +1,10 @@
-import React from 'react';
-import { AlertCircle, ShieldCheck } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { AlertCircle, CircleCheck, ShieldCheck } from 'lucide-react';
 import { useAccountRights, useSetAccountRights } from '../hooks/useTeam';
 
 type Props = { user: string };
 
-const RIGHTS: { key: string; label: string; hint: string }[] = [
+const RIGHTS: { key: 'can_submit' | 'can_approve'; label: string; hint: string }[] = [
   { key: 'can_submit', label: 'Raise requests', hint: 'They may open a request from the portal' },
   {
     key: 'can_approve',
@@ -13,22 +13,43 @@ const RIGHTS: { key: string; label: string; hint: string }[] = [
   },
 ];
 
-/** What one account decides for its company, edited where the account lives. */
+/** What the saved rights mean, in one sentence, for the four ways they can be set. */
+const meaning = (customer: string, canSubmit: boolean, canApprove: boolean) => {
+  if (canSubmit && canApprove) {
+    return `Their own requests reach us straight away. Everyone else at ${customer} waits for their accord.`;
+  }
+  if (canApprove) {
+    return `They decide for ${customer} but raise nothing themselves: the portal does not offer them a new request.`;
+  }
+  if (canSubmit) {
+    return `Their requests wait for someone at ${customer} who may approve.`;
+  }
+  return `Not named: they may raise requests, which wait for someone at ${customer} who may approve.`;
+};
+
+/** What one account decides for its company, edited where the account lives and saved as one. */
 const PersonRightsPanel: React.FC<Props> = ({ user }) => {
   const rights = useAccountRights(user);
   const save = useSetAccountRights(user);
 
   const data = rights.data;
-  const current = (save.data ?? data) as Record<string, unknown> | undefined;
+  const [form, setForm] = useState({ can_submit: false, can_approve: false });
+  const [dirty, setDirty] = useState(false);
 
-  const toggle = (key: string, value: boolean) => {
-    if (!current) return;
+  useEffect(() => {
+    if (!data) return;
+    setForm({ can_submit: Boolean(data.can_submit), can_approve: Boolean(data.can_approve) });
+    setDirty(false);
+  }, [data]);
 
-    save.mutate({
-      can_submit: key === 'can_submit' ? value : current.can_submit,
-      can_approve: key === 'can_approve' ? value : current.can_approve,
-      department: current.department ?? '',
-    });
+  const submit = async () => {
+    if (!data) return;
+    try {
+      await save.mutateAsync({ ...form, department: data.department ?? '' });
+      setDirty(false);
+    } catch {
+      // surfaced below
+    }
   };
 
   if (!data || !data.is_customer_account) return null;
@@ -41,21 +62,17 @@ const PersonRightsPanel: React.FC<Props> = ({ user }) => {
           Given to this account by name, for {data.customer}.
         </p>
 
-        {save.error instanceof Error && (
-          <div className="mt-3 flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
-            <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
-            <span className="text-sm font-medium text-red-700">{save.error.message}</span>
-          </div>
-        )}
-
         <div className="mt-4 space-y-3">
           {RIGHTS.map((right) => (
             <label key={right.key} className="flex cursor-pointer items-start gap-2.5">
               <input
                 type="checkbox"
-                checked={Boolean(current?.[right.key])}
+                checked={form[right.key]}
                 disabled={save.isLoading}
-                onChange={(event) => toggle(right.key, event.target.checked)}
+                onChange={(event) => {
+                  setForm((current) => ({ ...current, [right.key]: event.target.checked }));
+                  setDirty(true);
+                }}
                 className="mt-0.5 h-4 w-4 rounded border-slate-300"
               />
               <span>
@@ -66,13 +83,38 @@ const PersonRightsPanel: React.FC<Props> = ({ user }) => {
           ))}
         </div>
 
-        {Boolean(current?.can_approve) && (
-          <p className="mt-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-            <ShieldCheck size={16} className="mt-0.5 shrink-0 text-amber-600" />
-            Their own requests now reach us straight away. Everyone else at {data.customer}{' '}
-            waits for their accord.
-          </p>
+        <p className="mt-4 flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+          <ShieldCheck size={16} className="mt-0.5 shrink-0 text-slate-500" />
+          {meaning(data.customer ?? '', Boolean(data.can_submit), Boolean(data.can_approve))}
+        </p>
+
+        {save.error instanceof Error && (
+          <div className="mt-3 flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
+            <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
+            <span className="text-sm font-medium text-red-700">{save.error.message}</span>
+          </div>
         )}
+
+        <div className="mt-4 flex items-center justify-end gap-3 border-t border-slate-100 pt-4">
+          {!dirty && save.isSuccess && (
+            <span className="inline-flex items-center gap-1.5 text-sm text-emerald-600">
+              <CircleCheck size={15} />
+              Saved
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={submit}
+            disabled={!dirty || save.isLoading}
+            className="flex min-w-[7rem] items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {save.isLoading ? (
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+            ) : (
+              'Save'
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );

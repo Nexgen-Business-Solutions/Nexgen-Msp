@@ -2,7 +2,7 @@ import frappe
 
 from nexgen_msp.utils.meta import select_options
 
-from nexgen_msp.utils import permissions
+from nexgen_msp.utils import identifiers, permissions
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 ADMIN_ROLES = ("MSP System Admin", "System Manager", "Administrator")
@@ -372,7 +372,9 @@ class RequestService:
                 srl.is_new_device, srl.new_device_label, srl.new_device_type,
                 srl.new_device_serial,
                 srl.managed_device, device.hostname as device_hostname,
-                device.serial_number as device_serial,
+                device.serial_number as device_serial, device.device_type as device_type,
+                -- the person a device line is really about, so their profile stays one click away
+                device.assigned_client_user as device_holder,
                 coalesce(cu.username, holder.username) as client_username,
                 srl.requested_service, item.item_name as requested_service_name,
                 srl.requested_quantity, srl.requested_effective_date,
@@ -724,39 +726,18 @@ class RequestService:
         if serial:
             device = row.managed_device
 
-            if not device and row.fulfilled_assignment:
-                device = frappe.db.get_value(
-                    "MSP Service Assignment", row.fulfilled_assignment, "managed_device"
-                )
-
             if not device:
                 raise ValidationError("This line carries no machine.", "VALIDATION_ERROR")
 
-            clash = frappe.db.get_value(
-                "MSP Managed Device",
-                {"serial_number": serial, "name": ["!=", device]},
-                "hostname",
-            )
-
-            if clash:
-                raise ValidationError(
-                    f"Serial {serial} is already recorded against {clash}.", "VALIDATION_ERROR"
-                )
-
-            frappe.db.set_value("MSP Managed Device", device, "serial_number", serial)
+            identifiers.record_serial(device, serial, overwrite=True)
 
         if account:
             person = row.client_user
 
-            if not person and row.fulfilled_assignment:
-                person = frappe.db.get_value(
-                    "MSP Service Assignment", row.fulfilled_assignment, "client_user"
-                )
-
             if not person:
                 raise ValidationError("This line carries no person.", "VALIDATION_ERROR")
 
-            frappe.db.set_value("MSP Client User", person, "username", account)
+            identifiers.record_username(person, account, overwrite=True)
 
         frappe.db.commit()
 
@@ -781,16 +762,21 @@ class RequestService:
             if row.line_status in ("Rejected", "Cancelled"):
                 continue
 
+            # a person or a machine the customer asked us to create has to exist before the
+            # request that asked for them can be called done
+            if row.is_new_user and not row.client_user:
+                missing.append(f"line {row.idx}: {row.new_user_full_name} has not been created")
+                continue
+
+            if row.is_new_device and not row.managed_device:
+                missing.append(f"line {row.idx}: {row.new_device_label} has not been registered")
+                continue
+
             scope = RequestService._service_scope(row.requested_service)
             service = frappe.db.get_value("Item", row.requested_service, "item_name")
 
             if scope in ("Device", "Both"):
                 device = row.managed_device
-
-                if not device and row.fulfilled_assignment:
-                    device = frappe.db.get_value(
-                        "MSP Service Assignment", row.fulfilled_assignment, "managed_device"
-                    )
 
                 if device and not (
                     frappe.db.get_value("MSP Managed Device", device, "serial_number") or ""
@@ -800,11 +786,6 @@ class RequestService:
 
             if scope in ("User", "Both"):
                 person = row.client_user
-
-                if not person and row.fulfilled_assignment:
-                    person = frappe.db.get_value(
-                        "MSP Service Assignment", row.fulfilled_assignment, "client_user"
-                    )
 
                 if person and not (
                     frappe.db.get_value("MSP Client User", person, "username") or ""

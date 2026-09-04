@@ -13,7 +13,6 @@ DEFAULTS = {
 	"SWIFT/BIC: ROYCCAT2",
 	"intermediary_bank": "JPMorgan Chase Bank, New York\nSWIFT/BIC: CHASUS33\nABA: 021000021",
 	"footer_note": "Thank you for your business!",
-	"portal_url": "https://myaccount.nxgensolutions.com",
 }
 
 

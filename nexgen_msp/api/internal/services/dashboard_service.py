@@ -1,6 +1,5 @@
 import frappe
 
-from nexgen_msp.utils.catalogue import security_item
 
 from nexgen_msp.utils.errors import ValidationError
 from nexgen_msp.api.internal.services.request_service import (
@@ -8,11 +7,10 @@ from nexgen_msp.api.internal.services.request_service import (
     OPEN_STATUSES,
     RequestService,
 )
+from nexgen_msp.utils.assignments import OPEN_ASSIGNMENT_STATUSES
 
 
 ACTIONABLE_STATUSES = ("Submitted", "Under Review", "Approved", "In Progress")
-
-OPEN_ASSIGNMENT_STATUSES = ("Pending Setup", "Active", "Suspended", "Pending Removal")
 
 ASSIGNMENT_JOIN = """
     from `tabMSP Service Assignment` sa
@@ -46,9 +44,9 @@ KPI_SOURCES = {
         "key": "sa.name",
         "route": "concat('/msp/users/', coalesce(holder.name, device_holder.name))",
     },
-    "unprotected_devices": {
-        "title": "Unprotected devices",
-        "description": "Active machines with no endpoint protection.",
+    "devices_without_services": {
+        "title": "Devices without services",
+        "description": "Active machines with no active service.",
         "fields": [
             ("customer", "Customer", "device.customer"),
             ("hostname", "Device", "device.hostname"),
@@ -64,7 +62,6 @@ KPI_SOURCES = {
               and not exists (
                   select 1 from `tabMSP Service Assignment` sa
                   where sa.managed_device = device.name
-                    and sa.service_item = %(security_item)s
                     and sa.operational_status in ('Pending Setup', 'Active', 'Suspended', 'Pending Removal')
               )
         """,
@@ -265,7 +262,7 @@ class DashboardService:
 
     @staticmethod
     def _hygiene():
-        unprotected = frappe.db.sql(
+        idle = frappe.db.sql(
             """
             select count(*)
             from `tabMSP Managed Device` device
@@ -273,11 +270,10 @@ class DashboardService:
               and not exists (
                   select 1 from `tabMSP Service Assignment` sa
                   where sa.managed_device = device.name
-                    and sa.service_item = %(item)s
                     and sa.operational_status not in ('Ended', 'Cancelled')
               )
             """,
-            {"item": security_item()},
+            {},
         )[0][0]
 
         reclaimable = frappe.db.sql(
@@ -293,7 +289,7 @@ class DashboardService:
             """
         )[0][0]
 
-        return {"unprotected_devices": unprotected, "reclaimable_licences": reclaimable}
+        return {"devices_without_services": idle, "reclaimable_licences": reclaimable}
 
     @staticmethod
     def _portfolio():
@@ -363,7 +359,6 @@ class DashboardService:
         page_length = min(max(frappe.utils.cint(page_length) or 20, 1), 200)
 
         params = {
-            "security_item": security_item(),
             "month_start": frappe.utils.get_first_day(frappe.utils.today()),
         }
 

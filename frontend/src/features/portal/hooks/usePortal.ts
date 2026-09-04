@@ -376,11 +376,12 @@ export const useDeviceChoices = () => {
   });
 };
 
-export const useMyApprovalRights = () =>
+export const useMyApprovalRights = (enabled = true) =>
   useQuery({
     queryKey: ['portal', 'approvalRights'] as const,
     queryFn: ({ signal }) => portal.getMyApprovalRights(signal),
     staleTime: 60 * 1000,
+    enabled,
   });
 
 export const useDecideRequest = () => {

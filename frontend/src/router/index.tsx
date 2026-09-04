@@ -4,6 +4,7 @@ import ForgotPassword from '@/features/auth/pages/ForgotPassword';
 import ResetPassword from '@/features/auth/pages/ResetPassword';
 import AppLayout from '@/shared/layout/AppLayout';
 import AuthGuard from './guards/AuthGuard';
+import GuestGuard from './guards/GuestGuard';
 import RoleHome from './RoleHome';
 import PortalUsers from '@/features/portal/pages/PortalUsers';
 import PortalDevices from '@/features/portal/pages/PortalDevices';
@@ -39,7 +40,11 @@ import BillingRunDetail from '@/features/internal/pages/BillingRunDetail';
 export const router = createBrowserRouter([
   {
     path: '/msp/login',
-    element: <LoginScreen />,
+    element: (
+      <GuestGuard>
+        <LoginScreen />
+      </GuestGuard>
+    ),
   },
   {
     path: '/msp/forgot-password',

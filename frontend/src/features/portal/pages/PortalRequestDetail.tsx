@@ -1,37 +1,49 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { AlertCircle, ArrowLeft, CircleCheck, CircleX, Clock, Quote, ShieldCheck } from 'lucide-react';
+import { AlertCircle, ArrowLeft, CircleCheck, CircleX, PencilLine, ShieldCheck } from 'lucide-react';
 import StatusBadge from '@/shared/components/StatusBadge';
+import RequestLinesByPerson, { type PersonLine } from '@/shared/components/RequestLinesByPerson';
+import type { PortalRequestLine } from '@/lib/api/portal';
 import { useDecideRequest, useServiceRequest } from '../hooks/usePortal';
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
 
-const OUTCOME = {
-  Approved: {
-    icon: CircleCheck,
-    className: 'border-emerald-100 bg-emerald-50/60',
-    iconClass: 'text-emerald-600',
-    label: 'Accepted',
-  },
-  Rejected: {
-    icon: CircleX,
-    className: 'border-red-100 bg-red-50/60',
-    iconClass: 'text-red-600',
-    label: 'Declined',
-  },
-  Cancelled: {
-    icon: CircleX,
-    className: 'border-slate-100 bg-slate-50/60',
-    iconClass: 'text-slate-400',
-    label: 'Cancelled',
-  },
-  Pending: {
-    icon: Clock,
-    className: 'border-amber-100 bg-amber-50/60',
-    iconClass: 'text-amber-600',
-    label: 'Being reviewed',
-  },
-} as const;
+/** A line as the customer reads it back: the person first, then what was asked for them. */
+const asPersonLine = (line: PortalRequestLine): PersonLine => {
+  const person = line.client_user || line.device_holder;
+  const isNewUser = Boolean(line.is_new_user) && !person;
+
+  return {
+    idx: line.idx,
+    person,
+    personName: line.user_name,
+    isNewUser,
+    username: isNewUser ? line.new_user_username : line.username,
+    department: line.department,
+    email: line.new_user_email,
+    needsPortalAccess: Boolean(line.needs_portal_access),
+    action: line.action,
+    actionLabel: line.action_label,
+    service: line.service_name,
+    onDevice: Boolean(line.managed_device || line.is_new_device),
+    isNewDevice: Boolean(line.is_new_device),
+    deviceName: line.is_new_device ? line.new_device_label : line.hostname,
+    serial: line.is_new_device ? line.new_device_serial : line.serial_number,
+    deviceType: line.is_new_device ? line.new_device_type : line.device_type,
+    requestedFor: line.requested_effective_date,
+    status: line.line_status,
+    comment: line.comment,
+    rejectionReason: line.rejection_reason,
+    extra: line.service_status ? (
+      <p className="mt-0.5 inline-flex items-center gap-1 text-xs font-medium text-slate-500">
+        <CircleCheck size={12} />
+        Delivered — {line.service_status.toLowerCase()}
+        {line.service_start_date ? ` since ${fmtDate(line.service_start_date)}` : ''}
+        {line.delivered_on ? ` on ${line.delivered_on}` : ''}
+      </p>
+    ) : null,
+  };
+};
 
 export default function PortalRequestDetail() {
   const { name = '' } = useParams();
@@ -94,6 +106,22 @@ export default function PortalRequestDetail() {
           <p className="mt-4 text-xs text-slate-500">
             Reviewed by Nexgen on {fmtDate(data.reviewed_on)}
           </p>
+        )}
+
+        {data.status === 'Rejected' && (
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+            <p className="text-sm text-slate-700">
+              This request was declined. You can correct it and send it again as a new request.
+            </p>
+            <button
+              type="button"
+              onClick={() => navigate(`/msp/requests/new?from=${encodeURIComponent(data.name)}`)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+            >
+              <PencilLine size={15} />
+              Edit and resend
+            </button>
+          </div>
         )}
 
         {data.status === 'Awaiting Customer Approval' && (
@@ -159,106 +187,19 @@ export default function PortalRequestDetail() {
               </>
             ) : (
               <p className="text-sm text-amber-800">
-                Waiting for approval inside your company. It reaches Nexgen once someone with
-                that right has agreed to it.
+                {data.has_approver
+                  ? 'Waiting for approval inside your company. It reaches Nexgen once someone with that right has agreed to it.'
+                  : 'Waiting for approval inside your company — but nobody at your company holds the right to approve yet. Ask Nexgen to grant it to the person who decides.'}
               </p>
             )}
           </div>
         )}
       </div>
 
-      <div className="space-y-4">
-        {data.lines.map((line) => {
-          const outcome = OUTCOME[line.line_status as keyof typeof OUTCOME] ?? OUTCOME.Pending;
-          const Icon = outcome.icon;
-
-          return (
-            <div
-              key={line.idx}
-              className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/60 px-4 py-3">
-                <div className="flex flex-wrap items-center gap-3">
-                  <StatusBadge value={line.action} />
-                  <span className="text-sm font-semibold text-slate-900">{line.service_name}</span>
-                  <span className="text-sm text-slate-500">
-                    for {line.user_name || 'a new user'}
-                  </span>
-                </div>
-                <span
-                  className={`inline-flex items-center gap-1.5 text-xs font-semibold ${outcome.iconClass}`}
-                >
-                  <Icon size={14} />
-                  {outcome.label}
-                </span>
-              </div>
-
-              <div className="space-y-4 p-4">
-                {line.comment && (
-                  <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3.5">
-                    <div className="flex items-center gap-2">
-                      <Quote size={13} className="text-slate-500" />
-                      <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                        What you asked for
-                      </span>
-                    </div>
-                    <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
-                      {line.comment}
-                    </p>
-                  </div>
-                )}
-
-                {line.rejection_reason && (
-                  <div className={`rounded-lg border p-3.5 ${outcome.className}`}>
-                    <p className="text-xs font-semibold uppercase tracking-wider text-red-700">
-                      Why this was declined
-                    </p>
-                    <p className="mt-1.5 text-sm text-red-800">{line.rejection_reason}</p>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-                  <div>
-                    <p className="text-xs font-medium text-slate-400">Department</p>
-                    <p className="mt-0.5 text-sm text-slate-700">{line.department || 'N/A'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium text-slate-400">Requested for</p>
-                    <p className="mt-0.5 text-sm text-slate-700">
-                      {fmtDate(line.requested_effective_date)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium text-slate-400">Device</p>
-                    <p className="mt-0.5 text-sm text-slate-700">
-                      {line.delivered_on ||
-                        line.hostname ||
-                        (line.is_new_device ? line.new_device_label : null) ||
-                        'N/A'}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium text-slate-400">Service live since</p>
-                    <p className="mt-0.5 text-sm text-slate-700">
-                      {fmtDate(line.service_start_date)}
-                    </p>
-                  </div>
-                </div>
-
-                {line.service_status && (
-                  <div className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2">
-                    <CircleCheck size={14} className="text-emerald-600" />
-                    <span className="text-sm text-emerald-800">
-                      Delivered — the service is now{' '}
-                      <span className="font-semibold">{line.service_status.toLowerCase()}</span>.
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      <RequestLinesByPerson
+        lines={data.lines.map(asPersonLine)}
+        noteLabel="What you asked for"
+      />
     </div>
   );
 }

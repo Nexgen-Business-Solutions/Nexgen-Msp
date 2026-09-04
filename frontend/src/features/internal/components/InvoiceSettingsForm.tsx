@@ -26,7 +26,6 @@ const EMPTY: InvoiceSettings = {
   dispute_window_days: 10,
   default_cost_center: '',
   show_cost_center_on_invoice: 0,
-  portal_url: '',
 };
 
 /** Each block prints one line per line typed, so the layout follows what is entered. */
@@ -240,29 +239,6 @@ const InvoiceSettingsForm: React.FC = () => {
           <p className="mt-1.5 text-sm text-slate-500">
             Past it, the customer no longer dispute the invoice.
           </p>
-          </div>
-        </div>
-      </div>
-
-      <div>
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
-          Portal
-        </p>
-        <div className="grid grid-cols-1 gap-4">
-          <div>
-            <FieldLabel>Portal address</FieldLabel>
-            <input
-              type="text"
-              value={form.portal_url ?? ''}
-              onChange={(event) => set({ portal_url: event.target.value })}
-              placeholder="https://portal.example.com"
-              className={inputClass}
-            />
-            <p className="mt-1.5 text-sm text-slate-500">
-              The address invited customers use. Left empty, they share the internal one. Once
-              set, every link we email them points here, and anyone arriving on the wrong
-              address is sent to theirs.
-            </p>
           </div>
         </div>
       </div>

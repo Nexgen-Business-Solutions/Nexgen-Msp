@@ -24,21 +24,22 @@ import {
   usePortalSummary,
   useServiceRequests,
   useRecentActivity,
+  useMyApprovalRights,
 } from '../hooks/usePortal';
 
 const KPI_DESCRIPTIONS: Record<KpiName, string> = {
   active_services: 'Every service currently running for your company.',
   open_requests: 'Requests still being processed by Nexgen.',
   reclaimable_licences: 'Services still running for users who have left — cancel them to stop being billed.',
-  unprotected_devices: 'Active devices with no endpoint protection.',
+  devices_without_services: 'Active devices with no active service.',
 };
 
 const REQUEST_COLUMNS = ['Request', 'Type', 'Priority', 'Status', 'Created', ''];
 const ACTIVITY = {
   invoice: { icon: Receipt, surround: 'bg-emerald-50', color: 'text-emerald-600' },
-  credit_note: { icon: ReceiptText, surround: 'bg-rose-50', color: 'text-rose-600' },
+  credit_note: { icon: ReceiptText, surround: 'bg-slate-50', color: 'text-slate-600' },
   request: { icon: Inbox, surround: 'bg-blue-50', color: 'text-blue-600' },
-  user: { icon: UserPlus, surround: 'bg-indigo-50', color: 'text-indigo-600' },
+  user: { icon: UserPlus, surround: 'bg-slate-50', color: 'text-slate-600' },
   device: { icon: Laptop, surround: 'bg-slate-100', color: 'text-slate-600' },
   service_started: { icon: PlugZap, surround: 'bg-emerald-50', color: 'text-emerald-600' },
   service_ended: { icon: PowerOff, surround: 'bg-amber-50', color: 'text-amber-600' },
@@ -47,9 +48,9 @@ const ACTIVITY = {
 const statusBadge: Record<string, string> = {
   Draft: 'bg-slate-100 text-slate-600',
   Submitted: 'bg-blue-100 text-blue-700',
-  'Under Review': 'bg-indigo-100 text-indigo-700',
+  'Under Review': 'bg-slate-100 text-slate-700',
   Approved: 'bg-emerald-100 text-emerald-700',
-  'In Progress': 'bg-indigo-100 text-indigo-700',
+  'In Progress': 'bg-slate-100 text-slate-700',
   Completed: 'bg-emerald-100 text-emerald-700',
   Rejected: 'bg-red-100 text-red-700',
   Cancelled: 'bg-slate-100 text-slate-500',
@@ -68,6 +69,7 @@ const requestHref = (row: { name: string; status: string }) =>
     : `/msp/requests/${row.name}`;
 
 export default function PortalDashboard() {
+  const rights = useMyApprovalRights();
   const navigate = useNavigate();
   const summary = usePortalSummary();
   const requests = useServiceRequests(5);
@@ -121,11 +123,11 @@ export default function PortalDashboard() {
           icon={ShieldAlert}
           tone="alert"
           accent="slate"
-          label="Unprotected devices"
-          value={summary.data?.unprotected_devices ?? 0}
+          label="Devices without services"
+          value={summary.data?.devices_without_services ?? 0}
           caption="Active devices without security"
           loading={summary.isLoading}
-          onView={() => openKpi('unprotected_devices')}
+          onView={() => openKpi('devices_without_services')}
         />
       </div>
 
@@ -138,11 +140,11 @@ export default function PortalDashboard() {
         emptyLabel="No requests yet."
         showToolbar={false}
         showPagination={false}
-        action={{
-          label: 'New Request',
-          icon: FilePlus2,
-          onClick: () => navigate('/msp/requests/new'),
-        }}
+        action={
+          rights.data?.can_submit === false
+            ? undefined
+            : { label: 'New Request', icon: FilePlus2, onClick: () => navigate('/msp/requests/new') }
+        }
       >
         {requestRows.map((row) => (
           <tr

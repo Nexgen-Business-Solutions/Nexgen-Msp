@@ -7,6 +7,8 @@ from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 ACTION_FIELDS = ("title", "action_type", "description", "enabled")
 
+PORTAL_FIELDS = ("portal_url", "customer_session_timeout")
+
 INVOICE_FIELDS = (
     "issuer_name",
     "issuer_address",
@@ -21,7 +23,6 @@ INVOICE_FIELDS = (
     "payment_terms_days",
     "default_cost_center",
     "show_cost_center_on_invoice",
-    "portal_url",
 )
 
 # how long a customer keeps the right to contest, when the setting has never been saved
@@ -287,6 +288,60 @@ class SettingsService:
         return frappe.utils.cint(days) or DEFAULT_PAYMENT_TERMS
 
     @staticmethod
+    def get_portal_settings():
+        """What customer accounts are given, and the choices on offer."""
+        from nexgen_msp.utils.session_timeout import TIMEOUTS
+
+        SettingsService._guard_admin()
+
+        doc = frappe.get_single("MSP Portal Settings")
+
+        return {
+            **{field: doc.get(field) or "" for field in PORTAL_FIELDS},
+            "timeout_options": list(TIMEOUTS),
+        }
+
+    @staticmethod
+    def save_portal_settings(settings=None):
+        from nexgen_msp.utils.session_timeout import TIMEOUTS
+
+        SettingsService._guard_admin()
+
+        settings = frappe.parse_json(settings) if isinstance(settings, str) else (settings or {})
+        doc = frappe.get_single("MSP Portal Settings")
+
+        if "portal_url" in settings:
+            # only the origin is kept: the paths are the application's own business
+            portal = (settings["portal_url"] or "").strip().rstrip("/")
+
+            if portal:
+                parsed = urlparse(portal)
+
+                if parsed.scheme not in ("http", "https") or not parsed.netloc or parsed.path:
+                    raise ValidationError(
+                        "The portal address must be a bare origin, such as "
+                        "https://portal.example.com.",
+                        "VALIDATION_ERROR",
+                    )
+
+            doc.portal_url = portal or None
+
+        if "customer_session_timeout" in settings:
+            choice = settings["customer_session_timeout"] or ""
+
+            if choice and choice not in TIMEOUTS:
+                raise ValidationError(
+                    f"'{choice}' is not one of the offered session timeouts.", "VALIDATION_ERROR"
+                )
+
+            doc.customer_session_timeout = choice
+
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+
+        return SettingsService.get_portal_settings()
+
+    @staticmethod
     def get_invoice_settings():
         """What the printed invoice says about us, and where the money should be wired."""
         SettingsService._guard_admin()
@@ -316,21 +371,6 @@ class SettingsService:
             raise ValidationError(
                 f"Cost Center {doc.default_cost_center} does not exist.", "VALIDATION_ERROR"
             )
-
-        # only the origin is kept: the paths are the application's own business
-        portal = (doc.portal_url or "").strip().rstrip("/")
-
-        if portal:
-            parsed = urlparse(portal)
-
-            if parsed.scheme not in ("http", "https") or not parsed.netloc or parsed.path:
-                raise ValidationError(
-                    "The portal address must be a bare origin, such as "
-                    "https://portal.example.com.",
-                    "VALIDATION_ERROR",
-                )
-
-        doc.portal_url = portal or None
 
         if doc.payment_terms_days in (None, ""):
             doc.payment_terms_days = DEFAULT_PAYMENT_TERMS

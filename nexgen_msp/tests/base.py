@@ -38,10 +38,12 @@ class MSPTestCase(IntegrationTestCase):
                     self._purge_account(name)
                 elif frappe.db.exists(doctype, name):
                     frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+
+                # one record at a time: a single stubborn one used to roll back the whole
+                # clean-up, and what it left behind then broke the next module's fixtures
+                frappe.db.commit()
             except Exception:
                 frappe.db.rollback()
-
-        frappe.db.commit()
 
     # ------------------------------------------------------------------ helpers
     def track(self, doctype, name):
@@ -63,7 +65,16 @@ class MSPTestCase(IntegrationTestCase):
             frappe.db.sql("delete from `tabEmail Queue` where name = %s", row)
 
     def _purge_account(self, email):
-        for contact in frappe.get_all("Contact", filters={"user": email}, pluck="name"):
+        contacts = set(frappe.get_all("Contact", filters={"user": email}, pluck="name"))
+        # a contact whose link back to the account was lost still bears its name, and a
+        # name is what the next account of the same fixture would collide with
+        contacts.update(
+            frappe.db.sql_list(
+                "select distinct parent from `tabContact Email` where email_id = %s", email
+            )
+        )
+
+        for contact in contacts:
             frappe.db.sql("delete from `tabDynamic Link` where parenttype='Contact' and parent=%s", contact)
             frappe.db.sql("delete from `tabContact Email` where parent=%s", contact)
             frappe.db.sql("delete from `tabContact` where name=%s", contact)
@@ -74,6 +85,13 @@ class MSPTestCase(IntegrationTestCase):
 
     def make_customer(self, suffix="A"):
         name = f"{PREFIX} Customer {suffix}"
+
+        # the matrix is named after the customer and would otherwise carry rows from an
+        # earlier test — accounts long purged, rights nobody gave in this one
+        if frappe.db.exists("MSP Approval Authority", name):
+            frappe.delete_doc("MSP Approval Authority", name, force=True, ignore_permissions=True)
+            frappe.db.commit()
+        self.track("MSP Approval Authority", name)
 
         if not frappe.db.exists("Customer", name):
             frappe.get_doc(
@@ -127,6 +145,13 @@ class MSPTestCase(IntegrationTestCase):
         return self.track("MSP Client User", doc.name)
 
     def make_device(self, customer, hostname="BOX", holder=None, serial=None):
+        # a serial names one machine: whatever an interrupted run left behind with it goes first
+        if serial:
+            for stale in frappe.get_all("MSP Managed Device", filters={"serial_number": serial}, pluck="name"):
+                frappe.db.sql("delete from `tabMSP Service Assignment` where managed_device=%s", stale)
+                frappe.delete_doc("MSP Managed Device", stale, force=True, ignore_permissions=True)
+            frappe.db.commit()
+
         doc = frappe.get_doc(
             {
                 "doctype": "MSP Managed Device",
@@ -167,6 +192,12 @@ class MSPTestCase(IntegrationTestCase):
         )
 
         return self.track("User", email)
+
+    def grant(self, email, can_submit=1, can_approve=1):
+        """Name an account in its company's matrix. Both rights make a request reach us at once."""
+        from nexgen_msp.api.internal.services.authority_service import AuthorityService
+
+        AuthorityService.set_account_rights(email, {"can_submit": can_submit, "can_approve": can_approve})
 
     def action(self, action_type="Add"):
         name = frappe.db.get_value("MSP Request Action", {"action_type": action_type}, "name")

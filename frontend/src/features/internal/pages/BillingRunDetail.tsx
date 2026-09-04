@@ -165,12 +165,12 @@ export default function BillingRunDetail() {
                 </span>
               )}
               {data.credit_note_of && (
-                <span className="rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700">
+                <span className="rounded-full bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
                   CREDIT NOTE OF {data.credit_note_of}
                 </span>
               )}
               {data.adjustment_of && (
-                <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">
+                <span className="rounded-full bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
                   ADJUSTMENT OF {data.adjustment_of}
                 </span>
               )}

@@ -25,13 +25,13 @@ export const useThemeStore = create<ThemeState>()(
         if (theme) get().applyTheme(theme);
       },
 
-      getBackgroundClass: () => get().currentTheme.background || 'bg-gray-50',
+      getBackgroundClass: () => get().currentTheme.background || 'bg-slate-50',
 
       getDecorativeBlobs: () => get().currentTheme.decorativeBlobs || [],
 
       isDark: () => Boolean(get().currentTheme.isDark),
 
-      getPreviewClass: () => get().currentTheme.preview || 'bg-gray-200',
+      getPreviewClass: () => get().currentTheme.preview || 'bg-slate-200',
     }),
     {
       name: 'nexgen-msp-theme',

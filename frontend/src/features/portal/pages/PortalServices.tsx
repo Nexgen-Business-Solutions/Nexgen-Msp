@@ -5,6 +5,7 @@ import DataTable from '@/shared/components/DataTable';
 import KpiCard from '@/shared/components/KpiCard';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import { useCatalogue, useSubscribedServices } from '../hooks/usePortal';
+import { useMyApprovalRights } from '../hooks/usePortal';
 
 /**
  * Every service this company may order, not only the ones it already runs.
@@ -14,6 +15,8 @@ import { useCatalogue, useSubscribedServices } from '../hooks/usePortal';
  * each line.
  */
 export default function PortalServices() {
+  const rights = useMyApprovalRights();
+  const canSubmit = rights.data?.can_submit !== false;
   const navigate = useNavigate();
   const catalogue = useCatalogue();
   const subscribed = useSubscribedServices();
@@ -128,12 +131,16 @@ export default function PortalServices() {
                 <div className="flex justify-end">
                   <RowActionsMenu
                     actions={[
+                      ...(canSubmit
+                        ? [
                       {
                         label: 'Ask for this service',
                         icon: FilePlus2,
                         onClick: () =>
                           navigate(`/msp/requests/new?service=${encodeURIComponent(item.name)}`),
                       },
+                          ]
+                        : []),
                       {
                         label: onDevices ? 'See the machines' : 'See the people',
                         icon: Users,

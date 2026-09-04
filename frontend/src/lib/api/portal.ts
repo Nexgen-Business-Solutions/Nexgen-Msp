@@ -22,7 +22,7 @@ export type PortalSummary = {
   open_requests: number;
   awaiting_approval: number;
   reclaimable_licences: number;
-  unprotected_devices: number;
+  devices_without_services: number;
   catalogue_size: number;
 };
 
@@ -268,8 +268,13 @@ export type PortalRequestLine = {
   new_device_label: string | null;
   user_name: string | null;
   department: string | null;
+  username: string | null;
   service_name: string;
+  action_label: string | null;
   hostname: string | null;
+  serial_number: string | null;
+  device_type: string | null;
+  device_holder: string | null;
   requested_effective_date: string | null;
   comment: string | null;
   service_status: string | null;
@@ -299,6 +304,7 @@ export type PortalRequestDetail = {
   rejection_reason: string | null;
   reviewed_on: string | null;
   can_decide: boolean;
+  has_approver: boolean;
   lines: PortalRequestLine[];
 };
 
@@ -429,7 +435,7 @@ export type KpiName =
   | 'active_services'
   | 'open_requests'
   | 'reclaimable_licences'
-  | 'unprotected_devices';
+  | 'devices_without_services';
 
 export type KpiColumn = { key: string; label: string };
 

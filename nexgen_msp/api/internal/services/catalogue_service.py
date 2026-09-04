@@ -8,8 +8,7 @@ ITEM_GROUP = "Services"
 # a service is billed in months, and a month can be a half: an integer-only
 # unit would make the first half-month invoice fail
 from nexgen_msp.utils.catalogue import BILLING_UOM
-
-OPEN_ASSIGNMENT_STATUSES = ("Pending Setup", "Active", "Suspended", "Pending Removal")
+from nexgen_msp.utils.assignments import OPEN_ASSIGNMENT_STATUSES
 
 SCOPES = ("User", "Device", "Both")
 

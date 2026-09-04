@@ -29,7 +29,6 @@
   "ad_status",
   "section_portal",
   "portal_visible",
-  "portal_user",
   "remarks",
   "remark_log",
   "last_billed_on",
@@ -171,14 +170,6 @@
    "fieldname": "remarks",
    "fieldtype": "Small Text",
    "label": "Remarks (legacy)",
-   "read_only": 1
-  },
-  {
-   "fieldname": "portal_user",
-   "fieldtype": "Link",
-   "label": "Portal User",
-   "no_copy": 1,
-   "options": "User",
    "read_only": 1
   },
   {

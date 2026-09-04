@@ -49,6 +49,8 @@ export type RequestAction = {
 export type RequestDetailLine = {
   idx: number;
   action: string;
+  action_label: string | null;
+  action_description: string | null;
   target_scope: string;
   is_new_user: number;
   client_user: string | null;
@@ -57,11 +59,16 @@ export type RequestDetailLine = {
   new_user_full_name: string | null;
   new_user_department: string | null;
   new_user_email: string | null;
+  new_user_username: string | null;
   needs_portal_access: number;
   is_new_device: number;
   new_device_label: string | null;
+  new_device_type: string | null;
+  new_device_serial: string | null;
   managed_device: string | null;
   device_hostname: string | null;
+  device_type: string | null;
+  device_holder: string | null;
   requested_service: string;
   requested_service_name: string | null;
   requested_quantity: number;
@@ -224,7 +231,7 @@ export type InternalDashboard = {
   };
   queue: DashboardQueueRow[];
   pending_lines: DashboardPendingLine[];
-  hygiene: { unprotected_devices: number; reclaimable_licences: number };
+  hygiene: { devices_without_services: number; reclaimable_licences: number };
   portfolio?: DashboardPortfolio;
 };
 
@@ -243,7 +250,7 @@ export type UserStats = {
   active_users: number;
   without_device: number;
   disabled_with_services: number;
-  unprotected_devices: number;
+  devices_without_services: number;
 };
 
 export type UserRow = {
@@ -889,7 +896,7 @@ export type DeviceFilterOptions = {
 
 export type DeviceStats = {
   active_devices: number;
-  unprotected_devices: number;
+  devices_without_services: number;
   unassigned_devices: number;
   devices_without_mac: number;
 };
@@ -908,7 +915,7 @@ export type DeviceRow = {
   user_status: string | null;
   active_services: number;
   inactive_services: number;
-  protected: number;
+  has_services: number;
   interfaces?: DeviceInterface[];
 };
 
@@ -1067,7 +1074,7 @@ export const createManagedDevice = (payload: {
 
 export type InternalKpiName =
   | 'reclaimable_licences'
-  | 'unprotected_devices'
+  | 'devices_without_services'
   | 'billable_services'
   | 'services_added'
   | 'services_removed';
@@ -1546,7 +1553,6 @@ export type InvoiceSettings = {
   dispute_window_days: number | null;
   default_cost_center: string | null;
   show_cost_center_on_invoice: number;
-  portal_url: string | null;
 };
 
 export type Approver = {
@@ -1562,6 +1568,7 @@ export type CustomerAuthority = {
   enabled: boolean;
   approvers: Approver[];
   candidates: { user: string; full_name: string }[];
+  gaps: { accounts: number; nobody_may_raise: boolean; nobody_may_approve: boolean };
 };
 
 export type AccountRights = {
@@ -1747,6 +1754,18 @@ export const setTeamRole = (payload: { email: string; role: string }) =>
 
 export const setTeamEnabled = (payload: { email: string; enabled: number }) =>
   post<TeamMember[]>(`${BASE}.set_team_enabled`, payload);
+
+export type PortalSettings = {
+  portal_url: string;
+  customer_session_timeout: string;
+  timeout_options: string[];
+};
+
+export const getPortalSettings = (signal?: AbortSignal) =>
+  get<PortalSettings>(`${BASE}.get_portal_settings`, undefined, signal);
+
+export const savePortalSettings = (settings: Partial<PortalSettings>) =>
+  post<PortalSettings>(`${BASE}.save_portal_settings`, { settings: JSON.stringify(settings) });
 
 export const getInvoiceSettings = (signal?: AbortSignal) =>
   get<InvoiceSettings>(`${BASE}.get_invoice_settings`, undefined, signal);
