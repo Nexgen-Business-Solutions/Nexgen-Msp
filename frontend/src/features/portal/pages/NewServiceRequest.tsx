@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import ConfirmModal from '@/shared/components/ConfirmModal';
 import { AlertCircle, Copy, Info, Plus, Trash2, TriangleAlert, UserPlus, Users, X } from 'lucide-react';
 import Select from '@/shared/components/Select';
 import ServiceStateHint from '../components/ServiceStateHint';
@@ -17,11 +19,16 @@ export default function NewServiceRequest() {
   // a listing can send someone here about one person, machine or service — the first line
   // opens already pointed at it
   const [params] = useSearchParams();
-  const form = useServiceRequestForm(() => navigate('/msp'), {
-    client_user: params.get('client_user') ?? undefined,
-    managed_device: params.get('device') ?? undefined,
-    service: params.get('service') ?? undefined,
-  });
+  const [givingUp, setGivingUp] = useState(false);
+  const form = useServiceRequestForm(
+    () => navigate('/msp/requests'),
+    {
+      client_user: params.get('client_user') ?? undefined,
+      managed_device: params.get('device') ?? undefined,
+      service: params.get('service') ?? undefined,
+    },
+    params.get('draft') ?? undefined
+  );
 
   // staff serve every customer, so they must say who they are acting for; a contact
   // has only their own and never sees this
@@ -30,6 +37,14 @@ export default function NewServiceRequest() {
   const customer = usePortalFilters((state) => state.customer);
   const setCustomer = usePortalFilters((state) => state.setCustomer);
   const options = useUserFilterOptions(onBehalf);
+
+  if (form.reopening) {
+    return (
+      <div className="flex h-full items-center justify-center p-10">
+        <span className="h-8 w-8 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />
+      </div>
+    );
+  }
 
   if (onBehalf && !customer) {
     return (
@@ -455,38 +470,46 @@ export default function NewServiceRequest() {
                             value={line.managed_device}
                             onChange={(value) => form.updateLine(line.key, 'managed_device', value)}
                             placeholder="Select the machine"
-                            options={
-                              line.isNewUser || !line.client_user
-                                ? []
-                                : form.devicesFor(line.client_user)
-                            }
+                            options={form.devicesFor(line.client_user || undefined)}
                           />
                         </div>
                       )}
 
                       {line.managed_device === form.newDeviceValue && (
-                        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
                           <div>
-                            <span className={labelClass}>Name it, if you know it</span>
+                            <span className={labelClass}>Hostname</span>
                             <input
                               type="text"
                               value={line.new_device_label}
                               onChange={(event) =>
                                 form.updateLine(line.key, 'new_device_label', event.target.value)
                               }
-                              placeholder="Optional"
+                              placeholder="If you know it"
                               className={inputClass}
                             />
                           </div>
                           <div>
-                            <span className={labelClass}>Serial number, if you have it</span>
+                            <span className={labelClass}>Type</span>
+                            <Select
+                              className="w-full"
+                              value={line.new_device_type}
+                              onChange={(value) =>
+                                form.updateLine(line.key, 'new_device_type', value)
+                              }
+                              placeholder="If you know it"
+                              options={form.options.deviceTypes}
+                            />
+                          </div>
+                          <div>
+                            <span className={labelClass}>Serial number</span>
                             <input
                               type="text"
                               value={line.new_device_serial}
                               onChange={(event) =>
                                 form.updateLine(line.key, 'new_device_serial', event.target.value)
                               }
-                              placeholder="Optional"
+                              placeholder="If you have it"
                               className={inputClass}
                             />
                           </div>
@@ -533,6 +556,11 @@ export default function NewServiceRequest() {
 
         <div className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/60 px-6 py-4">
           <span className="text-xs text-slate-500">
+            {form.draft && (
+              <span className="mr-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+                Saved as a draft — only you can see it
+              </span>
+            )}
             {form.lines.length} block{form.lines.length > 1 ? 's' : ''} ·{' '}
             <span className="font-semibold text-slate-700 tabular-nums">
               {form.totalServices}
@@ -541,14 +569,31 @@ export default function NewServiceRequest() {
           </span>
 
           <div className="flex items-center gap-2">
-            {/* <button
+            <button
               type="button"
-              onClick={form.reset}
-              disabled={form.submitting}
+              onClick={() => setGivingUp(true)}
+              disabled={form.submitting || form.saving || form.discarding}
               className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"
             >
-              Reset
-            </button> */}
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void form.save()}
+              disabled={!form.hasSomething || form.submitting || form.saving}
+              title={
+                form.hasSomething
+                  ? 'Put it aside and come back to it. Nobody else sees it until you send it.'
+                  : 'Pick at least one service before saving.'
+              }
+              className="flex min-w-[6rem] items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {form.saving ? (
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />
+              ) : (
+                'Save'
+              )}
+            </button>
             <button
               type="submit"
               disabled={form.submitting || form.loadingOptions}
@@ -563,6 +608,25 @@ export default function NewServiceRequest() {
           </div>
         </div>
       </form>
+
+      <ConfirmModal
+        open={givingUp}
+        title="Give up this request?"
+        description={
+          form.draft
+            ? 'What you saved will be deleted. Nothing has been sent to us, so there is nothing to undo afterwards.'
+            : 'What you have filled in will be lost.'
+        }
+        confirmLabel="Give it up"
+        tone="danger"
+        loading={form.discarding}
+        onCancel={() => setGivingUp(false)}
+        onConfirm={async () => {
+          await form.discard();
+          setGivingUp(false);
+          navigate('/msp/requests');
+        }}
+      />
     </div>
   );
 }

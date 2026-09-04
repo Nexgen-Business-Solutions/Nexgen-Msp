@@ -128,25 +128,13 @@ class TestWhatEachAudienceReaches(MSPTestCase):
                 self.reaches(email, lambda: PortalService.get_user_detail(stranger)), role
             )
 
-    def test_the_catalogue_offers_everything_and_says_what_is_covered(self):
-        """Asking is not ordering: a customer with no contract can still raise a request.
-
-        What the contract covers is reported, not enforced — so whoever reviews the request
-        knows a rate has to be agreed before that line can be delivered.
-        """
-        mine = self.make_service("X", scope="User")
+    def test_a_customer_is_only_offered_what_its_contract_covers(self):
+        """Nothing outside the contract is ever offered, even when the catalogue is larger."""
+        self.make_service("X", scope="User")
 
         frappe.set_user(self.accounts[MANAGER])
         offered = PortalService.list_catalogue()
         frappe.set_user("Administrator")
-
-        names = {row["name"] for row in offered["items"]}
-        every_service = set(
-            frappe.get_all("Item", filters={"disabled": 0, "is_stock_item": 0}, pluck="name")
-        )
-
-        self.assertEqual(names, every_service)
-        self.assertIn(mine, names)
 
         covered = set(
             frappe.db.sql_list(
@@ -160,14 +148,68 @@ class TestWhatEachAudienceReaches(MSPTestCase):
             )
         )
 
-        self.assertEqual({row["name"] for row in offered["items"] if row["covered"]}, covered)
-        self.assertEqual(offered["covered"], len(covered))
+        self.assertEqual({row["name"] for row in offered["items"]}, covered)
 
-    def test_a_customer_with_no_contract_is_still_offered_services(self):
+    def test_an_empty_catalogue_says_whether_a_contract_exists(self):
+        """The list was empty and silent about it, which read as a fault rather than a fact."""
         frappe.set_user(self.accounts[OPERATOR])
         offered = PortalService.list_catalogue()
         frappe.set_user("Administrator")
 
-        self.assertGreater(offered["count"], 0)
-        self.assertEqual(offered["covered"], 0)
-        self.assertTrue(all(row["covered"] == 0 for row in offered["items"]))
+        self.assertEqual(offered["count"], 0)
+        self.assertFalse(offered["has_contract"])
+
+
+class TestRaisingOnBehalf(MSPTestCase):
+    """Staff open requests for a customer, and must be offered that customer's things only."""
+
+    def setUp(self):
+        super().setUp()
+        self.mine = self.make_customer("A")
+        self.theirs = self.make_customer("B")
+        self.my_person = self.make_person(self.mine, "Mine")
+        self.their_person = self.make_person(self.theirs, "Theirs")
+        self.my_device = self.make_device(self.mine, hostname="MINE")
+        self.their_device = self.make_device(self.theirs, hostname="THEIRS")
+        self.tech = self.make_account("internal", "MSP Technician", suffix="t")
+
+    def as_tech(self, fn):
+        frappe.set_user(self.tech)
+        try:
+            return fn()
+        finally:
+            frappe.set_user("Administrator")
+
+    def test_the_people_offered_belong_to_the_chosen_customer(self):
+        offered = {row["name"] for row in self.as_tech(lambda: PortalService.list_user_choices(self.mine))}
+
+        self.assertIn(self.my_person, offered)
+        self.assertNotIn(self.their_person, offered)
+
+    def test_the_machines_offered_belong_to_the_chosen_customer(self):
+        offered = {row["name"] for row in self.as_tech(lambda: PortalService.list_device_choices(self.mine))}
+
+        self.assertIn(self.my_device, offered)
+        self.assertNotIn(self.their_device, offered)
+
+    def test_a_machine_somebody_holds_is_still_offered(self):
+        """A request is often about a machine another person has."""
+        holder = self.make_person(self.mine, "Holder")
+        held = self.make_device(self.mine, hostname="HELD", holder=holder)
+
+        rows = self.as_tech(lambda: PortalService.list_device_choices(self.mine))
+        offered = {row["name"]: row for row in rows}
+
+        self.assertIn(held, offered)
+        self.assertEqual(offered[held]["assigned_user_name"], frappe.db.get_value(
+            "MSP Client User", holder, "full_name"
+        ))
+
+    def test_staff_must_say_which_customer_they_act_for(self):
+        for call in (
+            PortalService.list_user_choices,
+            PortalService.list_device_choices,
+            PortalService.list_catalogue,
+        ):
+            with self.assertRaises(ValidationError):
+                self.as_tech(call)

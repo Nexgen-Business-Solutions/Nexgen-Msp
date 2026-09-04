@@ -75,7 +75,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Device Type",
-   "options": "PC\nLaptop\nMini PC\nMac\nTablet\nServer\nFirewall\nVM\nOther",
+   "options": "PC\nLaptop\nMini PC\nMac\nPhone\nTablet\nServer\nFirewall\nVM\nOther",
    "reqd": 1
   },
   {

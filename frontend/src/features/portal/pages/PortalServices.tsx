@@ -50,7 +50,7 @@ export default function PortalServices() {
           accent="blue"
           label="Services available"
           value={catalogue.data?.items.length ?? 0}
-          caption="Everything you can ask us for"
+          caption="What your contract lets you order"
           loading={catalogue.isLoading}
         />
         <KpiCard
@@ -64,9 +64,9 @@ export default function PortalServices() {
         <KpiCard
           icon={FilePlus2}
           accent="slate"
-          label="Not in your contract"
-          value={(catalogue.data?.items ?? []).filter((item) => !item.covered).length}
-          caption="You can still ask — we agree a rate first"
+          label="Not used yet"
+          value={Math.max((catalogue.data?.items.length ?? 0) - inUse.size, 0)}
+          caption="Covered by your contract, nobody holds them"
           loading={catalogue.isLoading}
         />
       </div>
@@ -88,7 +88,11 @@ export default function PortalServices() {
         rowCount={rows.length}
         isLoading={catalogue.isLoading}
         error={catalogue.error}
-        emptyLabel="Your contract covers no service yet."
+        emptyLabel={
+          catalogue.data && !catalogue.data.has_contract
+            ? 'No live contract yet, so there is nothing to order. Ask us to set one up.'
+            : 'Your contract covers no service yet.'
+        }
         showToolbar={false}
       >
         {rows.map((item) => {
@@ -102,14 +106,7 @@ export default function PortalServices() {
           return (
             <tr key={item.name} className="transition-colors hover:bg-slate-50">
               <td className="px-4 py-3">
-                <span className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-semibold text-slate-900">{item.item_name}</span>
-                  {!item.covered && (
-                    <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
-                      Not in your contract
-                    </span>
-                  )}
-                </span>
+                <p className="text-sm font-semibold text-slate-900">{item.item_name}</p>
                 {item.description && (
                   <p className="mt-0.5 text-xs text-slate-400">{item.description}</p>
                 )}

@@ -21,6 +21,7 @@
   "section_lines",
   "lines",
   "section_approval",
+  "refused_by_customer",
   "customer_approved_by",
   "customer_approved_at",
   "commercial_approved_by",
@@ -114,6 +115,13 @@
    "fieldname": "section_approval",
    "fieldtype": "Section Break",
    "label": "Approval"
+  },
+  {
+   "fieldname": "refused_by_customer",
+   "fieldtype": "Check",
+   "label": "Refused By Customer",
+   "read_only": 1,
+   "default": "0"
   },
   {
    "fieldname": "customer_approved_by",

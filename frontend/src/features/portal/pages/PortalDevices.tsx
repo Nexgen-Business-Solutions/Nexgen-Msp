@@ -3,14 +3,21 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { FilePlus2, Laptop, ShieldAlert, UserX } from 'lucide-react';
 import DataTable from '@/shared/components/DataTable';
 import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
-import StatusBadge from '@/shared/components/StatusBadge';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import KpiCard from '@/shared/components/KpiCard';
+import * as portal from '@/lib/api/portal';
 import { useDevicePage, usePortalFilterOptions, usePortalSummary, useSubscribedServices } from '../hooks/usePortal';
 
-const COLUMNS = ['Machine', 'Held by', 'Since', 'Status', ''];
+const COLUMNS = ['Device', 'Network interfaces', 'Active services', 'Inactive services', ''];
 
-const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
+const INTERFACE_LABEL: Record<string, string> = {
+  'Wi-Fi': 'MAC WIFI',
+  LAN: 'MAC LAN',
+  Extra: 'EXTRA MAC',
+  Other: 'OTHER MAC',
+};
+
+const INTERFACE_ORDER = ['Wi-Fi', 'LAN', 'Extra', 'Other'];
 
 const EMPTY: FilterState = { status: '', service: '' };
 
@@ -79,7 +86,7 @@ export default function PortalDevices() {
       <FilterBar
         values={filters}
         search={search}
-        searchPlaceholder="Search a hostname or a serial…"
+        searchPlaceholder="Search a hostname, a serial or a holder…"
         subtitle="Every machine we look after for you."
         onSearch={(value) => {
           setSearch(value);
@@ -88,6 +95,13 @@ export default function PortalDevices() {
         onApply={apply}
         onClear={() => apply(EMPTY)}
         onRefresh={() => list.refetch()}
+        onExport={() =>
+          portal.exportMyMachines({
+            search: search || undefined,
+            status: (filters.status as string) || undefined,
+            service: (filters.service as string) || undefined,
+          })
+        }
         fields={[
           {
             key: 'service',
@@ -134,6 +148,17 @@ export default function PortalDevices() {
           <tr key={row.name} className="transition-colors hover:bg-slate-50">
             <td className="whitespace-nowrap px-4 py-3">
               <p className="text-sm font-semibold text-slate-900">{row.hostname}</p>
+              {row.assigned_client_user ? (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/msp/users/${row.assigned_client_user}`)}
+                  className="text-xs text-blue-600 transition-colors hover:text-blue-800 hover:underline"
+                >
+                  {row.assigned_user_name || row.assigned_client_user}
+                </button>
+              ) : (
+                <p className="text-xs text-slate-400">Unassigned</p>
+              )}
               {row.serial_number ? (
                 <p className="mt-0.5 font-mono text-xs text-slate-500">{row.serial_number}</p>
               ) : (
@@ -141,24 +166,48 @@ export default function PortalDevices() {
               )}
               <p className="text-xs text-slate-400">{row.device_type}</p>
             </td>
-            <td className="whitespace-nowrap px-4 py-3 text-sm">
-              {row.assigned_client_user ? (
-                <button
-                  type="button"
-                  onClick={() => navigate(`/msp/users/${row.assigned_client_user}`)}
-                  className="text-blue-600 transition-colors hover:text-blue-800 hover:underline"
-                >
-                  {row.assigned_user_name || row.assigned_client_user}
-                </button>
+            <td className="px-4 py-3">
+              {row.interfaces?.length ? (
+                <div className="space-y-1">
+                  {[...row.interfaces]
+                    .sort(
+                      (a, b) =>
+                        INTERFACE_ORDER.indexOf(a.interface_type) -
+                        INTERFACE_ORDER.indexOf(b.interface_type)
+                    )
+                    .map((item) => (
+                      <div
+                        key={`${item.interface_type}-${item.mac_address}`}
+                        className="flex items-baseline gap-3"
+                      >
+                        <span className="w-[5.5rem] shrink-0 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                          {INTERFACE_LABEL[item.interface_type] ?? item.interface_type}
+                        </span>
+                        <span className="font-mono text-xs tracking-tight text-slate-800">
+                          {item.mac_address}
+                        </span>
+                      </div>
+                    ))}
+                </div>
               ) : (
-                <span className="text-slate-400">Nobody</span>
+                <span className="text-sm text-slate-400">N/A</span>
               )}
             </td>
-            <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-500">
-              {fmtDate(row.assigned_date)}
+            <td className="whitespace-nowrap px-4 py-3">
+              <span className="inline-flex min-w-[2rem] justify-center rounded-lg bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 tabular-nums">
+                {row.active_services}
+              </span>
             </td>
-            <td className="px-4 py-3">
-              <StatusBadge value={row.status} />
+            <td className="whitespace-nowrap px-4 py-3">
+              <span
+                className={`inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-1 text-xs font-semibold tabular-nums ${
+                  row.inactive_services
+                    ? 'bg-slate-100 text-slate-600'
+                    : 'bg-transparent text-slate-300'
+                }`}
+              >
+                {row.inactive_services}
+              </span>
             </td>
             <td className="whitespace-nowrap px-4 py-3">
               <div className="flex justify-end">

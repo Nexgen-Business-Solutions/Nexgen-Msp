@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
+import * as internal from '@/lib/api/internal';
 import { Ban, CircleCheck, Package, Pencil, Plus, Users } from 'lucide-react';
 import KpiCard from '@/shared/components/KpiCard';
 import RowActionsMenu, { type RowAction } from '@/shared/components/RowActionsMenu';
@@ -16,9 +18,20 @@ const SCOPE_LABEL: Record<string, string> = {
   Both: 'User or device',
 };
 
+const EMPTY: FilterState = { scope: '', status: '' };
+
 export default function ServicesList() {
   const navigate = useNavigate();
-  const { data, isLoading, error } = useServiceCatalogue();
+  const [filters, setFilters] = useState<FilterState>(EMPTY);
+  const [search, setSearch] = useState('');
+
+  const query = {
+    search: search || undefined,
+    scope: (filters.scope as string) || undefined,
+    status: (filters.status as string) || undefined,
+  };
+
+  const { data, isLoading, error, refetch } = useServiceCatalogue(query);
   const save = useSaveService();
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -72,6 +85,40 @@ export default function ServicesList() {
           loading={isLoading}
         />
       </div>
+
+      <FilterBar
+        values={filters}
+        search={search}
+        searchPlaceholder="Search a service, its code or its invoice label…"
+        subtitle="Narrow the catalogue."
+        onSearch={setSearch}
+        onApply={setFilters}
+        onClear={() => {
+          setFilters(EMPTY);
+          setSearch('');
+        }}
+        onRefresh={() => refetch()}
+        onExport={() => internal.exportServices(query)}
+        fields={[
+          {
+            key: 'scope',
+            label: 'Billed per',
+            kind: 'select',
+            allLabel: 'Any',
+            options: Object.entries(SCOPE_LABEL).map(([value, label]) => ({ value, label })),
+          },
+          {
+            key: 'status',
+            label: 'Status',
+            kind: 'select',
+            allLabel: 'Any status',
+            options: [
+              { value: 'active', label: 'Active' },
+              { value: 'disabled', label: 'Disabled' },
+            ],
+          },
+        ]}
+      />
 
       <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">

@@ -169,3 +169,57 @@ class TestWhereLinksPoint(MSPTestCase):
 
         self.assertNotIn("portal_origin()", source)
         self.assertEqual(source.count("SeeOther"), 1)
+
+
+class TestWhatACustomerTakesAway(MSPTestCase):
+    """The customer's own registers, and the sheet they can take away."""
+
+    def setUp(self):
+        super().setUp()
+        self.customer = self.make_customer()
+        self.other = self.make_customer("B")
+        self.person = self.make_person(self.customer, "Holder")
+        self.stranger = self.make_person(self.other, "Stranger")
+        self.device = self.make_device(self.customer, holder=self.person)
+        self.manager = self.make_account("customer", "MSP Customer Manager", self.customer)
+
+    def as_manager(self, fn):
+        frappe.set_user(self.manager)
+        try:
+            return fn()
+        finally:
+            frappe.set_user("Administrator")
+
+    def test_each_person_carries_what_they_run(self):
+        rows = self.as_manager(lambda: PortalService.list_client_users(page_length=200))["rows"]
+
+        self.assertTrue(rows)
+        for row in rows:
+            self.assertIn("active_services", row)
+            self.assertIn("inactive_services", row)
+            self.assertIsInstance(row["active_services"], int)
+
+    def test_each_machine_carries_what_it_runs(self):
+        rows = self.as_manager(lambda: PortalService.list_devices(page_length=200))["rows"]
+
+        self.assertTrue(rows)
+        for row in rows:
+            self.assertIn("active_services", row)
+            self.assertIn("inactive_services", row)
+
+    def test_the_export_takes_every_row_not_only_the_page(self):
+        from nexgen_msp.api.portal.endpoints import v1
+
+        rows = self.as_manager(lambda: v1._all_rows(PortalService.list_client_users))
+        total = self.as_manager(lambda: PortalService.list_client_users(page_length=1))["total"]
+
+        self.assertEqual(len(rows), total)
+
+    def test_the_export_never_reaches_another_customer(self):
+        from nexgen_msp.api.portal.endpoints import v1
+
+        rows = self.as_manager(lambda: v1._all_rows(PortalService.list_client_users))
+        names = {row["name"] for row in rows}
+
+        self.assertNotIn(self.stranger, names)
+        self.assertEqual({row["customer"] for row in rows}, {self.customer})

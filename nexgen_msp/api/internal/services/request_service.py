@@ -162,6 +162,13 @@ class RequestService:
         conditions.append("sr.status != %(customer_status)s")
         params["customer_status"] = CUSTOMER_STATUS
 
+        # a draft has not been sent: it belongs to whoever is still writing it
+        conditions.append("(sr.status != 'Draft' or sr.requester = %(me)s)")
+        params["me"] = frappe.session.user
+
+        # turned down inside the company, before it was ever ours to look at
+        conditions.append("ifnull(sr.refused_by_customer, 0) = 0")
+
         # a billing dispute is a commercial matter, so it stays out of the technician queue
         if not RequestService._roles().intersection(ADMIN_ROLES):
             conditions.append("sr.request_type != %(dispute_type)s")
@@ -343,6 +350,12 @@ class RequestService:
         if doc.status == CUSTOMER_STATUS:
             raise NotFoundError(f"Service Request {name} not found.", "NOT_FOUND")
 
+        if doc.status == "Draft" and doc.requester != frappe.session.user:
+            raise NotFoundError(f"Service Request {name} not found.", "NOT_FOUND")
+
+        if doc.refused_by_customer:
+            raise NotFoundError(f"Service Request {name} not found.", "NOT_FOUND")
+
         lines = frappe.db.sql(
             """
             select
@@ -356,7 +369,8 @@ class RequestService:
                 srl.new_user_full_name, srl.new_user_department, srl.new_user_email,
                 srl.new_user_username,
                 srl.needs_portal_access,
-                srl.is_new_device, srl.new_device_label, srl.new_device_serial,
+                srl.is_new_device, srl.new_device_label, srl.new_device_type,
+                srl.new_device_serial,
                 srl.managed_device, device.hostname as device_hostname,
                 device.serial_number as device_serial,
                 coalesce(cu.username, holder.username) as client_username,

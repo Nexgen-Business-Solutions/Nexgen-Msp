@@ -30,6 +30,10 @@ class MSPTestCase(IntegrationTestCase):
 
         for doctype, name in reversed(self._trash):
             try:
+                # anything the record sent must go with it: a queued mail outlives the
+                # document it refers to and would sit in the site's outbox for ever
+                self._purge_mail(doctype, name)
+
                 if doctype == "User":
                     self._purge_account(name)
                 elif frappe.db.exists(doctype, name):
@@ -43,6 +47,20 @@ class MSPTestCase(IntegrationTestCase):
     def track(self, doctype, name):
         self._trash.append((doctype, name))
         return name
+
+    def _purge_mail(self, doctype, name):
+        queued = frappe.get_all(
+            "Email Queue", filters={"reference_doctype": doctype, "reference_name": name}, pluck="name"
+        )
+
+        if doctype == "User":
+            queued += frappe.db.sql_list(
+                "select distinct parent from `tabEmail Queue Recipient` where recipient = %s", name
+            )
+
+        for row in set(queued):
+            frappe.db.sql("delete from `tabEmail Queue Recipient` where parent = %s", row)
+            frappe.db.sql("delete from `tabEmail Queue` where name = %s", row)
 
     def _purge_account(self, email):
         for contact in frappe.get_all("Contact", filters={"user": email}, pluck="name"):
@@ -117,9 +135,17 @@ class MSPTestCase(IntegrationTestCase):
                 "device_type": "PC",
                 "status": "Active",
                 "serial_number": serial,
-                "assigned_client_user": holder,
             }
         ).insert(ignore_permissions=True)
+
+        # the holder mirrors the hand-over history and is read-only on the device itself,
+        # so a fixture has to go through the same door the application uses
+        if holder:
+            from nexgen_msp.utils import device_holders
+
+            device_holders.hand_over(doc, holder)
+            doc.save(ignore_permissions=True)
+
         frappe.db.commit()
 
         return self.track("MSP Managed Device", doc.name)

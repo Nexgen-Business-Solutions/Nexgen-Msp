@@ -25,6 +25,7 @@
   "new_user_username",
   "is_new_device",
   "new_device_label",
+  "new_device_type",
   "new_device_serial",
   "request_action",
   "action",
@@ -164,7 +165,13 @@
   {
    "fieldname": "new_device_label",
    "fieldtype": "Data",
-   "label": "New Device Label"
+   "label": "Hostname"
+  },
+  {
+   "fieldname": "new_device_type",
+   "fieldtype": "Select",
+   "label": "Device Type",
+   "options": "\nPC\nLaptop\nMini PC\nMac\nPhone\nTablet\nServer\nFirewall\nVM\nOther"
   },
   {
    "fieldname": "new_device_serial",

@@ -15,11 +15,12 @@ export const useCatalogueOptions = () =>
     staleTime: 10 * 60 * 1000,
   });
 
-export const useServiceCatalogue = () =>
+export const useServiceCatalogue = (params: internal.ServiceListParams = {}) =>
   useQuery({
-    queryKey: catalogueKeys.list(),
-    queryFn: ({ signal }) => internal.listServices(signal),
+    queryKey: [...catalogueKeys.list(), params] as const,
+    queryFn: ({ signal }) => internal.listServices(params, signal),
     staleTime: 60 * 1000,
+    keepPreviousData: true,
   });
 
 export const useSaveService = () => {

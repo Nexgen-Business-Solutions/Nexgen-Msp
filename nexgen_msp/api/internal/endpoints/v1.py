@@ -100,11 +100,13 @@ def get_user_filter_options():
 EXPORT_COLUMNS = {
     "users": [
         ("full_name", "User"),
+        ("username", "Username"),
         ("email", "Email"),
         ("department", "Department"),
         ("customer", "Customer"),
         ("lifecycle_status", "Status"),
         ("hostnames", "Devices"),
+        ("serial_numbers", "Serial numbers"),
         ("device_type", "Device type"),
         # each side reads count, then names, then the date it started or ended
         ("active_services", "Active services"),
@@ -117,11 +119,24 @@ EXPORT_COLUMNS = {
         ("disabled_date", "Disabled on"),
         ("remarks", "Remarks"),
     ],
+    "services": [
+        ("item_name", "Service"),
+        ("name", "Code"),
+        ("scope", "Billed per"),
+        ("stock_uom", "Unit"),
+        ("invoice_label", "Invoice label"),
+        ("open_assignments", "Open assignments"),
+        ("customers", "Customers"),
+        ("priced_contracts", "Priced contracts"),
+        ("state", "Status"),
+        ("description", "Description"),
+    ],
     "devices": [
         ("hostname", "Device"),
         ("device_type", "Type"),
         ("customer", "Customer"),
         ("user_name", "Held by"),
+        ("holder_username", "Username"),
         ("user_department", "Department"),
         ("status", "Status"),
         ("serial_number", "Serial number"),
@@ -810,8 +825,23 @@ def get_catalogue_options():
 
 @frappe.whitelist()
 @handle_errors
-def list_services():
-    return _catalogue().list_services()
+def list_services(search=None, scope=None, status=None):
+    return _catalogue().list_services(search=search, scope=scope, status=status)
+
+
+@frappe.whitelist()
+@handle_errors
+def export_services(search=None, scope=None, status=None):
+    from nexgen_msp.utils import listing_export
+
+    rows = _catalogue().list_services(search=search, scope=scope, status=status)
+
+    for row in rows:
+        row["state"] = "Disabled" if row.get("disabled") else "Active"
+
+    return listing_export.respond(
+        "services.xlsx", "Services", EXPORT_COLUMNS["services"], rows
+    )
 
 
 @frappe.whitelist()

@@ -11,6 +11,7 @@ from nexgen_msp.utils.errors import NotFoundError, ValidationError
 CLIENT_USER_FIELDS = [
     "name",
     "full_name",
+    "username",
     "department",
     "email",
     "lifecycle_status",
@@ -74,6 +75,7 @@ REQUEST_LINE_FIELDS = [
     "needs_portal_access",
     "new_user_email",
     "new_user_username",
+    "new_device_type",
     "new_device_serial",
     "managed_device",
     "customer_site",
@@ -130,6 +132,8 @@ KPI_SOURCES = {
             from `tabMSP Service Request` sr
             where sr.customer = %(customer)s
               and sr.status not in ('Completed', 'Rejected', 'Cancelled')
+              -- a colleague's unfinished request is not theirs to count nor to read
+              and (sr.status != 'Draft' or sr.requester = %(me)s)
         """,
         "order_by": "sr.creation desc",
         "key": "sr.name",
@@ -243,7 +247,11 @@ class PortalService:
         source = PortalService._kpi_source(kpi)
         rows = frappe.db.sql(
             f"select count(*) {source['body']}",
-            {"customer": customer, "security_item": security_item()},
+            {
+                "customer": customer,
+                "security_item": security_item(),
+                "me": frappe.session.user,
+            },
         )
         return rows[0][0] if rows else 0
 
@@ -257,7 +265,11 @@ class PortalService:
         page_length = min(max(frappe.utils.cint(page_length) or 20, 1), MAX_PAGE_LENGTH)
 
         selected = ", ".join(f"{expression} as `{key}`" for key, _label, expression in source["fields"])
-        params = {"customer": customer, "security_item": security_item()}
+        params = {
+            "customer": customer,
+            "security_item": security_item(),
+            "me": frappe.session.user,
+        }
 
         rows = frappe.db.sql(
             f"""
@@ -324,9 +336,87 @@ class PortalService:
             held = PortalService._holders_of(service, filters["customer"], "client_user")
             filters["name"] = ["in", held or [""]]
 
-        return PortalService._paginated(
-            "MSP Client User", CLIENT_USER_FIELDS, filters, search, ["full_name", "email"], start, page_length
+        result = PortalService._paginated(
+            "MSP Client User",
+            CLIENT_USER_FIELDS,
+            filters,
+            search,
+            ["full_name", "username", "email"],
+            start,
+            page_length,
         )
+
+        PortalService._add_service_counts(result["rows"])
+        PortalService._add_held_devices(result["rows"])
+
+        return result
+
+    @staticmethod
+    def _add_held_devices(rows):
+        """The machines each person holds, so the register reads without opening anyone."""
+        people = [row["name"] for row in rows]
+
+        if not people:
+            return
+
+        held = frappe.db.sql(
+            """
+            select
+                assigned_client_user as person,
+                group_concat(hostname separator ', ') as hostnames,
+                min(device_type) as device_type
+            from `tabMSP Managed Device`
+            where assigned_client_user in %(people)s and status = 'Active'
+            group by assigned_client_user
+            """,
+            {"people": people},
+            as_dict=True,
+        )
+
+        machines = {row.person: row for row in held}
+
+        for row in rows:
+            entry = machines.get(row["name"])
+            row["hostnames"] = entry.hostnames if entry else None
+            row["device_type"] = entry.device_type if entry else None
+
+    @staticmethod
+    def _add_service_counts(rows):
+        """How much each person actually runs, counted once for the whole page.
+
+        A customer reads their register to see who has what; a row without that number
+        forces them to open every person one by one.
+        """
+        people = [row["name"] for row in rows]
+
+        if not people:
+            return
+
+        counts = frappe.db.sql(
+            """
+            select
+                coalesce(sa.client_user, device.assigned_client_user) as person,
+                sum(sa.operational_status = 'Active') as active,
+                sum(sa.operational_status != 'Active') as inactive,
+                group_concat(distinct case when sa.operational_status = 'Active'
+                    then coalesce(item.item_name, sa.service_item) end separator ', ') as services
+            from `tabMSP Service Assignment` sa
+            left join `tabMSP Managed Device` device on device.name = sa.managed_device
+            left join `tabItem` item on item.name = sa.service_item
+            where coalesce(sa.client_user, device.assigned_client_user) in %(people)s
+            group by person
+            """,
+            {"people": people},
+            as_dict=True,
+        )
+
+        held = {row.person: row for row in counts}
+
+        for row in rows:
+            entry = held.get(row["name"])
+            row["active_services"] = int(entry.active) if entry else 0
+            row["inactive_services"] = int(entry.inactive) if entry else 0
+            row["services"] = entry.services if entry else None
 
     @staticmethod
     def list_user_choices(customer=None):
@@ -378,22 +468,26 @@ class PortalService:
 
     @staticmethod
     def list_device_choices(customer=None):
-        """Every machine of one customer, for a picker — same reasoning as the people."""
+        """Every machine of one customer, for a picker — same reasoning as the people.
+
+        Who holds each one comes with it: a request often concerns a machine somebody else
+        has, and a picker that hid those left nothing to choose from.
+        """
         customer = PortalService._resolve_customer(customer)
 
-        return frappe.get_all(
-            "MSP Managed Device",
-            filters={"customer": customer},
-            fields=[
-                "name",
-                "hostname",
-                "device_type",
-                "status",
-                "serial_number",
-                "assigned_client_user",
-            ],
-            order_by="hostname asc",
-            limit_page_length=0,
+        return frappe.db.sql(
+            """
+            select
+                d.name, d.hostname, d.device_type, d.status, d.serial_number,
+                d.assigned_client_user,
+                holder.full_name as assigned_user_name
+            from `tabMSP Managed Device` d
+            left join `tabMSP Client User` holder on holder.name = d.assigned_client_user
+            where d.customer = %(customer)s
+            order by d.hostname asc
+            """,
+            {"customer": customer},
+            as_dict=True,
         )
 
     @staticmethod
@@ -427,7 +521,65 @@ class PortalService:
         for row in result["rows"]:
             row["assigned_user_name"] = names.get(row.get("assigned_client_user"))
 
+        PortalService._add_device_service_counts(result["rows"])
+        PortalService._add_interfaces(result["rows"])
+
         return result
+
+    @staticmethod
+    def _add_interfaces(rows):
+        """The MAC addresses a machine answers on, read the same way we read them."""
+        devices = [row["name"] for row in rows]
+
+        if not devices:
+            return
+
+        grouped = {}
+
+        for row in frappe.get_all(
+            "MSP Network Interface",
+            filters={"parent": ("in", devices)},
+            fields=["parent", "interface_type", "mac_address"],
+        ):
+            grouped.setdefault(row.parent, []).append(
+                {"interface_type": row.interface_type, "mac_address": row.mac_address}
+            )
+
+        for row in rows:
+            row["interfaces"] = grouped.get(row["name"], [])
+
+    @staticmethod
+    def _add_device_service_counts(rows):
+        """What each machine actually runs, counted once for the whole page."""
+        devices = [row["name"] for row in rows]
+
+        if not devices:
+            return
+
+        counts = frappe.db.sql(
+            """
+            select
+                sa.managed_device as device,
+                sum(sa.operational_status = 'Active') as active,
+                sum(sa.operational_status != 'Active') as inactive,
+                group_concat(distinct case when sa.operational_status = 'Active'
+                    then coalesce(item.item_name, sa.service_item) end separator ', ') as services
+            from `tabMSP Service Assignment` sa
+            left join `tabItem` item on item.name = sa.service_item
+            where sa.managed_device in %(devices)s
+            group by sa.managed_device
+            """,
+            {"devices": devices},
+            as_dict=True,
+        )
+
+        held = {row.device: row for row in counts}
+
+        for row in rows:
+            entry = held.get(row["name"])
+            row["active_services"] = int(entry.active) if entry else 0
+            row["inactive_services"] = int(entry.inactive) if entry else 0
+            row["services"] = entry.services if entry else None
 
     @staticmethod
     def list_service_assignments(
@@ -460,6 +612,19 @@ class PortalService:
 
         if priority:
             filters["priority"] = priority
+
+        # a colleague's unfinished request is not theirs to read
+        filters["name"] = [
+            "not in",
+            frappe.db.sql_list(
+                """
+                select name from `tabMSP Service Request`
+                where customer = %(customer)s and status = 'Draft' and requester != %(me)s
+                """,
+                {"customer": filters["customer"], "me": frappe.session.user},
+            )
+            or [""],
+        ]
 
         if request_type:
             filters["request_type"] = request_type
@@ -506,13 +671,20 @@ class PortalService:
 
         PortalService._resolve_customer(doc.customer)
 
+        if doc.status == "Draft" and doc.requester != frappe.session.user:
+            raise NotFoundError(f"Service Request {name} does not exist.", "NOT_FOUND")
+
         lines = frappe.db.sql(
             """
             select
                 srl.idx, srl.action, srl.line_status, srl.rejection_reason,
+                -- the raw links as well as their names: a draft is reopened from these
+                srl.request_action, srl.target_scope, srl.client_user, srl.managed_device,
+                srl.requested_service, srl.needs_portal_access,
                 srl.is_new_user, srl.new_user_full_name, srl.new_user_department,
-                srl.new_user_username,
-                srl.is_new_device, srl.new_device_label, srl.new_device_serial,
+                srl.new_user_email, srl.new_user_username,
+                srl.is_new_device, srl.new_device_label, srl.new_device_type,
+                srl.new_device_serial,
                 coalesce(cu.full_name, holder.full_name, srl.new_user_full_name) as user_name,
                 coalesce(cu.department, holder.department, srl.new_user_department) as department,
                 coalesce(item.item_name, srl.requested_service) as service_name,
@@ -683,6 +855,65 @@ class PortalService:
             reference_name=doc.name,
         )
 
+        PortalService._tell_our_team(doc)
+
+    @staticmethod
+    def _tell_our_team(doc):
+        """Tell the people who will carry it out that a request has come in.
+
+        Only when it has actually reached us: a request still waiting for the customer's own
+        accord is not ours yet, and the queue would fill with work nobody may start.
+
+        Everyone who can act on it is told, because nobody is assigned at this point — the
+        first to open it takes it.
+        """
+        from nexgen_msp.utils import notifications
+
+        if doc.status == "Awaiting Customer Approval":
+            return
+
+        recipients = frappe.db.sql_list(
+            """
+            select distinct u.name
+            from `tabUser` u
+            join `tabHas Role` r on r.parent = u.name and r.parenttype = 'User'
+            where u.enabled = 1
+              and u.name not in ('Administrator', 'Guest')
+              and r.role in %(roles)s
+            """,
+            {"roles": permissions.INTERNAL_ROLES},
+        )
+
+        # whoever raised it has already had their own acknowledgement
+        recipients = [address for address in recipients if address != doc.requester]
+
+        if not recipients:
+            return
+
+        summary = notifications.summary_table(
+            [
+                ("Request", doc.name),
+                ("Customer", doc.customer),
+                ("Services requested", str(len(doc.lines))),
+                ("Priority", doc.priority or "Medium"),
+            ]
+        )
+
+        for address in recipients:
+            notifications.send(
+                "MSP Request For Our Team",
+                [address],
+                {
+                    "full_name": frappe.db.get_value("User", address, "full_name") or address,
+                    "request": doc.name,
+                    "customer": doc.customer,
+                    "summary": summary,
+                    "link": f"{frappe.utils.get_url()}/msp/requests/{doc.name}",
+                },
+                reference_doctype="MSP Service Request",
+                reference_name=doc.name,
+            )
+
     @staticmethod
     def _scoped_line(line, customer):
         """A device service is requested against a device; a user service against a person."""
@@ -756,58 +987,147 @@ class PortalService:
         return line
 
     @staticmethod
-    def create_request(customer=None, request_type=None, priority=None, lines=None):
-        customer = PortalService._resolve_customer(customer)
+    def _line_rows(lines, customer, request_type, strict=True):
+        """The child rows of a request, built the same way whether it is saved or sent.
 
+        A draft is not checked: it is a half-written page, and telling someone which machine
+        they forgot is what the moment of sending is for.
+        """
         lines = frappe.parse_json(lines) if isinstance(lines, str) else lines
+
         if not lines:
             raise ValidationError("At least one line is required.", "VALIDATION_ERROR")
 
-        lines = [PortalService._scoped_line(line, customer) for line in lines]
-        lines = [PortalService._resolved_action(line) for line in lines]
+        if strict:
+            lines = [PortalService._scoped_line(line, customer) for line in lines]
+            lines = [PortalService._resolved_action(line) for line in lines]
+
+        return lines, [
+            {
+                "request_action": line.get("request_action"),
+                "action": line.get("action") or request_type or "Add",
+                "target_scope": line.get("target_scope") or "User",
+                "is_new_user": 1 if line.get("is_new_user") else 0,
+                "client_user": line.get("client_user"),
+                "new_user_full_name": line.get("new_user_full_name"),
+                "new_user_department": line.get("new_user_department"),
+                "needs_portal_access": 1 if line.get("needs_portal_access") else 0,
+                "new_user_email": line.get("new_user_email"),
+                # neither is asked of the customer, but both save the technician a
+                # phone call when they happen to know them
+                "new_user_username": line.get("new_user_username"),
+                "is_new_device": 1 if line.get("is_new_device") else 0,
+                "new_device_label": line.get("new_device_label"),
+                "new_device_type": line.get("new_device_type"),
+                "new_device_serial": line.get("new_device_serial"),
+                "managed_device": line.get("managed_device"),
+                "customer_site": line.get("customer_site"),
+                "requested_service": line.get("requested_service"),
+                "requested_quantity": line.get("requested_quantity") or 1,
+                "requested_effective_date": line.get("requested_effective_date"),
+                "comment": line.get("comment"),
+            }
+            for line in lines
+        ]
+
+    @staticmethod
+    def _own_draft(name):
+        """A draft belongs to whoever started it, and to nobody else."""
+        if not frappe.db.exists("MSP Service Request", name):
+            raise NotFoundError(f"Service Request {name} not found.", "NOT_FOUND")
+
+        doc = frappe.get_doc("MSP Service Request", name)
+
+        if doc.status != "Draft":
+            raise ValidationError(
+                f"{name} has already been submitted and can no longer be edited as a draft.",
+                "INVALID_TRANSITION",
+            )
+
+        if doc.requester != frappe.session.user:
+            raise ValidationError(
+                "This draft belongs to someone else.", "PERMISSION_DENIED", 403
+            )
+
+        PortalService._resolve_customer(doc.customer)
+
+        return doc
+
+    @staticmethod
+    def save_draft(name=None, customer=None, request_type=None, priority=None, lines=None):
+        """Put a half-written request aside and come back to it.
+
+        A draft reaches nobody: not our queue, not the approvers, not the colleagues at the
+        customer. It is the author's own until they send it.
+        """
+        customer = PortalService._resolve_customer(customer)
+        _, rows = PortalService._line_rows(lines, customer, request_type, strict=False)
+
+        if name:
+            doc = PortalService._own_draft(name)
+            doc.request_type = request_type or doc.request_type
+            doc.priority = priority or doc.priority
+            doc.set("lines", rows)
+            doc.save(ignore_permissions=True)
+        else:
+            doc = frappe.get_doc(
+                {
+                    "doctype": "MSP Service Request",
+                    "customer": customer,
+                    "request_type": request_type,
+                    "priority": priority or "Medium",
+                    "source": "Internal" if permissions.is_internal() else "Portal",
+                    "status": "Draft",
+                    "requester": frappe.session.user,
+                    "lines": rows,
+                }
+            ).insert(ignore_permissions=True)
+
+        frappe.db.commit()
+
+        return PortalService.get_request(doc.name)
+
+    @staticmethod
+    def discard_draft(name=None):
+        """Throw away a draft. Only ever a draft, and only ever the author's own."""
+        doc = PortalService._own_draft(name)
+        frappe.delete_doc("MSP Service Request", doc.name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+        return {"discarded": name}
+
+    @staticmethod
+    def create_request(name=None, customer=None, request_type=None, priority=None, lines=None):
+        customer = PortalService._resolve_customer(customer)
+
+        lines, rows = PortalService._line_rows(lines, customer, request_type)
 
         PortalService._guard_may_submit(customer)
 
         opening_status, approved_by = PortalService._opening_status(customer)
 
-        doc = frappe.get_doc(
-            {
-                "doctype": "MSP Service Request",
-                "customer": customer,
-                "request_type": request_type,
-                "priority": priority or "Medium",
-                # a request opened by the team is not a request from the customer
-                "source": "Internal" if permissions.is_internal() else "Portal",
-                "status": opening_status,
-                "requester": frappe.session.user,
-                "lines": [
-                    {
-                        "request_action": line.get("request_action"),
-                        "action": line.get("action") or request_type or "Add",
-                        "target_scope": line.get("target_scope") or "User",
-                        "is_new_user": 1 if line.get("is_new_user") else 0,
-                        "client_user": line.get("client_user"),
-                        "new_user_full_name": line.get("new_user_full_name"),
-                        "new_user_department": line.get("new_user_department"),
-                        "needs_portal_access": 1 if line.get("needs_portal_access") else 0,
-                        "new_user_email": line.get("new_user_email"),
-                        # neither is asked of the customer, but both save the technician a
-                        # phone call when they happen to know them
-                        "new_user_username": line.get("new_user_username"),
-                        "is_new_device": 1 if line.get("is_new_device") else 0,
-                        "new_device_label": line.get("new_device_label"),
-                        "new_device_serial": line.get("new_device_serial"),
-                        "managed_device": line.get("managed_device"),
-                        "customer_site": line.get("customer_site"),
-                        "requested_service": line.get("requested_service"),
-                        "requested_quantity": line.get("requested_quantity") or 1,
-                        "requested_effective_date": line.get("requested_effective_date"),
-                        "comment": line.get("comment"),
-                    }
-                    for line in lines
-                ],
-            }
-        ).insert()
+        if name:
+            # a draft being sent: the same document grows up rather than a second one
+            doc = PortalService._own_draft(name)
+            doc.request_type = request_type or doc.request_type
+            doc.priority = priority or doc.priority
+            doc.set("lines", rows)
+            doc.status = opening_status
+            doc.save(ignore_permissions=True)
+        else:
+            doc = frappe.get_doc(
+                {
+                    "doctype": "MSP Service Request",
+                    "customer": customer,
+                    "request_type": request_type,
+                    "priority": priority or "Medium",
+                    # a request opened by the team is not a request from the customer
+                    "source": "Internal" if permissions.is_internal() else "Portal",
+                    "status": opening_status,
+                    "requester": frappe.session.user,
+                    "lines": rows,
+                }
+            ).insert()
 
         PortalService._record_supplied_facts(doc)
 
@@ -936,6 +1256,11 @@ class PortalService:
             raise ValidationError("A reason is required to refuse.", "VALIDATION_ERROR")
 
         doc.status = "Submitted" if approve else "Rejected"
+
+        # a request the company itself turned down never reached us, and must not appear in
+        # our queue as though we had refused it
+        if not approve:
+            doc.refused_by_customer = 1
         doc.customer_approved_by = frappe.session.user
         doc.customer_approved_at = frappe.utils.now()
 
@@ -1087,30 +1412,35 @@ class PortalService:
 
     @staticmethod
     def list_catalogue(customer=None):
-        """Every service that can be asked for, with the contract shown rather than enforced.
+        """Only what the customer's live contract covers — they cannot order the rest.
 
-        A customer with no contract yet used to see an empty list and no reason for it. Asking
-        is not ordering: the request still reaches us and is still reviewed, and the contract
-        can be drawn up afterwards. What each line does say is whether it is already covered,
-        so whoever handles the request knows a rate has to be agreed first.
+        Whether a contract exists at all is reported alongside, so an empty list can say why
+        it is empty instead of looking like a fault.
         """
         customer = PortalService._resolve_customer(customer)
 
-        covered = set(
-            frappe.db.sql_list(
-                """
-                select distinct cs.service_item
-                from `tabMSP Contract` c
-                join `tabMSP Contract Service` cs on cs.parent = c.name
-                where c.customer = %(customer)s and c.status in ('Active', 'Suspended')
-                """,
-                {"customer": customer},
+        covered = frappe.db.sql_list(
+            """
+            select distinct cs.service_item
+            from `tabMSP Contract` c
+            join `tabMSP Contract Service` cs on cs.parent = c.name
+            where c.customer = %(customer)s and c.status in ('Active', 'Suspended')
+            """,
+            {"customer": customer},
+        )
+
+        has_contract = bool(
+            frappe.db.exists(
+                "MSP Contract", {"customer": customer, "status": ["in", ("Active", "Suspended")]}
             )
         )
 
+        if not covered:
+            return {"items": [], "count": 0, "has_contract": has_contract}
+
         items = frappe.get_all(
             "Item",
-            filters={"disabled": 0, "is_stock_item": 0},
+            filters={"disabled": 0, "is_stock_item": 0, "name": ["in", covered]},
             fields=["name", "item_name", "stock_uom", "description", "msp_service_scope"],
             order_by="item_name asc",
             limit_page_length=0,
@@ -1118,9 +1448,8 @@ class PortalService:
 
         for item in items:
             item["scope"] = item.pop("msp_service_scope", None) or "User"
-            item["covered"] = 1 if item["name"] in covered else 0
 
-        return {"items": items, "count": len(items), "covered": len(covered)}
+        return {"items": items, "count": len(items), "has_contract": has_contract}
 
     @staticmethod
     def list_users_with_services(customer=None, search=None, status=None, start=0, page_length=20):
@@ -1137,7 +1466,10 @@ class PortalService:
             values["status"] = status
 
         if search:
-            conditions.append("(cu.full_name like %(search)s or cu.email like %(search)s)")
+            conditions.append(
+                "(cu.full_name like %(search)s or cu.username like %(search)s"
+                " or cu.email like %(search)s)"
+            )
             values["search"] = f"%{search}%"
 
         where = " and ".join(conditions)
@@ -1272,7 +1604,9 @@ class PortalService:
 
         if search:
             conditions.append(
-                "(cu.full_name like %(search)s or dcu.full_name like %(search)s or d.hostname like %(search)s"
+                "(cu.full_name like %(search)s or dcu.full_name like %(search)s"
+                " or cu.username like %(search)s or dcu.username like %(search)s"
+                " or d.hostname like %(search)s"
                 " or own.hostname like %(search)s)"
             )
             values["search"] = f"%{search}%"

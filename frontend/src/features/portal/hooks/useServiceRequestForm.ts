@@ -1,11 +1,15 @@
-import { useMemo, useState } from 'react';
-import type { NewRequestLine, ServiceRequestDetail } from '@/lib/api/portal';
+import { useEffect, useMemo, useState } from 'react';
+import type { NewRequestLine, PortalRequestDetail, ServiceRequestDetail } from '@/lib/api/portal';
 import {
   useCatalogue,
+  usePortalFilterOptions,
+  useServiceRequest,
   useUserChoices,
   useDeviceChoices,
   useCreateServiceRequest,
+  useDiscardRequestDraft,
   useRequestActions,
+  useSaveRequestDraft,
 } from './usePortal';
 
 const PRIORITY_OPTIONS = [
@@ -27,6 +31,7 @@ export type FormLine = {
   services: string[];
   managed_device: string;
   new_device_label: string;
+  new_device_type: string;
   new_device_serial: string;
   requested_effective_date: string;
   comment: string;
@@ -55,6 +60,7 @@ const emptyLine = (seed?: LineSeed): FormLine => {
     services: seed?.service ? [seed.service] : [],
     managed_device: seed?.managed_device ?? '',
     new_device_label: '',
+    new_device_type: '',
     new_device_serial: '',
     requested_effective_date: today(),
     comment: '',
@@ -103,6 +109,7 @@ const toPayloadLines = (line: FormLine, deviceServices: Set<string>): NewRequest
       is_new_user: line.isNewUser ? 1 : 0,
       is_new_device: toRegister ? 1 : 0,
       new_device_label: toRegister ? line.new_device_label.trim() : undefined,
+      new_device_type: toRegister ? line.new_device_type || undefined : undefined,
       // sent for a machine we already hold too: it is how a serial we never had gets filled
       new_device_serial: line.new_device_serial.trim() || undefined,
       client_user: line.isNewUser || onDevice ? undefined : line.client_user,
@@ -119,19 +126,76 @@ const toPayloadLines = (line: FormLine, deviceServices: Set<string>): NewRequest
     };
   });
 
+/**
+ * Rebuild the form's blocks from a saved draft.
+ *
+ * The document holds one line per service; the form groups the services of one target into
+ * a single block, so the lines are folded back the way they were written.
+ */
+const toFormLines = (detail: PortalRequestDetail): FormLine[] => {
+  const blocks = new Map<string, FormLine>();
+
+  for (const line of detail.lines) {
+    const key = [
+      line.request_action ?? '',
+      line.client_user ?? '',
+      line.managed_device ?? '',
+      line.is_new_user ? `new:${line.new_user_full_name ?? ''}` : '',
+      line.is_new_device ? 'newdevice' : '',
+      line.requested_effective_date ?? '',
+      line.comment ?? '',
+    ].join('|');
+
+    const existing = blocks.get(key);
+
+    if (existing) {
+      if (line.requested_service) existing.services.push(line.requested_service);
+      continue;
+    }
+
+    const block = emptyLine();
+
+    block.action = line.request_action ?? '';
+    block.isNewUser = Boolean(line.is_new_user);
+    block.client_user = line.client_user ?? '';
+    block.new_user_full_name = line.new_user_full_name ?? '';
+    block.new_user_department = line.new_user_department ?? '';
+    block.new_user_email = line.new_user_email ?? '';
+    block.new_user_username = line.new_user_username ?? '';
+    block.services = line.requested_service ? [line.requested_service] : [];
+    block.managed_device = line.is_new_device ? NEW_DEVICE : line.managed_device ?? '';
+    block.new_device_label = line.new_device_label ?? '';
+    block.new_device_type = line.new_device_type ?? '';
+    block.new_device_serial = line.new_device_serial ?? '';
+    block.requested_effective_date = line.requested_effective_date ?? today();
+    block.comment = line.comment ?? '';
+
+    blocks.set(key, block);
+  }
+
+  return [...blocks.values()];
+};
+
 export const useServiceRequestForm = (
   onCreated?: (request: ServiceRequestDetail) => void,
-  seed?: LineSeed
+  seed?: LineSeed,
+  reopen?: string
 ) => {
   const [priority, setPriority] = useState<string>('Medium');
   const [lines, setLines] = useState<FormLine[]>([emptyLine(seed)]);
   const actions = useRequestActions();
   const [touched, setTouched] = useState(false);
 
+  const [draft, setDraft] = useState<string | null>(reopen ?? null);
+  const [loaded, setLoaded] = useState(false);
+  const saved = useServiceRequest(reopen);
   const catalogue = useCatalogue();
+  const filterOptions = usePortalFilterOptions();
   const users = useUserChoices();
   const devices = useDeviceChoices();
   const mutation = useCreateServiceRequest();
+  const draftMutation = useSaveRequestDraft();
+  const discardMutation = useDiscardRequestDraft();
 
   const deviceServices = useMemo(
     () =>
@@ -150,8 +214,6 @@ export const useServiceRequestForm = (
       (catalogue.data?.items ?? []).map((item) => ({
         value: item.name,
         label: item.item_name || item.name,
-        // asking is allowed either way; saying so up front avoids a surprise at review
-        description: item.covered ? undefined : 'Not in your contract yet',
       })),
     [catalogue.data]
   );
@@ -238,18 +300,51 @@ export const useServiceRequestForm = (
     mutation.reset();
   };
 
+  // a draft opened from the listing fills the form once, then behaves like any other
+  useEffect(() => {
+    if (!reopen || loaded || !saved.data) return;
+
+    setPriority(saved.data.priority || 'Medium');
+    setLines(toFormLines(saved.data));
+    setLoaded(true);
+  }, [reopen, loaded, saved.data]);
+
+  const payload = () => ({
+    priority,
+    lines: lines.flatMap((line) => toPayloadLines(line, deviceServices)),
+  });
+
   const submit = async () => {
     setTouched(true);
     if (!isValid) return null;
 
-    const created = await mutation.mutateAsync({
-      priority,
-      lines: lines.flatMap((line) => toPayloadLines(line, deviceServices)),
-    });
+    // a draft being sent grows into the request; there is never a second document
+    const created = await mutation.mutateAsync({ ...payload(), name: draft || undefined });
 
+    setDraft(null);
     reset();
     onCreated?.(created);
     return created;
+  };
+
+  /** Put it aside, half written. Only its author will see it until it is sent. */
+  const save = async () => {
+    if (!lines.some((line) => line.services.length)) return null;
+
+    const saved = await draftMutation.mutateAsync({ ...payload(), name: draft || undefined });
+    setDraft(saved.name);
+
+    return saved;
+  };
+
+  /** Give it up. What was put aside goes with it. */
+  const discard = async () => {
+    if (draft) {
+      await discardMutation.mutateAsync(draft);
+      setDraft(null);
+    }
+
+    reset();
   };
 
   return {
@@ -266,8 +361,16 @@ export const useServiceRequestForm = (
     updateLine,
     reset,
     submit,
+    save,
+    reopening: Boolean(reopen) && !loaded,
+    discard,
+    draft,
+    // a request is made of services: until one is picked there is nothing to put aside
+    hasSomething: lines.some((line) => line.services.length > 0),
     submitting: mutation.isLoading,
-    submitError: mutation.error,
+    saving: draftMutation.isLoading,
+    discarding: discardMutation.isLoading,
+    submitError: mutation.error || draftMutation.error,
     options: {
       actions: (actions.data ?? []).map((entry) => ({
         value: entry.name,
@@ -283,21 +386,40 @@ export const useServiceRequestForm = (
           description: entry.description ?? undefined,
         })),
       priorities: PRIORITY_OPTIONS,
+      // read from the doctype rather than written out here, so a type added later shows up
+      deviceTypes: (filterOptions.data?.device_types ?? []).map((value) => ({
+        value,
+        label: value,
+      })),
       services: serviceOptions,
       users: userOptions,
     },
     deviceServices,
     userFor: (clientUser: string) => usersByName.get(clientUser),
-    devicesFor: (clientUser: string) =>
+    // the person is only an ordering hint: the machines belong to the company, and a
+    // request is often raised before anyone has been picked — or for a brand new joiner
+    devicesFor: (clientUser?: string) =>
       (devices.data ?? [])
-        // a machine that is damaged, returned or in stock is exactly what a request is
-        // often about, so every machine they hold is offered, its state shown beside it
-        .filter((row) => row.assigned_client_user === clientUser)
+        // every machine of the company, held or not: a request is often about one somebody
+        // else has, and whoever holds it is named so the right one is picked
+        .slice()
+        .sort((a, b) => {
+          const mine = Number(b.assigned_client_user === clientUser)
+            - Number(a.assigned_client_user === clientUser);
+          return mine || a.hostname.localeCompare(b.hostname);
+        })
         .map((row) => ({
           value: row.name,
           label: row.hostname,
           description:
-            [row.status !== 'Active' ? row.status : null, row.device_type, row.serial_number]
+            [
+              clientUser && row.assigned_client_user === clientUser
+                ? 'Theirs'
+                : row.assigned_user_name || 'Nobody holds it',
+              row.status !== 'Active' ? row.status : null,
+              row.device_type,
+              row.serial_number,
+            ]
               .filter(Boolean)
               .join(' · ') || undefined,
         })),

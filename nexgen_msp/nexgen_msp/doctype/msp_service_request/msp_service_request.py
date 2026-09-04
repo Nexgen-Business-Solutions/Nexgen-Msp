@@ -24,7 +24,12 @@ DISPUTE_TYPE = "Billing Dispute"
 class MSPServiceRequest(Document):
 	def validate(self):
 		self.validate_has_lines()
-		self.validate_lines()
+
+		# a draft is still being written: it is checked when it is sent, not while it is put
+		# aside half finished
+		if self.status != "Draft":
+			self.validate_lines()
+
 		self.sync_request_type()
 		self.sync_status_with_lines()
 

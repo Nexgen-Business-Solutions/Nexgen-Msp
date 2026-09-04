@@ -99,6 +99,14 @@ TEMPLATES = {
         + BUTTON.format(url="link", label="Follow my request")
         + MUTED.format(text="You will be notified as soon as it has been reviewed."),
     },
+    "MSP Request For Our Team": {
+        "subject": "{{ request }} from {{ customer }} - {{ app_name }}",
+        "body": HEADING.format(text="A request has come in")
+        + "<p>Hello {{ full_name }},</p>"
+        + "<p>{{ customer }} has raised a request. Nobody is assigned to it yet.</p>"
+        + "{{ summary }}"
+        + BUTTON.format(url="link", label="Open the request"),
+    },
     "MSP Request Awaiting Approval": {
         "subject": "{{ request }} needs your approval - {{ app_name }}",
         "body": HEADING.format(text="A request is waiting for you")

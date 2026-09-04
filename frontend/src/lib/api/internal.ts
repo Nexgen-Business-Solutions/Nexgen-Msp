@@ -190,6 +190,7 @@ export type DashboardPendingLine = {
   customer: string;
   priority: string;
   user_name: string | null;
+  holder_username: string | null;
   service: string;
   hostname: string | null;
   requested_effective_date: string | null;
@@ -248,6 +249,7 @@ export type UserStats = {
 export type UserRow = {
   name: string;
   full_name: string;
+  username: string | null;
   department: string | null;
   customer: string;
   lifecycle_status: string;
@@ -1140,8 +1142,13 @@ export const getService = (name: string, signal?: AbortSignal) =>
 export const getCatalogueOptions = (signal?: AbortSignal) =>
   get<CatalogueOptions>(`${BASE}.get_catalogue_options`, undefined, signal);
 
-export const listServices = (signal?: AbortSignal) =>
-  get<CatalogueRow[]>(`${BASE}.list_services`, undefined, signal);
+export type ServiceListParams = { search?: string; scope?: string; status?: string };
+
+export const listServices = (params: ServiceListParams = {}, signal?: AbortSignal) =>
+  get<CatalogueRow[]>(`${BASE}.list_services`, params, signal);
+
+export const exportServices = (params: ServiceListParams = {}) =>
+  exportSheet('export_services', params as Record<string, unknown>, 'services.xlsx');
 
 export const saveService = (payload: {
   name?: string;

@@ -17,6 +17,20 @@ export const portalKeys = {
     [...portalKeys.all, 'kpiRows', customer, params] as const,
 };
 
+/**
+ * Everything a request shows up in.
+ *
+ * The listing is keyed on 'requestList' and the dashboard on 'requests'; invalidating one
+ * left the other stale, which is why a saved draft only appeared after a reload.
+ */
+const forgetRequests = (queryClient: ReturnType<typeof useQueryClient>, customer?: string | null) => {
+  for (const key of ['requests', 'requestList', 'request'] as const) {
+    queryClient.invalidateQueries({ queryKey: [...portalKeys.all, key] });
+  }
+
+  queryClient.invalidateQueries({ queryKey: portalKeys.summary(customer) });
+};
+
 const useListParams = (key: ListKey, limit?: number) => {
   const customer = usePortalFilters((state) => state.customer);
   const filters = usePortalFilters((state) => state.filters[key]);
@@ -138,19 +152,44 @@ export const useCatalogue = () => {
   });
 };
 
+export const useSaveRequestDraft = () => {
+  const queryClient = useQueryClient();
+  const customer = usePortalFilters((state) => state.customer);
+
+  return useMutation({
+    mutationFn: (payload: {
+      name?: string;
+      request_type?: string;
+      priority?: string;
+      lines: portal.NewRequestLine[];
+    }) => portal.saveRequestDraft({ ...payload, customer: customer || undefined }),
+    onSuccess: () => forgetRequests(queryClient, customer),
+  });
+};
+
+export const useDiscardRequestDraft = () => {
+  const queryClient = useQueryClient();
+  const customer = usePortalFilters((state) => state.customer);
+
+  return useMutation({
+    mutationFn: portal.discardRequestDraft,
+    onSuccess: () => forgetRequests(queryClient, customer),
+  });
+};
+
 export const useCreateServiceRequest = () => {
   const queryClient = useQueryClient();
   const customer = usePortalFilters((state) => state.customer);
 
   return useMutation({
     mutationFn: (payload: {
+      name?: string;
       request_type?: string;
       priority?: string;
       lines: portal.NewRequestLine[];
     }) => portal.createRequest({ ...payload, customer: customer || undefined }),
     onSuccess: (created) => {
-      queryClient.invalidateQueries({ queryKey: [...portalKeys.all, 'requests'] });
-      queryClient.invalidateQueries({ queryKey: portalKeys.summary(customer) });
+      forgetRequests(queryClient, customer);
       queryClient.setQueryData(portalKeys.request(created.name), created);
     },
   });

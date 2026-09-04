@@ -91,6 +91,84 @@ def list_requests(
     )
 
 
+# what a customer takes away with them, in the order they read it on screen
+EXPORT_COLUMNS = {
+    "users": [
+        ("full_name", "Name"),
+        ("username", "Username"),
+        ("email", "Email"),
+        ("department", "Department"),
+        ("lifecycle_status", "Status"),
+        ("active_services", "Active services"),
+        ("services", "Services"),
+        ("inactive_services", "Inactive services"),
+        ("start_date", "In service since"),
+        ("disabled_date", "Disabled on"),
+    ],
+    "devices": [
+        ("hostname", "Machine"),
+        ("serial_number", "Serial number"),
+        ("device_type", "Type"),
+        ("assigned_user_name", "Held by"),
+        ("status", "Status"),
+        ("active_services", "Active services"),
+        ("services", "Services"),
+        ("inactive_services", "Inactive services"),
+        ("assigned_date", "Held since"),
+        ("retired_date", "Retired on"),
+    ],
+}
+
+
+def _all_rows(lister, **filters):
+    """Every row the filters match, not only the page on screen."""
+    rows = []
+    start = 0
+
+    while True:
+        page = lister(start=start, page_length=200, **filters)
+        rows.extend(page["rows"])
+
+        if len(page["rows"]) < 200 or start + 200 >= page["total"]:
+            break
+
+        start += 200
+
+    return rows
+
+
+@frappe.whitelist()
+@handle_errors
+def export_client_users(customer=None, search=None, status=None, service=None):
+    from nexgen_msp.utils import listing_export
+
+    rows = _all_rows(
+        PortalService.list_client_users,
+        customer=customer,
+        search=search,
+        status=status,
+        service=service,
+    )
+
+    return listing_export.respond("users.xlsx", "Users", EXPORT_COLUMNS["users"], rows)
+
+
+@frappe.whitelist()
+@handle_errors
+def export_devices(customer=None, search=None, status=None, service=None):
+    from nexgen_msp.utils import listing_export
+
+    rows = _all_rows(
+        PortalService.list_devices,
+        customer=customer,
+        search=search,
+        status=status,
+        service=service,
+    )
+
+    return listing_export.respond("devices.xlsx", "Devices", EXPORT_COLUMNS["devices"], rows)
+
+
 @frappe.whitelist()
 @handle_errors
 def get_portal_filter_options(customer=None):
@@ -129,10 +207,24 @@ def get_request(name=None):
 
 @frappe.whitelist()
 @handle_errors
-def create_request(customer=None, request_type=None, priority=None, lines=None):
+def create_request(name=None, customer=None, request_type=None, priority=None, lines=None):
     return PortalService.create_request(
-        customer=customer, request_type=request_type, priority=priority, lines=lines
+        name=name, customer=customer, request_type=request_type, priority=priority, lines=lines
     )
+
+
+@frappe.whitelist()
+@handle_errors
+def save_request_draft(name=None, customer=None, request_type=None, priority=None, lines=None):
+    return PortalService.save_draft(
+        name=name, customer=customer, request_type=request_type, priority=priority, lines=lines
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def discard_request_draft(name=None):
+    return PortalService.discard_draft(name=name)
 
 
 @frappe.whitelist()

@@ -156,6 +156,9 @@ class DashboardService:
                    count(*) as total,
                    sum(timestampdiff(hour, creation, now()) > 48) as ageing
             from `tabMSP Service Request`
+            -- a draft is still being written and a refused one never reached us: neither is
+            -- work waiting on this team
+            where status != 'Draft' and ifnull(refused_by_customer, 0) = 0
             group by status, priority
             """,
             as_dict=True,
@@ -183,6 +186,7 @@ class DashboardService:
             from `tabMSP Service Request Line` srl
             join `tabMSP Service Request` sr on sr.name = srl.parent
             where sr.status in ('Approved', 'In Progress')
+              and ifnull(sr.refused_by_customer, 0) = 0
               and srl.line_status = 'Approved'
               and not exists (
                   select 1 from `tabMSP Service Assignment` sa
@@ -214,7 +218,7 @@ class DashboardService:
                     left join `tabMSP Client User` cu on cu.name = srl.client_user
                     where srl.parent = sr.name) as users
             from `tabMSP Service Request` sr
-            where sr.status in %(statuses)s
+            where sr.status in %(statuses)s and ifnull(sr.refused_by_customer, 0) = 0
             order by field(sr.priority, 'Urgent', 'High', 'Medium', 'Low'), sr.creation asc
             limit 8
             """,
@@ -241,6 +245,7 @@ class DashboardService:
             left join `tabMSP Managed Device` device on device.name = srl.managed_device
             left join `tabItem` item on item.name = srl.requested_service
             where sr.status in ('Approved', 'In Progress')
+              and ifnull(sr.refused_by_customer, 0) = 0
               and srl.line_status = 'Approved'
               and not exists (
                   select 1 from `tabMSP Service Assignment` sa

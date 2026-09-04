@@ -51,12 +51,37 @@ class CatalogueService:
         }
 
     @staticmethod
-    def list_services():
-        """Every sellable service, with how much of the estate depends on it."""
+    def list_services(search=None, scope=None, status=None):
+        """Every sellable service, with how much of the estate depends on it.
+
+        Narrowed the same way the people and the machines are, so the three registers are
+        read with the same gestures.
+        """
         CatalogueService._guard_admin()
 
+        conditions = ["item.is_stock_item = 0"]
+        values = {"open": OPEN_ASSIGNMENT_STATUSES}
+
+        if search:
+            conditions.append(
+                "(item.item_name like %(search)s or item.name like %(search)s"
+                " or item.msp_invoice_label like %(search)s or item.description like %(search)s)"
+            )
+            values["search"] = f"%{search}%"
+
+        if scope:
+            conditions.append("ifnull(item.msp_service_scope, 'User') = %(scope)s")
+            values["scope"] = scope
+
+        if status == "active":
+            conditions.append("item.disabled = 0")
+        elif status == "disabled":
+            conditions.append("item.disabled = 1")
+
+        where = " and ".join(conditions)
+
         return frappe.db.sql(
-            """
+            f"""
             select
                 item.name, item.item_name, item.disabled, item.stock_uom,
                 item.msp_service_scope as scope, item.description,
@@ -71,10 +96,10 @@ class CatalogueService:
                     where se.service_item = item.name and se.is_eligible = 1
                       and se.negotiated_rate > 0) as priced_contracts
             from `tabItem` item
-            where item.is_stock_item = 0
+            where {where}
             order by item.disabled asc, item.item_name asc
             """,
-            {"open": OPEN_ASSIGNMENT_STATUSES},
+            values,
             as_dict=True,
         )
 

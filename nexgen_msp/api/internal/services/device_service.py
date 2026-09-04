@@ -123,6 +123,7 @@ class DeviceService:
                     device.hostname like %(search)s
                     or device.serial_number like %(search)s
                     or holder.full_name like %(search)s
+                    or holder.username like %(search)s
                     or exists (
                         select 1 from `tabMSP Network Interface` ni
                         where ni.parent = device.name and ni.mac_address like %(search)s
@@ -166,6 +167,7 @@ class DeviceService:
                 device.last_billed_on, device.covered_until,
                 device.assigned_client_user,
                 holder.full_name as user_name,
+                holder.username as holder_username,
                 holder.department as user_department,
                 holder.lifecycle_status as user_status,
                 (select count(*) from `tabMSP Service Assignment` sa
@@ -1025,7 +1027,7 @@ class DeviceService:
         return frappe.get_all(
             "MSP Client User",
             filters={"customer": customer, "lifecycle_status": ("in", ("Pending", "Active"))},
-            fields=["name", "full_name", "department"],
+            fields=["name", "full_name", "username", "department"],
             order_by="full_name asc",
             limit_page_length=0,
         )

@@ -3,14 +3,12 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Eye, FilePlus2, UserCheck, UserX, Users } from 'lucide-react';
 import DataTable from '@/shared/components/DataTable';
 import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
-import StatusBadge from '@/shared/components/StatusBadge';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import KpiCard from '@/shared/components/KpiCard';
+import * as portal from '@/lib/api/portal';
 import { useClientUserPage, usePortalFilterOptions, usePortalSummary, useSubscribedServices } from '../hooks/usePortal';
 
-const COLUMNS = ['Person', 'Department', 'Email', 'Since', 'Status', ''];
-
-const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
+const COLUMNS = ['User', 'Department', 'Device', 'Active services', 'Inactive services', ''];
 
 const EMPTY: FilterState = { status: '', service: '' };
 
@@ -79,7 +77,7 @@ export default function PortalUsers() {
       <FilterBar
         values={filters}
         search={search}
-        searchPlaceholder="Search a name or an email…"
+        searchPlaceholder="Search a name, a username or an email…"
         subtitle="Everyone your company has with us."
         onSearch={(value) => {
           setSearch(value);
@@ -88,6 +86,13 @@ export default function PortalUsers() {
         onApply={apply}
         onClear={() => apply(EMPTY)}
         onRefresh={() => list.refetch()}
+        onExport={() =>
+          portal.exportMyPeople({
+            search: search || undefined,
+            status: (filters.status as string) || undefined,
+            service: (filters.service as string) || undefined,
+          })
+        }
         fields={[
           {
             key: 'service',
@@ -140,18 +145,39 @@ export default function PortalUsers() {
               >
                 {row.full_name}
               </button>
+              {row.username && <p className="text-xs text-slate-500">{row.username}</p>}
+              {row.email && <p className="text-xs text-slate-400">{row.email}</p>}
             </td>
             <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
               {row.department || 'N/A'}
             </td>
-            <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-              {row.email || 'N/A'}
+            <td className="max-w-[14rem] px-4 py-3">
+              {row.hostnames ? (
+                <>
+                  <p className="truncate text-sm text-slate-700" title={row.hostnames}>
+                    {row.hostnames}
+                  </p>
+                  {row.device_type && <p className="text-xs text-slate-400">{row.device_type}</p>}
+                </>
+              ) : (
+                <span className="text-sm text-slate-400">N/A</span>
+              )}
             </td>
-            <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-500">
-              {fmtDate(row.start_date)}
+            <td className="whitespace-nowrap px-4 py-3">
+              <span className="inline-flex min-w-[2rem] justify-center rounded-lg bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 tabular-nums">
+                {row.active_services}
+              </span>
             </td>
-            <td className="px-4 py-3">
-              <StatusBadge value={row.lifecycle_status} />
+            <td className="whitespace-nowrap px-4 py-3">
+              <span
+                className={`inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-1 text-xs font-semibold tabular-nums ${
+                  row.inactive_services
+                    ? 'bg-slate-100 text-slate-600'
+                    : 'bg-transparent text-slate-300'
+                }`}
+              >
+                {row.inactive_services}
+              </span>
             </td>
             <td className="whitespace-nowrap px-4 py-3">
               <div className="flex justify-end">

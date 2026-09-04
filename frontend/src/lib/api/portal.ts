@@ -37,6 +37,12 @@ export type Paginated<T> = {
 export type ClientUser = {
   name: string;
   full_name: string;
+  username: string | null;
+  active_services: number;
+  inactive_services: number;
+  services: string | null;
+  hostnames: string | null;
+  device_type: string | null;
   department: string | null;
   email: string | null;
   lifecycle_status: string;
@@ -59,6 +65,10 @@ export type ManagedDevice = {
   operating_system: string | null;
   customer: string;
   assigned_user_name?: string | null;
+  active_services: number;
+  inactive_services: number;
+  services: string | null;
+  interfaces?: { interface_type: string; mac_address: string }[];
 };
 
 export type ServiceAssignment = {
@@ -82,12 +92,19 @@ export type ServiceRequestLine = {
   idx: number;
   action: string;
   target_scope: string;
+  /** the configured action, which is what the form offers — not the mechanical verb */
+  request_action?: string | null;
   is_new_user?: number;
   new_user_full_name?: string | null;
   new_user_department?: string | null;
   new_user_email?: string | null;
+  new_user_username?: string | null;
   client_user: string | null;
   managed_device: string | null;
+  is_new_device?: number;
+  new_device_label?: string | null;
+  new_device_type?: string | null;
+  new_device_serial?: string | null;
   customer_site: string | null;
   requested_service: string;
   requested_quantity: number;
@@ -117,8 +134,6 @@ export type CatalogueItem = {
   stock_uom: string;
   description: string | null;
   scope: string;
-  /** 1 when a live contract already covers it; asking for the rest is still allowed */
-  covered: number;
 };
 
 export type ListParams = {
@@ -142,6 +157,7 @@ export type NewRequestLine = {
   new_user_email?: string;
   is_new_device?: number;
   new_device_label?: string;
+  new_device_type?: string;
   managed_device?: string;
   customer_site?: string;
   requested_service: string;
@@ -195,6 +211,19 @@ export type PortalFilterOptions = {
 export const getPortalFilterOptions = (customer?: string, signal?: AbortSignal) =>
   get<PortalFilterOptions>(`${BASE}.get_portal_filter_options`, { customer }, signal);
 
+export type MyExportParams = {
+  customer?: string;
+  search?: string;
+  status?: string;
+  service?: string;
+};
+
+export const exportMyPeople = (params: MyExportParams = {}) =>
+  download(`${BASE}.export_client_users`, params, 'users.xlsx');
+
+export const exportMyMachines = (params: MyExportParams = {}) =>
+  download(`${BASE}.export_devices`, params, 'devices.xlsx');
+
 export const listUserChoices = (customer?: string, signal?: AbortSignal) =>
   get<UserChoice[]>(`${BASE}.list_user_choices`, { customer }, signal);
 
@@ -205,6 +234,7 @@ export type DeviceChoice = {
   status: string;
   serial_number: string | null;
   assigned_client_user: string | null;
+  assigned_user_name: string | null;
 };
 
 export const listDeviceChoices = (customer?: string, signal?: AbortSignal) =>
@@ -245,6 +275,16 @@ export type PortalRequestLine = {
   service_status: string | null;
   service_start_date: string | null;
   delivered_on: string | null;
+  request_action: string | null;
+  target_scope: string | null;
+  client_user: string | null;
+  managed_device: string | null;
+  requested_service: string | null;
+  new_user_email: string | null;
+  new_user_username: string | null;
+  new_device_type: string | null;
+  new_device_serial: string | null;
+  needs_portal_access: number;
 };
 
 export type PortalRequestDetail = {
@@ -308,18 +348,28 @@ export const getUserDetail = (clientUser: string, signal?: AbortSignal) =>
   get<PortalUserDetail>(`${BASE}.get_user_detail`, { client_user: clientUser }, signal);
 
 export const listCatalogue = (customer?: string, signal?: AbortSignal) =>
-  get<{ items: CatalogueItem[]; count: number; covered: number }>(
+  get<{ items: CatalogueItem[]; count: number; has_contract: boolean }>(
     `${BASE}.list_catalogue`,
     { customer },
     signal
   );
 
-export const createRequest = (payload: {
+export type RequestPayload = {
+  name?: string;
   customer?: string;
   request_type?: string;
   priority?: string;
   lines: NewRequestLine[];
-}) => post<ServiceRequestDetail>(`${BASE}.create_request`, payload);
+};
+
+export const createRequest = (payload: RequestPayload) =>
+  post<ServiceRequestDetail>(`${BASE}.create_request`, payload);
+
+export const saveRequestDraft = (payload: RequestPayload) =>
+  post<ServiceRequestDetail>(`${BASE}.save_request_draft`, payload);
+
+export const discardRequestDraft = (name: string) =>
+  post<{ discarded: string }>(`${BASE}.discard_request_draft`, { name });
 
 export type SubscribedService = {
   service_item: string;

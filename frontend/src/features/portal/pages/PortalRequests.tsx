@@ -131,7 +131,11 @@ export default function PortalRequests() {
         {rows.map((row) => (
           <tr
             key={row.name}
-            onClick={() => navigate(`/msp/requests/${row.name}`)}
+            onClick={() => navigate(
+                      row.status === 'Draft'
+                        ? `/msp/requests/new?draft=${encodeURIComponent(row.name)}`
+                        : `/msp/requests/${row.name}`
+                    )}
             className="cursor-pointer transition-colors hover:bg-slate-50"
           >
             <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
@@ -156,7 +160,11 @@ export default function PortalRequests() {
                     {
                       label: 'View request',
                       icon: Eye,
-                      onClick: () => navigate(`/msp/requests/${row.name}`),
+                      onClick: () => navigate(
+                      row.status === 'Draft'
+                        ? `/msp/requests/new?draft=${encodeURIComponent(row.name)}`
+                        : `/msp/requests/${row.name}`
+                    ),
                     },
                   ]}
                 />

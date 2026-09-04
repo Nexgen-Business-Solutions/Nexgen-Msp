@@ -13,7 +13,9 @@ import {
   useRequestStats,
 } from '../hooks/useRequests';
 
-const COLUMNS = ['Request', 'Users', 'Customer', 'Type', 'Priority', 'Lines', 'Age', 'Status', ''];
+const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
+
+const COLUMNS = ['Request', 'Users', 'Customer', 'Type', 'Priority', 'Lines', 'Raised', 'Age', 'Status', ''];
 
 const formatAge = (hours: number) => {
   if (hours === null || hours === undefined) return 'N/A';
@@ -244,6 +246,9 @@ export default function RequestsList() {
                           {row.pending_lines} pending
                         </span>
                       )}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-500 tabular-nums">
+                      {fmtDate(row.creation)}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-500 tabular-nums">
                       {formatAge(row.age_hours)}

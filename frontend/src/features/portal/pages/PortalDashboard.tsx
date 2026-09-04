@@ -61,6 +61,12 @@ const statusBadge: Record<string, string> = {
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
 
+/** A draft is still being written: opening it means reopening the form. */
+const requestHref = (row: { name: string; status: string }) =>
+  row.status === 'Draft'
+    ? `/msp/requests/new?draft=${encodeURIComponent(row.name)}`
+    : `/msp/requests/${row.name}`;
+
 export default function PortalDashboard() {
   const navigate = useNavigate();
   const summary = usePortalSummary();
@@ -141,7 +147,7 @@ export default function PortalDashboard() {
         {requestRows.map((row) => (
           <tr
             key={row.name}
-            onClick={() => navigate(`/msp/requests/${row.name}`)}
+            onClick={() => navigate(requestHref(row))}
             className="cursor-pointer transition-colors hover:bg-slate-50"
           >
             <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
@@ -168,7 +174,7 @@ export default function PortalDashboard() {
                     {
                       label: 'View request',
                       icon: Eye,
-                      onClick: () => navigate(`/msp/requests/${row.name}`),
+                      onClick: () => navigate(requestHref(row)),
                     },
                   ]}
                 />

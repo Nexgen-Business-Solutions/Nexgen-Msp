@@ -110,7 +110,7 @@ export default function UsersList() {
       <FilterBar
         values={filters as unknown as FilterState}
         search={filters.search}
-        searchPlaceholder="Search name, department or hostname…"
+        searchPlaceholder="Search name, username, email, department or hostname…"
         subtitle="Narrow the user register."
         onSearch={(value) => patch({ search: value })}
         onApply={(values) =>

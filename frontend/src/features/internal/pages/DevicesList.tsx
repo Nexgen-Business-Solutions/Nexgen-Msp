@@ -117,7 +117,7 @@ export default function DevicesList() {
       <FilterBar
         values={filters as unknown as FilterState}
         search={filters.search}
-        searchPlaceholder="Search hostname, holder, serial or MAC…"
+        searchPlaceholder="Search hostname, holder, username, serial or MAC…"
         subtitle="Narrow the device register."
         onSearch={(value) => patch({ search: value })}
         onApply={(values) =>

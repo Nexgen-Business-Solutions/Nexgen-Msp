@@ -204,11 +204,16 @@ class UserService:
             conditions.append(
                 """(
                     cu.full_name like %(search)s
+                    or cu.username like %(search)s
+                    or cu.email like %(search)s
                     or cu.department like %(search)s
                     or exists (
                         select 1 from `tabMSP Managed Device` device
                         where device.assigned_client_user = cu.name
-                          and device.hostname like %(search)s
+                          and (
+                            device.hostname like %(search)s
+                            or device.serial_number like %(search)s
+                          )
                     )
                 )"""
             )
@@ -243,7 +248,7 @@ class UserService:
         rows = frappe.db.sql(
             f"""
             select
-                cu.name, cu.full_name, cu.department, cu.customer, cu.lifecycle_status,
+                cu.name, cu.full_name, cu.username, cu.department, cu.customer, cu.lifecycle_status,
                 cu.start_date, cu.disabled_date, cu.email,
                 cu.last_billed_on, cu.covered_until,
                 (select r.note from `tabMSP Remark` r
@@ -253,6 +258,13 @@ class UserService:
                     from `tabMSP Managed Device` device
                     where device.assigned_client_user = cu.name and device.status = 'Active')
                     as hostnames,
+                -- what is engraved on those machines: the export is read next to the
+                -- vendor's own list, where the serial is what the two are matched on
+                (select group_concat(device.serial_number separator ', ')
+                    from `tabMSP Managed Device` device
+                    where device.assigned_client_user = cu.name and device.status = 'Active'
+                      and ifnull(device.serial_number, '') != '')
+                    as serial_numbers,
                 (select device.device_type from `tabMSP Managed Device` device
                     where device.assigned_client_user = cu.name and device.status = 'Active'
                     limit 1) as device_type,
