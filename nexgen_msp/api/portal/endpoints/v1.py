@@ -43,12 +43,15 @@ def list_client_users(customer=None, search=None, status=None, service=None, sta
 
 @frappe.whitelist()
 @handle_errors
-def list_devices(customer=None, search=None, status=None, service=None, start=0, page_length=20):
+def list_devices(
+    customer=None, search=None, status=None, service=None, coverage=None, start=0, page_length=20
+):
     return PortalService.list_devices(
         customer=customer,
         search=search,
         status=status,
         service=service,
+        coverage=coverage,
         start=start,
         page_length=page_length,
     )
@@ -155,7 +158,7 @@ def export_client_users(customer=None, search=None, status=None, service=None):
 
 @frappe.whitelist()
 @handle_errors
-def export_devices(customer=None, search=None, status=None, service=None):
+def export_devices(customer=None, search=None, status=None, service=None, coverage=None):
     from nexgen_msp.utils import listing_export
 
     rows = _all_rows(
@@ -163,7 +166,7 @@ def export_devices(customer=None, search=None, status=None, service=None):
         customer=customer,
         search=search,
         status=status,
-        service=service,
+        service=service, coverage=coverage
     )
 
     return listing_export.respond("devices.xlsx", "Devices", EXPORT_COLUMNS["devices"], rows)

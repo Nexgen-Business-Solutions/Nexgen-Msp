@@ -1,7 +1,7 @@
 import { APP_NAME } from '../data/constant';
 
-/** What is shown while the session is still being checked — never the login form. */
-export default function LoadingScreen({ message = 'Checking your session…' }: { message?: string }) {
+/** What is shown while the application is still finding out who is there — never the login form. */
+export default function LoadingScreen({ message = 'Loading…' }: { message?: string }) {
   return (
     <div className="flex h-screen flex-col items-center justify-center gap-5 bg-slate-50">
       <img src="/assets/nexgen_msp/images/Nexgen-Logo.png" width="96" alt={APP_NAME} />

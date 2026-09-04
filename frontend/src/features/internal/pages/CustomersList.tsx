@@ -15,7 +15,7 @@ export default function CustomersList() {
   const navigate = useNavigate();
   const { data, isLoading, error, refetch } = useContractList();
 
-  const [filters, setFilters] = useState<FilterState>({ contract_status: '', priced: '' });
+  const [filters, setFilters] = useState<FilterState>({ contract_status: '', priced: '', focus: '' });
   const [search, setSearch] = useState('');
   const [liveOnly, setLiveOnly] = useState(false);
 
@@ -30,6 +30,8 @@ export default function CustomersList() {
       if (liveOnly && row.contract_status !== 'Active') return false;
 
       if (filters.contract_status && row.contract_status !== filters.contract_status) return false;
+
+      if (filters.focus === 'billable' && row.billable_assignments === 0) return false;
 
       if (filters.priced === 'complete') {
         return row.services_used > 0 && row.services_priced >= row.services_used;
@@ -59,6 +61,7 @@ export default function CustomersList() {
           value={all.length}
           caption={`${withContract} with a contract`}
           loading={isLoading}
+        onView={() => { setFilters({ contract_status: '', priced: '', focus: '' }); setLiveOnly(false); }}
         />
         <KpiCard
           icon={FileCheck2}
@@ -67,6 +70,7 @@ export default function CustomersList() {
           value={active}
           caption="Ready to be billed"
           loading={isLoading}
+        onView={() => setFilters({ contract_status: 'Active', priced: '', focus: '' })}
         />
         <KpiCard
           icon={Layers}
@@ -75,6 +79,7 @@ export default function CustomersList() {
           value={billable}
           caption="Across every customer"
           loading={isLoading}
+        onView={() => setFilters({ contract_status: '', priced: '', focus: 'billable' })}
         />
         <KpiCard
           icon={CircleAlert}
@@ -84,6 +89,7 @@ export default function CustomersList() {
           value={all.length - fullyPriced}
           caption="Customers with unpriced services"
           loading={isLoading}
+        onView={() => setFilters({ contract_status: '', priced: 'incomplete', focus: '' })}
         />
       </div>
 
@@ -94,7 +100,7 @@ export default function CustomersList() {
         subtitle="Narrow the customer register."
         onSearch={setSearch}
         onApply={setFilters}
-        onClear={() => setFilters({ contract_status: '', priced: '' })}
+        onClear={() => setFilters({ contract_status: '', priced: '', focus: '' })}
         onRefresh={() => refetch()}
         toggle={{
           label: 'Active contract only',
@@ -126,6 +132,13 @@ export default function CustomersList() {
                 description: 'Cannot be billed as it stands',
               },
             ],
+          },
+          {
+            key: 'focus',
+            label: 'Focus',
+            kind: 'select',
+            allLabel: 'Everything',
+            options: [{ value: 'billable', label: 'With billable services' }],
           },
         ]}
       />

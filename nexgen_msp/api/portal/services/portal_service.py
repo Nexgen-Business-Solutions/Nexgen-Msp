@@ -219,6 +219,11 @@ class PortalService:
             ),
             "devices": frappe.db.count("MSP Managed Device", base),
             "active_devices": frappe.db.count("MSP Managed Device", {**base, "status": "Active"}),
+            # the cards that filter by one status count that very status, nothing broader
+            "retired_devices": frappe.db.count("MSP Managed Device", {**base, "status": "Retired"}),
+            "disabled_client_users": frappe.db.count(
+                "MSP Client User", {**base, "lifecycle_status": "Disabled"}
+            ),
             "service_assignments": frappe.db.count("MSP Service Assignment", base),
             "active_services": PortalService._count_kpi("active_services", customer),
             "open_requests": PortalService._count_kpi("open_requests", customer),
@@ -293,7 +298,24 @@ class PortalService:
 
     @staticmethod
     def _holders_of(service, customer, field):
-        """Who or what currently holds one service at this customer."""
+        """Who or what currently holds one service at this customer.
+
+        A person holds a service either in their own name or through the machine in their
+        hands — the same way the catalogue counts them — so "see the people" shows both.
+        """
+        if field == "client_user":
+            return frappe.db.sql_list(
+                """
+                select distinct coalesce(nullif(sa.client_user, ''), device.assigned_client_user)
+                from `tabMSP Service Assignment` sa
+                left join `tabMSP Managed Device` device on device.name = sa.managed_device
+                where sa.customer = %(customer)s
+                  and sa.service_item = %(service)s
+                  and ifnull(coalesce(nullif(sa.client_user, ''), device.assigned_client_user), '') != ''
+                """,
+                {"customer": customer, "service": service},
+            )
+
         return frappe.db.sql_list(
             f"""
             select distinct sa.{field}
@@ -487,7 +509,9 @@ class PortalService:
         )
 
     @staticmethod
-    def list_devices(customer=None, search=None, status=None, service=None, start=0, page_length=20):
+    def list_devices(
+        customer=None, search=None, status=None, service=None, coverage=None, start=0, page_length=20
+    ):
         filters = PortalService._base_filters(customer)
         if status:
             filters["status"] = status
@@ -495,6 +519,26 @@ class PortalService:
         if service:
             held = PortalService._holders_of(service, filters["customer"], "managed_device")
             filters["name"] = ["in", held or [""]]
+
+        if coverage == "no_service":
+            # the card's own predicate, so the list is exactly what the card counted
+            idle = frappe.db.sql_list(
+                """
+                select device.name
+                from `tabMSP Managed Device` device
+                where device.customer = %(customer)s
+                  and device.status = 'Active'
+                  and not exists (
+                      select 1 from `tabMSP Service Assignment` sa
+                      where sa.managed_device = device.name
+                        and sa.operational_status not in ('Ended', 'Cancelled')
+                  )
+                """,
+                {"customer": filters["customer"]},
+            )
+            if "name" in filters:
+                idle = [name for name in idle if name in set(filters["name"][1])]
+            filters["name"] = ["in", idle or [""]]
 
         result = PortalService._paginated(
             "MSP Managed Device", DEVICE_FIELDS, filters, search, ["hostname", "serial_number"], start, page_length

@@ -138,6 +138,8 @@ class MSPTestCase(IntegrationTestCase):
                 "customer": customer,
                 "full_name": f"{PREFIX} {full_name}",
                 "department": department,
+                "lifecycle_status": "Active",
+                "start_date": frappe.utils.today(),
             }
         ).insert(ignore_permissions=True)
         frappe.db.commit()

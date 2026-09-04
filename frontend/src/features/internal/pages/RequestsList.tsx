@@ -31,7 +31,10 @@ export default function RequestsList() {
   const navigate = useNavigate();
   const { filters, patch, clear } = useRequestFilters();
   const options = useRequestFilterOptions();
-  const statsParams = {
+  // the cards describe the whole population; a filter narrows the list below, never them
+  const stats = useRequestStats();
+  // what the list (and its export) is narrowed to
+  const listParams = {
     search: filters.search || undefined,
     status: filters.status || undefined,
     priority: filters.priority || undefined,
@@ -39,7 +42,6 @@ export default function RequestsList() {
     customer: filters.customer || undefined,
     scope: filters.scope || undefined,
   };
-  const stats = useRequestStats(statsParams);
   const list = useRequestList(filters);
 
   const rows = list.data?.rows ?? [];
@@ -65,7 +67,7 @@ export default function RequestsList() {
           value={stats.data?.open ?? 0}
           caption={`${stats.data?.awaiting_review ?? 0} not picked up yet`}
           loading={stats.isLoading}
-          onView={() => patch({ scope: 'open', status: '' })}
+          onView={() => patch({ scope: 'open', status: '', priority: '' })}
           viewLabel="Show open requests"
         />
         <KpiCard
@@ -75,7 +77,7 @@ export default function RequestsList() {
           value={stats.data?.under_review ?? 0}
           caption={`${stats.data?.in_progress ?? 0} in progress`}
           loading={stats.isLoading}
-          onView={() => patch({ scope: 'all', status: 'Under Review' })}
+          onView={() => patch({ scope: 'all', status: 'Under Review', priority: '' })}
           viewLabel="Show requests under review"
         />
         <KpiCard
@@ -86,7 +88,7 @@ export default function RequestsList() {
           value={stats.data?.urgent_open ?? 0}
           caption="Open requests needing attention first"
           loading={stats.isLoading}
-          onView={() => patch({ scope: 'open', priority: 'Urgent' })}
+          onView={() => patch({ scope: 'attention', status: '', priority: '' })}
           viewLabel="Show urgent requests"
         />
         <KpiCard
@@ -97,7 +99,7 @@ export default function RequestsList() {
           value={stats.data?.ageing_open ?? 0}
           caption="Open requests older than two days"
           loading={stats.isLoading}
-          onView={() => patch({ scope: 'open' })}
+          onView={() => patch({ scope: 'ageing', status: '', priority: '' })}
           viewLabel="Show open requests"
         />
       </div>
@@ -119,7 +121,7 @@ export default function RequestsList() {
         }
         onClear={clear}
         onRefresh={() => list.refetch()}
-        onExport={() => internal.exportRequests(statsParams)}
+        onExport={() => internal.exportRequests(listParams)}
         fields={[
           {
             key: 'customer',
@@ -165,6 +167,9 @@ export default function RequestsList() {
               { value: 'open', label: 'Open only', description: 'Still awaiting a decision' },
               { value: 'closed', label: 'Closed only', description: 'Already decided' },
               { value: 'mine', label: 'Assigned to me', description: 'Open and mine' },
+              { value: 'attention', label: 'Urgent or high', description: 'Open, needing attention first' },
+              { value: 'ageing', label: 'Ageing over 48h', description: 'Open for more than two days' },
+              { value: 'to_execute', label: 'To execute', description: 'Approved work with no assignment yet' },
             ],
           },
         ]}

@@ -21,6 +21,8 @@ export default function PortalServices() {
   const catalogue = useCatalogue();
   const subscribed = useSubscribedServices();
   const [search, setSearch] = useState('');
+  // what a card puts in front of you: everything, what runs, or what nobody holds yet
+  const [view, setView] = useState<'all' | 'in_use' | 'unused'>('all');
 
   const inUse = useMemo(() => {
     const held = new Map<string, number>();
@@ -34,14 +36,16 @@ export default function PortalServices() {
 
   const rows = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    const items = catalogue.data?.items ?? [];
+    const items = (catalogue.data?.items ?? []).filter((item) =>
+      view === 'in_use' ? inUse.has(item.name) : view === 'unused' ? !inUse.has(item.name) : true
+    );
 
     if (!needle) return items;
 
     return items.filter((item) =>
       `${item.item_name} ${item.name}`.toLowerCase().includes(needle)
     );
-  }, [catalogue.data, search]);
+  }, [catalogue.data, search, view, inUse]);
 
   const running = [...inUse.values()].reduce((sum, count) => sum + count, 0);
 
@@ -55,6 +59,7 @@ export default function PortalServices() {
           value={catalogue.data?.items.length ?? 0}
           caption="What your contract lets you order"
           loading={catalogue.isLoading}
+        onView={() => setView('all')}
         />
         <KpiCard
           icon={Layers}
@@ -63,6 +68,7 @@ export default function PortalServices() {
           value={running}
           caption="Running right now"
           loading={subscribed.isLoading}
+        onView={() => setView('in_use')}
         />
         <KpiCard
           icon={FilePlus2}
@@ -71,7 +77,31 @@ export default function PortalServices() {
           value={Math.max((catalogue.data?.items.length ?? 0) - inUse.size, 0)}
           caption="Covered by your contract, nobody holds them"
           loading={catalogue.isLoading}
+        onView={() => setView('unused')}
         />
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        {(
+          [
+            ['all', 'Everything'],
+            ['in_use', 'In use'],
+            ['unused', 'Not used yet'],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => setView(value)}
+            className={`rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
+              view === value
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       <div className="relative">

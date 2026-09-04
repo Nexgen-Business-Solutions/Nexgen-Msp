@@ -17,6 +17,8 @@ export type PortalSummary = {
   active_client_users: number;
   devices: number;
   active_devices: number;
+  retired_devices: number;
+  disabled_client_users: number;
   service_assignments: number;
   active_services: number;
   open_requests: number;
@@ -141,6 +143,7 @@ export type ListParams = {
   search?: string;
   status?: string;
   service?: string;
+  coverage?: string;
   start?: number;
   page_length?: number;
 };
@@ -212,6 +215,7 @@ export const getPortalFilterOptions = (customer?: string, signal?: AbortSignal) 
   get<PortalFilterOptions>(`${BASE}.get_portal_filter_options`, { customer }, signal);
 
 export type MyExportParams = {
+  coverage?: string;
   customer?: string;
   search?: string;
   status?: string;

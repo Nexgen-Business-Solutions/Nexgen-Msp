@@ -4,7 +4,10 @@ from nexgen_msp.api.core.services.session_service import SessionService
 from nexgen_msp.utils.wrapper_error_decorator import handle_errors
 
 
-@frappe.whitelist()
+# open to a signed-out caller on purpose: a device with no session has to be told so in a
+# plain answer, not refused — a refusal is what the application cannot tell from a fault.
+# A guest gets nothing but "not signed in".
+@frappe.whitelist(allow_guest=True)
 @handle_errors
 def get_session_context():
     return SessionService.get_session_context()

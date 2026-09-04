@@ -228,6 +228,7 @@ export type InternalDashboard = {
     in_progress: number;
     completed: number;
     lines_to_execute: number;
+    requests_to_execute: number;
   };
   queue: DashboardQueueRow[];
   pending_lines: DashboardPendingLine[];
@@ -250,7 +251,7 @@ export type UserStats = {
   active_users: number;
   without_device: number;
   disabled_with_services: number;
-  devices_without_services: number;
+  users_with_idle_device: number;
 };
 
 export type UserRow = {
@@ -402,7 +403,6 @@ export type UserListParams = {
   department?: string;
   service?: string;
   coverage?: string;
-  portal?: string;
   start?: number;
   page_length?: number;
 };

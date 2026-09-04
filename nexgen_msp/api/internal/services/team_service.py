@@ -85,7 +85,8 @@ class TeamService:
 			rows = [r for r in rows if role in r["roles"]]
 
 		if kind:
-			rows = [r for r in rows if r["kind"] == kind]
+			# "Customer" alone means either customer kind: the portal card counts them together
+			rows = [r for r in rows if r["kind"] == kind or (kind == "Customer" and r["kind"].startswith("Customer"))]
 
 		if status == "active":
 			rows = [r for r in rows if r.enabled]

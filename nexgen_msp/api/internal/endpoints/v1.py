@@ -190,14 +190,13 @@ def _collect(fetch, **filters):
 @handle_errors
 def export_users(
     search=None, customer=None, status=None, department=None, service=None, coverage=None,
-    portal=None,
 ):
     from nexgen_msp.api.internal.services.user_service import UserService
     from nexgen_msp.utils import listing_export
 
     rows = _collect(
         UserService.list_users, search=search, customer=customer, status=status,
-        department=department, service=service, coverage=coverage, portal=portal,
+        department=department, service=service, coverage=coverage,
     )
 
     for row in rows:
@@ -252,12 +251,11 @@ def export_requests(
 @frappe.whitelist()
 @handle_errors
 def get_user_stats(search=None, customer=None, status=None, department=None, service=None,
-                   coverage=None, portal=None):
+                   coverage=None):
     from nexgen_msp.api.internal.services.user_service import UserService
 
     return UserService.get_stats(search=search, customer=customer, status=status,
-                                 department=department, service=service, coverage=coverage,
-                                 portal=portal)
+                                 department=department, service=service, coverage=coverage)
 
 
 @frappe.whitelist()
@@ -269,7 +267,6 @@ def list_users(
     department=None,
     service=None,
     coverage=None,
-    portal=None,
     start=0,
     page_length=20,
 ):
@@ -282,7 +279,6 @@ def list_users(
         department=department,
         service=service,
         coverage=coverage,
-        portal=portal,
         start=start,
         page_length=page_length,
     )

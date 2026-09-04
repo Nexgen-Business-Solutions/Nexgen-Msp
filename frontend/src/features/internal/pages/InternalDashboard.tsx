@@ -116,11 +116,11 @@ export default function InternalDashboard() {
           <KpiCard
             icon={Layers}
             accent="emerald"
-            label="Lines to execute"
-            value={requests?.lines_to_execute ?? 0}
-            caption="Approved work with no assignment yet"
+            label="Requests to execute"
+            value={requests?.requests_to_execute ?? 0}
+            caption={`${requests?.lines_to_execute ?? 0} approved line(s) with no assignment yet`}
             loading={isLoading}
-            onView={() => navigate('/msp/requests?scope=all&status=Approved')}
+            onView={() => navigate('/msp/requests?scope=to_execute')}
           />
           <KpiCard
             icon={Clock}
@@ -130,7 +130,7 @@ export default function InternalDashboard() {
             value={requests?.ageing_open ?? 0}
             caption={`${requests?.urgent_open ?? 0} urgent or high priority`}
             loading={isLoading}
-            onView={() => navigate('/msp/requests?scope=open')}
+            onView={() => navigate('/msp/requests?scope=ageing')}
           />
         </div>
 

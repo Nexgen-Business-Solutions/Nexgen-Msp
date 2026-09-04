@@ -183,6 +183,34 @@ class RequestService:
         elif scope == "closed":
             conditions.append("sr.status in %(closed_statuses)s")
             params["closed_statuses"] = CLOSED_STATUSES
+        # the two cards on the queue header: what needs attention first, and what has waited
+        # too long — the very predicates their counters are made of
+        elif scope == "attention":
+            conditions.append("sr.status in %(open_statuses)s and sr.priority in ('Urgent', 'High')")
+            params["open_statuses"] = OPEN_STATUSES
+        elif scope == "ageing":
+            conditions.append(
+                "sr.status in %(open_statuses)s and timestampdiff(hour, sr.creation, now()) > 48"
+            )
+            params["open_statuses"] = OPEN_STATUSES
+        elif scope == "to_execute":
+            # approved work nobody has delivered yet: the dashboard's card, as a queue
+            conditions.append(
+                """sr.status in ('Approved', 'In Progress')
+                   and exists (
+                       select 1 from `tabMSP Service Request Line` srl
+                       where srl.parent = sr.name and srl.line_status = 'Approved'
+                         and not exists (
+                             select 1 from `tabMSP Service Assignment` sa
+                             left join `tabMSP Managed Device` sad on sad.name = sa.managed_device
+                             where sa.source_request = srl.parent
+                               and sa.service_item = srl.requested_service
+                               and (srl.client_user is null or srl.client_user = ''
+                                    or sa.client_user = srl.client_user
+                                    or sad.assigned_client_user = srl.client_user)
+                         )
+                   )"""
+            )
 
         if scope == "mine":
             conditions.append(

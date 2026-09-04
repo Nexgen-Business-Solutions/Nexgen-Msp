@@ -20,7 +20,7 @@ const INTERFACE_LABEL: Record<string, string> = {
 
 const INTERFACE_ORDER = ['Wi-Fi', 'LAN', 'Extra', 'Other'];
 
-const EMPTY: FilterState = { status: '', service: '' };
+const EMPTY: FilterState = { status: '', service: '', coverage: '' };
 
 export default function PortalDevices() {
   const rights = useMyApprovalRights();
@@ -42,6 +42,7 @@ export default function PortalDevices() {
     search: search || undefined,
     status: (filters.status as string) || undefined,
     service: (filters.service as string) || undefined,
+    coverage: (filters.coverage as string) || undefined,
     start,
     page_length: pageLength,
   });
@@ -63,16 +64,16 @@ export default function PortalDevices() {
           value={summary.data?.active_devices ?? 0}
           caption="Currently in service"
           loading={summary.isLoading}
-          onView={() => apply({ status: 'Active' })}
+          onView={() => apply({ ...EMPTY, status: 'Active' })}
         />
         <KpiCard
           icon={UserX}
           accent="indigo"
           label="Retired"
-          value={(summary.data?.devices ?? 0) - (summary.data?.active_devices ?? 0)}
+          value={summary.data?.retired_devices ?? 0}
           caption="Taken out of service"
           loading={summary.isLoading}
-          onView={() => apply({ status: 'Retired' })}
+          onView={() => apply({ ...EMPTY, status: 'Retired' })}
         />
         <KpiCard
           icon={ShieldAlert}
@@ -82,7 +83,7 @@ export default function PortalDevices() {
           value={summary.data?.devices_without_services ?? 0}
           caption="Active, with no active service"
           loading={summary.isLoading}
-          onView={() => apply({ status: 'Active' })}
+          onView={() => apply({ ...EMPTY, coverage: 'no_service' })}
         />
       </div>
 
@@ -103,6 +104,7 @@ export default function PortalDevices() {
             search: search || undefined,
             status: (filters.status as string) || undefined,
             service: (filters.service as string) || undefined,
+            coverage: (filters.coverage as string) || undefined,
           })
         }
         fields={[
@@ -125,6 +127,13 @@ export default function PortalDevices() {
               value,
               label: value,
             })),
+          },
+          {
+            key: 'coverage',
+            label: 'Coverage',
+            kind: 'select',
+            allLabel: 'Any',
+            options: [{ value: 'no_service', label: 'No active service' }],
           },
         ]}
       />

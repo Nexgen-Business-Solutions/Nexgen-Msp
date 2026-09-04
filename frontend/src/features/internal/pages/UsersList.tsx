@@ -23,11 +23,6 @@ const COVERAGE_OPTIONS = [
   },
 ];
 
-const PORTAL_OPTIONS = [
-  { value: 'yes', label: 'Has portal access', description: 'Can sign in to the customer portal' },
-  { value: 'no', label: 'No portal access', description: 'Never invited, or access revoked' },
-];
-
 const COLUMNS = ['User', 'Department', 'Customer', 'Device', 'Active services', 'Inactive services', ''];
 
 export default function UsersList() {
@@ -35,16 +30,17 @@ export default function UsersList() {
   const [newUserOpen, setNewUserOpen] = useState(false);
   const { filters, patch, clear } = useUserFilters();
   const options = useUserFilterOptions();
-  const statsParams = {
+  // the cards describe the whole population; a filter narrows the list below, never them
+  const stats = useUserStats();
+  // what the list (and its export) is narrowed to
+  const listParams = {
     search: filters.search || undefined,
     customer: filters.customer || undefined,
     status: filters.status || undefined,
     department: filters.department || undefined,
     service: filters.service || undefined,
     coverage: filters.coverage || undefined,
-    portal: filters.portal || undefined,
   };
-  const stats = useUserStats(statsParams);
   const list = useUserList(filters);
 
   const rows = list.data?.rows ?? [];
@@ -87,8 +83,8 @@ export default function UsersList() {
           icon={ShieldAlert}
           tone="alert"
           accent="slate"
-          label="Devices without services"
-          value={stats.data?.devices_without_services ?? 0}
+          label="With an idle device"
+          value={stats.data?.users_with_idle_device ?? 0}
           caption="Active devices with no security"
           loading={stats.isLoading}
           onView={() => patch({ coverage: 'no_service', status: '' })}
@@ -120,12 +116,11 @@ export default function UsersList() {
             department: (values.department as string) ?? '',
             service: (values.service as string) ?? '',
             coverage: (values.coverage as string) ?? '',
-            portal: (values.portal as string) ?? '',
           })
         }
         onClear={clear}
         onRefresh={() => list.refetch()}
-        onExport={() => internal.exportUsers(statsParams)}
+        onExport={() => internal.exportUsers(listParams)}
         fields={[
           {
             key: 'customer',
@@ -161,13 +156,6 @@ export default function UsersList() {
             kind: 'select',
             allLabel: 'Any coverage',
             options: COVERAGE_OPTIONS,
-          },
-          {
-            key: 'portal',
-            label: 'Portal access',
-            kind: 'select',
-            allLabel: 'With or without',
-            options: PORTAL_OPTIONS,
           },
         ]}
       />

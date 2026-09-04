@@ -18,7 +18,7 @@ const SCOPE_LABEL: Record<string, string> = {
   Both: 'User or device',
 };
 
-const EMPTY: FilterState = { scope: '', status: '' };
+const EMPTY: FilterState = { scope: '', status: '', focus: '' };
 
 export default function ServicesList() {
   const navigate = useNavigate();
@@ -32,6 +32,8 @@ export default function ServicesList() {
   };
 
   const { data, isLoading, error, refetch } = useServiceCatalogue(query);
+  // the cards describe the whole catalogue; a filter narrows the list below, never them
+  const everything = useServiceCatalogue({});
   const save = useSaveService();
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -39,8 +41,20 @@ export default function ServicesList() {
   const [toggling, setToggling] = useState<CatalogueRow | null>(null);
 
   const rows = data ?? [];
-  const live = rows.filter((row) => !row.disabled);
-  const assignments = rows.reduce((sum, row) => sum + row.open_assignments, 0);
+  const all = everything.data ?? [];
+  const live = all.filter((row) => !row.disabled);
+  // what a card puts in front of you, applied on top of the server's own filters
+  const focus = (filters.focus as string) || '';
+  const shown = rows.filter((row) =>
+    focus === 'in_use'
+      ? row.open_assignments > 0
+      : focus === 'priced'
+        ? row.priced_contracts > 0
+        : focus === 'unpriced'
+          ? row.priced_contracts === 0
+          : true
+  );
+  const assignments = all.reduce((sum, row) => sum + row.open_assignments, 0);
   const unpriced = live.filter((row) => row.priced_contracts === 0).length;
 
   const open = (service: CatalogueRow | null) => {
@@ -56,8 +70,9 @@ export default function ServicesList() {
           accent="blue"
           label="Services offered"
           value={live.length}
-          caption={`${rows.length - live.length} retired`}
+          caption={`${all.length - live.length} retired`}
           loading={isLoading}
+        onView={() => setFilters({ ...EMPTY, status: 'active' })}
         />
         <KpiCard
           icon={Users}
@@ -66,6 +81,7 @@ export default function ServicesList() {
           value={assignments}
           caption="Across every customer"
           loading={isLoading}
+        onView={() => setFilters({ ...EMPTY, focus: 'in_use' })}
         />
         <KpiCard
           icon={CircleCheck}
@@ -74,6 +90,7 @@ export default function ServicesList() {
           value={live.filter((row) => row.priced_contracts > 0).length}
           caption="Services with at least one contract rate"
           loading={isLoading}
+        onView={() => setFilters({ ...EMPTY, status: 'active', focus: 'priced' })}
         />
         <KpiCard
           icon={Ban}
@@ -83,6 +100,7 @@ export default function ServicesList() {
           value={unpriced}
           caption="Deliverable but not billable anywhere"
           loading={isLoading}
+        onView={() => setFilters({ ...EMPTY, status: 'active', focus: 'unpriced' })}
         />
       </div>
 
@@ -115,6 +133,17 @@ export default function ServicesList() {
             options: [
               { value: 'active', label: 'Active' },
               { value: 'disabled', label: 'Disabled' },
+            ],
+          },
+          {
+            key: 'focus',
+            label: 'Focus',
+            kind: 'select',
+            allLabel: 'Everything',
+            options: [
+              { value: 'in_use', label: 'In use', description: 'At least one open assignment' },
+              { value: 'priced', label: 'Priced somewhere', description: 'A contract carries a rate' },
+              { value: 'unpriced', label: 'Never priced', description: 'No contract carries a rate' },
             ],
           },
         ]}
@@ -172,7 +201,7 @@ export default function ServicesList() {
                 </tr>
               )}
 
-              {!error && !isLoading && rows.length === 0 && (
+              {!error && !isLoading && shown.length === 0 && (
                 <tr>
                   <td colSpan={COLUMNS.length} className="px-4 py-12 text-center text-sm text-slate-500">
                     No service yet.
@@ -182,7 +211,7 @@ export default function ServicesList() {
 
               {!error &&
                 !isLoading &&
-                rows.map((row) => (
+                shown.map((row) => (
                   <tr key={row.name} className="transition-colors hover:bg-slate-50">
                     <td className="px-4 py-3">
                       <button

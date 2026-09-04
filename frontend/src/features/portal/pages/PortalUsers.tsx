@@ -70,7 +70,7 @@ export default function PortalUsers() {
           tone="alert"
           accent="slate"
           label="Disabled"
-          value={(summary.data?.client_users ?? 0) - (summary.data?.active_client_users ?? 0)}
+          value={summary.data?.disabled_client_users ?? 0}
           caption="No longer in service"
           loading={summary.isLoading}
           onView={() => apply({ status: 'Disabled' })}

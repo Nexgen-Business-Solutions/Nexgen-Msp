@@ -50,14 +50,16 @@ export default function DevicesList() {
   const navigate = useNavigate();
   const { filters, patch, clear } = useDeviceFilters();
   const options = useDeviceFilterOptions();
-  const statsParams = {
+  // the cards describe the whole population; a filter narrows the list below, never them
+  const stats = useDeviceStats();
+  // what the list (and its export) is narrowed to
+  const listParams = {
     search: filters.search || undefined,
     customer: filters.customer || undefined,
     status: filters.status || undefined,
     device_type: filters.device_type || undefined,
     coverage: filters.coverage || undefined,
   };
-  const stats = useDeviceStats(statsParams);
   const list = useDeviceList(filters);
 
   const [serviceDevice, setServiceDevice] = useState<string | null>(null);
@@ -130,7 +132,7 @@ export default function DevicesList() {
         }
         onClear={clear}
         onRefresh={() => list.refetch()}
-        onExport={() => internal.exportDevices(statsParams)}
+        onExport={() => internal.exportDevices(listParams)}
         fields={[
           {
             key: 'customer',

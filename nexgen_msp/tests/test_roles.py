@@ -350,3 +350,24 @@ class TestARoleAddedByHand(MSPTestCase):
         frappe.db.commit()
 
         self.assertEqual(permissions.get_allowed_customers(self.contact), [self.customer])
+
+
+class TestADeviceWithNoSession(MSPTestCase):
+    """A signed-out caller is told so plainly, rather than refused."""
+
+    def test_the_session_context_answers_a_guest(self):
+        from nexgen_msp.api.core.endpoints import v1
+        from nexgen_msp.api.core.services.session_service import SessionService
+
+        self.assertIn(v1.get_session_context, frappe.guest_methods)
+
+        frappe.set_user("Guest")
+        try:
+            context = SessionService.get_session_context()
+        finally:
+            frappe.set_user("Administrator")
+
+        self.assertFalse(context["authenticated"])
+        self.assertEqual(context["user"], "Guest")
+        self.assertEqual(context["roles"], [])
+        self.assertEqual(context["customers"], [])

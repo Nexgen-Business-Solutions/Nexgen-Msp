@@ -55,6 +55,7 @@ export default function BillingRuns() {
     statuses: [],
     period_from: '',
     period_to: '',
+    focus: '',
   });
   const [search, setSearch] = useState('');
 
@@ -67,6 +68,8 @@ export default function BillingRuns() {
   };
 
   const { data, isLoading, error, refetch } = useBillingRuns(query);
+  // the cards describe every run in the range; a filter narrows the list below, never them
+  const everything = useBillingRuns({ customers: [], statuses: [] });
   const due = useBillingDue();
   const contracts = useMspContracts({});
   const [range, setRange] = useState(RANGES[0].label);
@@ -80,11 +83,14 @@ export default function BillingRuns() {
 
   const rows = data?.rows ?? [];
   const window = RANGES.find((entry) => entry.label === range) ?? RANGES[0];
+  const inRange = (list: typeof rows) =>
+    window.from ? list.filter((row) => new Date(row.billing_period_end) >= (window.from as Date)) : list;
 
-  const scoped = window.from
-    ? rows.filter((row) => new Date(row.billing_period_end) >= (window.from as Date))
-    : rows;
+  const scoped = inRange(everything.data?.rows ?? []);
+  const listed = inRange(rows);
 
+  // the table lists what the cards count: the range, and whatever card was clicked
+  const shown = filters.focus === 'exceptions' ? listed.filter((row) => row.exception_count > 0) : listed;
   const invoiced = scoped.filter((row) => row.status === 'Invoiced');
   const blocked = scoped.filter((row) => row.exception_count > 0);
   const scopedLines = scoped.reduce((sum, row) => sum + (row.line_count || 0), 0);
@@ -103,7 +109,7 @@ export default function BillingRuns() {
         onSearch={setSearch}
         onApply={setFilters}
         onClear={() =>
-          setFilters({ customers: [], statuses: [], period_from: '', period_to: '' })
+          setFilters({ customers: [], statuses: [], period_from: '', period_to: '', focus: '' })
         }
         onRefresh={() => refetch()}
         fields={[
@@ -125,6 +131,13 @@ export default function BillingRuns() {
             kind: 'daterange',
             fromKey: 'period_from',
             toKey: 'period_to',
+          },
+          {
+            key: 'focus',
+            label: 'Focus',
+            kind: 'select',
+            allLabel: 'Everything',
+            options: [{ value: 'exceptions', label: 'With exceptions', description: 'Blocked until resolved' }],
           },
         ]}
       />
@@ -154,6 +167,7 @@ export default function BillingRuns() {
           value={scoped.length}
           caption={`${invoiced.length} invoiced`}
           loading={isLoading}
+        onView={() => setFilters({ ...filters, statuses: [], focus: '' })}
         />
         <KpiCard
           icon={Receipt}
@@ -162,6 +176,7 @@ export default function BillingRuns() {
           value={awaiting.length}
           caption="Validated and ready to freeze"
           loading={isLoading}
+        onView={() => setFilters({ ...filters, statuses: ['Ready for Approval'], focus: '' })}
         />
         <KpiCard
           icon={TriangleAlert}
@@ -171,6 +186,7 @@ export default function BillingRuns() {
           value={blocked.length}
           caption="Blocked until resolved"
           loading={isLoading}
+        onView={() => setFilters({ ...filters, statuses: [], focus: 'exceptions' })}
         />
         <KpiCard
           icon={Layers}
@@ -179,6 +195,7 @@ export default function BillingRuns() {
           value={scopedLines}
           caption={`${blockedLines} blocked by an exception`}
           loading={isLoading}
+        onView={() => setFilters({ ...filters, statuses: [], focus: '' })}
         />
         <KpiCard
           icon={Wallet}
@@ -187,6 +204,7 @@ export default function BillingRuns() {
           value={`${invoicedTotal.toLocaleString()} ${currency}`.trim()}
           caption={range.toLowerCase() === 'all time' ? 'Across every run' : range}
           loading={isLoading}
+        onView={() => setFilters({ ...filters, statuses: ['Invoiced'], focus: '' })}
         />
       </div>
 
@@ -334,7 +352,7 @@ export default function BillingRuns() {
                 </tr>
               )}
 
-              {!error && !isLoading && rows.length === 0 && (
+              {!error && !isLoading && shown.length === 0 && (
                 <tr>
                   <td colSpan={COLUMNS.length} className="px-4 py-12 text-center text-sm text-slate-500">
                     No billing run yet.
@@ -344,7 +362,7 @@ export default function BillingRuns() {
 
               {!error &&
                 !isLoading &&
-                rows.map((row) => (
+                shown.map((row) => (
                   <tr
                     key={row.name}
                     onClick={() => navigate(`/msp/billing/${row.name}`)}

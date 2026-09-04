@@ -64,7 +64,6 @@ class UserService:
         department=None,
         service=None,
         coverage=None,
-        portal=None,
     ):
         """Counters a technician acts on, over the same scope the list is showing.
 
@@ -75,7 +74,7 @@ class UserService:
         RequestService._guard_internal()
 
         where, params = UserService._conditions(
-            search, customer, status, department, service, coverage, portal
+            search, customer, status, department, service, coverage
         )
         params = {**params}
 
@@ -105,32 +104,29 @@ class UserService:
                )"""
         )
 
-        # this one counts machines, so it is scoped through the people the filter kept
-        devices_without_services = frappe.db.sql(
-            f"""
-            select count(*)
-            from `tabMSP Managed Device` device
-            join `tabMSP Client User` cu on cu.name = device.assigned_client_user
-            {where.replace(' where ', ' where ') if where else ''}
-            {'and' if where else 'where'} device.status = 'Active'
-              and not exists (
-                  select 1 from `tabMSP Service Assignment` sa
-                  where sa.managed_device = device.name
-                    and sa.operational_status in %(open)s
-              )
-            """,
-            params,
-        )[0][0]
+        # the people whose machine runs nothing — the same rows the "no_service" coverage lists
+        users_with_idle_device = count(
+            """cu.lifecycle_status = 'Active'
+               and exists (
+                   select 1 from `tabMSP Managed Device` device
+                   where device.assigned_client_user = cu.name and device.status = 'Active'
+                     and not exists (
+                         select 1 from `tabMSP Service Assignment` sa
+                         where sa.managed_device = device.name
+                           and sa.operational_status in %(open)s
+                     )
+               )"""
+        )
 
         return {
             "active_users": active,
             "without_device": without_device,
             "disabled_with_services": disabled_with_services,
-            "devices_without_services": devices_without_services,
+            "users_with_idle_device": users_with_idle_device,
         }
 
     @staticmethod
-    def _conditions(search, customer, status, department, service, coverage, portal):
+    def _conditions(search, customer, status, department, service, coverage):
         conditions = []
         params = {"open": OPEN_ASSIGNMENT_STATUSES}
 
@@ -159,11 +155,6 @@ class UserService:
                 )"""
             )
             params["service"] = service
-
-        if portal == "yes":
-            conditions.append("ifnull(cu.portal_user, '') != ''")
-        elif portal == "no":
-            conditions.append("ifnull(cu.portal_user, '') = ''")
 
         if coverage == "no_device":
             conditions.append("cu.lifecycle_status = 'Active'")
@@ -226,7 +217,6 @@ class UserService:
         department=None,
         service=None,
         coverage=None,
-        portal=None,
         start=0,
         page_length=20,
     ):
@@ -237,7 +227,7 @@ class UserService:
         page_length = min(max(frappe.utils.cint(page_length) or 20, 1), MAX_PAGE_LENGTH)
 
         where, params = UserService._conditions(
-            search, customer, status, department, service, coverage, portal
+            search, customer, status, department, service, coverage
         )
 
         total = frappe.db.sql(f"select count(*) from `tabMSP Client User` cu {where}", params)[0][0]
@@ -332,7 +322,6 @@ class UserService:
                 "lifecycle_status",
                 "start_date",
                 "disabled_date",
-                "portal_user",
                 "remarks",
                 "covered_until",
                 "last_billed_on",
@@ -902,7 +891,7 @@ class UserService:
         """What stands in the way of erasing a person, named so it can be acted on.
 
         Anything that ties them to work done or money owed keeps them: a service they hold,
-        a request they appear in, a billed line, a device in their hands, a portal account.
+        a request they appear in, a billed line, a device in their hands.
         Erasing those would leave documents pointing at nothing.
         """
         checks = (
@@ -930,8 +919,6 @@ class UserService:
 
         blockers = [f"{count} {label}" for label, count in checks if count]
 
-        if frappe.db.get_value("MSP Client User", name, "portal_user"):
-            blockers.append("a portal account — revoke it first")
 
         return blockers
 

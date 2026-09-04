@@ -108,3 +108,19 @@ class TestAccountsAndRoles(MSPTestCase):
 
         self.assertFalse(permissions.is_internal(contact))
         self.assertEqual(permissions.get_allowed_customers(contact), [customer])
+
+
+class TestThePortalContactsCard(MSPTestCase):
+    def test_customer_alone_lists_both_customer_kinds(self):
+        from nexgen_msp.api.internal.services.team_service import TeamService
+
+        customer = self.make_customer()
+        manager = self.make_account("customer", "MSP Customer Manager", customer, suffix="pcm")
+        operator = self.make_account("customer", "MSP Customer Operator", customer, suffix="pco")
+        tech = self.make_account("internal", "MSP Technician", suffix="pct")
+
+        listed = {row["name"] for row in TeamService.list_members(kind="Customer")}
+
+        self.assertTrue({manager, operator} <= listed)
+        self.assertNotIn(tech, listed)
+        self.assertEqual({row["name"] for row in TeamService.list_members(kind="Technician")} & {manager, operator, tech}, {tech})

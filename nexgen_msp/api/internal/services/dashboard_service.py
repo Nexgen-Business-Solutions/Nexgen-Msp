@@ -177,6 +177,27 @@ class DashboardService:
         counters["under_review"] = by_status.get("Under Review", 0)
         counters["in_progress"] = by_status.get("In Progress", 0)
         counters["completed"] = by_status.get("Completed", 0)
+        # the card lists requests, so it counts requests too — the lines are its caption
+        counters["requests_to_execute"] = frappe.db.sql(
+            """
+            select count(distinct sr.name)
+            from `tabMSP Service Request Line` srl
+            join `tabMSP Service Request` sr on sr.name = srl.parent
+            where sr.status in ('Approved', 'In Progress')
+              and ifnull(sr.refused_by_customer, 0) = 0
+              and srl.line_status = 'Approved'
+              and not exists (
+                  select 1 from `tabMSP Service Assignment` sa
+                  left join `tabMSP Managed Device` sad on sad.name = sa.managed_device
+                  where sa.source_request = srl.parent
+                    and sa.service_item = srl.requested_service
+                    and (srl.client_user is null or srl.client_user = ''
+                         or sa.client_user = srl.client_user
+                         or sad.assigned_client_user = srl.client_user)
+              )
+            """
+        )[0][0]
+
         counters["lines_to_execute"] = frappe.db.sql(
             """
             select count(*)

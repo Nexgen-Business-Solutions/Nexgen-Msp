@@ -42,6 +42,8 @@ export default function TeamList() {
     status: (filters.status as string) || undefined,
   });
 
+  // the cards count everyone; a filter narrows the list below, never them
+  const everyone = useTeam({});
   const setRole = useSetTeamRole();
   const setEnabled = useSetTeamEnabled();
   const resend = useResendTeamInvitation();
@@ -49,16 +51,17 @@ export default function TeamList() {
 
   const rows = useMemo(() => list.data ?? [], [list.data]);
 
-  const counts = useMemo(
-    () => ({
-      total: rows.length,
-      admins: rows.filter((row) => row.kind === 'Administrator').length,
-      technicians: rows.filter((row) => row.kind === 'Technician').length,
-      portal: rows.filter((row) => row.roles.some((role) => role.startsWith('MSP Customer'))).length,
-      disabled: rows.filter((row) => !row.enabled).length,
-    }),
-    [rows]
-  );
+  const counts = useMemo(() => {
+    const all = everyone.data ?? [];
+
+    return {
+      total: all.length,
+      admins: all.filter((row) => row.kind === 'Administrator').length,
+      technicians: all.filter((row) => row.kind === 'Technician').length,
+      portal: all.filter((row) => row.roles.some((role) => role.startsWith('MSP Customer'))).length,
+      disabled: all.filter((row) => !row.enabled).length,
+    };
+  }, [everyone.data]);
 
   return (
     <div className="space-y-5 px-6 pb-6 pt-4">
@@ -74,10 +77,10 @@ export default function TeamList() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <KpiCard icon={UserCheck} accent="blue" label="Accounts" value={counts.total} caption="Everyone who can sign in" loading={list.isLoading} />
-        <KpiCard icon={ShieldCheck} accent="emerald" label="Administrators" value={counts.admins} caption="Billing, contracts and settings" loading={list.isLoading} />
-        <KpiCard icon={Wrench} accent="slate" label="Technicians" value={counts.technicians} caption="Requests, people and devices" loading={list.isLoading} />
-        <KpiCard icon={Building2} accent="slate" label="Portal contacts" value={counts.portal} caption="Customers signing in to their portal" loading={list.isLoading} />
+        <KpiCard icon={UserCheck} accent="blue" label="Accounts" value={counts.total} caption="Everyone who can sign in" loading={list.isLoading} onView={() => setFilters({ kind: '', status: '' })} />
+        <KpiCard icon={ShieldCheck} accent="emerald" label="Administrators" value={counts.admins} caption="Billing, contracts and settings" loading={list.isLoading} onView={() => setFilters({ kind: 'Administrator', status: '' })} />
+        <KpiCard icon={Wrench} accent="slate" label="Technicians" value={counts.technicians} caption="Requests, people and devices" loading={list.isLoading} onView={() => setFilters({ kind: 'Technician', status: '' })} />
+        <KpiCard icon={Building2} accent="slate" label="Portal contacts" value={counts.portal} caption="Customers signing in to their portal" loading={list.isLoading} onView={() => setFilters({ kind: 'Customer', status: '' })} />
       </div>
 
       <FilterBar
