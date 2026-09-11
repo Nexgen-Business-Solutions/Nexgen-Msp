@@ -1043,6 +1043,12 @@ def _customers():
 
 @frappe.whitelist()
 @handle_errors
+def list_customers():
+    return _customers().list_customers()
+
+
+@frappe.whitelist()
+@handle_errors
 def get_customer_options():
     return _customers().options()
 
@@ -1053,10 +1059,16 @@ def get_customer_details(customer=None):
     return _customers().get_customer(customer=customer)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 @handle_errors
-def save_customer_details(customer=None, details=None, address=None):
-    return _customers().save_customer(customer=customer, details=details, address=address)
+def create_customer(details=None, address=None):
+    return _customers().create_customer(details=details, address=address)
+
+
+@frappe.whitelist(methods=["POST"])
+@handle_errors
+def save_customer_details(customer=None, details=None, address=None, contacts=None):
+    return _customers().save_customer(customer=customer, details=details, address=address, contacts=contacts)
 
 
 @frappe.whitelist()

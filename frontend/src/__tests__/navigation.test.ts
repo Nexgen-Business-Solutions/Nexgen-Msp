@@ -41,7 +41,8 @@ describe('what the sidebar offers each role', () => {
 
   it('does not treat a contact as staff when a staff role was added by hand', () => {
     // the menu follows the same rule as the backend: a customer role means the portal
-    expect(isPortalOnly([MANAGER, TECH])).toBe(false);
+    expect(isPortalOnly([MANAGER, TECH])).toBe(true);
+    expect(isAdmin([MANAGER, ADMIN])).toBe(false);
   });
 
   it('reserves the commercial screens for the administrator', () => {

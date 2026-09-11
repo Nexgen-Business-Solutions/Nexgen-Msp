@@ -7,18 +7,19 @@ export const customerKeys = {
   detail: (customer: string) => [...customerKeys.all, customer] as const,
 };
 
-export const useCustomerOptions = () =>
+export const useCustomerOptions = (enabled = true) =>
   useQuery({
     queryKey: customerKeys.options(),
+    enabled,
     queryFn: ({ signal }) => internal.getCustomerOptions(signal),
     staleTime: 10 * 60 * 1000,
   });
 
-export const useCustomerDetails = (customer?: string) =>
+export const useCustomerDetails = (customer?: string, ownProfile = false) =>
   useQuery({
-    queryKey: customerKeys.detail(customer || ''),
-    queryFn: ({ signal }) => internal.getCustomerDetails(customer as string, signal),
-    enabled: Boolean(customer),
+    queryKey: customerKeys.detail(customer || '__own__'),
+    queryFn: ({ signal }) => internal.getCustomerDetails(customer, signal),
+    enabled: Boolean(customer) || ownProfile,
   });
 
 export const useSaveCustomerDetails = () => {
@@ -28,7 +29,26 @@ export const useSaveCustomerDetails = () => {
     mutationFn: internal.saveCustomerDetails,
     onSuccess: (detail) => {
       queryClient.setQueryData(customerKeys.detail(detail.name), detail);
+      queryClient.invalidateQueries({ queryKey: customerKeys.all });
       queryClient.invalidateQueries({ queryKey: ['internal', 'contracts'] });
     },
   });
 };
+
+export const useCreateCustomer = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: internal.createCustomer,
+    onSuccess: async (detail) => {
+      queryClient.setQueryData(customerKeys.detail(detail.name), detail);
+      await queryClient.invalidateQueries({ queryKey: ['internal'] });
+    },
+  });
+};
+
+export const useCustomerList = () =>
+  useQuery({
+    queryKey: [...customerKeys.all, 'list'],
+    queryFn: ({ signal }) => internal.listCustomers(signal),
+  });

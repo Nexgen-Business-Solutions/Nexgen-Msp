@@ -11,6 +11,7 @@ export type SessionContext = {
   user_image?: string | null;
   user_type?: string | null;
   roles: string[];
+  customer_profile_role?: 'MSP System Admin' | 'MSP Technician' | 'MSP Customer Manager' | 'MSP Customer Operator' | null;
   customers: string[];
   customer?: string | null;
   two_factor_enabled?: boolean;

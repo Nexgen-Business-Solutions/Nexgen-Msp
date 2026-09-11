@@ -1410,46 +1410,71 @@ export type CustomerAddress = {
   email_id: string | null;
 };
 
+export type CustomerContact = {
+  name?: string;
+  first_name: string | null;
+  last_name: string | null;
+  email_id: string | null;
+  phone: string | null;
+  editable?: boolean;
+};
+
 export type CustomerDetails = {
   name: string;
   customer_name: string | null;
-  customer_type: string | null;
-  customer_group: string | null;
-  territory: string | null;
-  tax_id: string | null;
-  default_currency: string | null;
-  default_price_list: string | null;
-  payment_terms: string | null;
-  website: string | null;
-  msp_free_of_charge: number;
-  last_billed_on: string | null;
-  address: CustomerAddress | null;
-  counts: { users: number; devices: number; contracts: number };
+  customer_type?: string | null;
+  customer_group?: string | null;
+  territory?: string | null;
+  tax_id?: string | null;
+  default_currency?: string | null;
+  default_price_list?: string | null;
+  payment_terms?: string | null;
+  website?: string | null;
+  msp_free_of_charge?: number;
+  last_billed_on?: string | null;
+  address?: CustomerAddress | null;
+  contacts?: CustomerContact[];
+  counts?: { users: number; devices: number; contracts: number };
+  permissions?: { can_edit: boolean; can_administer: boolean; can_edit_address: boolean };
 };
 
 export type CustomerOptions = {
-  customer_types: string[];
-  customer_groups: string[];
-  territories: string[];
+  customer_types?: string[];
+  customer_groups?: string[];
+  territories?: string[];
   countries: string[];
-  currencies: string[];
-  price_lists: string[];
-  payment_terms: string[];
+  currencies?: string[];
+  price_lists?: string[];
+  payment_terms?: string[];
 };
+
+export const listCustomers = (signal?: AbortSignal) =>
+  get<Pick<CustomerDetails, 'name' | 'customer_name' | 'customer_type' | 'website'>[]>(`${BASE}.list_customers`, undefined, signal);
 
 export const getCustomerOptions = (signal?: AbortSignal) =>
   get<CustomerOptions>(`${BASE}.get_customer_options`, undefined, signal);
 
-export const getCustomerDetails = (customer: string, signal?: AbortSignal) =>
+export const getCustomerDetails = (customer: string | undefined, signal?: AbortSignal) =>
   get<CustomerDetails>(`${BASE}.get_customer_details`, { customer }, signal);
 
-export const saveCustomerDetails = (payload: {
-  customer: string;
+export const createCustomer = (payload: {
   details: Partial<CustomerDetails>;
   address?: Partial<CustomerAddress>;
 }) =>
+  post<CustomerDetails>(`${BASE}.create_customer`, {
+    details: JSON.stringify(payload.details),
+    address: payload.address ? JSON.stringify(payload.address) : undefined,
+  });
+
+export const saveCustomerDetails = (payload: {
+  customer?: string;
+  details: Partial<CustomerDetails>;
+  address?: Partial<CustomerAddress>;
+  contacts?: CustomerContact[];
+}) =>
   post<CustomerDetails>(`${BASE}.save_customer_details`, {
     customer: payload.customer,
+    contacts: payload.contacts ? JSON.stringify(payload.contacts) : undefined,
     details: JSON.stringify(payload.details),
     address: payload.address ? JSON.stringify(payload.address) : undefined,
   });
@@ -1790,5 +1815,4 @@ export const setBillingLineDiscount = (payload: {
   service_assignment: string;
   discount_percent: number;
 }) => post<BillingRunDetail>(`${BASE}.set_billing_line_discount`, payload);
-
 

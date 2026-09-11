@@ -4,7 +4,7 @@ import { ChevronRight } from 'lucide-react';
 import { useSession } from '@/shared/hooks/useSession';
 import { findNavItem, getNavForRoles, getPagesForRoles } from './navigation';
 
-const Breadcrumb: React.FC = () => {
+const Breadcrumb: React.FC<{ actions?: React.ReactNode }> = ({ actions }) => {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { data: session } = useSession();
@@ -33,7 +33,10 @@ const Breadcrumb: React.FC = () => {
         )}
       </nav>
 
-      <h1 className="mt-1.5 truncate text-2xl font-bold text-slate-900">{current.label}</h1>
+      <div className="mt-1.5 flex flex-wrap items-center justify-between gap-3">
+        <h1 className="min-w-0 truncate text-2xl font-bold text-slate-900">{current.label}</h1>
+        {actions && <div className="shrink-0">{actions}</div>}
+      </div>
     </div>
   );
 };

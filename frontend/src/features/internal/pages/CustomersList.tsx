@@ -5,6 +5,10 @@ import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
 import KpiCard from '@/shared/components/KpiCard';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import StatusBadge from '@/shared/components/StatusBadge';
+import Breadcrumb from '@/shared/layout/Breadcrumb';
+import CustomerModal from '../components/CustomerModal';
+import { useSession } from '@/shared/hooks/useSession';
+import { customerRole } from '../customerAccess';
 import { useContractList } from '../hooks/useContracts';
 
 const COLUMNS = ['Customer', 'Contract', 'Frequency', 'Billable services', 'Rates set', 'Last billed', 'Status', ''];
@@ -13,6 +17,9 @@ const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) :
 
 export default function CustomersList() {
   const navigate = useNavigate();
+  const { data: session } = useSession();
+  const canCreate = customerRole(session) === 'MSP System Admin';
+  const [createOpen, setCreateOpen] = useState(false);
   const { data, isLoading, error, refetch } = useContractList();
 
   const [filters, setFilters] = useState<FilterState>({ contract_status: '', priced: '', focus: '' });
@@ -52,7 +59,20 @@ export default function CustomersList() {
   const billable = all.reduce((sum, row) => sum + row.billable_assignments, 0);
 
   return (
+    <>
+      <Breadcrumb actions={canCreate && (
+        <button type="button" onClick={() => setCreateOpen(true)} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
+          + Add Customer
+        </button>
+      )} />
     <div className="space-y-5 px-6 pb-6 pt-4">
+      {canCreate && createOpen && (
+        <CustomerModal
+          open={createOpen}
+          onClose={() => setCreateOpen(false)}
+          onCreated={(detail) => navigate(`/msp/customers/${encodeURIComponent(detail.name)}`)}
+        />
+      )}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard
           icon={Building2}
@@ -270,5 +290,6 @@ export default function CustomersList() {
         </div>
       </div>
     </div>
+    </>
   );
 }

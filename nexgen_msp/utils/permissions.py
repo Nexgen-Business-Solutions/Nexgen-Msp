@@ -124,7 +124,7 @@ def is_internal(user=None):
     if user == "Administrator":
         return True
 
-    if is_customer_contact(user):
+    if is_customer_contact(user) or set(frappe.get_roles(user)).intersection(CUSTOMER_ROLES):
         return False
 
     return bool(set(frappe.get_roles(user)).intersection(INTERNAL_ROLES + MANAGE_ACCESS_ROLES))
@@ -149,6 +149,9 @@ def get_allowed_customers(user=None):
         pluck="for_value",
         order_by="for_value asc",
     )
+
+    if user != "Administrator" and set(frappe.get_roles(user)).intersection(CUSTOMER_ROLES):
+        return sorted(customers_from_contacts(user).intersection(permitted))
 
     if permitted:
         return permitted

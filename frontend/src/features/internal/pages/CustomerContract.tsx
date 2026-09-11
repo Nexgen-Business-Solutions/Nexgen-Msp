@@ -187,7 +187,7 @@ export default function CustomerContract() {
                 onClick={() => navigate(`/msp/users?customer=${encodeURIComponent(customer)}`)}
                 className="font-medium text-blue-600 transition-colors hover:text-blue-800 hover:underline"
               >
-                {profileDetails.data?.counts.users ?? 0} users
+                {profileDetails.data?.counts?.users ?? 0} users
               </button>
               ·
               <button
@@ -195,12 +195,12 @@ export default function CustomerContract() {
                 onClick={() => navigate(`/msp/devices?customer=${encodeURIComponent(customer)}`)}
                 className="font-medium text-blue-600 transition-colors hover:text-blue-800 hover:underline"
               >
-                {profileDetails.data?.counts.devices ?? 0} devices
+                {profileDetails.data?.counts?.devices ?? 0} devices
               </button>
               ·
               <span>
-                {profileDetails.data?.counts.contracts ?? 0} contract
-                {(profileDetails.data?.counts.contracts ?? 0) === 1 ? '' : 's'}
+                {profileDetails.data?.counts?.contracts ?? 0} contract
+                {(profileDetails.data?.counts?.contracts ?? 0) === 1 ? '' : 's'}
               </span>
             </p>
 

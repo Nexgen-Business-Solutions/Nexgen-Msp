@@ -14,6 +14,9 @@ export default defineConfig(({ command }) => ({
 	server: {
 		port: 8085,
 		host: '0.0.0.0',
+		allowedHosts: [
+    'msp.local.com',
+  	],
 		fs: {
 			allow: [workspaceRoot],
 		},

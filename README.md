@@ -12,6 +12,10 @@ bench get-app $URL_OF_THIS_REPO --branch main
 bench install-app nexgen_msp
 ```
 
+### Customer management
+
+See [Customer management](docs/customer-management.md) for role permissions, profile editing, API behavior, and verification.
+
 ### Contributing
 
 This app uses `pre-commit` for code formatting and linting. Please [install pre-commit](https://pre-commit.com/#installation) and enable it for this repository:

@@ -1,14 +1,7 @@
 import frappe
 
-from nexgen_msp.utils import permissions
-
-INTERNAL_ROLES = (
-    "MSP System Admin",
-    "MSP Technician",
-    "System Manager",
-    "Administrator",
-)
-
+from nexgen_msp.utils import customer_access, permissions
+from nexgen_msp.utils.errors import PermissionError
 
 class SessionService:
     @staticmethod
@@ -31,9 +24,11 @@ class SessionService:
         )
 
         is_portal = bool(set(roles).intersection(permissions.CUSTOMER_ROLES))
-        is_internal = any(role in roles for role in INTERNAL_ROLES) and not (
-            permissions.is_customer_contact(user)
-        )
+        is_internal = permissions.is_internal(user)
+        try:
+            customer_role = customer_access.current_role()
+        except PermissionError:
+            customer_role = None
 
         profile = permissions.contact_profile(user, customers)
 
@@ -52,6 +47,7 @@ class SessionService:
             "user_image": details.user_image if details else None,
             "user_type": details.user_type if details else None,
             "roles": roles,
+            "customer_profile_role": customer_role,
             "customers": customers,
             "customer": here,
             "is_portal_user": is_portal and not is_internal,

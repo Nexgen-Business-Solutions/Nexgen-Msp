@@ -30,9 +30,8 @@ import PortalUserDetail from '@/features/portal/pages/PortalUserDetail';
 import RoleDetail from './RoleDetail';
 import InvoiceGuard from './guards/InvoiceGuard';
 import AdminGuard from './guards/AdminGuard';
-import CustomersList from '@/features/internal/pages/CustomersList';
+import CustomerRoute from './CustomerRoute';
 import ServicesList from '@/features/internal/pages/ServicesList';
-import CustomerContract from '@/features/internal/pages/CustomerContract';
 import BillingRuns from '@/features/internal/pages/BillingRuns';
 import NewBillingRun from '@/features/internal/pages/NewBillingRun';
 import BillingRunDetail from '@/features/internal/pages/BillingRunDetail';
@@ -157,22 +156,9 @@ export const router = createBrowserRouter([
           </AdminGuard>
         ),
       },
-      {
-        path: 'customers',
-        element: (
-          <AdminGuard>
-            <CustomersList />
-          </AdminGuard>
-        ),
-      },
-      {
-        path: 'customers/:customer',
-        element: (
-          <AdminGuard>
-            <CustomerContract />
-          </AdminGuard>
-        ),
-      },
+      { path: 'customers', element: <CustomerRoute view="list" /> },
+      { path: 'customers/:customer', element: <CustomerRoute view="detail" /> },
+      { path: 'customer-profile', element: <CustomerRoute view="profile" /> },
       {
         path: 'billing',
         element: (

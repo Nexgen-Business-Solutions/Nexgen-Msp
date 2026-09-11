@@ -61,6 +61,7 @@ export const PORTAL_NAV: NavItem[] = [
   { id: 'portal-requests', label: 'Requests', icon: Inbox, path: '/msp/requests' },
   { id: 'portal-users', label: 'Users', icon: Users, path: '/msp/users' },
   { id: 'portal-devices', label: 'Devices', icon: Laptop, path: '/msp/devices' },
+  { id: 'portal-profile', label: 'Company profile', icon: Building2, path: '/msp/customer-profile' },
   { id: 'portal-services', label: 'Services', icon: Layers, path: '/msp/services' },
   { id: 'portal-invoices', label: 'Invoices', icon: Receipt, path: '/msp/invoices', needsInvoices: true },
 ];
@@ -84,9 +85,9 @@ export const PAGE_FALLBACK: NavItem = {
  */
 export const isPortalOnly = (roles: string[] = []) =>
   roles.some((role) => CUSTOMER_ROLES.includes(role)) &&
-  !roles.some((role) => INTERNAL_ROLES.includes(role));
+  !roles.includes('Administrator');
 
-export const isAdmin = (roles: string[] = []) => roles.some((role) => ADMIN_ROLES.includes(role));
+export const isAdmin = (roles: string[] = []) => !isPortalOnly(roles) && roles.some((role) => ADMIN_ROLES.includes(role));
 
 export type NavSection = { id: string; label: string | null; items: NavItem[] };
 
@@ -121,7 +122,11 @@ export const getSectionsForRoles = (roles: string[] = []): NavSection[] => {
   ];
 
   if (isAdmin(roles)) {
-    sections.push({ id: 'commercial', label: 'Commercial', items: COMMERCIAL });
+    const commercial = roles.includes('MSP System Admin') || roles.includes('Administrator')
+      ? COMMERCIAL : COMMERCIAL.filter((item) => item.id === 'services');
+    sections.push({ id: 'commercial', label: 'Commercial', items: commercial });
+  } else if (roles.includes('MSP Technician')) {
+    sections[1].items = [...OPERATIONS, { id: 'customers', label: 'Customers', icon: Building2, path: '/msp/customers' }];
   }
 
   const bottom: NavItem[] = [ACTIVITY];
