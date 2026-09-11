@@ -339,6 +339,11 @@ class SettingsService:
         doc.save(ignore_permissions=True)
         frappe.db.commit()
 
+        # the sessions already open follow the new limit at once, not at their next login
+        from nexgen_msp.utils.session_timeout import refresh_live_sessions
+
+        refresh_live_sessions()
+
         return SettingsService.get_portal_settings()
 
     @staticmethod

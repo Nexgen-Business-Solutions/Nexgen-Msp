@@ -29,7 +29,7 @@ SETTINGS_MARKER = "msp_invoice_defaults_seeded"
 
 
 def ensure_seeds():
-    done = [name for name in (_uom(), _actions(), _invoice_settings()) if name]
+    done = [name for name in (_uom(), _actions(), _invoice_settings(), _live_sessions()) if name]
 
     if done:
         print(f"  seeds: {', '.join(done)}")
@@ -72,3 +72,12 @@ def _invoice_settings():
     frappe.db.commit()
 
     return "invoice settings"
+
+
+def _live_sessions():
+    """A deployment that changes the customer session limit reaches the sessions already open."""
+    from nexgen_msp.utils.session_timeout import refresh_live_sessions
+
+    touched = refresh_live_sessions()
+
+    return f"{touched} live customer session(s) given the current limit" if touched else None

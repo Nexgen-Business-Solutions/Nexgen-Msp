@@ -426,6 +426,7 @@ class RequestService:
             # said per line so the technician sees what is still owed before being refused
             # a closure for it
             scope = RequestService._service_scope(line.get("requested_service"))
+            line["service_scope"] = scope
             line["needs_serial"] = bool(
                 scope in ("Device", "Both")
                 and line.get("managed_device")

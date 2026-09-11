@@ -60,3 +60,45 @@ def on_session_creation(login_manager=None):
     session = getattr(frappe.local, "session_obj", None)
     if session is not None:
         session.update(force=True)
+
+
+def refresh_live_sessions():
+    """Hand every open customer session the limit in force right now.
+
+    The limit is written into a session when it opens, so a session opened before the
+    setting existed — or before it changed — would keep its old one until the next login.
+    Called when the setting is saved and at every deployment.
+    """
+    import json
+
+    from frappe.sessions import get_expiry_period
+
+    seconds = customer_timeout_seconds()
+    period = as_period(seconds) if seconds else get_expiry_period()
+    touched = 0
+
+    for row in frappe.db.sql(
+        "select sid, user, sessiondata from `tabSessions` where user not in ('Guest', 'Administrator')",
+        as_dict=True,
+    ):
+        if not is_customer_account(row.user):
+            continue
+
+        data = frappe.parse_json(row.sessiondata or "{}")
+        if data.get("session_expiry") == period:
+            continue
+
+        data["session_expiry"] = period
+        frappe.db.sql(
+            "update `tabSessions` set sessiondata = %s where sid = %s",
+            (json.dumps(data, default=str), row.sid),
+        )
+        cached = frappe.cache.hget("session", row.sid)
+        if cached:
+            cached["data"]["session_expiry"] = period
+            frappe.cache.hset("session", row.sid, cached)
+        touched += 1
+
+    frappe.db.commit()
+
+    return touched

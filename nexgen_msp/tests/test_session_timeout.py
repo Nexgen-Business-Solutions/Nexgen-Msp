@@ -208,3 +208,40 @@ class TestTheLimitIsEnforced(SessionCase):
         user, _ = self.idle_then_resume(self.staff, 70)
 
         self.assertEqual(user, self.staff)
+
+
+class TestSessionsAlreadyOpen(SessionCase):
+    """A session opened before the limit existed, or changed, follows it without a new login."""
+
+    def test_the_limit_reaches_open_customer_sessions_and_leaves_staff_alone(self):
+        self.choose("")
+        opened = {}
+        for email in (self.client, self.staff):
+            user_type = frappe.db.get_value("User", email, "user_type")
+            frappe.local.request = Request(EnvironBuilder(path="/api/method/login").get_environ())
+            frappe.local.request_ip = "127.0.0.1"
+            frappe.local.session_obj = Session(user=email, resume=False, full_name=email, user_type=user_type)
+            frappe.local.session = frappe.local.session_obj.data
+            session_timeout.on_session_creation()
+            opened[email] = frappe.session.sid
+            self.restore()
+        try:
+            self.assertEqual(self.stored(opened[self.client]), get_expiry_period(), "opened under the site limit")
+
+            self.choose("8 hours")
+            # other customers may hold sessions on this site too: at least ours is reached
+            self.assertGreaterEqual(session_timeout.refresh_live_sessions(), 1)
+
+            self.assertEqual(self.stored(opened[self.client]), "08:00:00")
+            self.assertEqual(self.stored(opened[self.staff]), get_expiry_period())
+            frappe.local.cache.clear()
+            self.assertEqual(frappe.cache.hget("session", opened[self.client])["data"]["session_expiry"], "08:00:00")
+        finally:
+            for sid in opened.values():
+                delete_session(sid)
+            if hasattr(frappe.local, "request"):
+                del frappe.local.request
+
+    def stored(self, sid):
+        row = frappe.db.sql("select sessiondata from `tabSessions` where sid = %s", sid)
+        return frappe.parse_json(row[0][0])["session_expiry"]

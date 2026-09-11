@@ -17,6 +17,8 @@ export type PersonLine = {
   actionLabel: string | null;
   service: string;
   onDevice: boolean;
+  /** What the service is sold against: a machine may be owed even when none was named. */
+  serviceScope: string;
   isNewDevice: boolean;
   deviceName: string | null;
   serial: string | null;
@@ -201,6 +203,8 @@ export default function RequestLinesByPerson({
                               {line.isNewDevice ? 'New device' : 'Existing device'}
                             </Tag>
                           </>
+                        ) : line.serviceScope === 'Device' || line.serviceScope === 'Both' ? (
+                          <span className="text-slate-400">Not specified</span>
                         ) : (
                           '—'
                         )}

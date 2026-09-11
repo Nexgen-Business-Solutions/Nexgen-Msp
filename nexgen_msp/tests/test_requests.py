@@ -608,26 +608,46 @@ class TestDraftsAreNotChecked(MSPTestCase):
 
         self.assertEqual(out["status"], "Draft")
 
-    def test_sending_it_still_asks_for_the_machine(self):
+    def test_sent_without_the_machine_it_goes_out_about_the_person(self):
+        """A device service named against a person only: the machine is not specified."""
         frappe.set_user(self.author)
         out = PortalService.save_draft(
             customer=self.customer, request_type="Add", lines=self.half_written()
         )
-        name = out["name"]
+        name = self.track("MSP Service Request", out["name"])
 
         try:
-            with self.assertRaises(ValidationError):
-                PortalService.create_request(
-                    name=name,
-                    customer=self.customer,
-                    request_type="Add",
-                    lines=self.half_written(),
-                )
+            sent = PortalService.create_request(
+                name=name, customer=self.customer, request_type="Add", lines=self.half_written()
+            )
         finally:
             frappe.set_user("Administrator")
 
-        self.track("MSP Service Request", name)
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Draft")
+        self.assertEqual(sent["status"], "Submitted")
+        row = frappe.db.get_value(
+            "MSP Service Request Line", {"parent": name, "idx": 1},
+            ["target_scope", "client_user", "managed_device"], as_dict=True,
+        )
+        self.assertEqual((row.target_scope, row.client_user, row.managed_device), ("User", self.person, None))
+
+        frappe.set_user(self.author)
+        try:
+            seen = PortalService.get_request(name)["lines"][0]
+        finally:
+            frappe.set_user("Administrator")
+        self.assertEqual(seen["service_scope"], "Device")
+        self.assertIsNone(seen["hostname"], "so the page says: not specified")
+
+    def test_naming_nobody_and_no_machine_is_refused(self):
+        frappe.set_user(self.author)
+        try:
+            with self.assertRaises(ValidationError):
+                PortalService.create_request(
+                    customer=self.customer, request_type="Add",
+                    lines=[{"request_action": self.action(), "action": "Add", "target_scope": "User", "requested_service": self.device_service}],
+                )
+        finally:
+            frappe.set_user("Administrator")
 
     def test_once_the_machine_is_named_it_goes_out(self):
         frappe.set_user(self.author)

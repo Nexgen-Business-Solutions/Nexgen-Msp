@@ -755,6 +755,9 @@ class PortalService:
         )
 
         for line in lines:
+            line["service_scope"] = (
+                frappe.db.get_value("Item", line.get("requested_service"), "msp_service_scope") or "User"
+            )
             line["line_status"] = effective_line_status(line.get("line_status"), doc.status)
 
         return {
@@ -979,12 +982,10 @@ class PortalService:
             line["managed_device"] = None
             return line
 
-        if scope == "Device" or (scope == "Both" and device):
-            if not device:
-                raise ValidationError(
-                    f"{service} applies to a device — pick which one.", "VALIDATION_ERROR"
-                )
-
+        # a device service named against a machine is about that machine; named against a
+        # person only, it stays about the person and the machine is "not specified" — the
+        # technician settles it when delivering. Nobody is made to pick a machine.
+        if scope in ("Device", "Both") and device:
             owner = frappe.db.get_value(
                 "MSP Managed Device", device, ["customer", "assigned_client_user"], as_dict=True
             )
@@ -1000,6 +1001,11 @@ class PortalService:
             line["target_scope"] = "Device"
             line["client_user"] = None
             return line
+
+        if not line.get("client_user"):
+            raise ValidationError(
+                f"{service}: say who it is for, or which machine.", "VALIDATION_ERROR"
+            )
 
         line["target_scope"] = "User"
         line["managed_device"] = None

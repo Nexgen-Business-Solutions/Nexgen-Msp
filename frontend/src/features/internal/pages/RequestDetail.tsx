@@ -48,6 +48,7 @@ const asPersonLine = (line: RequestDetailLine, extra?: React.ReactNode): PersonL
     actionLabel: line.action_label,
     service: line.requested_service_name || line.requested_service,
     onDevice: Boolean(line.managed_device || line.is_new_device),
+    serviceScope: line.service_scope,
     isNewDevice: Boolean(line.is_new_device),
     deviceName: line.is_new_device ? line.new_device_label : line.device_hostname,
     serial: line.is_new_device ? line.new_device_serial : line.device_serial,

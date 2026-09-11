@@ -52,6 +52,7 @@ export type RequestDetailLine = {
   action_label: string | null;
   action_description: string | null;
   target_scope: string;
+  service_scope: string;
   is_new_user: number;
   client_user: string | null;
   client_user_name: string | null;

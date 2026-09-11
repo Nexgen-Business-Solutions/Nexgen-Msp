@@ -26,6 +26,7 @@ const asPersonLine = (line: PortalRequestLine): PersonLine => {
     actionLabel: line.action_label,
     service: line.service_name,
     onDevice: Boolean(line.managed_device || line.is_new_device),
+    serviceScope: line.service_scope,
     isNewDevice: Boolean(line.is_new_device),
     deviceName: line.is_new_device ? line.new_device_label : line.hostname,
     serial: line.is_new_device ? line.new_device_serial : line.serial_number,

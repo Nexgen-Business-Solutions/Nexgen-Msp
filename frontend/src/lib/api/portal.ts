@@ -286,6 +286,7 @@ export type PortalRequestLine = {
   delivered_on: string | null;
   request_action: string | null;
   target_scope: string | null;
+  service_scope: string;
   client_user: string | null;
   managed_device: string | null;
   requested_service: string | null;

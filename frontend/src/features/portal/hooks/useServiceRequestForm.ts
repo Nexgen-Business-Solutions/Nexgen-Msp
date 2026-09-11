@@ -69,7 +69,7 @@ const emptyLine = (seed?: LineSeed): FormLine => {
 
 export const NEW_DEVICE = '__new_device__';
 
-const validateLine = (line: FormLine, deviceServices: Set<string>): LineErrors => {
+const validateLine = (line: FormLine): LineErrors => {
   const errors: LineErrors = {};
 
   if (line.isNewUser) {
@@ -84,15 +84,13 @@ const validateLine = (line: FormLine, deviceServices: Set<string>): LineErrors =
   if (!line.action) errors.action = 'Select an action.';
   if (!line.services.length) errors.services = 'Select at least one service.';
 
-  const needsDevice = line.services.some((service) => deviceServices.has(service));
+  // const needsDevice = line.services.some((service) => deviceServices.has(service));
 
-  if (needsDevice) {
-    // the customer says whether the machine is one we already hold or a new one; what it is
-    // called and what is engraved on it is collected by whoever carries the work out
-    if (!line.managed_device) {
-      errors.managed_device = 'Say whether this is a machine we already hold, or a new one.';
-    }
-  }
+  // if (needsDevice) {
+  //   if (!line.managed_device) {
+  //     errors.managed_device = 'Say whether this is a machine we already hold, or a new one.';
+  //   }
+  // }
 
   return errors;
 };
@@ -101,7 +99,9 @@ const toPayloadLines = (line: FormLine, deviceServices: Set<string>): NewRequest
   line.services.map((service) => {
     const wantsDevice = deviceServices.has(service);
     const toRegister = wantsDevice && line.managed_device === NEW_DEVICE;
-    const onDevice = wantsDevice && !toRegister && !line.isNewUser;
+    // a machine is named only when one was actually picked; otherwise the line stays about
+    // the person and the machine is left for the technician to settle
+    const onDevice = wantsDevice && !toRegister && !line.isNewUser && Boolean(line.managed_device);
 
     return {
       request_action: line.action || undefined,
@@ -252,8 +252,8 @@ export const useServiceRequestForm = (
   );
 
   const errors = useMemo(
-    () => lines.map((line) => validateLine(line, deviceServices)),
-    [lines, deviceServices]
+    () => lines.map((line) => validateLine(line)),
+    [lines]
   );
   const isValid = errors.every((lineErrors) => Object.keys(lineErrors).length === 0);
   const totalServices = lines.reduce((sum, line) => sum + line.services.length, 0);
