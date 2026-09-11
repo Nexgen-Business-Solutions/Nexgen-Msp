@@ -32,10 +32,13 @@ class TestFiltersByRole(MSPTestCase):
         frappe.db.set_value("MSP Client User", self.alice, "username", "a.alice")
         self.bob = self.make_person(self.customer, "Bob")
         self.box1 = self.make_device(self.customer, hostname="BOX1", holder=self.alice, serial="SN-F1")
-        self.box2 = self.make_device(self.customer, hostname="BOX2")
+        # bob's machine is in service and runs nothing: that is what an idle machine is
+        self.box2 = self.make_device(self.customer, hostname="BOX2", holder=self.bob)
 
         self.svc_user = self.make_service("FU", scope="User")
         self.svc_dev = self.make_service("FD", scope="Device")
+        self.cover_service(self.customer, self.svc_user)
+        self.cover_service(self.customer, self.svc_dev)
 
         self.manager = self.make_account("customer", "MSP Customer Manager", self.customer, suffix="flm")
         self.operator = self.make_account("customer", "MSP Customer Operator", self.customer, suffix="flo")

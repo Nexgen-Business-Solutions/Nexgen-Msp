@@ -21,6 +21,7 @@ const COPY: Record<
   {
     title: string;
     subtitle: string;
+    hint: string;
     confirm: string;
     tone: string;
     icon: typeof CircleX;
@@ -30,6 +31,7 @@ const COPY: Record<
   Suspend: {
     title: 'Suspend this service',
     subtitle: 'Billing goes on hold. The service can be resumed later.',
+    hint: 'Billing is paused from the day the service is suspended.',
     confirm: 'Suspend',
     tone: 'bg-amber-600 hover:bg-amber-700',
     icon: PauseCircle,
@@ -38,15 +40,17 @@ const COPY: Record<
   Resume: {
     title: 'Resume this service',
     subtitle: 'The service becomes active and billable again.',
+    hint: 'Billing resumes from the day the service comes back.',
     confirm: 'Resume',
     tone: 'bg-blue-600 hover:bg-blue-700',
     icon: PlayCircle,
     modalTone: 'blue',
   },
   End: {
-    title: 'End this service',
+    title: 'Close this service',
     subtitle: 'The assignment is closed on the date you choose. History is kept.',
-    confirm: 'End service',
+    hint: 'This service will remain in history. Re-adding it later creates a new service period.',
+    confirm: 'Close service',
     tone: 'bg-red-600 hover:bg-red-700',
     icon: CircleX,
     modalTone: 'red',
@@ -143,7 +147,7 @@ const ServiceActionModal: React.FC<Props> = ({
 
         {target.action === 'End' && (
           <div>
-            <FieldLabel required>End date</FieldLabel>
+            <FieldLabel required>Close on</FieldLabel>
             <input
               type="date"
               value={endDate}
@@ -152,6 +156,8 @@ const ServiceActionModal: React.FC<Props> = ({
             />
           </div>
         )}
+
+        <p className="text-xs leading-relaxed text-slate-500">{copy.hint}</p>
 
         <RequestReferenceField
           requests={requests}

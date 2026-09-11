@@ -3,6 +3,7 @@ import frappe
 from nexgen_msp.utils.meta import select_options
 
 from nexgen_msp.utils import identifiers, permissions
+from nexgen_msp.utils.assignments import OPEN_ASSIGNMENT_STATUSES
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 ADMIN_ROLES = ("MSP System Admin", "System Manager", "Administrator")
@@ -424,16 +425,18 @@ class RequestService:
             line["line_status"] = effective_line_status(line.get("line_status"), doc.status)
 
             # said per line so the technician sees what is still owed before being refused
-            # a closure for it
-            scope = RequestService._service_scope(line.get("requested_service"))
-            line["service_scope"] = scope
+            # a closure for it. What is owed follows the target this line really resolved
+            # to, not what the catalogue merely allows: a 'Both' service landing on a
+            # machine never asks for a username.
+            line["service_scope"] = RequestService._service_scope(line.get("requested_service"))
+            target_scope = line.get("target_scope")
             line["needs_serial"] = bool(
-                scope in ("Device", "Both")
+                target_scope == "Device"
                 and line.get("managed_device")
                 and not (line.get("device_serial") or "").strip()
             )
             line["needs_username"] = bool(
-                scope in ("User", "Both")
+                target_scope == "User"
                 and line.get("client_user")
                 and not (line.get("client_username") or "").strip()
             )
@@ -600,27 +603,39 @@ class RequestService:
         return row[0].assignment_scope if row else "User"
 
     @staticmethod
-    def _find_open_assignment(customer, client_user, service_item):
-        """The assignment a Change/Suspend/Resume/Remove line acts upon."""
-        found = frappe.db.sql(
-            """
-            select sa.name
-            from `tabMSP Service Assignment` sa
-            left join `tabMSP Managed Device` device on device.name = sa.managed_device
-            where sa.customer = %(customer)s
-              and sa.service_item = %(service_item)s
-              and sa.operational_status in ('Pending Setup', 'Active', 'Suspended', 'Pending Removal')
-              and (sa.client_user = %(client_user)s or device.assigned_client_user = %(client_user)s)
-            order by sa.effective_start_date desc
-            limit 1
-            """,
-            {
+    def _find_open_assignment(
+        customer, service_item, assignment_scope, client_user=None, managed_device=None
+    ):
+        """The open assignment a Change/Suspend/Resume/Remove line acts upon.
+
+        A period belongs to exactly one target, and is looked up by that target alone: the
+        person a user service was issued to, or the machine a device service runs on. The
+        person who happens to hold the machine today owns nothing of it.
+        """
+        if assignment_scope not in ("User", "Device"):
+            return None
+
+        field = "client_user" if assignment_scope == "User" else "managed_device"
+        target = client_user if assignment_scope == "User" else managed_device
+
+        if not target:
+            return None
+
+        found = frappe.get_all(
+            "MSP Service Assignment",
+            filters={
                 "customer": customer,
                 "service_item": service_item,
-                "client_user": client_user or "",
+                "assignment_scope": assignment_scope,
+                field: target,
+                "operational_status": ("in", OPEN_ASSIGNMENT_STATUSES),
             },
+            order_by="effective_start_date desc",
+            pluck="name",
+            limit=1,
         )
-        return found[0][0] if found else None
+
+        return found[0] if found else None
 
     @staticmethod
     def _resolve_device(
@@ -644,8 +659,13 @@ class RequestService:
                     f"Device {managed_device} does not belong to {customer}.", "VALIDATION_ERROR"
                 )
 
-            if client_user and not device.assigned_client_user:
-                device.assigned_client_user = client_user
+            if client_user and device.assigned_client_user != client_user:
+                from nexgen_msp.api.internal.services.device_lifecycle_service import (
+                    DeviceLifecycleService,
+                )
+
+                DeviceLifecycleService.assign(device=device.name, client_user=client_user)
+                device.reload()
 
             if device_type:
                 device.device_type = device_type
@@ -700,12 +720,22 @@ class RequestService:
                 {
                     "doctype": "MSP Managed Device",
                     "customer": customer,
-                    "holder_log": [{"client_user": client_user}] if client_user else [],
+                    "holder_log": (
+                        [{
+                            "client_user": client_user,
+                            "full_name": frappe.db.get_value(
+                                "MSP Client User", client_user, "full_name"
+                            ),
+                            "from_date": frappe.utils.today(),
+                        }]
+                        if client_user
+                        else []
+                    ),
                     "hostname": hostname.strip().upper(),
                     "serial_number": serial_number,
                     "device_type": device_type or "Other",
-                    "status": "Active",
-                    "assigned_date": frappe.utils.today(),
+                    "status": "Active" if client_user else "Stock",
+                    "assigned_date": frappe.utils.today() if client_user else None,
                     "network_interfaces": [
                         {
                             "interface_type": interface.get("interface_type") or "Other",
@@ -780,10 +810,10 @@ class RequestService:
         rarely know them. They are collected while the work is carried out, and this is the
         gate that stops a request being closed without them.
 
-        What is required follows the scope the service is sold under. A service that lands
-        on a machine needs that machine's serial number; one that licenses a person needs
-        their account name; one sold against both needs both. The scope is a catalogue
-        fact, so the rule reads it there rather than from a list written here.
+        What is required follows the target the line really resolved to. A service that
+        lands on a machine needs that machine's serial number; one that licenses a person
+        needs their account name. A service the catalogue lets us sell either way asks for
+        one of the two, never both: 'Both' is a permission to target, not a target.
         """
         missing = []
 
@@ -801,10 +831,9 @@ class RequestService:
                 missing.append(f"line {row.idx}: {row.new_device_label} has not been registered")
                 continue
 
-            scope = RequestService._service_scope(row.requested_service)
             service = frappe.db.get_value("Item", row.requested_service, "item_name")
 
-            if scope in ("Device", "Both"):
+            if row.target_scope == "Device":
                 device = row.managed_device
 
                 if device and not (
@@ -813,7 +842,7 @@ class RequestService:
                     hostname = frappe.db.get_value("MSP Managed Device", device, "hostname")
                     missing.append(f"line {row.idx}: {hostname} has no serial number for {service}")
 
-            if scope in ("User", "Both"):
+            if row.target_scope == "User":
                 person = row.client_user
 
                 if person and not (
@@ -888,7 +917,7 @@ class RequestService:
                     )
                 elif row.client_user:
                     duplicate = RequestService._find_open_assignment(
-                        doc.customer, row.client_user, row.requested_service
+                        doc.customer, row.requested_service, "User", client_user=row.client_user
                     )
 
             lines.append(

@@ -25,6 +25,8 @@
   "effective_start_date",
   "column_break_period",
   "effective_end_date",
+  "section_suspension",
+  "suspension_log",
   "section_pricing",
   "price_source",
   "agreed_rate",
@@ -95,6 +97,7 @@
    "in_standard_filter": 1,
    "label": "Billing Status",
    "options": "Not Billable\nPending\nBillable\nOn Hold\nEnded",
+   "read_only": 1,
    "reqd": 1
   },
   {
@@ -173,6 +176,17 @@
    "fieldtype": "Date",
    "label": "Effective End Date",
    "mandatory_depends_on": "eval:doc.operational_status==\"Ended\""
+  },
+  {
+   "fieldname": "section_suspension",
+   "fieldtype": "Section Break",
+   "label": "Suspension History"
+  },
+  {
+   "fieldname": "suspension_log",
+   "fieldtype": "Table",
+   "label": "Suspension Log",
+   "options": "MSP Service Suspension"
   },
   {
    "fieldname": "section_pricing",

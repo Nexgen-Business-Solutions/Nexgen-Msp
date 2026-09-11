@@ -81,6 +81,7 @@ class MSPTestCase(IntegrationTestCase):
 
         frappe.db.sql("delete from `tabUser Permission` where user=%s", email)
         frappe.db.sql("delete from `tabHas Role` where parent=%s", email)
+        frappe.db.sql("delete from `tabNotification Settings` where name=%s", email)
         frappe.db.sql("delete from `tabUser` where name=%s", email)
 
     def make_customer(self, suffix="A"):
@@ -131,6 +132,81 @@ class MSPTestCase(IntegrationTestCase):
 
         return self.track("Item", code)
 
+    def cover_service(self, customer, service, rate=25.0):
+        """Put a service on the customer's live contract, at a rate in force today.
+
+        Opening a service asks the commercial questions before it writes anything — is this
+        on a contract the customer signed, is there a rate — so any fixture that opens one
+        has to answer them.
+        """
+        price_list = frappe.db.get_value(
+            "Price List", {"selling": 1, "enabled": 1}, ["name", "currency"], as_dict=True
+        )
+
+        if not price_list:
+            price_list = frappe.get_doc(
+                {
+                    "doctype": "Price List",
+                    "price_list_name": f"{PREFIX} Selling",
+                    "selling": 1,
+                    "enabled": 1,
+                    "currency": frappe.defaults.get_global_default("currency") or "USD",
+                }
+            ).insert(ignore_permissions=True)
+            self.track("Price List", price_list.name)
+
+        started = frappe.utils.add_days(frappe.utils.today(), -365)
+        existing = frappe.db.get_value("MSP Contract", {"customer": customer}, "name")
+
+        contract = (
+            frappe.get_doc("MSP Contract", existing)
+            if existing
+            else frappe.get_doc(
+                {
+                    "doctype": "MSP Contract",
+                    "customer": customer,
+                    "status": "Active",
+                    "start_date": started,
+                    "billing_frequency": "Monthly",
+                    "billing_timing": "In Arrears",
+                    "proration_method": "Daily Actual Days",
+                    "invoice_grouping": "One Invoice",
+                    "price_list": price_list.name,
+                    "currency": price_list.currency,
+                }
+            )
+        )
+
+        if not any(row.service_item == service for row in contract.services):
+            contract.append("services", {"service_item": service})
+
+        contract.save(ignore_permissions=True)
+        self.track("MSP Contract", contract.name)
+
+        if rate and not frappe.db.exists(
+            "Item Price", {"item_code": service, "customer": customer, "selling": 1}
+        ):
+            self.track(
+                "Item Price",
+                frappe.get_doc(
+                    {
+                        "doctype": "Item Price",
+                        "item_code": service,
+                        "price_list": price_list.name,
+                        "customer": customer,
+                        "selling": 1,
+                        "buying": 0,
+                        "currency": price_list.currency,
+                        "price_list_rate": rate,
+                        "valid_from": started,
+                    }
+                ).insert(ignore_permissions=True).name,
+            )
+
+        frappe.db.commit()
+
+        return contract.name
+
     def make_person(self, customer, full_name="Someone", department=None):
         doc = frappe.get_doc(
             {
@@ -160,17 +236,19 @@ class MSPTestCase(IntegrationTestCase):
                 "customer": customer,
                 "hostname": f"{PREFIX}-{hostname}",
                 "device_type": "PC",
-                "status": "Active",
+                "status": "Stock",
                 "serial_number": serial,
             }
         ).insert(ignore_permissions=True)
 
         # the holder mirrors the hand-over history and is read-only on the device itself,
-        # so a fixture has to go through the same door the application uses
+        # so a fixture has to go through the same door the application uses — and a machine
+        # is Active because somebody holds it, never on its own
         if holder:
             from nexgen_msp.utils import device_holders
 
             device_holders.hand_over(doc, holder)
+            doc.status = "Active"
             doc.save(ignore_permissions=True)
 
         frappe.db.commit()

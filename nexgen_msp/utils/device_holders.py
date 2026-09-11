@@ -1,6 +1,10 @@
 import frappe
+from frappe import _
 
 FIELD = "holder_log"
+
+# a person the machine may be handed to: someone who has left is not given one
+HOLDABLE_LIFECYCLE = ("Active", "Pending")
 
 
 def _open_row(doc):
@@ -22,6 +26,22 @@ def _last_row(doc):
 	return max(rows, key=lambda row: (frappe.utils.getdate(row.from_date), row.idx or 0))
 
 
+def last_transition(doc):
+	"""The most recent day the history already speaks for, whether it opened or closed a spell.
+
+	Nothing may be dated before it: the history is read as a sequence, and a spell slipped
+	in behind the last one describes a machine being in two places at once.
+	"""
+	dates = [
+		frappe.utils.getdate(value)
+		for row in doc.get(FIELD) or []
+		for value in (row.from_date, row.to_date)
+		if value
+	]
+
+	return max(dates) if dates else None
+
+
 def sync_current(doc):
 	"""Restate who holds the machine from its history, and flag that row as the current one.
 
@@ -29,27 +49,15 @@ def sync_current(doc):
 	onto it, kept here so the dozens of queries that join on it stay simple. Deriving it on
 	every save is what makes the two impossible to disagree.
 
-	Nobody holds a machine that has left service, so its open spell closes on the day it was
-	retired — the device still points at that last holder, which is what keeps the machine on
-	their page.
+	It reads the history and nothing else. Closing a spell because the machine is leaving
+	service is a decision, and decisions are taken before the save, not inside the mirror.
 	"""
-	retired = bool(doc.status) and doc.status != "Active"
 	current = _open_row(doc)
-
-	if retired and current:
-		current.to_date = doc.retired_date or frappe.utils.today()
-		current = None
 
 	for row in doc.get(FIELD) or []:
 		row.is_current = 1 if row is current else 0
 
-	if current:
-		doc.assigned_client_user = current.client_user
-	elif retired:
-		last = _last_row(doc)
-		doc.assigned_client_user = last.client_user if last else None
-	else:
-		doc.assigned_client_user = None
+	doc.assigned_client_user = current.client_user if current else None
 
 
 def hand_over(doc, client_user, on_date=None, note=None):
@@ -58,21 +66,15 @@ def hand_over(doc, client_user, on_date=None, note=None):
 	Closes whoever held it and opens a spell for the new holder. Nothing is written when
 	the holder has not actually changed, so saving a device for another reason does not
 	fabricate a hand-over.
+
+	A machine coming back to someone who had it before is an ordinary thing to happen, and
+	it opens a spell of its own: the history says who held it when, not who has ever held it.
 	"""
 	on_date = on_date or frappe.utils.today()
 	current = _open_row(doc)
 
 	if current and current.client_user == client_user:
 		return False
-
-	# a machine out of service has no open spell any more — its last one was closed on the
-	# day it was retired. Handing it to the person who already held it last would open a
-	# second spell for the same holder, and a re-import would do so again every time.
-	if not current:
-		last = _last_row(doc)
-
-		if last and last.client_user == client_user:
-			return False
 
 	if current:
 		current.to_date = on_date
@@ -91,6 +93,59 @@ def hand_over(doc, client_user, on_date=None, note=None):
 	)
 
 	return True
+
+
+def validate_holder_log(doc):
+	"""Refuse a history that cannot have happened.
+
+	Read in the order it was written, a machine goes to one person at a time: a spell ends
+	before the next begins — the same day is fine, a machine changes hands in the morning —
+	and only the last one may still be open.
+	"""
+	rows = doc.get(FIELD) or []
+	previous = None
+
+	if len([row for row in rows if not row.to_date]) > 1:
+		frappe.throw(_("Only one holder period can be open at a time."))
+
+	for row in rows:
+		if not row.from_date:
+			frappe.throw(_("Row {0}: a holder period needs the day it started.").format(row.idx))
+
+		if row.to_date and frappe.utils.getdate(row.to_date) < frappe.utils.getdate(row.from_date):
+			frappe.throw(_("Row {0}: a holder period cannot end before it started.").format(row.idx))
+
+		if bool(row.is_current) != (not row.to_date):
+			frappe.throw(
+				_("Row {0}: the current holder is the one whose period is still open.").format(row.idx)
+			)
+
+		holder_customer = frappe.db.get_value("MSP Client User", row.client_user, "customer")
+
+		if holder_customer != doc.customer:
+			frappe.throw(
+				_("Row {0}: {1} belongs to customer {2}, not {3}.").format(
+					row.idx, frappe.bold(row.client_user), frappe.bold(holder_customer), frappe.bold(doc.customer)
+				)
+			)
+
+		if previous:
+			if frappe.utils.getdate(row.from_date) < frappe.utils.getdate(previous.from_date):
+				frappe.throw(
+					_("Row {0}: a holder period cannot start before the one recorded above it.").format(row.idx)
+				)
+
+			if not previous.to_date:
+				frappe.throw(
+					_("Row {0}: the open holder period must be the last one.").format(previous.idx)
+				)
+
+			if frappe.utils.getdate(row.from_date) < frappe.utils.getdate(previous.to_date):
+				frappe.throw(
+					_("Row {0}: the previous holder still had the device on that day.").format(row.idx)
+				)
+
+		previous = row
 
 
 def history(device):

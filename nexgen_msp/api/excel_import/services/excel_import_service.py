@@ -6,6 +6,7 @@ from nexgen_msp.utils.catalogue import BILLING_UOM
 
 from nexgen_msp.api.excel_import.services import excel_parser
 from nexgen_msp.utils import device_holders as holders
+from nexgen_msp.utils.device_status import AVAILABLE_STATUSES, DEPLOYED_STATUSES
 
 FIELD_HOLDERS = "holder_log"
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
@@ -413,7 +414,8 @@ class ExcelImportService:
             # a machine that changed hands closes the previous spell instead of
             # overwriting who held it
             if field == "holder_log":
-                wanted = value[0]["client_user"] if value else None
+                spell = value[0] if value else None
+                wanted = spell["client_user"] if spell and not spell.get("to_date") else None
 
                 # filling gaps only: a machine that already has a holder keeps the one the
                 # application recorded. The sheet is a photograph of one day, and a
@@ -421,7 +423,11 @@ class ExcelImportService:
                 if ExcelImportService._fill_blanks_only and doc.get(FIELD_HOLDERS):
                     continue
 
-                if holders.hand_over(doc, wanted, wanted and value[0].get("from_date")):
+                if not wanted or doc.status not in AVAILABLE_STATUSES + DEPLOYED_STATUSES:
+                    continue
+
+                if holders.hand_over(doc, wanted, spell.get("from_date")):
+                    doc.status = "Active"
                     touched = True
 
                 continue
@@ -500,8 +506,14 @@ class ExcelImportService:
                 }
             )
 
-        status = "Retired" if record["device_disabled"] else "Active"
+        status = "Retired" if record["device_disabled"] else ("Active" if client_user else "Stock")
         retired_date = record["device_disabled"] if status == "Retired" else None
+        held_from = record["device_created"] or record.get("start_date") or retired_date
+        held_to = (
+            max(frappe.utils.getdate(retired_date), frappe.utils.getdate(held_from))
+            if retired_date and held_from
+            else retired_date
+        )
 
         values = {
                 "doctype": "MSP Managed Device",
@@ -510,7 +522,8 @@ class ExcelImportService:
                     [{
                         "client_user": client_user,
                         "full_name": record["full_name"],
-                        "from_date": record["device_created"] or record.get("start_date"),
+                        "from_date": held_from,
+                        "to_date": held_to,
                     }]
                     if client_user
                     else []

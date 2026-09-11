@@ -7,11 +7,12 @@ from nexgen_msp.utils import remarks as remarks_util
 
 from nexgen_msp.api.internal.services.request_service import CUSTOMER_STATUS, RequestService
 from nexgen_msp.api.internal.services.user_service import UserService
+from nexgen_msp.api.internal.services.device_lifecycle_service import DeviceLifecycleService
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 from nexgen_msp.utils.assignments import OPEN_ASSIGNMENT_STATUSES
 
 
-COVERAGE_FILTERS = ("no_service", "unassigned", "no_mac")
+COVERAGE_FILTERS = ("no_service", "stock", "unassigned", "no_mac")
 
 MAX_PAGE_LENGTH = 200
 
@@ -64,10 +65,8 @@ class DeviceService:
                          and sa.operational_status in %(open)s
                    )"""
             ),
-            "unassigned_devices": count(
-                """device.status = 'Active'
-                   and (device.assigned_client_user is null or device.assigned_client_user = '')"""
-            ),
+            "devices_in_stock": count("device.status = 'Stock'"),
+            "unassigned_devices": count("device.status = 'Stock'"),
             "devices_without_mac": count(
                 """device.status = 'Active'
                    and not exists (
@@ -102,11 +101,8 @@ class DeviceService:
                       and sa.operational_status in %(open)s
                 )"""
             )
-        elif coverage == "unassigned":
-            conditions.append("device.status = 'Active'")
-            conditions.append(
-                "(device.assigned_client_user is null or device.assigned_client_user = '')"
-            )
+        elif coverage in ("stock", "unassigned"):
+            conditions.append("device.status = 'Stock'")
         elif coverage == "no_mac":
             conditions.append("device.status = 'Active'")
             conditions.append(
@@ -337,6 +333,11 @@ class DeviceService:
             if doc.assigned_client_user
             else None
         )
+        doc["user_department"] = (
+            frappe.db.get_value("MSP Client User", doc.assigned_client_user, "department")
+            if doc.assigned_client_user
+            else None
+        )
 
         interfaces = frappe.get_all(
             "MSP Network Interface",
@@ -494,7 +495,16 @@ class DeviceService:
     def assign_device_service(
         device=None, service_item=None, effective_date=None, notes=None, source_request=None
     ):
-        """Open a device-scoped service straight on the machine."""
+        """Open a device-scoped service straight on the machine.
+
+        A machine takes a new service while it is out in the field or sitting on the shelf:
+        a repossessed laptop is still ours to fit out. Which statuses those are, and every
+        commercial question behind the service, belong to the lifecycle service.
+        """
+        from nexgen_msp.api.internal.services.service_lifecycle_service import (
+            ServiceLifecycleService,
+        )
+
         RequestService._guard_internal()
 
         if not device or not service_item:
@@ -507,59 +517,21 @@ class DeviceService:
         if not doc:
             raise NotFoundError(f"Managed Device {device} not found.", "NOT_FOUND")
 
-        if doc.status != "Active":
-            raise ValidationError(
-                f"{device} is {doc.status.lower()} — only an active device can take a service.",
-                "VALIDATION_ERROR",
-            )
-
-        scope = RequestService._service_scope(service_item)
-
-        if scope == "User":
+        if RequestService._service_scope(service_item) == "User":
             raise ValidationError(
                 f"{service_item} is billed per user — assign it from the user's profile.",
                 "VALIDATION_ERROR",
             )
 
-        existing = frappe.db.exists(
-            "MSP Service Assignment",
-            {
-                "managed_device": device,
-                "service_item": service_item,
-                "operational_status": ("in", OPEN_ASSIGNMENT_STATUSES),
-            },
+        ServiceLifecycleService.activate(
+            customer=doc.customer,
+            service_item=service_item,
+            target_scope="Device",
+            managed_device=device,
+            effective_date=effective_date,
+            source_request=source_request,
+            notes=notes,
         )
-
-        if existing:
-            raise ValidationError(
-                f"This device already holds an open {service_item} assignment ({existing}).",
-                "VALIDATION_ERROR",
-            )
-
-        source_request = UserService._checked_request(source_request, doc.customer)
-
-        assignment = frappe.get_doc(
-            {
-                "doctype": "MSP Service Assignment",
-                "customer": doc.customer,
-                "service_item": service_item,
-                "assignment_scope": "Device",
-                "managed_device": device,
-                "quantity": 1,
-                "uom": frappe.db.get_value("Item", service_item, "stock_uom") or "Unit",
-                "operational_status": "Active",
-                "billing_status": "Billable",
-                "effective_start_date": effective_date or frappe.utils.today(),
-                "price_source": "Contract",
-                "source_request": source_request,
-                "internal_notes": notes or None,
-            }
-        ).insert()
-
-        reference = f" in reference to {source_request}" if source_request else ""
-        assignment.add_comment("Comment", f"Opened by {frappe.session.user}{reference}.")
-        remarks_util.on_assignment(assignment, "granted", notes)
-        frappe.db.commit()
 
         return DeviceService.get_device_context(device)
 
@@ -646,10 +618,10 @@ class DeviceService:
 
     @staticmethod
     def hand_over_device(device=None, client_user=None, on_date=None, note=None):
-        """Hand a machine to someone else on a stated day.
+        """Hand a machine to somebody, or take it back if it is handed to nobody.
 
-        A hand-over is its own act, dated on its own day: reading it off the date the machine
-        entered service is what wrote yesterday's changes into 2024.
+        The act itself belongs to the lifecycle service; this only reads who has the machine
+        to know which of the three it is, so the old callers keep the name they know.
         """
         RequestService._guard_internal()
 
@@ -659,57 +631,18 @@ class DeviceService:
         if not frappe.db.exists("MSP Managed Device", device):
             raise NotFoundError(f"Managed Device {device} not found.", "NOT_FOUND")
 
-        doc = frappe.get_doc("MSP Managed Device", device)
-        on_date = on_date or frappe.utils.today()
+        holder = frappe.db.get_value("MSP Managed Device", device, "assigned_client_user")
 
-        if frappe.utils.getdate(on_date) > frappe.utils.getdate(frappe.utils.today()):
-            raise ValidationError(
-                "A hand-over cannot be dated in the future.", "VALIDATION_ERROR"
+        if not client_user:
+            DeviceLifecycleService.repossess(device=device, effective_date=on_date, note=note)
+        elif holder:
+            DeviceLifecycleService.transfer(
+                device=device, client_user=client_user, effective_date=on_date, note=note
             )
-
-        if client_user:
-            owner = frappe.db.get_value("MSP Client User", client_user, "customer")
-
-            if not owner:
-                raise NotFoundError(f"Client User {client_user} not found.", "NOT_FOUND")
-
-            if owner != doc.customer:
-                raise ValidationError(
-                    f"{client_user} belongs to {owner}, not {doc.customer}.",
-                    "VALIDATION_ERROR",
-                )
-
-        current = holders._open_row(doc)
-
-        if current and current.client_user == (client_user or None):
-            raise ValidationError(
-                f"{current.full_name or current.client_user} already holds this device.",
-                "VALIDATION_ERROR",
+        else:
+            DeviceLifecycleService.assign(
+                device=device, client_user=client_user, effective_date=on_date, note=note
             )
-
-        if current and frappe.utils.getdate(on_date) < frappe.utils.getdate(current.from_date):
-            raise ValidationError(
-                f"They took it on {frappe.utils.formatdate(current.from_date)}, so it cannot "
-                "change hands before that day.",
-                "VALIDATION_ERROR",
-            )
-
-        if not current and not client_user:
-            raise ValidationError("Nobody holds this device.", "VALIDATION_ERROR")
-
-        holders.hand_over(doc, client_user or None, on_date, note=note)
-
-        # the hand-over is written in the history; the log says it in words
-        taker = frappe.db.get_value("MSP Client User", client_user, "full_name") if client_user else None
-        line = f"Handed over to {taker}" if taker else "Left in nobody's hands"
-        remarks_util.add(
-            doc,
-            f"{line} on {frappe.utils.formatdate(on_date)}" + (f" — {note}" if note else ""),
-        )
-
-        doc.save()
-        doc.add_comment("Comment", f"Handed over by {frappe.session.user} on {on_date}.")
-        frappe.db.commit()
 
         return DeviceService.get_device_context(device)
 
@@ -722,7 +655,7 @@ class DeviceService:
         assigned_client_user=None,
         notes=None,
     ):
-        """Retire a machine or bring it back. Retiring also closes what it was still billing."""
+        """Retire a machine or bring it back, through the lifecycle service."""
         RequestService._guard_internal()
 
         if not device or action not in ("Retire", "Reinstate"):
@@ -731,75 +664,30 @@ class DeviceService:
         if not frappe.db.exists("MSP Managed Device", device):
             raise NotFoundError(f"Managed Device {device} not found.", "NOT_FOUND")
 
-        doc = frappe.get_doc("MSP Managed Device", device)
-        effective_date = effective_date or frappe.utils.today()
-        closed = []
-
         if action == "Retire":
-            if doc.status != "Active":
+            if status and status != "Retired":
                 raise ValidationError(
-                    f"{doc.hostname} is already {doc.status.lower()}.", "INVALID_TRANSITION"
+                    f"'{status}' can no longer be set through Retire — only 'Retired' is.",
+                    "VALIDATION_ERROR",
                 )
 
-            target = status or "Retired"
-            if target not in ("Returned", "Damaged", "Retired", "Lost"):
-                raise ValidationError(f"'{target}' is not a retirement status.", "VALIDATION_ERROR")
-
-            for name in frappe.get_all(
-                "MSP Service Assignment",
-                filters={
-                    "managed_device": device,
-                    "operational_status": ("in", OPEN_ASSIGNMENT_STATUSES),
-                },
-                pluck="name",
-            ):
-                assignment = frappe.get_doc("MSP Service Assignment", name)
-                assignment.operational_status = "Ended"
-                assignment.billing_status = "Ended"
-                # a retirement backdated before the service started still ends it, on its own day
-                assignment.effective_end_date = max(
-                    frappe.utils.getdate(effective_date),
-                    frappe.utils.getdate(assignment.effective_start_date),
-                ) if assignment.effective_start_date else effective_date
-                assignment.save()
-                assignment.add_comment(
-                    "Comment", f"Ended with device {doc.hostname} by {frappe.session.user}."
-                )
-                closed.append(name)
-
-            doc.status = target
-            doc.retired_date = effective_date
-            # the machine leaves service, so nobody holds it any more
-            holders.hand_over(doc, None, effective_date, note=f"{target.lower()}")
+            outcome = DeviceLifecycleService.retire(
+                device=device, effective_date=effective_date, note=notes
+            )
         else:
-            if doc.status == "Active":
-                raise ValidationError(f"{doc.hostname} is already active.", "INVALID_TRANSITION")
-
-            doc.status = "Active"
-            doc.retired_date = None
-            doc.assigned_date = effective_date
-
-            if assigned_client_user:
-                owner = frappe.db.get_value("MSP Client User", assigned_client_user, "customer")
-                if owner != doc.customer:
-                    raise ValidationError(
-                        f"{assigned_client_user} belongs to {owner}, not {doc.customer}.",
-                        "VALIDATION_ERROR",
-                    )
-                holders.hand_over(doc, assigned_client_user, effective_date, note="reinstated")
-
-        # why a machine was retired or reinstated belongs in its history, not on top of it
-        remarks_util.add(doc, notes)
-
-        doc.save()
-        doc.add_comment("Comment", f"{action} applied by {frappe.session.user}.")
-        frappe.db.commit()
+            outcome = DeviceLifecycleService.reinstate(
+                device=device,
+                effective_date=effective_date,
+                client_user=assigned_client_user or None,
+                note=notes,
+            )
+            outcome["closed_assignments"] = []
 
         return {
-            "name": doc.name,
-            "hostname": doc.hostname,
-            "status": doc.status,
-            "closed_assignments": closed,
+            "name": outcome["name"],
+            "hostname": outcome["hostname"],
+            "status": outcome["status"],
+            "closed_assignments": outcome["closed_assignments"],
         }
 
     @staticmethod
@@ -891,8 +779,10 @@ class DeviceService:
                 ),
                 "hostname": hostname,
                 "device_type": device_type or "Other",
-                "status": "Active",
-                "assigned_date": assigned_date or frappe.utils.today(),
+                "status": "Active" if assigned_client_user else "Stock",
+                "assigned_date": (
+                    (assigned_date or frappe.utils.today()) if assigned_client_user else None
+                ),
                 "serial_number": serial_number or None,
                 "network_interfaces": rows,
                 "remark_log": (

@@ -28,6 +28,7 @@ import {
   useDeviceStats,
   useChangeDeviceStatus,
 } from '../hooks/useDevices';
+import { canReinstate, canRetire } from '../utils/deviceStatus';
 
 const COLUMNS = ['Device', 'Customer', 'Network interfaces', 'Active services', 'Inactive services', ''];
 
@@ -42,7 +43,7 @@ const INTERFACE_ORDER = ['Wi-Fi', 'LAN', 'Extra', 'Other'];
 
 const COVERAGE_OPTIONS = [
   { value: 'no_service', label: 'No active service', description: 'Active, nothing running on it' },
-  { value: 'unassigned', label: 'Not assigned to anyone', description: 'Active, no holder' },
+  { value: 'stock', label: 'In stock', description: 'Available, nobody holds it' },
   { value: 'no_mac', label: 'No MAC recorded', description: 'Identification incomplete' },
 ];
 
@@ -98,11 +99,11 @@ export default function DevicesList() {
         <KpiCard
           icon={UserX}
           accent="indigo"
-          label="Unassigned"
-          value={stats.data?.unassigned_devices ?? 0}
-          caption="Active devices with no holder"
+          label="Devices in stock"
+          value={stats.data?.devices_in_stock ?? 0}
+          caption="Available, nobody holds them"
           loading={stats.isLoading}
-          onView={() => patch({ coverage: 'unassigned', status: '' })}
+          onView={() => patch({ coverage: 'stock', status: '' })}
         />
         <KpiCard
           icon={Wifi}
@@ -311,14 +312,14 @@ export default function DevicesList() {
                                 label: 'Put back in service',
                                 icon: RotateCcw,
                                 onClick: () => setStatusTarget({ row, action: 'Reinstate' }),
-                                disabled: row.status === 'Active',
+                                disabled: !canReinstate(row.status),
                               },
                               {
                                 label: 'Retire device',
                                 icon: PowerOff,
                                 onClick: () => setStatusTarget({ row, action: 'Retire' }),
                                 danger: true,
-                                disabled: row.status !== 'Active',
+                                disabled: !canRetire(row.status),
                               },
                             ] as RowAction[]
                           }

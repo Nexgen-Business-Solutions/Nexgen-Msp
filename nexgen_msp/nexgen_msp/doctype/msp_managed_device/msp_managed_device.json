@@ -102,9 +102,10 @@
    "description": "Mirrors the current row of the holder history \u2014 set there, not here."
   },
   {
+   "description": "The day this device first went into service. The current holder's own start date is on the Holder History row.",
    "fieldname": "assigned_date",
    "fieldtype": "Date",
-   "label": "Assigned Date"
+   "label": "In Service Since"
   },
   {
    "fieldname": "column_break_assignment",
@@ -114,8 +115,8 @@
    "depends_on": "eval:[\"Returned\",\"Damaged\",\"Retired\",\"Lost\"].includes(doc.status)",
    "fieldname": "retired_date",
    "fieldtype": "Date",
-   "label": "Retired Date",
-   "mandatory_depends_on": "eval:[\"Returned\",\"Retired\"].includes(doc.status)"
+   "label": "Out of Service Date",
+   "mandatory_depends_on": "eval:[\"Returned\",\"Damaged\",\"Retired\",\"Lost\"].includes(doc.status)"
   },
   {
    "fieldname": "section_hardware",

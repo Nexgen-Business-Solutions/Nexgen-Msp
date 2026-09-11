@@ -17,8 +17,10 @@ CLOSED_STATUSES = ("Returned", "Damaged", "Retired", "Lost")
 class MSPManagedDevice(Document):
 	def validate(self):
 		holders.sync_current(self)
+		holders.validate_holder_log(self)
 		self.normalize_hostname()
 		self.validate_unique_serial()
+		self.validate_holder_matches_status()
 		self.validate_assigned_user()
 		self.validate_status_dates()
 		self.validate_network_interfaces()
@@ -56,6 +58,25 @@ class MSPManagedDevice(Document):
 				)
 			)
 
+	def validate_holder_matches_status(self):
+		"""Active means one person has the machine; any other status means nobody does.
+
+		Who holds it is decided in the history, and the status is decided with it. This is
+		the last door before the database: a machine that is Active with nobody on it, or
+		on a shelf with somebody still holding it, describes a state of affairs that cannot
+		be true, and it stops here whatever wrote it.
+		"""
+		current = [row for row in (self.holder_log or []) if not row.to_date]
+
+		if len(current) > 1:
+			frappe.throw(_("A device can have only one current holder."))
+
+		if self.status == "Active":
+			if not current or not self.assigned_client_user:
+				frappe.throw(_("Active devices must have exactly one current holder."))
+		elif current or self.assigned_client_user:
+			frappe.throw(_("A device that is not Active must have no current holder."))
+
 	def validate_assigned_user(self):
 		if not self.assigned_client_user:
 			return
@@ -69,17 +90,14 @@ class MSPManagedDevice(Document):
 			)
 
 	def validate_status_dates(self):
-		if self.status in ("Returned", "Retired") and not self.retired_date:
-			frappe.throw(_("Retired Date is required when Status is {0}.").format(self.status))
+		if self.status in CLOSED_STATUSES and not self.retired_date:
+			frappe.throw(_("Out of Service Date is required when Status is {0}.").format(self.status))
 
 		if self.status not in CLOSED_STATUSES:
 			self.retired_date = None
 
 		if self.assigned_date and self.retired_date and getdate(self.retired_date) < getdate(self.assigned_date):
-			frappe.throw(_("Retired Date cannot be earlier than Assigned Date."))
-
-		if self.status == "Active" and not self.assigned_client_user and not self.assigned_date:
-			self.assigned_date = frappe.utils.today()
+			frappe.throw(_("Out of Service Date cannot be earlier than In Service Since."))
 
 	def validate_network_interfaces(self):
 		seen = set()

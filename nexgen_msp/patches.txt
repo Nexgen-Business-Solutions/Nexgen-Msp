@@ -27,3 +27,6 @@ nexgen_msp.patches.flag_current_holder
 nexgen_msp.patches.close_retired_holders
 nexgen_msp.patches.flag_username_services
 nexgen_msp.patches.close_abandoned_lines
+nexgen_msp.patches.normalize_device_lifecycle
+nexgen_msp.patches.backfill_holder_period_dates
+nexgen_msp.patches.normalize_service_assignments

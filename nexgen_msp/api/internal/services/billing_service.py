@@ -11,7 +11,11 @@ from nexgen_msp.api.internal.services.contract_service import ContractService
 from nexgen_msp.utils.catalogue import BILLING_UOM
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
-BILLABLE_OPERATIONAL = ("Pending Setup", "Active", "Pending Removal", "Ended")
+# a suspended service belongs here too: it was provided over the days before it was paused,
+# and those days are billed — the pause itself comes off in the arithmetic below
+BILLABLE_OPERATIONAL = ("Pending Setup", "Active", "Suspended", "Pending Removal", "Ended")
+
+BILLABLE_BILLING_STATUS = ("Billable", "On Hold", "Ended")
 
 LIVE_CONTRACT_STATUSES = ("Active", "Suspended")
 
@@ -59,8 +63,62 @@ class BillingService:
         return (getdate(period_end) - getdate(period_start)).days + 1
 
     @staticmethod
-    def _billable_days(assignment, period_start, period_end):
-        """Days the service was actually live inside the billing period, both ends included."""
+    def _suspended_intervals(assignment, suspensions, window_start, window_end):
+        """The stretches of the window the service was paused over, both ends included.
+
+        A pause runs from the day it started to the day before it was resumed: the day of
+        the resume is billable again, so it never belongs to the pause. A pause nobody
+        closed has no end of its own — on a service closed while it was suspended it stops
+        on the end date, because nothing was provided after that day either way, and
+        otherwise it runs to the end of whatever window is being asked about.
+
+        The log cannot hold overlapping intervals, so the caller may sum them as they are.
+        """
+        window_start = getdate(window_start)
+        window_end = getdate(window_end)
+
+        if not suspensions or window_end < window_start:
+            return []
+
+        ended_on = getdate(assignment.effective_end_date) if assignment.effective_end_date else None
+        intervals = []
+
+        for row in suspensions:
+            if not row.suspended_on:
+                continue
+
+            paused_from = getdate(row.suspended_on)
+
+            if row.resumed_on:
+                paused_to = getdate(add_days(getdate(row.resumed_on), -1))
+            else:
+                paused_to = min(ended_on, window_end) if ended_on else window_end
+
+            first = max(paused_from, window_start)
+            last = min(paused_to, window_end)
+
+            if last >= first:
+                intervals.append((first, last))
+
+        return sorted(intervals)
+
+    @staticmethod
+    def _suspended_days(assignment, suspensions, window_start, window_end):
+        """How many days of the window the service was paused over, both ends included."""
+        return sum(
+            (last - first).days + 1
+            for first, last in BillingService._suspended_intervals(
+                assignment, suspensions, window_start, window_end
+            )
+        )
+
+    @staticmethod
+    def _billable_days(assignment, period_start, period_end, suspensions=None):
+        """Days the service was actually live inside the billing period, both ends included.
+
+        A day the service was paused over is not a day it was provided, so the pauses come
+        off the stretch the period and the assignment have in common.
+        """
         start = getdate(assignment.effective_start_date)
         end = getdate(assignment.effective_end_date) if assignment.effective_end_date else None
 
@@ -70,7 +128,12 @@ class BillingService:
         if window_end < window_start:
             return 0
 
-        return (window_end - window_start).days + 1
+        days = (window_end - window_start).days + 1
+        paused = BillingService._suspended_days(
+            assignment, suspensions, window_start, window_end
+        )
+
+        return max(days - paused, 0)
 
     @staticmethod
     def _calendar_months(period_start, period_end):
@@ -108,11 +171,15 @@ class BillingService:
         return min(-(-days // DAY_BLOCK) * DAY_BLOCK, days_in_month)
 
     @staticmethod
-    def _billable_months(method, assignment, period_start, period_end):
+    def _billable_months(method, assignment, period_start, period_end, suspensions=None):
         """How many monthly instalments the assignment earns inside the period.
 
         This is the quantity that reaches the invoice: a monthly rate multiplied by a
         number of months, which is how the printed invoice has always read.
+
+        The days the service was paused over come off month by month, before the rounding:
+        a service suspended for a fortnight earns the instalment of the days it really ran,
+        and a month it was suspended throughout earns nothing at all.
         """
         start = getdate(assignment.effective_start_date)
         end = getdate(assignment.effective_end_date) if assignment.effective_end_date else None
@@ -130,6 +197,13 @@ class BillingService:
                 continue
 
             days = (live_end - live_start).days + 1
+            days -= BillingService._suspended_days(
+                assignment, suspensions, live_start, live_end
+            )
+
+            if days <= 0:
+                continue
+
             live_days += days
 
             if method == "Daily Actual Days":
@@ -144,13 +218,36 @@ class BillingService:
         return flt(months, 3), live_days
 
     @staticmethod
-    def _covered_window(assignment, period_start, period_end):
-        """The stretch of the period the line was actually live for."""
+    def _covered_window(assignment, period_start, period_end, suspensions=None):
+        """The stretch of the period the line was actually live for.
+
+        Two dates cannot describe a stretch with a hole in the middle, and they are not
+        asked to: the number of days really billed travels beside them as billable_days.
+        What they must never do is name a day the service was paused over, so a pause at
+        either end is trimmed off — a line suspended from the 10th to the end of the month
+        reads as covering the 1st to the 9th, and one suspended throughout covers nothing
+        rather than reading as a full month somebody was never served.
+        """
         start = getdate(assignment.effective_start_date)
         end = getdate(assignment.effective_end_date) if assignment.effective_end_date else None
 
         covered_from = max(start, getdate(period_start))
         covered_to = min(end, getdate(period_end)) if end else getdate(period_end)
+
+        if covered_to < covered_from:
+            return None, None
+
+        intervals = BillingService._suspended_intervals(
+            assignment, suspensions, covered_from, covered_to
+        )
+
+        for first, last in intervals:
+            if first <= covered_from <= last:
+                covered_from = getdate(add_days(last, 1))
+
+        for first, last in reversed(intervals):
+            if first <= covered_to <= last:
+                covered_to = getdate(add_days(first, -1))
 
         if covered_to < covered_from:
             return None, None
@@ -352,7 +449,7 @@ class BillingService:
             from `tabMSP Service Assignment` sa
             where sa.customer = %(customer)s
               and sa.service_item in %(services)s
-              and sa.billing_status in ('Billable', 'Ended')
+              and sa.billing_status in %(billing)s
               and sa.operational_status in %(operational)s
               and sa.effective_start_date is not null
               and sa.effective_start_date <= %(period_end)s
@@ -362,6 +459,7 @@ class BillingService:
                 "customer": terms["customer"],
                 "services": terms["services"],
                 "operational": BILLABLE_OPERATIONAL,
+                "billing": BILLABLE_BILLING_STATUS,
                 "period_start": period_start,
                 "period_end": period_end,
             },
@@ -418,7 +516,7 @@ class BillingService:
                 on owned.assigned_client_user = sa.client_user and owned.status = 'Active'
             where sa.customer = %(customer)s
               and sa.service_item in %(services)s
-              and sa.billing_status in ('Billable', 'Ended')
+              and sa.billing_status in %(billing)s
               and sa.operational_status in %(operational)s
               and sa.effective_start_date is not null
               and sa.effective_start_date <= %(period_end)s
@@ -430,11 +528,28 @@ class BillingService:
                 "customer": customer,
                 "services": terms["services"],
                 "operational": BILLABLE_OPERATIONAL,
+                "billing": BILLABLE_BILLING_STATUS,
                 "period_start": period_start,
                 "period_end": period_end,
             },
             as_dict=True,
         )
+
+        # the pauses of every assignment at once: a run prices hundreds of lines, and the
+        # log cannot be read off the rows above — a child table never comes back from SQL
+        suspensions_by_assignment = {}
+
+        if assignments:
+            for row in frappe.get_all(
+                "MSP Service Suspension",
+                filters={
+                    "parenttype": "MSP Service Assignment",
+                    "parent": ("in", [row.name for row in assignments]),
+                },
+                fields=["parent", "suspended_on", "resumed_on"],
+                order_by="parent asc, suspended_on asc",
+            ):
+                suspensions_by_assignment.setdefault(row.parent, []).append(row)
 
         method = terms["proration_method"]
         period_days = BillingService._period_days(period_start, period_end)
@@ -443,6 +558,7 @@ class BillingService:
         for assignment in assignments:
             exception_code = None
             exception_detail = None
+            suspensions = suspensions_by_assignment.get(assignment.name, [])
 
             if assignment.effective_end_date and getdate(assignment.effective_end_date) < getdate(
                 assignment.effective_start_date
@@ -471,7 +587,7 @@ class BillingService:
                 exception_detail = rate_detail
 
             months, billable_days = BillingService._billable_months(
-                method, assignment, period_start, period_end
+                method, assignment, period_start, period_end, suspensions
             )
 
             # a discount carried by the rate applies as long as that rate does, and the
@@ -496,7 +612,7 @@ class BillingService:
             # the days the line was actually live inside the period, so the duration on the
             # invoice can be read back and not only its month count
             covered_from, covered_to = BillingService._covered_window(
-                assignment, period_start, period_end
+                assignment, period_start, period_end, suspensions
             )
 
             lines.append(

@@ -6,23 +6,30 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import getdate
 
+from nexgen_msp.utils.assignments import OPERATIONAL_TO_BILLING
+from nexgen_msp.utils.service_suspensions import validate_suspension_log
+
 SCOPE_FIELD = {
 	"User": "client_user",
 	"Device": "managed_device",
 	"Site": "customer_site",
 }
 
-OPEN_STATUSES = ("Pending Setup", "Active", "Suspended", "Pending Removal")
+# the two scopes a catalogue entry can be restricted to, and what each forbids
+ITEM_SCOPES = ("User", "Device")
 
 
 class MSPServiceAssignment(Document):
 	def validate(self):
 		self.validate_scope_link()
+		self.validate_item_scope_compatibility()
 		self.validate_scope_ownership()
 		self.validate_dates()
+		validate_suspension_log(self)
 		self.validate_quantity()
 		self.validate_rate()
 		self.validate_no_overlap()
+		self.sync_billing_status()
 
 	def validate_scope_link(self):
 		required = SCOPE_FIELD.get(self.assignment_scope)
@@ -41,6 +48,27 @@ class MSPServiceAssignment(Document):
 					_(self.meta.get_label(required)), self.assignment_scope
 				)
 			)
+
+	def validate_item_scope_compatibility(self):
+		"""A catalogue entry says where its service may be sold, and the doctype holds that line.
+
+		The rule lives here rather than in the service layer so that a caller which builds the
+		document itself, bypassing the whitelisted API, is refused just the same. An Item with no
+		scope on file is a legacy one and stays unrestricted.
+		"""
+		if self.assignment_scope not in ITEM_SCOPES or not self.service_item:
+			return
+
+		item_scope = frappe.db.get_value("Item", self.service_item, "msp_service_scope")
+
+		if item_scope not in ITEM_SCOPES or item_scope == self.assignment_scope:
+			return
+
+		frappe.throw(
+			_("{0} is a {1} service and cannot be assigned at {2} scope.").format(
+				frappe.bold(self.service_item), item_scope, self.assignment_scope
+			)
+		)
 
 	def validate_scope_ownership(self):
 		fieldname = SCOPE_FIELD.get(self.assignment_scope)
@@ -76,7 +104,13 @@ class MSPServiceAssignment(Document):
 			frappe.throw(_("Agreed Rate cannot be negative."))
 
 	def validate_no_overlap(self):
-		if self.operational_status not in OPEN_STATUSES:
+		"""One service, one target, one period at a time — history included.
+
+		A closed assignment still describes a period that was really provided and really
+		billed, so a new one may not reach back over it. Only a Cancelled record is ignored:
+		it never stood for a period at all.
+		"""
+		if self.operational_status == "Cancelled" or not self.effective_start_date:
 			return
 
 		filters = {
@@ -84,7 +118,7 @@ class MSPServiceAssignment(Document):
 			"customer": self.customer,
 			"service_item": self.service_item,
 			"assignment_scope": self.assignment_scope,
-			"operational_status": ("in", OPEN_STATUSES),
+			"operational_status": ("!=", "Cancelled"),
 		}
 
 		scope_field = SCOPE_FIELD.get(self.assignment_scope)
@@ -116,3 +150,14 @@ class MSPServiceAssignment(Document):
 			return False
 
 		return True
+
+	def sync_billing_status(self):
+		"""Billing is read off the operational status, never set beside it.
+
+		Whatever a caller put in the field is restated from the life the service is actually
+		in, so no code can leave Active + On Hold or Ended + Pending behind.
+		"""
+		derived = OPERATIONAL_TO_BILLING.get(self.operational_status)
+
+		if derived:
+			self.billing_status = derived

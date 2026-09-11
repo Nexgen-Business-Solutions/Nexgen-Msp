@@ -282,6 +282,7 @@ export type UserDevice = {
   serial_number: string | null;
   assigned_date: string | null;
   retired_date: string | null;
+  assigned_client_user: string | null;
   interfaces?: DeviceInterface[];
 };
 
@@ -354,6 +355,7 @@ export type DeviceDetail = {
     customer: string;
     assigned_client_user: string | null;
     user_name: string | null;
+    user_department: string | null;
     assigned_date: string | null;
     retired_date: string | null;
     serial_number: string | null;
@@ -450,6 +452,47 @@ export const changeUserService = (payload: {
   notes?: string;
   source_request?: string;
 }) => post<UserDetail>(`${BASE}.change_user_service`, payload);
+
+export type ServiceAvailabilityTarget = {
+  scope: 'User' | 'Device';
+  name: string;
+  label: string;
+  customer: string;
+};
+
+export type ServiceAvailabilityCurrent = {
+  name: string;
+  service_item: string;
+  item_name: string;
+  service_scope: string;
+  operational_status: string;
+  billing_status: string;
+  quantity: number;
+  effective_start_date: string | null;
+};
+
+export type ServiceAvailabilityOffer = {
+  service_item: string;
+  item_name: string;
+  service_scope: string;
+};
+
+export type ServiceAvailabilityBlocked = ServiceAvailabilityOffer & { reason: string };
+
+export type ServiceAvailability = {
+  target: ServiceAvailabilityTarget;
+  is_admin: boolean;
+  target_reason: string | null;
+  current: ServiceAvailabilityCurrent[];
+  available: ServiceAvailabilityOffer[];
+  blocked: ServiceAvailabilityBlocked[];
+};
+
+export const userServiceAvailability = (client_user: string, signal?: AbortSignal) =>
+  get<ServiceAvailability>(`${BASE}.user_service_availability`, { client_user }, signal);
+
+export const deviceServiceAvailability = (managed_device: string, signal?: AbortSignal) =>
+  get<ServiceAvailability>(`${BASE}.device_service_availability`, { managed_device }, signal);
 
 export type ContractOptions = {
   contract_statuses: string[];
@@ -900,6 +943,7 @@ export type DeviceStats = {
   devices_without_services: number;
   unassigned_devices: number;
   devices_without_mac: number;
+  devices_in_stock: number;
 };
 
 export type DeviceRow = {
@@ -1052,6 +1096,41 @@ export const changeDeviceStatus = (payload: {
     `${BASE}.change_device_status`,
     payload
   );
+
+export type DeviceLifecycleOutcome = {
+  name: string;
+  hostname: string;
+  status: string;
+  assigned_client_user: string | null;
+  closed_assignments?: string[];
+};
+
+export const assignDevice = (payload: {
+  device: string;
+  client_user: string;
+  effective_date?: string;
+  note?: string;
+}) => post<DeviceLifecycleOutcome>(`${BASE}.assign_device`, payload);
+
+export const transferDevice = (payload: {
+  device: string;
+  client_user: string;
+  effective_date?: string;
+  note?: string;
+}) => post<DeviceLifecycleOutcome>(`${BASE}.transfer_device`, payload);
+
+export const repossessDevice = (payload: { device: string; effective_date?: string; note?: string }) =>
+  post<DeviceLifecycleOutcome>(`${BASE}.repossess_device`, payload);
+
+export const retireDevice = (payload: { device: string; effective_date?: string; note?: string }) =>
+  post<DeviceLifecycleOutcome>(`${BASE}.retire_device`, payload);
+
+export const reinstateDevice = (payload: {
+  device: string;
+  effective_date?: string;
+  client_user?: string;
+  note?: string;
+}) => post<DeviceLifecycleOutcome>(`${BASE}.reinstate_device`, payload);
 
 export type CustomerUserRef = { name: string; full_name: string; department: string | null };
 

@@ -22,6 +22,22 @@ MAX_PAGE_LENGTH = 200
 
 COVERAGE_FILTERS = ("no_device", "no_service", "disabled_with_services")
 
+SERVICE_UNDER_USER = """
+    sa.client_user = %(user)s
+    or exists (
+        select 1
+        from `tabMSP Device Holder` holder
+        where holder.parent = sa.managed_device
+          and holder.parenttype = 'MSP Managed Device'
+          and holder.is_current = 1
+          and holder.client_user = %(user)s
+          and (
+              sa.operational_status not in ('Ended', 'Cancelled')
+              or coalesce(sa.effective_end_date, sa.effective_start_date) > holder.from_date
+          )
+    )
+"""
+
 
 class UserService:
     @staticmethod
@@ -353,11 +369,14 @@ class UserService:
 
         devices = frappe.db.sql(
             """
-            select name, hostname, device_type, status, serial_number, assigned_date,
-                   retired_date
-            from `tabMSP Managed Device`
-            where assigned_client_user = %(user)s
-            order by field(status, 'Active') desc, hostname asc
+            select distinct device.name, device.hostname, device.device_type, device.status,
+                   device.serial_number, device.assigned_date, device.retired_date,
+                   device.assigned_client_user
+            from `tabMSP Managed Device` device
+            join `tabMSP Device Holder` holder
+                on holder.parent = device.name and holder.parenttype = 'MSP Managed Device'
+            where holder.client_user = %(user)s
+            order by field(device.status, 'Active') desc, device.hostname asc
             """,
             {"user": name},
             as_dict=True,
@@ -381,7 +400,7 @@ class UserService:
                 device["interfaces"] = grouped.get(device.name, [])
 
         services = frappe.db.sql(
-            """
+            f"""
             select
                 sa.name, sa.service_item,
                 coalesce(item.item_name, sa.service_item) as service_name,
@@ -399,8 +418,7 @@ class UserService:
             from `tabMSP Service Assignment` sa
             left join `tabItem` item on item.name = sa.service_item
             left join `tabMSP Managed Device` device on device.name = sa.managed_device
-            where sa.client_user = %(user)s
-               or device.assigned_client_user = %(user)s
+            where {SERVICE_UNDER_USER}
             order by field(sa.operational_status, 'Ended', 'Cancelled') asc,
                      sa.effective_start_date desc
             """,
@@ -592,7 +610,16 @@ class UserService:
         source_request=None,
         target_scope=None,
     ):
-        """Open a service for a user directly. The rate stays the contract's business, not ours."""
+        """Open a service from the user's screen: resolve the target, then let the domain open it.
+
+        Everything commercial — the catalogue, the contract, the rate, the duplicate — is the
+        lifecycle service's to ask. This door only works out which machine, if any, the
+        technician meant, and records what they had in front of them.
+        """
+        from nexgen_msp.api.internal.services.service_lifecycle_service import (
+            ServiceLifecycleService,
+        )
+
         RequestService._guard_internal()
 
         if not client_user or not service_item:
@@ -603,27 +630,8 @@ class UserService:
         if not user:
             raise NotFoundError(f"Client User {client_user} not found.", "NOT_FOUND")
 
-        source_request = UserService._checked_request(source_request, user.customer)
         declared = RequestService._service_scope(service_item)
-
-        if declared == "Both":
-            scope = target_scope or "User"
-            if scope not in ("User", "Device"):
-                raise ValidationError(
-                    f"'{scope}' is not a valid target for this service.", "VALIDATION_ERROR"
-                )
-        else:
-            scope = declared
-
-        # a per-device service is unique per machine, not per person: two laptops, two licences
-        if scope != "Device":
-            existing = RequestService._find_open_assignment(user.customer, user.name, service_item)
-
-            if existing:
-                raise ValidationError(
-                    f"This user already holds an open {service_item} assignment ({existing}).",
-                    "VALIDATION_ERROR",
-                )
+        scope = (target_scope or "User") if declared == "Both" else declared
 
         interfaces = frappe.parse_json(interfaces) if isinstance(interfaces, str) else interfaces
         interfaces = [
@@ -643,57 +651,26 @@ class UserService:
             serial_number,
         )
 
-        if scope == "Device":
-            if not device:
-                raise ValidationError(
-                    f"{service_item} is a device service — select or create a device.",
-                    "VALIDATION_ERROR",
-                )
-
-            on_device = frappe.db.exists(
-                "MSP Service Assignment",
-                {
-                    "managed_device": device,
-                    "service_item": service_item,
-                    "operational_status": (
-                        "in",
-                        ("Pending Setup", "Active", "Suspended", "Pending Removal"),
-                    ),
-                },
+        if scope == "Device" and not device:
+            raise ValidationError(
+                f"{service_item} is a device service — select or create a device.",
+                "VALIDATION_ERROR",
             )
 
-            if on_device:
-                raise ValidationError(
-                    f"This device already holds an open {service_item} assignment ({on_device}).",
-                    "VALIDATION_ERROR",
-                )
-
-        assignment = frappe.get_doc(
-            {
-                "doctype": "MSP Service Assignment",
-                "customer": user.customer,
-                "service_item": service_item,
-                "assignment_scope": scope,
-                "client_user": user.name if scope == "User" else None,
-                "managed_device": device if scope == "Device" else None,
-                "quantity": 1,
-                "uom": frappe.db.get_value("Item", service_item, "stock_uom") or "Unit",
-                "operational_status": "Active",
-                "billing_status": "Billable",
-                "effective_start_date": effective_date or frappe.utils.today(),
-                "price_source": "Contract",
-                "source_request": source_request,
-                "internal_notes": notes or None,
-            }
-        ).insert()
+        ServiceLifecycleService.activate(
+            customer=user.customer,
+            service_item=service_item,
+            target_scope=scope,
+            client_user=user.name if scope == "User" else None,
+            managed_device=device if scope == "Device" else None,
+            effective_date=effective_date,
+            source_request=source_request,
+            notes=notes,
+        )
 
         # what the service will later be refused a closure for not having, taken while the
         # technician still has the machine and the licence in front of them
         UserService._record_identifiers(user.name, device, serial_number, username)
-
-        reference = f" in reference to {source_request}" if source_request else ""
-        assignment.add_comment("Comment", f"Opened by {frappe.session.user}{reference}.")
-        remarks_util.on_assignment(assignment, "granted", notes)
         frappe.db.commit()
 
         return UserService.get_user(client_user)
@@ -712,56 +689,48 @@ class UserService:
     def change_service(
         assignment=None, action=None, effective_date=None, notes=None, source_request=None
     ):
-        """Suspend, resume or end a running service, leaving a trace of who did it."""
+        """Suspend, resume or end a running service, from the user's screen.
+
+        The act itself belongs to the lifecycle service: the days a pause covers, the day a
+        service really stopped, and the note left beside it rather than over the assignment's
+        own. This door only says which user's page to show afterwards.
+        """
+        from nexgen_msp.api.internal.services.service_lifecycle_service import (
+            ServiceLifecycleService,
+        )
+
         RequestService._guard_internal()
 
         if not assignment or not action:
             raise ValidationError("assignment and action are required.", "VALIDATION_ERROR")
 
-        if action not in ("Suspend", "Resume", "End"):
+        acts = {
+            "Suspend": ServiceLifecycleService.suspend,
+            "Resume": ServiceLifecycleService.resume,
+            "End": ServiceLifecycleService.end,
+        }
+
+        if action not in acts:
             raise ValidationError(f"Unknown action '{action}'.", "VALIDATION_ERROR")
 
         if not frappe.db.exists("MSP Service Assignment", assignment):
             raise NotFoundError(f"Service Assignment {assignment} not found.", "NOT_FOUND")
 
-        doc = frappe.get_doc("MSP Service Assignment", assignment)
-
-        if doc.operational_status in ("Ended", "Cancelled"):
-            raise ValidationError(
-                f"This service is already {doc.operational_status.lower()}.", "INVALID_TRANSITION"
-            )
-
-        if action == "Suspend":
-            if doc.operational_status == "Suspended":
-                raise ValidationError("This service is already suspended.", "INVALID_TRANSITION")
-            doc.operational_status = "Suspended"
-            doc.billing_status = "On Hold"
-        elif action == "Resume":
-            if doc.operational_status != "Suspended":
-                raise ValidationError("Only a suspended service can be resumed.", "INVALID_TRANSITION")
-            doc.operational_status = "Active"
-            doc.billing_status = "Billable"
-        else:
-            doc.operational_status = "Ended"
-            doc.billing_status = "Ended"
-            doc.effective_end_date = UserService._end_date_for(doc, effective_date)
-
-        if notes:
-            doc.internal_notes = notes
-
-        source_request = UserService._checked_request(source_request, doc.customer)
-        reference = f" in reference to {source_request}" if source_request else ""
-
-        doc.save()
-        doc.add_comment("Comment", f"{action} applied by {frappe.session.user}{reference}.")
-        remarks_util.on_assignment(doc, action, notes)
-        frappe.db.commit()
-
-        client_user = doc.client_user or frappe.db.get_value(
-            "MSP Managed Device", doc.managed_device, "assigned_client_user"
+        acts[action](
+            assignment=assignment,
+            effective_date=effective_date,
+            source_request=source_request,
+            notes=notes,
         )
 
-        return UserService.get_user(client_user)
+        client_user, managed_device = frappe.db.get_value(
+            "MSP Service Assignment", assignment, ["client_user", "managed_device"]
+        )
+
+        return UserService.get_user(
+            client_user
+            or frappe.db.get_value("MSP Managed Device", managed_device, "assigned_client_user")
+        )
 
     @staticmethod
     def create_client_user(

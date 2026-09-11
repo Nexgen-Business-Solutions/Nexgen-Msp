@@ -4,7 +4,11 @@ import Modal from '@/shared/components/Modal';
 import FieldLabel from '@/shared/components/FieldLabel';
 import Select from '@/shared/components/Select';
 import RequestReferenceField from './RequestReferenceField';
-import { useAssignDeviceService, useDeviceContext } from '../hooks/useDevices';
+import {
+  useAssignDeviceService,
+  useDeviceContext,
+  useDeviceServiceAvailability,
+} from '../hooks/useDevices';
 
 type Props = {
   device: string | null;
@@ -18,6 +22,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 const DeviceServiceModal: React.FC<Props> = ({ device, onClose }) => {
   const context = useDeviceContext(device);
+  const availability = useDeviceServiceAvailability(device);
   const assign = useAssignDeviceService();
 
   const [service, setService] = useState('');
@@ -36,7 +41,9 @@ const DeviceServiceModal: React.FC<Props> = ({ device, onClose }) => {
   }, [device]);
 
   const data = context.data;
-  const available = (data?.catalogue ?? []).filter((item) => !item.already_open);
+  // what this machine may be given is a backend reading, never a catalogue filtered here
+  const refusal = availability.data?.target_reason ?? null;
+  const available = refusal ? [] : (availability.data?.available ?? []);
 
   const submit = async () => {
     if (!device) return;
@@ -102,6 +109,13 @@ const DeviceServiceModal: React.FC<Props> = ({ device, onClose }) => {
 
       {data && (
         <div className="space-y-4">
+          {refusal && (
+            <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <AlertCircle size={16} className="mt-0.5 shrink-0 text-amber-600" />
+              <span className="text-sm font-medium text-amber-900">{refusal}</span>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <FieldLabel required>Service</FieldLabel>
@@ -114,9 +128,10 @@ const DeviceServiceModal: React.FC<Props> = ({ device, onClose }) => {
                   available.length ? 'Select a service' : 'No device service left to add'
                 }
                 options={available.map((item) => ({
-                  value: item.name,
+                  value: item.service_item,
                   label: item.item_name,
-                  description: item.scope === 'Both' ? 'User or device' : 'Billed per device',
+                  description:
+                    item.service_scope === 'Both' ? 'User or device' : 'Billed per device',
                 }))}
               />
             </div>

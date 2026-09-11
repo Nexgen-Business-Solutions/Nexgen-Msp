@@ -799,6 +799,68 @@ def list_customer_users(customer=None):
     return _devices().list_customer_users(customer=customer)
 
 
+def _device_lifecycle():
+    from nexgen_msp.api.internal.services.device_lifecycle_service import DeviceLifecycleService
+
+    return DeviceLifecycleService
+
+
+@frappe.whitelist()
+@handle_errors
+def assign_device(device=None, client_user=None, effective_date=None, note=None):
+    return _device_lifecycle().assign(
+        device=device, client_user=client_user, effective_date=effective_date, note=note
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def transfer_device(device=None, client_user=None, effective_date=None, note=None):
+    return _device_lifecycle().transfer(
+        device=device, client_user=client_user, effective_date=effective_date, note=note
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def repossess_device(device=None, effective_date=None, note=None):
+    return _device_lifecycle().repossess(device=device, effective_date=effective_date, note=note)
+
+
+@frappe.whitelist()
+@handle_errors
+def retire_device(device=None, effective_date=None, note=None):
+    return _device_lifecycle().retire(device=device, effective_date=effective_date, note=note)
+
+
+@frappe.whitelist()
+@handle_errors
+def reinstate_device(device=None, effective_date=None, client_user=None, note=None):
+    return _device_lifecycle().reinstate(
+        device=device, effective_date=effective_date, client_user=client_user, note=note
+    )
+
+
+def _service_availability():
+    from nexgen_msp.api.internal.services.service_availability_service import (
+        ServiceAvailabilityService,
+    )
+
+    return ServiceAvailabilityService
+
+
+@frappe.whitelist()
+@handle_errors
+def user_service_availability(client_user=None):
+    return _service_availability().for_user(client_user=client_user)
+
+
+@frappe.whitelist()
+@handle_errors
+def device_service_availability(managed_device=None):
+    return _service_availability().for_device(managed_device=managed_device)
+
+
 @frappe.whitelist()
 @handle_errors
 def list_dashboard_kpi_rows(kpi=None, start=0, page_length=20):

@@ -7,6 +7,22 @@ from nexgen_msp.api.internal.services.request_service import effective_line_stat
 from nexgen_msp.utils import approval, identifiers, permissions
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
+SERVICE_UNDER_USER = """
+    sa.client_user = %(user)s
+    or exists (
+        select 1
+        from `tabMSP Device Holder` holder
+        where holder.parent = sa.managed_device
+          and holder.parenttype = 'MSP Managed Device'
+          and holder.is_current = 1
+          and holder.client_user = %(user)s
+          and (
+              sa.operational_status not in ('Ended', 'Cancelled')
+              or coalesce(sa.effective_end_date, sa.effective_start_date) > holder.from_date
+          )
+    )
+"""
+
 CLIENT_USER_FIELDS = [
     "name",
     "full_name",
@@ -825,17 +841,19 @@ class PortalService:
 
         devices = frappe.db.sql(
             """
-            select hostname, device_type, status, assigned_date
-            from `tabMSP Managed Device`
-            where assigned_client_user = %(user)s
-            order by field(status, 'Active') desc, hostname asc
+            select distinct device.hostname, device.device_type, device.status, device.assigned_date
+            from `tabMSP Managed Device` device
+            join `tabMSP Device Holder` holder
+                on holder.parent = device.name and holder.parenttype = 'MSP Managed Device'
+            where holder.client_user = %(user)s
+            order by field(device.status, 'Active') desc, device.hostname asc
             """,
             {"user": client_user},
             as_dict=True,
         )
 
         services = frappe.db.sql(
-            """
+            f"""
             select
                 coalesce(item.item_name, sa.service_item) as service_name,
                 device.hostname,
@@ -853,8 +871,7 @@ class PortalService:
             from `tabMSP Service Assignment` sa
             left join `tabItem` item on item.name = sa.service_item
             left join `tabMSP Managed Device` device on device.name = sa.managed_device
-            where sa.client_user = %(user)s
-               or device.assigned_client_user = %(user)s
+            where {SERVICE_UNDER_USER}
             order by field(sa.operational_status, 'Ended', 'Cancelled') asc,
                      sa.effective_start_date desc
             """,
@@ -1664,7 +1681,7 @@ class PortalService:
             f"""
             select
                 sa.name as name,
-                coalesce(sa.client_user, d.assigned_client_user) as client_user,
+                sa.client_user as client_user,
                 coalesce(cu.full_name, dcu.full_name) as user_name,
                 coalesce(cu.department, dcu.department) as department,
                 coalesce(cu.email, dcu.email) as email,

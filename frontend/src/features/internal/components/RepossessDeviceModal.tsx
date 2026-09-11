@@ -1,19 +1,18 @@
 import React, { useEffect, useState } from 'react';
-import { AlertCircle, ArrowRightLeft } from 'lucide-react';
+import { AlertCircle, Undo2 } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
 import FieldLabel from '@/shared/components/FieldLabel';
-import Select from '@/shared/components/Select';
-import { useCustomerUsers, useHandOverDevice } from '../hooks/useDevices';
+import { useRepossessDevice } from '../hooks/useDevices';
 
 type Props = {
   open: boolean;
   device: string;
   hostname: string;
-  customer: string;
+  serialNumber?: string | null;
   currentHolder?: string | null;
   currentHolderName?: string | null;
-  heldSince?: string | null;
   onClose: () => void;
+  onDone?: () => void;
 };
 
 const labelClass = 'mb-1.5 block text-xs font-semibold text-slate-700';
@@ -22,29 +21,26 @@ const inputClass =
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-const HandOverModal: React.FC<Props> = ({
+const RepossessDeviceModal: React.FC<Props> = ({
   open,
   device,
   hostname,
-  customer,
+  serialNumber,
   currentHolder,
   currentHolderName,
-  heldSince,
   onClose,
+  onDone,
 }) => {
-  const users = useCustomerUsers(customer);
-  const handOver = useHandOverDevice();
+  const repossess = useRepossessDevice();
 
-  const [holder, setHolder] = useState('');
-  const [onDate, setOnDate] = useState(today());
+  const [effectiveDate, setEffectiveDate] = useState(today());
   const [note, setNote] = useState('');
 
   useEffect(() => {
     if (!open) return;
-    setHolder('');
-    setOnDate(today());
+    setEffectiveDate(today());
     setNote('');
-    handOver.reset();
+    repossess.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -52,13 +48,13 @@ const HandOverModal: React.FC<Props> = ({
 
   const submit = async () => {
     try {
-      await handOver.mutateAsync({
+      await repossess.mutateAsync({
         device,
-        client_user: holder || undefined,
-        on_date: onDate,
+        effective_date: effectiveDate,
         note: note.trim() || undefined,
       });
       onClose();
+      onDone?.();
     } catch {
       // surfaced by the error banner below
     }
@@ -68,10 +64,10 @@ const HandOverModal: React.FC<Props> = ({
     <Modal
       open
       onClose={onClose}
-      icon={ArrowRightLeft}
-      tone="blue"
-      title="Hand this device over"
-      subtitle="The day it actually changed hands, not the day you record it."
+      icon={Undo2}
+      tone="indigo"
+      title="Repossess device"
+      subtitle="Closes the current holder period. The device goes back to stock."
       widthClass="max-w-lg"
       footer={
         <div className="flex items-center justify-end gap-2">
@@ -85,13 +81,13 @@ const HandOverModal: React.FC<Props> = ({
           <button
             type="button"
             onClick={submit}
-            disabled={!onDate || holder === (currentHolder ?? '') || handOver.isLoading}
-            className="flex min-w-[7rem] items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={!effectiveDate || repossess.isLoading}
+            className="flex min-w-[9rem] items-center justify-center rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {handOver.isLoading ? (
+            {repossess.isLoading ? (
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
             ) : (
-              'Hand over'
+              'Repossess device'
             )}
           </button>
         </div>
@@ -100,47 +96,31 @@ const HandOverModal: React.FC<Props> = ({
       <div className="space-y-4">
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
           <p className="text-sm font-semibold text-slate-900">{hostname}</p>
-          <p className="mt-0.5 text-xs text-slate-500">
-            {currentHolder
-              ? `Held by ${currentHolderName || currentHolder}${
-                  heldSince ? ` since ${heldSince.slice(0, 10)}` : ''
-                }`
-              : 'Nobody holds it today'}
-          </p>
+          {serialNumber && <p className="mt-0.5 text-xs text-slate-500">{serialNumber}</p>}
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <p className="text-xs font-medium text-slate-400">FROM</p>
+            <p className="mt-0.5 text-sm text-slate-700">
+              {currentHolderName || currentHolder || 'Nobody'}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs font-medium text-slate-400">DESTINATION</p>
+            <p className="mt-0.5 text-sm text-slate-700">Available stock</p>
+          </div>
         </div>
 
         <div>
-          <FieldLabel required>Hand over to</FieldLabel>
-          <Select
-            className="w-full"
-            value={holder}
-            onChange={setHolder}
-            placeholder="Choose who takes it"
-            options={[
-              { value: '', label: 'Nobody', description: 'The device goes back to the shelf' },
-              ...(users.data ?? [])
-                .filter((item) => item.name !== currentHolder)
-                .map((item) => ({
-                  value: item.name,
-                  label: item.full_name,
-                  description: item.department ?? undefined,
-                })),
-            ]}
-          />
-        </div>
-
-        <div>
-          <FieldLabel required>Hand-over date</FieldLabel>
+          <FieldLabel required>Effective date</FieldLabel>
           <input
             type="date"
-            value={onDate}
+            value={effectiveDate}
             max={today()}
-            onChange={(event) => setOnDate(event.target.value)}
+            onChange={(event) => setEffectiveDate(event.target.value)}
             className={inputClass}
           />
-          <p className="mt-1.5 text-xs text-slate-400">
-            Today by default. Set it back if the device changed hands earlier.
-          </p>
         </div>
 
         <div>
@@ -149,15 +129,17 @@ const HandOverModal: React.FC<Props> = ({
             rows={3}
             value={note}
             onChange={(event) => setNote(event.target.value)}
-            placeholder="Why it changed hands — kept for Nexgen, not shown to the customer."
+            placeholder="Kept for Nexgen, not shown to the customer."
             className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm leading-relaxed text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
           />
         </div>
 
-        {handOver.error instanceof Error && (
+        <p className="text-xs text-slate-500">Device services will remain unchanged.</p>
+
+        {repossess.error instanceof Error && (
           <div className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
             <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
-            <span className="text-sm font-medium text-red-700">{handOver.error.message}</span>
+            <span className="text-sm font-medium text-red-700">{repossess.error.message}</span>
           </div>
         )}
       </div>
@@ -165,4 +147,4 @@ const HandOverModal: React.FC<Props> = ({
   );
 };
 
-export default HandOverModal;
+export default RepossessDeviceModal;

@@ -16,16 +16,26 @@ import StatusBadge from '@/shared/components/StatusBadge';
 import RemarkLog from '@/shared/components/RemarkLog';
 import { useSession } from '@/shared/hooks/useSession';
 import { isAdmin as hasAdminRole } from '@/shared/layout/navigation';
-import RowActionsMenu, { type RowAction } from '@/shared/components/RowActionsMenu';
-import AssignServiceModal from '../components/AssignServiceModal';
+import RowActionsMenu from '@/shared/components/RowActionsMenu';
+import AddUserServiceModal from '../components/AddUserServiceModal';
 import ServiceActionModal, { type ServiceAction } from '../components/ServiceActionModal';
 import DeviceServiceModal from '../components/DeviceServiceModal';
 import AddDeviceModal from '../components/AddDeviceModal';
 import EditClientUserModal from '../components/EditClientUserModal';
-import { userKeys, useDeleteClientUser, useUserDetail } from '../hooks/useUsers';
+import {
+  userKeys,
+  useDeleteClientUser,
+  useUserDetail,
+  useUserServiceAvailability,
+} from '../hooks/useUsers';
+import { useDeviceServiceAvailability } from '../hooks/useDevices';
 import ConfirmModal from '@/shared/components/ConfirmModal';
 
-import type { UserServiceRow as UserServiceRowType } from '@/lib/api/internal';
+import type {
+  ServiceAvailabilityCurrent,
+  UserDevice,
+  UserServiceRow as UserServiceRowType,
+} from '@/lib/api/internal';
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
 
@@ -70,6 +80,137 @@ const Empty = ({ span, children }: { span: number; children: React.ReactNode }) 
   </tr>
 );
 
+type ServiceTarget = { row: UserServiceRowType; action: ServiceAction };
+
+/** The availability payload names an open period; the action modal reads a service row. */
+const toServiceRow = (
+  entry: ServiceAvailabilityCurrent,
+  device?: UserDevice | null
+): UserServiceRowType => ({
+  name: entry.name,
+  service_item: entry.service_item,
+  service_name: entry.item_name,
+  assignment_scope: device ? 'Device' : 'User',
+  managed_device: device?.name ?? null,
+  hostname: device?.hostname ?? null,
+  operational_status: entry.operational_status,
+  billing_status: entry.billing_status,
+  effective_start_date: entry.effective_start_date,
+  effective_end_date: null,
+  source_request: null,
+});
+
+const actionClass =
+  'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors';
+
+const ServiceLine = ({
+  row,
+  onAction,
+}: {
+  row: UserServiceRowType;
+  onAction: (target: ServiceTarget) => void;
+}) => (
+  <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+    <div className="min-w-0">
+      <p className="text-sm font-semibold text-slate-900">{row.service_name}</p>
+      <p className="mt-0.5 text-xs text-slate-500">
+        {row.operational_status} since {fmtDate(row.effective_start_date)}
+      </p>
+    </div>
+    <div className="flex shrink-0 items-center gap-2">
+      {row.operational_status === 'Active' && (
+        <button
+          type="button"
+          onClick={() => onAction({ row, action: 'Suspend' })}
+          className={`${actionClass} border-amber-200 bg-white text-amber-700 hover:bg-amber-50`}
+        >
+          <PauseCircle size={13} />
+          Suspend
+        </button>
+      )}
+      {row.operational_status === 'Suspended' && (
+        <button
+          type="button"
+          onClick={() => onAction({ row, action: 'Resume' })}
+          className={`${actionClass} border-blue-200 bg-white text-blue-700 hover:bg-blue-50`}
+        >
+          <PlayCircle size={13} />
+          Resume
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={() => onAction({ row, action: 'End' })}
+        className={`${actionClass} border-red-200 bg-white text-red-600 hover:bg-red-50`}
+      >
+        <CircleX size={13} />
+        Close
+      </button>
+    </div>
+  </div>
+);
+
+/** One machine this person holds today, read for what it alone carries. */
+const DeviceServicesCard = ({
+  device,
+  onAddService,
+  onAction,
+}: {
+  device: UserDevice;
+  onAddService: () => void;
+  onAction: (target: ServiceTarget) => void;
+}) => {
+  const availability = useDeviceServiceAvailability(device.name);
+  const rows = availability.data?.current ?? [];
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-slate-200">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+        <div className="min-w-0">
+          <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
+            <Laptop size={14} className="text-slate-400" />
+            {device.hostname}
+          </p>
+          <p className="mt-0.5 text-xs text-slate-500">
+            {device.serial_number ? `Serial: ${device.serial_number}` : 'Serial: missing'} ·{' '}
+            {device.status} · held since {fmtDate(device.assigned_date)}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onAddService}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+        >
+          <Plus size={13} />
+          Add service
+        </button>
+      </div>
+
+      {availability.isLoading && (
+        <p className="px-4 py-6 text-center text-sm text-slate-500">Loading…</p>
+      )}
+
+      {!!availability.error && (
+        <p className="px-4 py-6 text-center text-sm text-red-600">
+          {(availability.error as Error)?.message || 'Failed to read this device.'}
+        </p>
+      )}
+
+      {availability.data && rows.length === 0 && (
+        <p className="px-4 py-6 text-center text-sm text-slate-500">
+          No service open on this device.
+        </p>
+      )}
+
+      <div className="divide-y divide-slate-100">
+        {rows.map((entry) => (
+          <ServiceLine key={entry.name} row={toServiceRow(entry, device)} onAction={onAction} />
+        ))}
+      </div>
+    </div>
+  );
+};
+
 export default function UserDetail() {
   const { name = '' } = useParams();
   const navigate = useNavigate();
@@ -77,7 +218,8 @@ export default function UserDetail() {
   const referencedRequest = searchParams.get('ref') ?? undefined;
   const wantsNewDevice = searchParams.get('device') === 'new';
   const detail = useUserDetail(name);
-  const [assignOpen, setAssignOpen] = useState(false);
+  const availability = useUserServiceAvailability(name);
+  const [addServiceOpen, setAddServiceOpen] = useState(false);
   const [editingUser, setEditingUser] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const remove = useDeleteClientUser();
@@ -91,9 +233,7 @@ export default function UserDetail() {
   useEffect(() => {
     if (wantsNewDevice) setDeviceOpen(true);
   }, [wantsNewDevice]);
-  const [target, setTarget] = useState<{ row: UserServiceRowType; action: ServiceAction } | null>(
-    null
-  );
+  const [target, setTarget] = useState<ServiceTarget | null>(null);
 
   if (detail.isLoading) {
     return (
@@ -113,7 +253,12 @@ export default function UserDetail() {
     );
   }
 
-  const { user, devices, services, requests, device_types, interface_types } = detail.data;
+  const { user, devices, requests, device_types, interface_types } = detail.data;
+
+  // every row the endpoint returns for a person is a User-scope period on that person
+  const personalServices = availability.data?.current ?? [];
+  // a device service belongs to the machine, and is read only where the machine is held today
+  const heldDevices = devices.filter((device) => device.assigned_client_user === user.name);
 
   return (
     <div className="space-y-5 px-6 pb-6 pt-4">
@@ -218,15 +363,6 @@ export default function UserDetail() {
             </div>
 
           </div>
-
-          <button
-            type="button"
-            onClick={() => setAssignOpen(true)}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
-          >
-            <Plus size={15} />
-            Add service
-          </button>
         </div>
       </div>
 
@@ -238,77 +374,62 @@ export default function UserDetail() {
         />
       </Panel>
 
-      <Panel title="Services">
-        <table className="w-full">
-          <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
-            <tr>
-              <Th>Service</Th>
-              <Th>Device</Th>
-              <Th>Since</Th>
-              <Th>Ended</Th>
-              <Th>Billing</Th>
-              <Th>Status</Th>
-              <Th />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {services.length === 0 && <Empty span={7}>No service assigned yet.</Empty>}
-            {services.map((row) => {
-              const open = !['Ended', 'Cancelled'].includes(row.operational_status);
-              return (
-                <tr key={row.name} className="transition-colors hover:bg-slate-50">
-                  <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
-                    {row.service_name}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                    {row.hostname || 'N/A'}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                    {fmtDate(row.effective_start_date)}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                    {fmtDate(row.effective_end_date)}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                    {row.billing_status}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3">
-                    <StatusBadge value={row.operational_status} />
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3">
-                    <div className="flex justify-end">
-                      <RowActionsMenu
-                        actions={
-                          [
-                            {
-                              label: 'Suspend service',
-                              icon: PauseCircle,
-                              onClick: () => setTarget({ row, action: 'Suspend' }),
-                              disabled: !open || row.operational_status === 'Suspended',
-                            },
-                            {
-                              label: 'Resume service',
-                              icon: PlayCircle,
-                              onClick: () => setTarget({ row, action: 'Resume' }),
-                              disabled: row.operational_status !== 'Suspended',
-                            },
-                            {
-                              label: 'End service',
-                              icon: CircleX,
-                              onClick: () => setTarget({ row, action: 'End' }),
-                              danger: true,
-                              disabled: !open,
-                            },
-                          ] as RowAction[]
-                        }
-                      />
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      <Panel
+        title="Personal services"
+        action={
+          <button
+            type="button"
+            onClick={() => setAddServiceOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+          >
+            <Plus size={14} />
+            Add service
+          </button>
+        }
+      >
+        {availability.isLoading && (
+          <p className="py-8 text-center text-sm text-slate-500">Loading…</p>
+        )}
+
+        {!!availability.error && (
+          <p className="py-8 text-center text-sm text-red-600">
+            {(availability.error as Error)?.message || 'Failed to read this person’s services.'}
+          </p>
+        )}
+
+        {availability.data && personalServices.length === 0 && (
+          <p className="py-8 text-center text-sm text-slate-500">
+            No personal service open for {user.full_name}.
+          </p>
+        )}
+
+        <div className="divide-y divide-slate-100">
+          {personalServices.map((entry) => (
+            <ServiceLine key={entry.name} row={toServiceRow(entry)} onAction={setTarget} />
+          ))}
+        </div>
+      </Panel>
+
+      <Panel title="Device services">
+        {heldDevices.length === 0 ? (
+          <p className="py-8 text-center text-sm text-slate-500">
+            <span className="inline-flex items-center gap-1.5">
+              <Laptop size={15} className="text-slate-400" />
+              No device currently held by this user.
+            </span>
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {heldDevices.map((device) => (
+              <DeviceServicesCard
+                key={device.name}
+                device={device}
+                onAddService={() => setDeviceService(device.name)}
+                onAction={setTarget}
+              />
+            ))}
+          </div>
+        )}
       </Panel>
 
       <Panel
@@ -408,7 +529,7 @@ export default function UserDetail() {
                           label: 'Add service',
                           icon: ShieldCheck,
                           onClick: () => setDeviceService(device.name),
-                          disabled: device.status !== 'Active',
+                          disabled: device.assigned_client_user !== user.name,
                         },
                         {
                           label: 'Manage device',
@@ -514,11 +635,12 @@ export default function UserDetail() {
         }}
       />
 
-      <AssignServiceModal
-        open={assignOpen}
-        detail={detail.data}
+      <AddUserServiceModal
+        open={addServiceOpen}
+        user={user}
+        requests={detail.data.customer_requests}
         defaultRequest={referencedRequest}
-        onClose={() => setAssignOpen(false)}
+        onClose={() => setAddServiceOpen(false)}
       />
 
       <ServiceActionModal
