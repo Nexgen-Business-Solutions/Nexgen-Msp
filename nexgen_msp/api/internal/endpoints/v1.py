@@ -1184,6 +1184,36 @@ def delete_request_action(name=None):
     return _settings().delete_request_action(name=name)
 
 
+def _departments():
+    from nexgen_msp.api.internal.services.department_service import DepartmentService
+
+    return DepartmentService
+
+
+@frappe.whitelist()
+@handle_errors
+def list_departments(enabled_only=1):
+    return _departments().list_departments(enabled_only=enabled_only)
+
+
+@frappe.whitelist()
+@handle_errors
+def save_department(name=None, department=None):
+    return _departments().save_department(name=name, department=department)
+
+
+@frappe.whitelist()
+@handle_errors
+def disable_department(name=None):
+    return _departments().disable_department(name=name)
+
+
+@frappe.whitelist()
+@handle_errors
+def delete_department(name=None):
+    return _departments().delete_department(name=name)
+
+
 def _team():
     from nexgen_msp.api.internal.services.team_service import TeamService
 

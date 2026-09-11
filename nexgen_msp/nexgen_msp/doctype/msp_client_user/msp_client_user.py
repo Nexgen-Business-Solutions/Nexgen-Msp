@@ -14,6 +14,7 @@ class MSPClientUser(Document):
 		self.normalize_full_name()
 		self.validate_lifecycle_dates()
 		self.validate_unique_username()
+		self.validate_department()
 
 	def on_trash(self):
 		self.prevent_delete_with_history()
@@ -51,6 +52,12 @@ class MSPClientUser(Document):
 					frappe.bold(self.username), frappe.bold(self.customer), duplicate
 				)
 			)
+
+	def validate_department(self):
+		from nexgen_msp.api.internal.services.department_service import DepartmentService
+
+		if self.department:
+			self.department = DepartmentService.validate_department(self.department)
 
 	def prevent_delete_with_history(self):
 		for doctype in LINKED_DOCTYPES:

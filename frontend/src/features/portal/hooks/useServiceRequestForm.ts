@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { NewRequestLine, PortalRequestDetail, ServiceRequestDetail } from '@/lib/api/portal';
 import {
   useCatalogue,
+  useDepartments,
   usePortalFilterOptions,
   useServiceRequest,
   useUserChoices,
@@ -74,6 +75,7 @@ const validateLine = (line: FormLine): LineErrors => {
 
   if (line.isNewUser) {
     if (!line.new_user_full_name.trim()) errors.new_user_full_name = 'Enter the full name.';
+    if (!line.new_user_department) errors.new_user_department = 'Select a department.';
     // the address is what a portal invitation is sent to, so a typo is worth catching here
     if (line.new_user_email.trim() && !/^[^@\s]+@[^@\s]+\.[a-zA-Z]{2,}$/.test(line.new_user_email.trim()))
       errors.new_user_email = 'That does not look like an email address.';
@@ -196,6 +198,7 @@ export const useServiceRequestForm = (
   const filterOptions = usePortalFilterOptions();
   const users = useUserChoices();
   const devices = useDeviceChoices();
+  const departments = useDepartments();
   const mutation = useCreateServiceRequest();
   const draftMutation = useSaveRequestDraft();
   const discardMutation = useDiscardRequestDraft();
@@ -397,6 +400,8 @@ export const useServiceRequestForm = (
       })),
       services: serviceOptions,
       users: userOptions,
+      // one global catalogue: the same choices whichever customer is asking
+      departments: departments.data ?? [],
     },
     deviceServices,
     userFor: (clientUser: string) => usersByName.get(clientUser),

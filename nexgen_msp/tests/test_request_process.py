@@ -196,8 +196,9 @@ class TestTheRequestProcess(MSPTestCase):
 
     def test_a_department_bound_decider_only_decides_for_their_own(self):
         outsider = self.make_person(self.customer, "Outsider", department="Sales")
+        elsewhere = self.make_department("Support")
         AuthorityService.set_account_rights(
-            self.decider, {"can_submit": 1, "can_approve": 1, "department": "Support"}
+            self.decider, {"can_submit": 1, "can_approve": 1, "department": elsewhere}
         )
 
         out = self.as_user(

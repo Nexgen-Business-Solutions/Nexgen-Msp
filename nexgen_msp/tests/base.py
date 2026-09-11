@@ -207,7 +207,35 @@ class MSPTestCase(IntegrationTestCase):
 
         return contract.name
 
+    def make_department(self, name="Sales"):
+        """A global department fixture, shared and never torn down: real ones behave the
+        same way, and two test methods racing to create the same one must not collide.
+
+        It still carries the prefix, so the catalogue an administrator reads never fills up
+        with departments only a test ever wanted. Returns the name as stored.
+        """
+        label = name if name.startswith(PREFIX) else f"{PREFIX} {name}"
+        existing = frappe.db.get_value("MSP Department", {"department_name": label}, "name")
+
+        if existing:
+            return existing
+
+        try:
+            doc = frappe.get_doc(
+                {"doctype": "MSP Department", "department_name": label, "enabled": 1}
+            ).insert(ignore_permissions=True)
+            frappe.db.commit()
+
+            return doc.name
+        except frappe.DuplicateEntryError:
+            frappe.db.rollback()
+
+            return frappe.db.get_value("MSP Department", {"department_name": label}, "name")
+
     def make_person(self, customer, full_name="Someone", department=None):
+        if department:
+            department = self.make_department(department)
+
         doc = frappe.get_doc(
             {
                 "doctype": "MSP Client User",

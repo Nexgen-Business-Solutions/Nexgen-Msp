@@ -1619,6 +1619,41 @@ export const saveRequestAction = (payload: {
 export const deleteRequestAction = (name: string) =>
   post<RequestActionRow[]>(`${BASE}.delete_request_action`, { name });
 
+export type DepartmentRow = {
+  name: string;
+  department_name: string;
+  enabled: number;
+  description: string | null;
+  sort_order: number | null;
+  used?: number;
+};
+
+export type DepartmentOption = { value: string; label: string };
+
+export const listDepartments = (enabledOnly = true, signal?: AbortSignal) =>
+  get<DepartmentRow[]>(`${BASE}.list_departments`, { enabled_only: enabledOnly ? 1 : 0 }, signal);
+
+export const listDepartmentOptions = async (signal?: AbortSignal): Promise<DepartmentOption[]> =>
+  (await listDepartments(true, signal)).map((row) => ({
+    value: row.department_name,
+    label: row.department_name,
+  }));
+
+export const saveDepartment = (payload: {
+  name?: string;
+  department: Partial<DepartmentRow>;
+}) =>
+  post<DepartmentRow[]>(`${BASE}.save_department`, {
+    name: payload.name,
+    department: JSON.stringify(payload.department),
+  });
+
+export const disableDepartment = (name: string) =>
+  post<DepartmentRow[]>(`${BASE}.disable_department`, { name });
+
+export const deleteDepartment = (name: string) =>
+  post<DepartmentRow[]>(`${BASE}.delete_department`, { name });
+
 export type InvoiceSettings = {
   issuer_name: string | null;
   issuer_address: string | null;

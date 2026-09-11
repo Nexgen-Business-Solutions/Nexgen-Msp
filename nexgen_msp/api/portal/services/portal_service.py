@@ -501,6 +501,16 @@ class PortalService:
         return rows
 
     @staticmethod
+    def list_departments():
+        """The global department catalogue, for a Select. No Customer context needed."""
+        from nexgen_msp.api.internal.services.department_service import DepartmentService
+
+        return [
+            {"value": row.department_name, "label": row.department_name}
+            for row in DepartmentService.list_departments(enabled_only=True)
+        ]
+
+    @staticmethod
     def list_device_choices(customer=None):
         """Every machine of one customer, for a picker — same reasoning as the people.
 
@@ -997,6 +1007,14 @@ class PortalService:
         if line.get("is_new_user"):
             line["target_scope"] = "User"
             line["managed_device"] = None
+
+            if line.get("new_user_department"):
+                from nexgen_msp.api.internal.services.department_service import DepartmentService
+
+                line["new_user_department"] = DepartmentService.validate_department(
+                    line["new_user_department"]
+                )
+
             return line
 
         # a device service named against a machine is about that machine; named against a

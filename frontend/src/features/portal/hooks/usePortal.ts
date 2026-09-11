@@ -376,6 +376,13 @@ export const useDeviceChoices = () => {
   });
 };
 
+export const useDepartments = () =>
+  useQuery({
+    queryKey: [...portalKeys.all, 'departments'] as const,
+    queryFn: ({ signal }) => portal.listDepartments(signal),
+    staleTime: 5 * 60 * 1000,
+  });
+
 export const useMyApprovalRights = (enabled = true) =>
   useQuery({
     queryKey: ['portal', 'approvalRights'] as const,

@@ -250,15 +250,18 @@ export default function NewServiceRequest() {
                       </div>
                       <div>
                         <span className={labelClass}>Department</span>
-                        <input
-                          type="text"
+                        <Select
+                          className="w-full"
                           value={line.new_user_department}
-                          onChange={(event) =>
-                            form.updateLine(line.key, 'new_user_department', event.target.value)
+                          onChange={(value) =>
+                            form.updateLine(line.key, 'new_user_department', value)
                           }
-                          placeholder="Accounting"
-                          className={inputClass}
+                          placeholder="Select department"
+                          options={form.options.departments}
                         />
+                        {showErrors && errors.new_user_department && (
+                          <p className="mt-1 text-xs text-red-600">{errors.new_user_department}</p>
+                        )}
                       </div>
                     </div>
                   ) : (

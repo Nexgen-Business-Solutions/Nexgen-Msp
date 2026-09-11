@@ -247,6 +247,13 @@ export const listDeviceChoices = (customer?: string, signal?: AbortSignal) =>
 export const listClientUsers = (params: ListParams = {}, signal?: AbortSignal) =>
   get<Paginated<ClientUser>>(`${BASE}.list_client_users`, params, signal);
 
+export type DepartmentOption = { value: string; label: string };
+
+/** The one global department catalogue. No Customer context: it is the same list for
+ * everyone. */
+export const listDepartments = (signal?: AbortSignal) =>
+  get<DepartmentOption[]>(`${BASE}.list_departments`, undefined, signal);
+
 export const listDevices = (params: ListParams = {}, signal?: AbortSignal) =>
   get<Paginated<ManagedDevice>>(`${BASE}.list_devices`, params, signal);
 

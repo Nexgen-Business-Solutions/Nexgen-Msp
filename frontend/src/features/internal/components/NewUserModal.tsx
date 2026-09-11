@@ -5,6 +5,7 @@ import FieldLabel from '@/shared/components/FieldLabel';
 import Select from '@/shared/components/Select';
 import { useCreateClientUser } from '../hooks/useRequests';
 import { useUserFilterOptions } from '../hooks/useUsers';
+import { useDepartmentOptions } from '../hooks/useSettings';
 
 type Props = { open: boolean; onClose: () => void; onCreated: (clientUser: string) => void };
 
@@ -15,6 +16,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 const NewUserModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
   const options = useUserFilterOptions();
+  const departmentOptions = useDepartmentOptions();
   const create = useCreateClientUser();
 
   const [customer, setCustomer] = useState('');
@@ -113,12 +115,12 @@ const NewUserModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
           </div>
           <div>
             <FieldLabel>Department</FieldLabel>
-            <input
-              type="text"
+            <Select
+              className="w-full"
               value={department}
-              onChange={(event) => setDepartment(event.target.value)}
-              placeholder="Accounting"
-              className={inputClass}
+              onChange={setDepartment}
+              placeholder="Select department"
+              options={departmentOptions.data ?? []}
             />
           </div>
           <div>

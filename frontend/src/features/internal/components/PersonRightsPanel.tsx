@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { AlertCircle, CircleCheck, ShieldCheck } from 'lucide-react';
+import Select from '@/shared/components/Select';
 import { useAccountRights, useSetAccountRights } from '../hooks/useTeam';
+import { useDepartmentOptions } from '../hooks/useSettings';
 
 type Props = { user: string };
 
@@ -31,21 +33,24 @@ const meaning = (customer: string, canSubmit: boolean, canApprove: boolean) => {
 const PersonRightsPanel: React.FC<Props> = ({ user }) => {
   const rights = useAccountRights(user);
   const save = useSetAccountRights(user);
+  const departmentOptions = useDepartmentOptions();
 
   const data = rights.data;
   const [form, setForm] = useState({ can_submit: false, can_approve: false });
+  const [department, setDepartment] = useState('');
   const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
     if (!data) return;
     setForm({ can_submit: Boolean(data.can_submit), can_approve: Boolean(data.can_approve) });
+    setDepartment(data.department ?? '');
     setDirty(false);
   }, [data]);
 
   const submit = async () => {
     if (!data) return;
     try {
-      await save.mutateAsync({ ...form, department: data.department ?? '' });
+      await save.mutateAsync({ ...form, department });
       setDirty(false);
     } catch {
       // surfaced below
@@ -81,6 +86,48 @@ const PersonRightsPanel: React.FC<Props> = ({ user }) => {
               </span>
             </label>
           ))}
+        </div>
+
+        <div className="mt-4 space-y-2.5 border-t border-slate-100 pt-4">
+          <span className="block text-sm font-medium text-slate-800">Can approve for</span>
+          <label className="flex cursor-pointer items-center gap-2.5">
+            <input
+              type="radio"
+              checked={!department}
+              disabled={save.isLoading}
+              onChange={() => {
+                setDepartment('');
+                setDirty(true);
+              }}
+              className="h-4 w-4 border-slate-300"
+            />
+            <span className="text-sm text-slate-700">Whole company</span>
+          </label>
+          <label className="flex cursor-pointer items-center gap-2.5">
+            <input
+              type="radio"
+              checked={Boolean(department)}
+              disabled={save.isLoading}
+              onChange={() => {
+                setDepartment((departmentOptions.data ?? [])[0]?.value ?? '');
+                setDirty(true);
+              }}
+              className="h-4 w-4 border-slate-300"
+            />
+            <span className="text-sm text-slate-700">Department</span>
+          </label>
+          {department && (
+            <Select
+              className="ml-6 w-full max-w-xs"
+              value={department}
+              onChange={(value) => {
+                setDepartment(value);
+                setDirty(true);
+              }}
+              placeholder="Select department"
+              options={departmentOptions.data ?? []}
+            />
+          )}
         </div>
 
         <p className="mt-4 flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">

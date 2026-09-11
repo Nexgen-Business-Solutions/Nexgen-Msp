@@ -2,8 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { AlertCircle, UserPen } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
 import FieldLabel from '@/shared/components/FieldLabel';
+import Select from '@/shared/components/Select';
 import type { UserDetail } from '@/lib/api/internal';
 import { useUpdateClientUser } from '../hooks/useUsers';
+import { useDepartmentOptions } from '../hooks/useSettings';
 
 type Props = {
   open: boolean;
@@ -16,6 +18,7 @@ const inputClass =
 
 const EditClientUserModal: React.FC<Props> = ({ open, user, onClose }) => {
   const save = useUpdateClientUser();
+  const departmentOptions = useDepartmentOptions();
 
   const [fullName, setFullName] = useState('');
   const [department, setDepartment] = useState('');
@@ -99,11 +102,12 @@ const EditClientUserModal: React.FC<Props> = ({ open, user, onClose }) => {
           </div>
           <div>
             <FieldLabel>Department</FieldLabel>
-            <input
-              type="text"
+            <Select
+              className="w-full"
               value={department}
-              onChange={(event) => setDepartment(event.target.value)}
-              className={inputClass}
+              onChange={setDepartment}
+              placeholder="Select department"
+              options={departmentOptions.data ?? []}
             />
           </div>
           <div>

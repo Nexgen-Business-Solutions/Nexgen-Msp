@@ -355,15 +355,34 @@ class ExcelImportService:
         return f"{prefix} — {department}" if department else prefix
 
     @staticmethod
+    def _validated_department(department):
+        """The catalogue never gains a new entry silently: an unknown department refuses
+        the row instead, naming exactly what to add in Settings first."""
+        from nexgen_msp.api.internal.services.department_service import DepartmentService
+
+        try:
+            return DepartmentService.validate_department(department)
+        except (ValidationError, NotFoundError):
+            raise ValidationError(
+                f'Department "{department}" is not configured.\n'
+                "Create it in Settings before importing this user.",
+                "VALIDATION_ERROR",
+            )
+
+    @staticmethod
     def _create_client_user(record, customer, report, prefix=None):
         status = ExcelImportService._lifecycle_status(record)
         start_date, disabled_date = ExcelImportService._lifecycle_dates(record, status)
+        department = ExcelImportService._department(record, prefix)
+
+        if department:
+            department = ExcelImportService._validated_department(department)
 
         values = {
                 "doctype": "MSP Client User",
                 "full_name": record["full_name"],
                 "customer": customer,
-                "department": ExcelImportService._department(record, prefix),
+                "department": department,
                 "email": record["email"],
                 "username": record.get("username"),
                 "lifecycle_status": status,
