@@ -30,7 +30,9 @@
   "new_device_serial",
   "request_action",
   "action",
-  "needs_portal_access"
+  "needs_portal_access",
+  "subject_key",
+  "device_requirement_key"
  ],
  "fields": [
   {
@@ -205,6 +207,18 @@
    "fieldtype": "Link",
    "label": "Action",
    "options": "MSP Request Action"
+  },
+  {
+   "fieldname": "subject_key",
+   "fieldtype": "Data",
+   "label": "Subject Key",
+   "read_only": 1
+  },
+  {
+   "fieldname": "device_requirement_key",
+   "fieldtype": "Data",
+   "label": "Device Requirement Key",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,

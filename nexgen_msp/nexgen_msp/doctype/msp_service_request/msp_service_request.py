@@ -23,12 +23,18 @@ DISPUTE_TYPE = "Billing Dispute"
 
 class MSPServiceRequest(Document):
 	def validate(self):
+		from nexgen_msp.utils import request_intents
+
 		self.validate_has_lines()
 
 		# a draft is still being written: it is checked when it is sent, not while it is put
 		# aside half finished
 		if self.status != "Draft":
 			self.validate_lines()
+
+		# who and which machine each line is about, grouped: the execution plan is built on
+		# these and they must be right whatever door the request came in through
+		request_intents.stamp_keys(self)
 
 		self.sync_request_type()
 		self.sync_status_with_lines()

@@ -335,3 +335,48 @@ def validate_one_intent_per_service(doc):
 			)
 
 		seen[assignment] = row.idx
+
+
+def _slug(text):
+	return " ".join((text or "").split()).casefold()
+
+
+def subject_key(row):
+	"""Which person a line is about, written so every line about them reads the same.
+
+	The workbench works per person, not per line: one account is created for somebody the
+	customer wrote once and asked three things for. The key is derived here rather than
+	taken from the screen that raised the request, so it cannot drift — a person on file is
+	their record, a person still to be created is the name the customer wrote.
+	"""
+	if row.get("is_new_user"):
+		name = _slug(row.get("new_user_full_name"))
+
+		return f"new-user:{name}" if name else None
+
+	person = subject_of(row)
+
+	return f"user:{person}" if person else None
+
+
+def device_requirement_key(row):
+	"""Which machine a line needs, or None when it needs none.
+
+	Several device services asked for the same person go onto one machine, so they share a
+	key and a single machine is provisioned for all of them.
+	"""
+	if row.get("is_new_device"):
+		subject = subject_key(row)
+
+		return f"new-device:{subject}" if subject else None
+
+	device = row.get("managed_device")
+
+	return f"device:{device}" if device else None
+
+
+def stamp_keys(doc):
+	"""Give every line the two keys the execution plan groups its work by."""
+	for row in doc.lines:
+		row.subject_key = subject_key(row)
+		row.device_requirement_key = device_requirement_key(row)
