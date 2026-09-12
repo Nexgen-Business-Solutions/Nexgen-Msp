@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as internal from '@/lib/api/internal';
@@ -19,6 +19,7 @@ vi.mock('@/lib/api/internal', async (importOriginal) => {
     userServiceAvailability: vi.fn(),
     deviceServiceAvailability: vi.fn(),
     getDeviceContext: vi.fn(),
+    changeUserService: vi.fn(),
   };
 });
 
@@ -167,6 +168,38 @@ describe('UserDetail — personal services', () => {
     expect(await screen.findByText('Sophos Endpoint')).toBeInTheDocument();
     expect(screen.getByText('No personal service open for John Doe.')).toBeInTheDocument();
   });
+
+  it('sends the selected suspension date', async () => {
+    vi.mocked(internal.changeUserService).mockResolvedValue(buildDetail());
+    await renderPage(buildDetail(), [openService()]);
+
+    fireEvent.click(await screen.findByRole('button', { name: /^suspend$/i }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(/suspend from/i)).toBeInTheDocument();
+    const date = dialog.querySelector('input[type="date"]') as HTMLInputElement;
+    fireEvent.change(date, { target: { value: '2026-01-20' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /^suspend$/i }));
+
+    await waitFor(() =>
+      expect(internal.changeUserService).toHaveBeenCalledWith(
+        expect.objectContaining({
+          assignment: 'SA-001',
+          action: 'Suspend',
+          effective_date: '2026-01-20',
+        })
+      )
+    );
+  });
+
+  it('offers no invalid close action for a service awaiting setup', async () => {
+    await renderPage(buildDetail(), [
+      openService({ operational_status: 'Pending Setup', billing_status: 'Pending' }),
+    ]);
+
+    await screen.findByText('Microsoft 365');
+    expect(screen.queryByRole('button', { name: /^close$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^suspend$/i })).not.toBeInTheDocument();
+  });
 });
 
 describe('UserDetail — device services', () => {
@@ -178,6 +211,11 @@ describe('UserDetail — device services', () => {
     expect(await screen.findByText('Sophos Endpoint')).toBeInTheDocument();
     expect(internal.deviceServiceAvailability).toHaveBeenCalledWith('DEV-001', expect.anything());
     expect(screen.getByText(/Serial: SN-123 · Active · held since 2026-06-04/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /^suspend$/i }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('Serial: SN-123')).toBeInTheDocument();
+    expect(within(dialog).getByText('Current holder: John Doe')).toBeInTheDocument();
   });
 
   it('never reads availability for a device the person only held in the past', async () => {

@@ -48,12 +48,12 @@ const SECTIONS = [
     id: 'departments',
     label: 'Departments',
     icon: Building2,
-    blurb: 'The one department catalogue every customer picks from. No Customer selector here.',
+    blurb: 'Manage the shared department list used by all customers.',
   },
 ];
 
 const COLUMNS = ['Title', 'Type', 'Description', 'Used', 'Offered', ''];
-const DEPARTMENT_COLUMNS = ['Department', 'Description', 'Status', ''];
+const DEPARTMENT_COLUMNS = ['Department', 'Description', 'Order', 'Status', ''];
 
 export default function Settings() {
   const [section, setSection] = useState(SECTIONS[0].id);
@@ -301,7 +301,7 @@ export default function Settings() {
                       colSpan={DEPARTMENT_COLUMNS.length}
                       className="px-4 py-12 text-center text-sm text-slate-500"
                     >
-                      No department defined — customers would have nothing to pick.
+                      No departments yet. Add one so users can select it in forms.
                     </td>
                   </tr>
                 )}
@@ -312,6 +312,9 @@ export default function Settings() {
                       {row.department_name}
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-600">{row.description || '—'}</td>
+                    <td className="px-4 py-3 text-sm text-slate-600">
+                      {row.sort_order ?? 'Automatic'}
+                    </td>
                     <td className="px-4 py-3">
                       <span
                         className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
@@ -389,7 +392,7 @@ export default function Settings() {
         open={Boolean(deletingDepartment)}
         tone="danger"
         title="Delete this department?"
-        description="A department nothing points at can be removed outright. One still in use cannot."
+        description="You can delete this department only if it has never been used. Otherwise, disable it to keep existing records accurate."
         confirmLabel="Delete"
         loading={removeDepartment.isLoading}
         error={departmentDeleteError}

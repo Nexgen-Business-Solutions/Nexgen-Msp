@@ -41,7 +41,9 @@ class TestSuspensionInvariants(MSPTestCase):
                 "suspension_log": suspensions or [],
             }
         )
+        doc.flags.via_service_lifecycle = True
         doc.insert(ignore_permissions=True)
+        doc.flags.via_service_lifecycle = False
         self.track("MSP Service Assignment", doc.name)
 
         return doc

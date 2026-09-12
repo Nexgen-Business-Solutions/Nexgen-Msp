@@ -434,6 +434,19 @@ export const useServiceRequestForm = (
         })),
     deviceFor: (device: string) => (devices.data ?? []).find((row) => row.name === device),
     newDeviceValue: NEW_DEVICE,
-    loadingOptions: catalogue.isLoading || users.isLoading || devices.isLoading,
+    loadingOptions:
+      actions.isLoading ||
+      catalogue.isLoading ||
+      filterOptions.isLoading ||
+      users.isLoading ||
+      devices.isLoading ||
+      departments.isLoading,
+    optionsError:
+      actions.error ||
+      catalogue.error ||
+      filterOptions.error ||
+      users.error ||
+      devices.error ||
+      departments.error,
   };
 };

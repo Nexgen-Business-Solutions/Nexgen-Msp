@@ -3,6 +3,7 @@ import { ArrowLeft, Eye, Laptop } from 'lucide-react';
 import StatusBadge from '@/shared/components/StatusBadge';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import { usePortalUserDetail } from '../hooks/usePortal';
+import type { PortalUserService } from '@/lib/api/portal';
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
 
@@ -29,6 +30,51 @@ const Empty = ({ span, children }: { span: number; children: React.ReactNode }) 
   </tr>
 );
 
+const ServiceTable = ({ rows, showDevice = false }: { rows: PortalUserService[]; showDevice?: boolean }) => (
+  <table className="w-full">
+    <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
+      <tr>
+        <Th>Service</Th>
+        {showDevice && <Th>Device</Th>}
+        <Th>Started</Th>
+        <Th>Ended</Th>
+        <Th>Last billed</Th>
+        <Th>Status</Th>
+      </tr>
+    </thead>
+    <tbody className="divide-y divide-slate-100">
+      {rows.length === 0 && <Empty span={showDevice ? 6 : 5}>No service yet.</Empty>}
+      {rows.map((row, index) => (
+        <tr key={row.name ?? `${row.service_name}-${index}`} className="transition-colors hover:bg-slate-50">
+          <td className="whitespace-nowrap px-4 py-3">
+            <p className="text-sm font-semibold text-slate-900">{row.service_name}</p>
+            {row.customer_visible_notes && (
+              <p className="text-xs text-slate-400">{row.customer_visible_notes}</p>
+            )}
+          </td>
+          {showDevice && (
+            <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+              {row.hostname || 'N/A'}
+            </td>
+          )}
+          <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+            {fmtDate(row.effective_start_date)}
+          </td>
+          <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+            {fmtDate(row.effective_end_date)}
+          </td>
+          <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+            {fmtDate(row.last_billed_on)}
+          </td>
+          <td className="whitespace-nowrap px-4 py-3">
+            <StatusBadge value={row.operational_status} />
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+);
+
 export default function PortalUserDetail() {
   const { name = '' } = useParams();
   const navigate = useNavigate();
@@ -52,7 +98,15 @@ export default function PortalUserDetail() {
     );
   }
 
-  const { user, devices, services, requests } = data;
+  const {
+    user,
+    devices,
+    services,
+    requests,
+    device_services: deviceServices = [],
+    device_history: deviceHistory = [],
+  } = data;
+  const allServices = [...services, ...deviceServices.flatMap((group) => group.services)];
 
   return (
     <div className="space-y-5 px-6 pb-6 pt-4">
@@ -82,7 +136,7 @@ export default function PortalUserDetail() {
           <div>
             <p className="text-xs font-medium text-slate-400">Active services</p>
             <p className="mt-0.5 text-sm text-slate-700 tabular-nums">
-              {services.filter((row) => !['Ended', 'Cancelled'].includes(row.operational_status)).length}
+              {allServices.filter((row) => !['Ended', 'Cancelled'].includes(row.operational_status)).length}
             </p>
           </div>
           <div>
@@ -92,56 +146,37 @@ export default function PortalUserDetail() {
         </div>
       </div>
 
-      <Panel title="Services in use">
-        <table className="w-full">
-          <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
-            <tr>
-              <Th>Service</Th>
-              <Th>Device</Th>
-              <Th>Started</Th>
-              <Th>Ended</Th>
-              <Th>Last billed</Th>
-              <Th>Status</Th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {services.length === 0 && <Empty span={6}>No service yet.</Empty>}
-            {services.map((row, index) => (
-              <tr key={`${row.service_name}-${index}`} className="transition-colors hover:bg-slate-50">
-                <td className="whitespace-nowrap px-4 py-3">
-                  <p className="text-sm font-semibold text-slate-900">{row.service_name}</p>
-                  {row.customer_visible_notes && (
-                    <p className="text-xs text-slate-400">{row.customer_visible_notes}</p>
-                  )}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                  {row.hostname || 'N/A'}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                  {fmtDate(row.effective_start_date)}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                  {fmtDate(row.effective_end_date)}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                  {fmtDate(row.last_billed_on)}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3">
-                  <StatusBadge value={row.operational_status} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <Panel title="Personal services">
+        <ServiceTable rows={services} />
       </Panel>
 
-      <Panel title="Devices">
+      <Panel title="Device services">
+        {deviceServices.length === 0 ? (
+          <p className="py-8 text-center text-sm text-slate-500">No current device service.</p>
+        ) : (
+          <div className="space-y-4">
+            {deviceServices.map((group) => (
+              <div key={group.device.name ?? group.device.hostname} className="overflow-hidden rounded-lg border border-slate-200">
+                <div className="bg-slate-50 px-4 py-3">
+                  <p className="text-sm font-semibold text-slate-900">{group.device.hostname}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    Held since {fmtDate(group.device.held_from ?? group.device.assigned_date)}
+                  </p>
+                </div>
+                <ServiceTable rows={group.services} />
+              </div>
+            ))}
+          </div>
+        )}
+      </Panel>
+
+      <Panel title="Current devices">
         <table className="w-full">
           <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
             <tr>
               <Th>Device</Th>
               <Th>Type</Th>
-              <Th>In service since</Th>
+              <Th>Held since</Th>
               <Th>Status</Th>
             </tr>
           </thead>
@@ -163,10 +198,44 @@ export default function PortalUserDetail() {
                   {device.device_type}
                 </td>
                 <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                  {fmtDate(device.assigned_date)}
+                  {fmtDate(device.held_from ?? device.assigned_date)}
                 </td>
                 <td className="whitespace-nowrap px-4 py-3">
                   <StatusBadge value={device.status} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Panel>
+
+      <Panel title="Previous devices">
+        <table className="w-full">
+          <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
+            <tr>
+              <Th>Device</Th>
+              <Th>Type</Th>
+              <Th>Held from</Th>
+              <Th>Held until</Th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {deviceHistory.filter((device) => !device.is_current).length === 0 && (
+              <Empty span={4}>No previous device assignment.</Empty>
+            )}
+            {deviceHistory.filter((device) => !device.is_current).map((device) => (
+              <tr key={device.holder_record} className="transition-colors hover:bg-slate-50">
+                <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
+                  {device.hostname}
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                  {device.device_type}
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                  {fmtDate(device.held_from)}
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                  {fmtDate(device.held_until)}
                 </td>
               </tr>
             ))}

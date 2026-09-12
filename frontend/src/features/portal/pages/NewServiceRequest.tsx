@@ -105,7 +105,7 @@ export default function NewServiceRequest() {
             <div>
               <h2 className="text-base font-semibold text-slate-900">Services request</h2>
               <p className="mt-1 text-sm text-slate-500">
-                Create your request and set descrition of what you need for each case.
+                Choose who needs a service, what should change, and when.
               </p>
               {onBehalf && customer && (
                 <p className="mt-2 inline-flex items-center gap-2 text-sm text-slate-600">
@@ -575,6 +575,15 @@ export default function NewServiceRequest() {
           <div className="mx-6 mb-4 flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3 text-red-700">
             <AlertCircle size={16} className="mt-0.5 shrink-0" />
             <span className="text-sm font-medium">{form.submitError.message}</span>
+          </div>
+        )}
+
+        {form.optionsError instanceof Error && (
+          <div className="mx-6 mb-4 flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3 text-red-700">
+            <AlertCircle size={16} className="mt-0.5 shrink-0" />
+            <span className="text-sm font-medium">
+              We could not load the choices for this request. {form.optionsError.message}
+            </span>
           </div>
         )}
 

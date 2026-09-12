@@ -4,24 +4,8 @@ from nexgen_msp.utils.meta import select_options
 
 
 from nexgen_msp.api.internal.services.request_service import effective_line_status
-from nexgen_msp.utils import approval, identifiers, permissions
+from nexgen_msp.utils import approval, permissions
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
-
-SERVICE_UNDER_USER = """
-    sa.client_user = %(user)s
-    or exists (
-        select 1
-        from `tabMSP Device Holder` holder
-        where holder.parent = sa.managed_device
-          and holder.parenttype = 'MSP Managed Device'
-          and holder.is_current = 1
-          and holder.client_user = %(user)s
-          and (
-              sa.operational_status not in ('Ended', 'Cancelled')
-              or coalesce(sa.effective_end_date, sa.effective_start_date) > holder.from_date
-          )
-    )
-"""
 
 CLIENT_USER_FIELDS = [
     "name",
@@ -819,9 +803,7 @@ class PortalService:
         if not rights.get("can_approve"):
             return False
 
-        return all(
-            approval.covers(rights, row.client_user) for row in doc.lines if row.client_user
-        )
+        return all(approval.covers_line(rights, row) for row in doc.lines)
 
     @staticmethod
     def get_user_detail(client_user=None):
@@ -849,22 +831,40 @@ class PortalService:
 
         PortalService._resolve_customer(user.customer)
 
-        devices = frappe.db.sql(
+        current_devices = frappe.db.sql(
             """
-            select distinct device.hostname, device.device_type, device.status, device.assigned_date
+            select device.name, device.hostname, device.device_type, device.status,
+                   holder.from_date as held_from, holder.to_date as held_until,
+                   holder.is_current
             from `tabMSP Managed Device` device
             join `tabMSP Device Holder` holder
                 on holder.parent = device.name and holder.parenttype = 'MSP Managed Device'
-            where holder.client_user = %(user)s
-            order by field(device.status, 'Active') desc, device.hostname asc
+            where holder.client_user = %(user)s and holder.is_current = 1
+            order by device.hostname asc
             """,
             {"user": client_user},
             as_dict=True,
         )
 
-        services = frappe.db.sql(
-            f"""
+        device_history = frappe.db.sql(
+            """
+            select holder.name as holder_record, device.name, device.hostname,
+                   device.device_type, device.status, holder.from_date as held_from,
+                   holder.to_date as held_until, holder.is_current
+            from `tabMSP Device Holder` holder
+            join `tabMSP Managed Device` device on device.name = holder.parent
+            where holder.parenttype = 'MSP Managed Device'
+              and holder.client_user = %(user)s
+            order by holder.is_current desc, holder.from_date desc, device.hostname asc
+            """,
+            {"user": client_user},
+            as_dict=True,
+        )
+
+        user_services = frappe.db.sql(
+            """
             select
+                sa.name,
                 coalesce(item.item_name, sa.service_item) as service_name,
                 device.hostname,
                 sa.operational_status,
@@ -881,13 +881,46 @@ class PortalService:
             from `tabMSP Service Assignment` sa
             left join `tabItem` item on item.name = sa.service_item
             left join `tabMSP Managed Device` device on device.name = sa.managed_device
-            where {SERVICE_UNDER_USER}
+            where sa.client_user = %(user)s
             order by field(sa.operational_status, 'Ended', 'Cancelled') asc,
                      sa.effective_start_date desc
             """,
             {"user": client_user},
             as_dict=True,
         )
+
+        device_service_rows = frappe.db.sql(
+            """
+            select sa.name, coalesce(item.item_name, sa.service_item) as service_name,
+                   sa.managed_device, device.hostname, sa.operational_status,
+                   sa.effective_start_date, sa.effective_end_date,
+                   sa.customer_visible_notes, sa.source_request,
+                   (select max(br.billing_period_end)
+                      from `tabMSP Billing Run Line` brl
+                      join `tabMSP Billing Run` br on br.name = brl.parent
+                     where brl.service_assignment = sa.name and br.docstatus = 1) as last_billed_on
+            from `tabMSP Service Assignment` sa
+            join `tabMSP Managed Device` device on device.name = sa.managed_device
+            join `tabMSP Device Holder` holder
+              on holder.parent = device.name
+             and holder.parenttype = 'MSP Managed Device'
+             and holder.is_current = 1
+            left join `tabItem` item on item.name = sa.service_item
+            where holder.client_user = %(user)s
+            order by device.hostname asc,
+                     field(sa.operational_status, 'Ended', 'Cancelled') asc,
+                     sa.effective_start_date desc
+            """,
+            {"user": client_user},
+            as_dict=True,
+        )
+        services_by_device = {}
+        for row in device_service_rows:
+            services_by_device.setdefault(row.managed_device, []).append(row)
+        device_services = [
+            {"device": device, "services": services_by_device.get(device.name, [])}
+            for device in current_devices
+        ]
 
         requests = frappe.db.sql(
             """
@@ -904,8 +937,12 @@ class PortalService:
 
         return {
             "user": user,
-            "devices": devices,
-            "services": services,
+            "devices": current_devices,
+            "current_devices": current_devices,
+            "device_history": device_history,
+            "services": user_services,
+            "user_services": user_services,
+            "device_services": device_services,
             "requests": requests,
         }
 
@@ -999,6 +1036,13 @@ class PortalService:
         scope = frappe.db.get_value("Item", service, "msp_service_scope") or "User"
         device = line.get("managed_device")
 
+        if line.get("is_new_user"):
+            from nexgen_msp.api.internal.services.department_service import DepartmentService
+
+            line["new_user_department"] = DepartmentService.validate_department(
+                line.get("new_user_department"), required=True
+            )
+
         if line.get("is_new_device"):
             line["target_scope"] = "User"
             line["managed_device"] = None
@@ -1007,13 +1051,6 @@ class PortalService:
         if line.get("is_new_user"):
             line["target_scope"] = "User"
             line["managed_device"] = None
-
-            if line.get("new_user_department"):
-                from nexgen_msp.api.internal.services.department_service import DepartmentService
-
-                line["new_user_department"] = DepartmentService.validate_department(
-                    line["new_user_department"]
-                )
 
             return line
 
@@ -1033,6 +1070,12 @@ class PortalService:
                     f"Device {device} does not belong to {customer}.", "PERMISSION_DENIED", 403
                 )
 
+            # the machine owns the service, but the request was still raised for somebody:
+            # that person is kept beside it so the line does not lose them the day the
+            # machine changes hands
+            line["requested_for_user"] = (
+                line.get("requested_for_user") or line.get("client_user") or owner.assigned_client_user
+            )
             line["target_scope"] = "Device"
             line["client_user"] = None
             return line
@@ -1097,6 +1140,8 @@ class PortalService:
                 "target_scope": line.get("target_scope") or "User",
                 "is_new_user": 1 if line.get("is_new_user") else 0,
                 "client_user": line.get("client_user"),
+                "requested_for_user": line.get("requested_for_user"),
+                "source_service_assignment": line.get("source_service_assignment"),
                 "new_user_full_name": line.get("new_user_full_name"),
                 "new_user_department": line.get("new_user_department"),
                 "needs_portal_access": 1 if line.get("needs_portal_access") else 0,
@@ -1216,9 +1261,6 @@ class PortalService:
                 }
             )
 
-        # a serial or a username that breaks a rule refuses the request before it exists
-        PortalService._record_supplied_facts(doc)
-
         if name:
             doc.save(ignore_permissions=True)
         else:
@@ -1238,21 +1280,6 @@ class PortalService:
             PortalService._acknowledge(doc)
 
         return PortalService.get_request(doc.name)
-
-    @staticmethod
-    def _record_supplied_facts(doc):
-        """Keep the username and serial the customer happened to know.
-
-        Neither is asked of them, but when they do supply one for a person or a machine we
-        already hold, it is a fact about that record and belongs on it — it is also what
-        the technician is later refused a closure for not having.
-
-        Only ever fills a blank: a value already on file was put there by someone who had
-        the machine in their hands, and is not overwritten from a form.
-        """
-        for row in doc.lines:
-            identifiers.record_username(row.client_user, row.new_user_username)
-            identifiers.record_serial(row.managed_device, row.new_device_serial)
 
     @staticmethod
     def my_approval_rights(customer=None):
@@ -1309,11 +1336,12 @@ class PortalService:
                 403,
             )
 
-        # an approver limited to a department decides for that department only
+        # an approver limited to a department decides for that department only — for every
+        # line, whether it names a person, a machine they hold, or somebody not yet created
         for row in doc.lines:
-            if row.client_user and not approval.covers(rights, row.client_user):
+            if not approval.covers_line(rights, row):
                 raise ValidationError(
-                    "This request concerns someone outside the department you decide for.",
+                    "This request also contains people outside your approval scope.",
                     "PERMISSION_DENIED",
                     403,
                 )

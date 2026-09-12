@@ -50,7 +50,9 @@ class TestServiceAssignmentInvariants(MSPTestCase):
                 "suspension_log": suspensions or [],
             }
         )
+        doc.flags.via_service_lifecycle = True
         doc.insert(ignore_permissions=True)
+        doc.flags.via_service_lifecycle = False
         self.track("MSP Service Assignment", doc.name)
 
         return doc
@@ -60,6 +62,24 @@ class TestServiceAssignmentInvariants(MSPTestCase):
 
     def device(self, hostname):
         return self.make_device(self.customer, hostname=hostname, serial=f"ZZTEST-SN-{hostname}")
+
+    def test_direct_creation_is_refused(self):
+        service = self.make_service("DIRECTCREATE", scope="User")
+        doc = frappe.get_doc(
+            {
+                "doctype": "MSP Service Assignment",
+                "customer": self.customer,
+                "service_item": service,
+                "assignment_scope": "User",
+                "client_user": self.john,
+                "quantity": 1,
+                "operational_status": "Active",
+                "effective_start_date": self.today,
+            }
+        )
+
+        with self.assertRaises(frappe.ValidationError):
+            doc.insert(ignore_permissions=True)
 
     # -------------------------------------------------------- catalogue scope is binding
     def test_a_user_only_service_cannot_be_assigned_to_a_device(self):
@@ -219,7 +239,7 @@ class TestServiceAssignmentInvariants(MSPTestCase):
 
         self.assertEqual(doc.billing_status, "Ended")
 
-    def test_billing_follows_the_operational_status_through_a_later_save(self):
+    def test_direct_status_changes_are_refused(self):
         service = self.make_service("DERM", scope="User")
 
         doc = self.assignment(service, "User", self.john, status="Pending Setup")
@@ -228,7 +248,9 @@ class TestServiceAssignmentInvariants(MSPTestCase):
 
         doc.operational_status = "Active"
         doc.billing_status = "Not Billable"
-        doc.save(ignore_permissions=True)
+        with self.assertRaises(frappe.ValidationError):
+            doc.save(ignore_permissions=True)
         doc.reload()
 
-        self.assertEqual(doc.billing_status, "Billable")
+        self.assertEqual(doc.operational_status, "Pending Setup")
+        self.assertEqual(doc.billing_status, "Pending")

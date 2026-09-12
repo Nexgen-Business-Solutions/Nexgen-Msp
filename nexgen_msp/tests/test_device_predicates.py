@@ -191,7 +191,11 @@ class TestDevicePredicates(MSPTestCase):
             detail = self.as_user(
                 self.manager, lambda: PortalService.get_user_detail(person)
             )
-            return [row["service_name"] for row in detail["services"]]
+            return [
+                row["service_name"]
+                for group in detail["device_services"]
+                for row in group["services"]
+            ]
 
         item_name = frappe.db.get_value("Item", self.service, "item_name")
 

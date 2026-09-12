@@ -8,7 +8,6 @@ Active because somebody has it, not the other way round.
 import frappe
 
 from nexgen_msp.api.internal.services.request_service import RequestService
-from nexgen_msp.api.internal.services.user_service import UserService
 from nexgen_msp.utils import device_holders as holders
 from nexgen_msp.utils import remarks as remarks_util
 from nexgen_msp.utils.assignments import OPEN_ASSIGNMENT_STATUSES
@@ -168,6 +167,12 @@ class DeviceLifecycleService:
 
         closed = DeviceLifecycleService._end_device_services(doc, on_date)
 
+        # Ending a service can append a remark to the device and therefore update its
+        # modification timestamp. Reload before writing the retirement itself while
+        # keeping every remark and holder row produced in the same transaction.
+        if closed:
+            doc.reload()
+
         if current:
             holders.hand_over(doc, None, on_date, note=note)
 
@@ -316,6 +321,8 @@ class DeviceLifecycleService:
         """
         closed = []
 
+        from nexgen_msp.api.internal.services.service_lifecycle_service import ServiceLifecycleService
+
         for name in frappe.get_all(
             "MSP Service Assignment",
             filters={
@@ -325,13 +332,11 @@ class DeviceLifecycleService:
             },
             pluck="name",
         ):
-            assignment = frappe.get_doc("MSP Service Assignment", name)
-            assignment.effective_end_date = UserService._end_date_for(assignment, on_date)
-            assignment.operational_status = "Ended"
-            assignment.billing_status = "Ended"
-            assignment.save()
-            assignment.add_comment(
-                "Comment", f"Ended with device {doc.hostname} by {frappe.session.user}."
+            ServiceLifecycleService.end(
+                assignment=name,
+                effective_date=on_date,
+                notes=f"Ended automatically when {doc.hostname} was retired.",
+                _commit=False,
             )
             closed.append(name)
 

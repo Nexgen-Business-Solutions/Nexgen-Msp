@@ -25,6 +25,16 @@ SOURCES = ("MSP Client User", "MSP Approver")
 
 
 def execute():
+	"""Fail as one unit; the patch runner owns the surrounding transaction."""
+	frappe.db.savepoint("department_catalogue")
+	try:
+		return _migrate()
+	except Exception:
+		frappe.db.rollback(save_point="department_catalogue")
+		raise
+
+
+def _migrate():
 	report = {
 		"distinct_values": 0,
 		"canonical_departments": 0,
@@ -59,8 +69,6 @@ def execute():
 
 	aliases = _flag_potential_aliases(list(canonical_by_key.values()))
 	report["alias_groups_flagged"] = len(aliases)
-
-	frappe.db.commit()
 
 	print(f"  {report['distinct_values']} distinct department value(s) found on existing records")
 	print(f"  {report['canonical_departments']} canonical department(s) now in the catalogue")
@@ -97,7 +105,7 @@ def _collect_raw_values():
 
 
 def _normalized(value):
-	return value.strip().casefold()
+	return " ".join(value.split()).casefold()
 
 
 def _group_case_insensitive(raw_counts):
@@ -134,17 +142,8 @@ def _create_department(canonical_name):
 		{"doctype": "MSP Department", "department_name": canonical_name, "enabled": 1}
 	)
 
-	try:
-		doc.insert(ignore_permissions=True)
-	except Exception:
-		frappe.db.rollback()
-		frappe.log_error(
-			title="Department could not be migrated",
-			message=f"'{canonical_name}' could not be created as an MSP Department. It needs manual review.",
-		)
-		# fall back on whatever is already there rather than lose the mapping entirely
-		existing = _existing_department(_normalized(canonical_name))
-		return existing or canonical_name
+	# Never manufacture a mapping for a record that failed to persist.
+	doc.insert(ignore_permissions=True)
 
 	return doc.name
 

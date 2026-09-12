@@ -8,8 +8,10 @@
  "field_order": [
   "target_scope",
   "client_user",
+  "requested_for_user",
   "managed_device",
   "customer_site",
+  "source_service_assignment",
   "requested_service",
   "requested_quantity",
   "requested_effective_date",
@@ -51,6 +53,12 @@
    "options": "MSP Client User"
   },
   {
+   "fieldname": "requested_for_user",
+   "fieldtype": "Link",
+   "label": "Requested For",
+   "options": "MSP Client User"
+  },
+  {
    "columns": 2,
    "depends_on": "eval:doc.target_scope==\"Device\"",
    "fieldname": "managed_device",
@@ -59,6 +67,12 @@
    "label": "Managed Device",
    "mandatory_depends_on": "eval:doc.target_scope==\"Device\"",
    "options": "MSP Managed Device"
+  },
+  {
+   "fieldname": "source_service_assignment",
+   "fieldtype": "Link",
+   "label": "Service Assignment",
+   "options": "MSP Service Assignment"
   },
   {
    "depends_on": "eval:doc.target_scope==\"Site\"",

@@ -529,6 +529,28 @@ class TestServiceLifecycle(MSPTestCase):
         self.assertEqual(self.reload(replacement["name"]).service_item, premium)
         self.assertEqual(self.reload(replacement["name"]).quantity, 1)
 
+    def test_a_rejected_replacement_keeps_the_original_service_active(self):
+        current = self.offering("LIFEATOMIC")
+        unavailable = self.make_service("LIFEUNAVAILABLE", scope="User")
+        opened = self.open_service(current, effective_date=self.days_ago(20))
+
+        with self.assertRaises(ValidationError):
+            ServiceLifecycleService.change(
+                assignment=opened["name"],
+                effective_date=self.days_ago(5),
+                service_item=unavailable,
+            )
+
+        original = self.reload(opened["name"])
+        self.assertEqual(original.operational_status, "Active")
+        self.assertIsNone(original.effective_end_date)
+        self.assertFalse(
+            frappe.db.exists(
+                "MSP Service Assignment",
+                {"customer": self.customer, "service_item": unavailable},
+            )
+        )
+
     def test_a_closed_service_has_no_running_period_to_change(self):
         service = self.offering("LIFECHANGE3")
         opened = self.open_service(service, effective_date=self.days_ago(20))

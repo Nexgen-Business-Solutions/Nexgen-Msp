@@ -56,6 +56,7 @@ class ServiceLifecycleService:
         notes=None,
         agreed_rate=None,
         rate_override_reason=None,
+        _commit=True,
     ):
         """Open a service for a target, from a stated day, and start billing it."""
         RequestService._guard_internal()
@@ -73,6 +74,7 @@ class ServiceLifecycleService:
             notes=notes,
             agreed_rate=agreed_rate,
             rate_override_reason=rate_override_reason,
+            _commit=_commit,
         )
 
     @staticmethod
@@ -288,7 +290,7 @@ class ServiceLifecycleService:
         return ServiceLifecycleService._outcome(doc)
 
     @staticmethod
-    def end(assignment=None, effective_date=None, source_request=None, notes=None):
+    def end(assignment=None, effective_date=None, source_request=None, notes=None, _commit=True):
         """Close a service for good, on the day it really stopped.
 
         A service closed while it was suspended keeps that suspension open: Billing clips it
@@ -316,6 +318,7 @@ class ServiceLifecycleService:
             f"Stopped on {frappe.utils.formatdate(end_on)}"
             + (f" in reference to {request}" if request else ""),
             notes,
+            commit=_commit,
         )
 
         return ServiceLifecycleService._outcome(doc)
@@ -382,24 +385,34 @@ class ServiceLifecycleService:
                 "VALIDATION_ERROR",
             )
 
-        ServiceLifecycleService.end(
-            assignment=doc.name,
-            effective_date=frappe.utils.add_days(on_date, -1),
-            source_request=source_request,
-            notes=notes,
-        )
+        savepoint = "service_assignment_change"
+        frappe.db.savepoint(savepoint)
+        try:
+            ServiceLifecycleService.end(
+                assignment=doc.name,
+                effective_date=frappe.utils.add_days(on_date, -1),
+                source_request=source_request,
+                notes=notes,
+                _commit=False,
+            )
 
-        outcome = ServiceLifecycleService.activate(
-            customer=doc.customer,
-            service_item=wanted_item,
-            target_scope=doc.assignment_scope,
-            client_user=doc.client_user,
-            managed_device=doc.managed_device,
-            effective_date=on_date,
-            quantity=wanted_quantity,
-            source_request=source_request or doc.source_request,
-            notes=notes,
-        )
+            outcome = ServiceLifecycleService.activate(
+                customer=doc.customer,
+                service_item=wanted_item,
+                target_scope=doc.assignment_scope,
+                client_user=doc.client_user,
+                managed_device=doc.managed_device,
+                effective_date=on_date,
+                quantity=wanted_quantity,
+                source_request=source_request or doc.source_request,
+                notes=notes,
+                _commit=False,
+            )
+        except Exception:
+            frappe.db.rollback(save_point=savepoint)
+            raise
+
+        frappe.db.commit()
 
         outcome["replaced"] = doc.name
 
@@ -420,6 +433,7 @@ class ServiceLifecycleService:
         notes=None,
         agreed_rate=None,
         rate_override_reason=None,
+        _commit=True,
     ):
         """Everything a new period has to survive before it exists."""
         if not customer:
@@ -474,7 +488,7 @@ class ServiceLifecycleService:
         )
 
         ServiceLifecycleService._write(
-            doc, "Opened" if status == "Active" else "Prepared", line, notes
+            doc, "Opened" if status == "Active" else "Prepared", line, notes, commit=_commit
         )
 
         return ServiceLifecycleService._outcome(doc)
@@ -881,16 +895,18 @@ class ServiceLifecycleService:
         return frappe.db.get_value("Item", service_item, "item_name") or service_item
 
     @staticmethod
-    def _write(doc, action, line, note):
+    def _write(doc, action, line, note, *, commit=True):
         """Save the act, and leave it readable where people actually look.
 
         The note goes to the person or the machine, never over the assignment's own note:
         what was written when the service was opened stays what it was.
         """
-        doc.save()
+        doc.flags.via_service_lifecycle = True
+        doc.save(ignore_permissions=True)
         doc.add_comment("Comment", f"{action} by {frappe.session.user} — {line}.")
         remarks_util.on_assignment(doc, action, note)
-        frappe.db.commit()
+        if commit:
+            frappe.db.commit()
 
     @staticmethod
     def _outcome(doc):

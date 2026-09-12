@@ -74,10 +74,19 @@ class TestServiceOwnershipQueries(MSPTestCase):
         return name
 
     def internal_services(self, person):
-        return UserService.get_user(person)["services"]
+        return UserService.get_user(person)["user_services"]
+
+    def internal_device_services(self, person):
+        return [
+            service
+            for group in UserService.get_user(person)["device_services"]
+            for service in group["services"]
+        ]
 
     def portal_services(self, person):
-        return self.as_user(self.manager, lambda: PortalService.get_user_detail(person))["services"]
+        return self.as_user(
+            self.manager, lambda: PortalService.get_user_detail(person)
+        )["user_services"]
 
     def item_name(self, service):
         return frappe.db.get_value("Item", service, "item_name")
@@ -88,7 +97,7 @@ class TestServiceOwnershipQueries(MSPTestCase):
         DeviceLifecycleService.transfer(device=self.laptop, client_user=self.bob)
         frappe.db.commit()
 
-        rows = [row for row in self.internal_services(self.bob) if row["name"] == name]
+        rows = [row for row in self.internal_device_services(self.bob) if row["name"] == name]
 
         self.assertEqual(len(rows), 1, "the machine he holds still runs it")
         self.assertEqual(rows[0]["assignment_scope"], "Device")
@@ -96,7 +105,7 @@ class TestServiceOwnershipQueries(MSPTestCase):
         self.assertEqual(rows[0]["hostname"], "ZZTEST-OWNBOX")
 
         self.assertEqual(
-            [row["name"] for row in self.internal_services(self.alice) if row["name"] == name],
+            [row["name"] for row in self.internal_device_services(self.alice) if row["name"] == name],
             [],
             "she does not have the machine any more",
         )
@@ -107,6 +116,9 @@ class TestServiceOwnershipQueries(MSPTestCase):
             "the assignment names the machine, and the machine has not changed",
         )
         self.assertIsNone(frappe.db.get_value("MSP Service Assignment", name, "client_user"))
+        alice = UserService.get_user(self.alice)
+        self.assertEqual(alice["current_devices"], [])
+        self.assertIn(self.laptop, [row["name"] for row in alice["device_history"]])
 
     def test_a_device_service_closed_under_the_previous_holder_never_reaches_the_next_one(self):
         name = self.open_device_service()
@@ -115,18 +127,14 @@ class TestServiceOwnershipQueries(MSPTestCase):
 
         self.assertIn(
             name,
-            [row["name"] for row in self.internal_services(self.alice)],
+            [row["name"] for row in self.internal_device_services(self.alice)],
             "it ran on her machine while she had it",
         )
 
         DeviceLifecycleService.transfer(device=self.laptop, client_user=self.bob)
         frappe.db.commit()
 
-        self.assertNotIn(
-            name,
-            [row["name"] for row in self.internal_services(self.bob)],
-            "it was over before he was ever handed the machine",
-        )
+        self.assertNotIn(name, [row["name"] for row in self.internal_services(self.bob)])
 
         ended = self.item_name(self.device_service)
         self.assertNotIn(ended, [row["service_name"] for row in self.portal_services(self.bob)])
@@ -144,8 +152,8 @@ class TestServiceOwnershipQueries(MSPTestCase):
         DeviceLifecycleService.repossess(device=self.laptop)
         frappe.db.commit()
 
-        self.assertNotIn(name, [row["name"] for row in self.internal_services(self.alice)])
-        self.assertNotIn(name, [row["name"] for row in self.internal_services(self.bob)])
+        self.assertNotIn(name, [row["name"] for row in self.internal_device_services(self.alice)])
+        self.assertNotIn(name, [row["name"] for row in self.internal_device_services(self.bob)])
 
     def test_a_personal_service_is_untouched_by_anything_that_happens_to_a_machine(self):
         mine = self.open_user_service(self.bob)
@@ -159,7 +167,8 @@ class TestServiceOwnershipQueries(MSPTestCase):
         self.assertIn(mine, rows)
         self.assertEqual(rows[mine]["assignment_scope"], "User")
         self.assertIsNone(rows[mine]["managed_device"])
-        self.assertIn(on_box, rows)
+        self.assertNotIn(on_box, rows)
+        self.assertIn(on_box, {row["name"] for row in self.internal_device_services(self.bob)})
 
         self.assertNotIn(mine, [row["name"] for row in self.internal_services(self.alice)])
 

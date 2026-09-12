@@ -342,17 +342,12 @@ class ExcelImportService:
 
     @staticmethod
     def _department(record, prefix):
-        """A sub-account keeps its own department behind the entity it belongs to.
+        """Return the spreadsheet value unchanged: departments are global catalogue values.
 
-        Its people are billed on the parent's contract, so the company they answer to would
-        otherwise be lost the moment the two are merged under one customer.
+        ``prefix`` remains accepted for backward-compatible saved mappings but no longer
+        changes department identity.
         """
-        department = (record["department"] or "").strip()
-
-        if not prefix:
-            return department or None
-
-        return f"{prefix} — {department}" if department else prefix
+        return (record["department"] or "").strip() or None
 
     @staticmethod
     def _validated_department(department):

@@ -60,6 +60,11 @@ class MSPApprovalAuthority(Document):
 		"""
 		from nexgen_msp.api.internal.services.department_service import DepartmentService
 
+		previous = self.get_doc_before_save()
+		old_rows = {row.name: row for row in previous.approvers} if previous and previous.customer == self.customer else {}
 		for row in self.approvers:
 			if row.department:
-				row.department = DepartmentService.validate_department(row.department)
+				old = old_rows.get(row.name)
+				unchanged = bool(old and old.user == row.user and
+					DepartmentService._normalized(old.department) == DepartmentService._normalized(row.department))
+				row.department = DepartmentService.validate_department(row.department, allow_disabled=unchanged)

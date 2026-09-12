@@ -28,7 +28,18 @@ class MSPTestCase(IntegrationTestCase):
     def tearDown(self):
         frappe.set_user("Administrator")
 
-        for doctype, name in reversed(self._trash):
+        # reverse order clears children before parents, but a record can still be held by
+        # something tracked after it — a department renamed once the person wearing it
+        # existed, say. Whatever refuses is tried once more when the rest has gone.
+        blocked = self._sweep(reversed(self._trash))
+
+        if blocked:
+            self._sweep(blocked)
+
+    def _sweep(self, records):
+        blocked = []
+
+        for doctype, name in records:
             try:
                 # anything the record sent must go with it: a queued mail outlives the
                 # document it refers to and would sit in the site's outbox for ever
@@ -44,6 +55,9 @@ class MSPTestCase(IntegrationTestCase):
                 frappe.db.commit()
             except Exception:
                 frappe.db.rollback()
+                blocked.append((doctype, name))
+
+        return blocked
 
     # ------------------------------------------------------------------ helpers
     def track(self, doctype, name):

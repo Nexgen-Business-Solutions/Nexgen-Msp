@@ -55,11 +55,18 @@ class MSPServiceRequest(Document):
 			frappe.throw(_("A service request must contain at least one line."))
 
 	def validate_lines(self):
+		from nexgen_msp.utils import request_intents
+
 		seen = set()
 
 		for row in self.lines:
 			self.validate_line_scope(row)
 			self.validate_line_ownership(row)
+
+			# an intention is only worth sending if the service could actually receive it
+			request_intents.validate_subject(self, row)
+			request_intents.validate_action_against_state(self, row)
+			request_intents.validate_no_open_conflict(self, row)
 
 			if row.requested_quantity is not None and row.requested_quantity <= 0:
 				frappe.throw(_("Row {0}: quantity must be greater than zero.").format(row.idx))
@@ -67,14 +74,23 @@ class MSPServiceRequest(Document):
 			target = row.get("new_user_full_name") if row.get("is_new_user") else row.get(
 				SCOPE_FIELD.get(row.target_scope) or ""
 			)
-			key = (row.target_scope, target, row.requested_service)
+			key = (row.target_scope, target, row.requested_service, row.get("action"))
 			if key in seen:
 				frappe.throw(
 					_("Row {0}: the same service is already requested for this target.").format(row.idx)
 				)
 			seen.add(key)
 
+		request_intents.validate_one_intent_per_service(self)
+
 	def validate_line_scope(self, row):
+		if row.get("is_new_user"):
+			from nexgen_msp.api.internal.services.department_service import DepartmentService
+
+			row.new_user_department = DepartmentService.validate_department(
+				row.get("new_user_department"), required=True
+			)
+
 		if row.get("is_new_device"):
 			# what the machine is called and what is engraved on it are collected by whoever
 			# carries the work out; the customer only says that it is a new one

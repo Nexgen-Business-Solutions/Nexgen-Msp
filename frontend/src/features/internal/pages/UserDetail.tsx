@@ -85,7 +85,8 @@ type ServiceTarget = { row: UserServiceRowType; action: ServiceAction };
 /** The availability payload names an open period; the action modal reads a service row. */
 const toServiceRow = (
   entry: ServiceAvailabilityCurrent,
-  device?: UserDevice | null
+  device?: UserDevice | null,
+  holderName?: string
 ): UserServiceRowType => ({
   name: entry.name,
   service_item: entry.service_item,
@@ -98,6 +99,8 @@ const toServiceRow = (
   effective_start_date: entry.effective_start_date,
   effective_end_date: null,
   source_request: null,
+  device_serial_number: device?.serial_number ?? null,
+  device_user_name: holderName ?? null,
 });
 
 const actionClass =
@@ -138,14 +141,16 @@ const ServiceLine = ({
           Resume
         </button>
       )}
-      <button
-        type="button"
-        onClick={() => onAction({ row, action: 'End' })}
-        className={`${actionClass} border-red-200 bg-white text-red-600 hover:bg-red-50`}
-      >
-        <CircleX size={13} />
-        Close
-      </button>
+      {['Active', 'Suspended', 'Pending Removal'].includes(row.operational_status) && (
+        <button
+          type="button"
+          onClick={() => onAction({ row, action: 'End' })}
+          className={`${actionClass} border-red-200 bg-white text-red-600 hover:bg-red-50`}
+        >
+          <CircleX size={13} />
+          Close
+        </button>
+      )}
     </div>
   </div>
 );
@@ -153,10 +158,12 @@ const ServiceLine = ({
 /** One machine this person holds today, read for what it alone carries. */
 const DeviceServicesCard = ({
   device,
+  holderName,
   onAddService,
   onAction,
 }: {
   device: UserDevice;
+  holderName: string;
   onAddService: () => void;
   onAction: (target: ServiceTarget) => void;
 }) => {
@@ -173,7 +180,7 @@ const DeviceServicesCard = ({
           </p>
           <p className="mt-0.5 text-xs text-slate-500">
             {device.serial_number ? `Serial: ${device.serial_number}` : 'Serial: missing'} ·{' '}
-            {device.status} · held since {fmtDate(device.assigned_date)}
+            {device.status} · held since {fmtDate(device.held_from ?? device.assigned_date)}
           </p>
         </div>
         <button
@@ -204,7 +211,7 @@ const DeviceServicesCard = ({
 
       <div className="divide-y divide-slate-100">
         {rows.map((entry) => (
-          <ServiceLine key={entry.name} row={toServiceRow(entry, device)} onAction={onAction} />
+          <ServiceLine key={entry.name} row={toServiceRow(entry, device, holderName)} onAction={onAction} />
         ))}
       </div>
     </div>
@@ -253,7 +260,14 @@ export default function UserDetail() {
     );
   }
 
-  const { user, devices, requests, device_types, interface_types } = detail.data;
+  const {
+    user,
+    devices,
+    device_history: deviceHistory = [],
+    requests,
+    device_types,
+    interface_types,
+  } = detail.data;
 
   // every row the endpoint returns for a person is a User-scope period on that person
   const personalServices = availability.data?.current ?? [];
@@ -424,6 +438,7 @@ export default function UserDetail() {
               <DeviceServicesCard
                 key={device.name}
                 device={device}
+                holderName={user.full_name}
                 onAddService={() => setDeviceService(device.name)}
                 onAction={setTarget}
               />
@@ -433,7 +448,7 @@ export default function UserDetail() {
       </Panel>
 
       <Panel
-        title="Devices"
+        title="Current devices"
         action={
           <button
             type="button"
@@ -462,7 +477,7 @@ export default function UserDetail() {
               <Empty span={7}>
                 <span className="inline-flex items-center gap-1.5">
                   <Laptop size={15} className="text-slate-400" />
-                  No device assigned to this user.
+                  No device currently assigned to this user.
                 </span>
               </Empty>
             )}
@@ -511,7 +526,7 @@ export default function UserDetail() {
                   )}
                 </td>
                 <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                  {fmtDate(device.assigned_date)}
+                  {fmtDate(device.held_from ?? device.assigned_date)}
                 </td>
                 <td className="whitespace-nowrap px-4 py-3">
                   <StatusBadge value={device.status} />
@@ -543,6 +558,42 @@ export default function UserDetail() {
                 </td>
               </tr>
             ))}
+          </tbody>
+        </table>
+      </Panel>
+
+      <Panel title="Previous devices">
+        <table className="w-full">
+          <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
+            <tr>
+              <Th>Hostname</Th>
+              <Th>Type</Th>
+              <Th>Held from</Th>
+              <Th>Held until</Th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {deviceHistory.filter((item) => !item.is_current).length === 0 && (
+              <Empty span={4}>No previous device assignment.</Empty>
+            )}
+            {deviceHistory
+              .filter((item) => !item.is_current)
+              .map((item) => (
+                <tr key={item.holder_record} className="transition-colors hover:bg-slate-50">
+                  <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
+                    {item.hostname}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                    {item.device_type}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                    {fmtDate(item.held_from)}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                    {fmtDate(item.held_until)}
+                  </td>
+                </tr>
+              ))}
           </tbody>
         </table>
       </Panel>

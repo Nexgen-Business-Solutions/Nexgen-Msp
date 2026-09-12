@@ -283,8 +283,16 @@ export type UserDevice = {
   assigned_date: string | null;
   retired_date: string | null;
   assigned_client_user: string | null;
+  held_from?: string | null;
+  held_until?: string | null;
+  is_current?: boolean;
   interfaces?: DeviceInterface[];
 };
+
+export type UserDeviceHistory = Pick<
+  UserDevice,
+  'name' | 'hostname' | 'device_type' | 'status' | 'serial_number' | 'held_from' | 'held_until' | 'is_current'
+> & { holder_record: string };
 
 export type UserServiceRow = {
   name: string;
@@ -298,6 +306,8 @@ export type UserServiceRow = {
   effective_start_date: string | null;
   effective_end_date: string | null;
   source_request: string | null;
+  device_serial_number?: string | null;
+  device_user_name?: string | null;
 };
 
 export type CustomerRequestRef = {
@@ -338,7 +348,11 @@ export type UserDetail = {
     delete_blockers: string[];
   };
   devices: UserDevice[];
+  current_devices?: UserDevice[];
+  device_history?: UserDeviceHistory[];
   services: UserServiceRow[];
+  user_services?: UserServiceRow[];
+  device_services?: { device: UserDevice; services: UserServiceRow[] }[];
   requests: { name: string; status: string; priority: string; request_type: string; creation: string }[];
   customer_requests: CustomerRequestRef[];
   device_types: string[];
@@ -1905,5 +1919,3 @@ export const setBillingLineDiscount = (payload: {
   service_assignment: string;
   discount_percent: number;
 }) => post<BillingRunDetail>(`${BASE}.set_billing_line_discount`, payload);
-
-

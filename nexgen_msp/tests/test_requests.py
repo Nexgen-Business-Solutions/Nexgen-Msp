@@ -823,6 +823,7 @@ class TestCreatingThePersonARequestAskedFor(MSPTestCase):
             "target_scope": "User",
             "is_new_user": 1,
             "new_user_full_name": full_name,
+            "new_user_department": self.make_department("Sales"),
             "new_user_username": "f.face",
             "requested_service": service,
         }
@@ -927,6 +928,7 @@ class TestNothingClosesOnSomeoneWhoDoesNotExist(MSPTestCase):
                 "target_scope": "User",
                 "is_new_user": 1,
                 "new_user_full_name": "Fresh Face",
+                "new_user_department": self.make_department("Sales"),
                 "requested_service": self.service,
             }
         )

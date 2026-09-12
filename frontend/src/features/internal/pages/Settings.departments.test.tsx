@@ -106,7 +106,12 @@ describe('Settings — Departments', () => {
     await waitFor(() =>
       expect(internal.saveDepartment).toHaveBeenCalledWith({
         name: undefined,
-        department: { department_name: 'Facilities', description: '', enabled: 1 },
+        department: {
+          department_name: 'Facilities',
+          description: '',
+          enabled: 1,
+          sort_order: null,
+        },
       })
     );
   });

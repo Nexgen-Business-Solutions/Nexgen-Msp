@@ -87,6 +87,30 @@ def covers(rights, client_user):
     return (frappe.db.get_value("MSP Client User", client_user, "department") or "") == wanted
 
 
+def covers_line(rights, row):
+    """Whether an approver's scope reaches what a request line is really about.
+
+    Reading the department off `client_user` alone left two ways past the gate: a device
+    service names the machine rather than the holder, and a person who does not exist yet
+    has no record to read a department from. Both are resolved here instead — and a line
+    naming nobody at all needs somebody who decides for the whole company, since there is
+    no department it could be said to belong to.
+    """
+    from nexgen_msp.utils import request_intents
+
+    if not rights:
+        return False
+
+    wanted = rights.get("department")
+
+    if not wanted:
+        return True
+
+    department = request_intents.subject_department(row)
+
+    return bool(department) and department == wanted
+
+
 # ---------------------------------------------------------------- the gaps
 def gaps(customer):
     """Whether this company still has someone to raise a request, and someone to agree.

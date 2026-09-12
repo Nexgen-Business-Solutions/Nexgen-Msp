@@ -18,9 +18,28 @@ SCOPE_FIELD = {
 # the two scopes a catalogue entry can be restricted to, and what each forbids
 ITEM_SCOPES = ("User", "Device")
 
+LIFECYCLE_FIELDS = (
+	"customer",
+	"service_item",
+	"assignment_scope",
+	"client_user",
+	"managed_device",
+	"customer_site",
+	"quantity",
+	"uom",
+	"operational_status",
+	"effective_start_date",
+	"effective_end_date",
+	"agreed_rate",
+	"price_source",
+	"rate_override_reason",
+	"source_request",
+)
+
 
 class MSPServiceAssignment(Document):
 	def validate(self):
+		self.validate_lifecycle_entry_point()
 		self.validate_scope_link()
 		self.validate_item_scope_compatibility()
 		self.validate_scope_ownership()
@@ -30,6 +49,38 @@ class MSPServiceAssignment(Document):
 		self.validate_rate()
 		self.validate_no_overlap()
 		self.sync_billing_status()
+
+	def validate_lifecycle_entry_point(self):
+		"""Protect service history even when a caller bypasses the application API."""
+		if self.flags.via_service_lifecycle:
+			return
+
+		if self.is_new():
+			frappe.throw(_("Create services through the service lifecycle workflow."))
+
+		previous = self.get_doc_before_save()
+		if not previous:
+			return
+
+		changed = [field for field in LIFECYCLE_FIELDS if previous.get(field) != self.get(field)]
+		old_log = [self._suspension_values(row) for row in previous.suspension_log]
+		new_log = [self._suspension_values(row) for row in self.suspension_log]
+		if old_log != new_log:
+			changed.append("suspension_log")
+
+		if changed:
+			frappe.throw(
+				_("Service lifecycle fields can only be changed through the service workflow: {0}.").format(
+					", ".join(changed)
+				)
+			)
+
+	@staticmethod
+	def _suspension_values(row):
+		return tuple(
+			row.get(field)
+			for field in ("suspended_on", "resumed_on", "suspended_by", "resumed_by", "source_request", "note")
+		)
 
 	def validate_scope_link(self):
 		required = SCOPE_FIELD.get(self.assignment_scope)

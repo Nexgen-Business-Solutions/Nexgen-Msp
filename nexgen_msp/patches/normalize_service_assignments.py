@@ -71,7 +71,9 @@ def _restate_billing_status(report):
 			continue
 
 		try:
-			frappe.get_doc(DOCTYPE, row.name).save(ignore_permissions=True)
+			doc = frappe.get_doc(DOCTYPE, row.name)
+			doc.flags.via_service_lifecycle = True
+			doc.save(ignore_permissions=True)
 			report["billing_restated"] += 1
 		except Exception:
 			frappe.db.rollback()
@@ -109,6 +111,7 @@ def _rebuild_suspension_history(report):
 
 		try:
 			doc = frappe.get_doc(DOCTYPE, name)
+			doc.flags.via_service_lifecycle = True
 			doc.append(
 				FIELD,
 				{

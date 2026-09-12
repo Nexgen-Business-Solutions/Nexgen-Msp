@@ -346,8 +346,6 @@ export default function DeviceDetail() {
               <Empty span={7}>Nothing runs on this machine, so it is billed for nothing.</Empty>
             )}
             {services.map((row) => {
-              const open = !['Ended', 'Cancelled'].includes(row.operational_status);
-
               return (
                 <tr key={row.name} className="transition-colors hover:bg-slate-50">
                   <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
@@ -376,21 +374,44 @@ export default function DeviceDetail() {
                             {
                               label: 'Suspend service',
                               icon: PauseCircle,
-                              onClick: () => setTarget({ row, action: 'Suspend' }),
-                              disabled: !open || row.operational_status === 'Suspended',
+                              onClick: () => setTarget({
+                                row: {
+                                  ...row,
+                                  device_serial_number: device.serial_number,
+                                  device_user_name: device.user_name,
+                                },
+                                action: 'Suspend',
+                              }),
+                              disabled: row.operational_status !== 'Active',
                             },
                             {
                               label: 'Resume service',
                               icon: PlayCircle,
-                              onClick: () => setTarget({ row, action: 'Resume' }),
+                              onClick: () => setTarget({
+                                row: {
+                                  ...row,
+                                  device_serial_number: device.serial_number,
+                                  device_user_name: device.user_name,
+                                },
+                                action: 'Resume',
+                              }),
                               disabled: row.operational_status !== 'Suspended',
                             },
                             {
                               label: 'Close service',
                               icon: CircleX,
-                              onClick: () => setTarget({ row, action: 'End' }),
+                              onClick: () => setTarget({
+                                row: {
+                                  ...row,
+                                  device_serial_number: device.serial_number,
+                                  device_user_name: device.user_name,
+                                },
+                                action: 'End',
+                              }),
                               danger: true,
-                              disabled: !open,
+                              disabled: !['Active', 'Suspended', 'Pending Removal'].includes(
+                                row.operational_status
+                              ),
                             },
                           ] as RowAction[]
                         }

@@ -218,6 +218,9 @@ class TestTheRequestQueueCards(MSPTestCase):
             frappe.set_user("Administrator")
 
     def raise_one(self, priority):
+        # one service per request: the same service asked twice for the same person is a
+        # duplicate the domain now refuses, and this test is about the queue, not that rule
+        service = self.make_service(f"RQ{priority[:2].upper()}", scope="User")
         out = self.as_user(
             self.both,
             lambda: PortalService.create_request(
@@ -230,7 +233,7 @@ class TestTheRequestQueueCards(MSPTestCase):
                         "action": "Add",
                         "target_scope": "User",
                         "client_user": self.person,
-                        "requested_service": self.service,
+                        "requested_service": service,
                     }
                 ],
             ),

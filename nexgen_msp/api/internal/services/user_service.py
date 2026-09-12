@@ -22,23 +22,6 @@ MAX_PAGE_LENGTH = 200
 
 COVERAGE_FILTERS = ("no_device", "no_service", "disabled_with_services")
 
-SERVICE_UNDER_USER = """
-    sa.client_user = %(user)s
-    or exists (
-        select 1
-        from `tabMSP Device Holder` holder
-        where holder.parent = sa.managed_device
-          and holder.parenttype = 'MSP Managed Device'
-          and holder.is_current = 1
-          and holder.client_user = %(user)s
-          and (
-              sa.operational_status not in ('Ended', 'Cancelled')
-              or coalesce(sa.effective_end_date, sa.effective_start_date) > holder.from_date
-          )
-    )
-"""
-
-
 class UserService:
     @staticmethod
     def get_filter_options():
@@ -367,25 +350,42 @@ class UserService:
                 {"user": name},
             )[0][0]
 
-        devices = frappe.db.sql(
+        current_devices = frappe.db.sql(
             """
-            select distinct device.name, device.hostname, device.device_type, device.status,
+            select device.name, device.hostname, device.device_type, device.status,
                    device.serial_number, device.assigned_date, device.retired_date,
-                   device.assigned_client_user
+                   device.assigned_client_user, holder.from_date as held_from,
+                   holder.to_date as held_until, holder.is_current
             from `tabMSP Managed Device` device
             join `tabMSP Device Holder` holder
                 on holder.parent = device.name and holder.parenttype = 'MSP Managed Device'
-            where holder.client_user = %(user)s
-            order by field(device.status, 'Active') desc, device.hostname asc
+            where holder.client_user = %(user)s and holder.is_current = 1
+            order by device.hostname asc
             """,
             {"user": name},
             as_dict=True,
         )
 
-        if devices:
+        device_history = frappe.db.sql(
+            """
+            select holder.name as holder_record, device.name, device.hostname,
+                   device.device_type, device.status, device.serial_number,
+                   holder.from_date as held_from, holder.to_date as held_until,
+                   holder.is_current
+            from `tabMSP Device Holder` holder
+            join `tabMSP Managed Device` device on device.name = holder.parent
+            where holder.parenttype = 'MSP Managed Device'
+              and holder.client_user = %(user)s
+            order by holder.is_current desc, holder.from_date desc, device.hostname asc
+            """,
+            {"user": name},
+            as_dict=True,
+        )
+
+        if current_devices:
             interfaces = frappe.get_all(
                 "MSP Network Interface",
-                filters={"parent": ("in", [device.name for device in devices])},
+                filters={"parent": ("in", [device.name for device in current_devices])},
                 fields=["parent", "interface_type", "mac_address"],
             )
             grouped = {}
@@ -396,11 +396,11 @@ class UserService:
                         "mac_address": interface.mac_address,
                     }
                 )
-            for device in devices:
+            for device in current_devices:
                 device["interfaces"] = grouped.get(device.name, [])
 
-        services = frappe.db.sql(
-            f"""
+        user_services = frappe.db.sql(
+            """
             select
                 sa.name, sa.service_item,
                 coalesce(item.item_name, sa.service_item) as service_name,
@@ -418,13 +418,48 @@ class UserService:
             from `tabMSP Service Assignment` sa
             left join `tabItem` item on item.name = sa.service_item
             left join `tabMSP Managed Device` device on device.name = sa.managed_device
-            where {SERVICE_UNDER_USER}
+            where sa.client_user = %(user)s
             order by field(sa.operational_status, 'Ended', 'Cancelled') asc,
                      sa.effective_start_date desc
             """,
             {"user": name},
             as_dict=True,
         )
+
+        device_service_rows = frappe.db.sql(
+            """
+            select sa.name, sa.service_item,
+                   coalesce(item.item_name, sa.service_item) as service_name,
+                   sa.assignment_scope, sa.managed_device, device.hostname,
+                   sa.operational_status, sa.billing_status,
+                   sa.effective_start_date, sa.effective_end_date,
+                   sa.internal_notes, sa.source_request,
+                   (select max(br.billing_period_end)
+                      from `tabMSP Billing Run Line` brl
+                      join `tabMSP Billing Run` br on br.name = brl.parent
+                     where brl.service_assignment = sa.name and br.docstatus = 1) as last_billed_on
+            from `tabMSP Service Assignment` sa
+            join `tabMSP Managed Device` device on device.name = sa.managed_device
+            join `tabMSP Device Holder` holder
+              on holder.parent = device.name
+             and holder.parenttype = 'MSP Managed Device'
+             and holder.is_current = 1
+            left join `tabItem` item on item.name = sa.service_item
+            where holder.client_user = %(user)s
+            order by device.hostname asc,
+                     field(sa.operational_status, 'Ended', 'Cancelled') asc,
+                     sa.effective_start_date desc
+            """,
+            {"user": name},
+            as_dict=True,
+        )
+        services_by_device = {}
+        for row in device_service_rows:
+            services_by_device.setdefault(row.managed_device, []).append(row)
+        device_services = [
+            {"device": device, "services": services_by_device.get(device.name, [])}
+            for device in current_devices
+        ]
 
         requests = frappe.db.sql(
             """
@@ -442,8 +477,12 @@ class UserService:
 
         return {
             "user": user,
-            "devices": devices,
-            "services": services,
+            "devices": current_devices,
+            "current_devices": current_devices,
+            "device_history": device_history,
+            "services": user_services,
+            "user_services": user_services,
+            "device_services": device_services,
             "requests": requests,
             "customer_requests": frappe.db.sql(
                 """

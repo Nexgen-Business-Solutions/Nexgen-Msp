@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, CircleCheck, ShieldCheck } from 'lucide-react';
 import Select from '@/shared/components/Select';
 import { useAccountRights, useSetAccountRights } from '../hooks/useTeam';
@@ -11,17 +11,17 @@ const RIGHTS: { key: 'can_submit' | 'can_approve'; label: string; hint: string }
   {
     key: 'can_approve',
     label: 'Approve their company’s requests',
-    hint: 'Nothing reaches Nexgen until they have agreed to it. Their own requests are agreed the moment they open them.',
+    hint: 'They can approve company requests. Their own requests are approved when submitted.',
   },
 ];
 
 /** What the saved rights mean, in one sentence, for the four ways they can be set. */
 const meaning = (customer: string, canSubmit: boolean, canApprove: boolean) => {
   if (canSubmit && canApprove) {
-    return `Their own requests reach us straight away. Everyone else at ${customer} waits for their accord.`;
+    return `They can submit and approve requests for ${customer}. Their own requests reach us immediately.`;
   }
   if (canApprove) {
-    return `They decide for ${customer} but raise nothing themselves: the portal does not offer them a new request.`;
+    return `They can approve requests for ${customer}, but cannot create requests.`;
   }
   if (canSubmit) {
     return `Their requests wait for someone at ${customer} who may approve.`;
@@ -39,6 +39,17 @@ const PersonRightsPanel: React.FC<Props> = ({ user }) => {
   const [form, setForm] = useState({ can_submit: false, can_approve: false });
   const [department, setDepartment] = useState('');
   const [dirty, setDirty] = useState(false);
+  const departmentChoices = useMemo(() => {
+    const active = departmentOptions.data ?? [];
+    if (!department || active.some((option) => option.value === department)) return active;
+    return [
+      { value: department, label: `${department} (unavailable)`, description: 'Kept for this existing approver' },
+      ...active,
+    ];
+  }, [department, departmentOptions.data]);
+  const cannotChooseDepartment =
+    !department &&
+    (departmentOptions.isLoading || Boolean(departmentOptions.error) || departmentChoices.length === 0);
 
   useEffect(() => {
     if (!data) return;
@@ -107,7 +118,7 @@ const PersonRightsPanel: React.FC<Props> = ({ user }) => {
             <input
               type="radio"
               checked={Boolean(department)}
-              disabled={save.isLoading}
+              disabled={save.isLoading || cannotChooseDepartment}
               onChange={() => {
                 setDepartment((departmentOptions.data ?? [])[0]?.value ?? '');
                 setDirty(true);
@@ -125,8 +136,19 @@ const PersonRightsPanel: React.FC<Props> = ({ user }) => {
                 setDirty(true);
               }}
               placeholder="Select department"
-              options={departmentOptions.data ?? []}
+              options={departmentChoices}
             />
+          )}
+          {departmentOptions.isLoading && (
+            <p className="ml-6 text-xs text-slate-500">Loading departments…</p>
+          )}
+          {departmentOptions.error instanceof Error && (
+            <p className="ml-6 text-xs text-red-600">{departmentOptions.error.message}</p>
+          )}
+          {!departmentOptions.isLoading && !departmentOptions.error && departmentChoices.length === 0 && (
+            <p className="ml-6 text-xs text-amber-700">
+              No department is available. Add one in Settings first.
+            </p>
           )}
         </div>
 

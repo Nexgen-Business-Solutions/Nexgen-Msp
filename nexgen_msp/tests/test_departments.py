@@ -60,6 +60,42 @@ class TestDepartmentCatalogue(MSPTestCase):
         # what already carries it keeps it
         self.assertEqual(frappe.db.get_value("MSP Client User", person, "department"), name)
 
+        # Disabling prevents new choices; it must not block an unrelated edit to an existing user.
+        existing = frappe.get_doc("MSP Client User", person)
+        existing.email = f"existing-{self.tag}@example.invalid"
+        existing.save(ignore_permissions=True)
+        self.assertEqual(existing.department, name)
+
+    def test_rename_updates_current_user_and_approver_references(self):
+        name = self.make_dept("People Operations")
+        customer = self.make_customer()
+        person = self.make_person(customer, "Holder", department=name)
+        decider = self.make_account("customer", "MSP Customer Manager", customer, suffix=f"ren{self.tag}")
+        self.grant(decider, can_submit=1, can_approve=1)
+
+        from nexgen_msp.api.internal.services.authority_service import AuthorityService
+
+        AuthorityService.set_account_rights(
+            decider, {"can_submit": 1, "can_approve": 1, "department": name}
+        )
+        renamed = f"{name} Renamed"
+        DepartmentService.update_department(name=name, department_name=renamed)
+        self.track("MSP Department", renamed)
+
+        self.assertEqual(frappe.db.get_value("MSP Client User", person, "department"), renamed)
+        self.assertEqual(frappe.db.get_value("MSP Approver", {"user": decider}, "department"), renamed)
+        self.assertFalse(frappe.db.exists("MSP Department", name))
+
+    def test_standard_delete_is_refused_when_department_is_used(self):
+        name = self.make_dept("Protected")
+        customer = self.make_customer()
+        self.make_person(customer, "Holder", department=name)
+
+        with self.assertRaises(ValidationError) as ctx:
+            frappe.delete_doc("MSP Department", name, ignore_permissions=True)
+
+        self.assertEqual(str(ctx.exception), DELETE_REFUSED)
+
     # ------------------------------------------------------------------ delete refused
     def test_delete_refused_when_a_client_user_holds_it(self):
         name = self.make_dept("Logistics")
@@ -174,6 +210,35 @@ class TestDepartmentCatalogue(MSPTestCase):
         finally:
             frappe.set_user("Administrator")
 
+    def test_new_user_request_requires_a_department_even_with_new_device_flag(self):
+        customer = self.make_customer()
+        service = self.make_service(f"REQDEP{self.tag}", scope="User")
+        asker = self.make_account("customer", "MSP Customer Manager", customer, suffix=f"reqdep{self.tag}")
+        self.grant(asker)
+
+        frappe.set_user(asker)
+        try:
+            for department in (None, "Whatever I Want"):
+                with self.assertRaises(ValidationError):
+                    PortalService.create_request(
+                        customer=customer,
+                        request_type="Add",
+                        lines=[
+                            {
+                                "request_action": self.action(),
+                                "action": "Add",
+                                "target_scope": "User",
+                                "is_new_user": 1,
+                                "is_new_device": 1,
+                                "new_user_full_name": "New Colleague",
+                                "new_user_department": department,
+                                "requested_service": service,
+                            }
+                        ],
+                    )
+        finally:
+            frappe.set_user("Administrator")
+
 
 class TestDepartmentMigration(MSPTestCase):
     """The patch that turns everyone's own free text into one catalogue.
@@ -221,6 +286,26 @@ class TestDepartmentMigration(MSPTestCase):
         dept_name = frappe.db.get_value("MSP Department", {"department_name": canonical}, "name")
         self.assertTrue(dept_name)
         self.track("MSP Department", dept_name)
+
+    def test_internal_whitespace_variants_collapse_without_rolling_back_prior_creations(self):
+        alice = self.make_person(self.customer, "WideSpace")
+        bob = self.make_person(self.customer, "SingleSpace")
+        wide = self.variant("Human  Resources")
+        single = self.variant("Human Resources")
+        self.stamp("MSP Client User", alice, wide)
+        self.stamp("MSP Client User", bob, single)
+
+        report = build_department_catalogue.execute()
+        rewritten = {
+            frappe.db.get_value("MSP Client User", person, "department")
+            for person in (alice, bob)
+        }
+
+        self.assertEqual(len(rewritten), 1)
+        canonical = rewritten.pop()
+        self.assertTrue(frappe.db.exists("MSP Department", canonical))
+        self.assertGreaterEqual(report["canonical_departments"], 1)
+        self.track("MSP Department", canonical)
 
     def test_approver_rows_are_rewritten_too(self):
         decider = self.make_account("customer", "MSP Customer Manager", self.customer, suffix=f"mig{self.tag}")

@@ -31,3 +31,4 @@ nexgen_msp.patches.normalize_device_lifecycle
 nexgen_msp.patches.backfill_holder_period_dates
 nexgen_msp.patches.normalize_service_assignments
 nexgen_msp.patches.build_department_catalogue
+nexgen_msp.patches.repair_department_catalogue

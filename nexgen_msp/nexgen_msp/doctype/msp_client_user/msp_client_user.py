@@ -57,7 +57,10 @@ class MSPClientUser(Document):
 		from nexgen_msp.api.internal.services.department_service import DepartmentService
 
 		if self.department:
-			self.department = DepartmentService.validate_department(self.department)
+			previous = self.get_doc_before_save()
+			unchanged = bool(previous and previous.customer == self.customer and
+				DepartmentService._normalized(previous.department) == DepartmentService._normalized(self.department))
+			self.department = DepartmentService.validate_department(self.department, allow_disabled=unchanged)
 
 	def prevent_delete_with_history(self):
 		for doctype in LINKED_DOCTYPES:

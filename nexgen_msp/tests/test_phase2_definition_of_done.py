@@ -188,7 +188,8 @@ class TestPhase2DefinitionOfDone(MSPTestCase):
         )
         self.assertIsNone(found, "Bob never gets a personal Sophos assignment of his own")
 
-        bob_services = UserService.get_user(self.bob)["services"]
+        detail = UserService.get_user(self.bob)
+        bob_services = detail["user_services"]
         personal_rows = [
             row
             for row in bob_services
@@ -199,7 +200,12 @@ class TestPhase2DefinitionOfDone(MSPTestCase):
         )
 
         # it does legitimately show up as the machine's own service, now under his holding
-        machine_rows = [row for row in bob_services if row["name"] == self.sophos_a]
+        machine_rows = [
+            row
+            for group in detail["device_services"]
+            for row in group["services"]
+            if row["name"] == self.sophos_a
+        ]
         self.assertEqual(len(machine_rows), 1)
         self.assertEqual(machine_rows[0]["assignment_scope"], "Device")
         self.assertEqual(machine_rows[0]["managed_device"], self.laptop_a)

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, UserPen } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
 import FieldLabel from '@/shared/components/FieldLabel';
@@ -26,6 +26,14 @@ const EditClientUserModal: React.FC<Props> = ({ open, user, onClose }) => {
   const [username, setUsername] = useState('');
   const [startDate, setStartDate] = useState('');
   const [remarks, setRemarks] = useState('');
+  const departmentChoices = useMemo(() => {
+    const active = departmentOptions.data ?? [];
+    if (!department || active.some((option) => option.value === department)) return active;
+    return [
+      { value: department, label: `${department} (unavailable)`, description: 'Kept for this existing user' },
+      ...active,
+    ];
+  }, [department, departmentOptions.data]);
 
   useEffect(() => {
     if (!open || !user) return;
@@ -107,8 +115,14 @@ const EditClientUserModal: React.FC<Props> = ({ open, user, onClose }) => {
               value={department}
               onChange={setDepartment}
               placeholder="Select department"
-              options={departmentOptions.data ?? []}
+              options={departmentChoices}
             />
+            {departmentOptions.isLoading && (
+              <p className="mt-1.5 text-xs text-slate-500">Loading departments…</p>
+            )}
+            {departmentOptions.error instanceof Error && (
+              <p className="mt-1.5 text-xs text-red-600">{departmentOptions.error.message}</p>
+            )}
           </div>
           <div>
             <FieldLabel>Email</FieldLabel>

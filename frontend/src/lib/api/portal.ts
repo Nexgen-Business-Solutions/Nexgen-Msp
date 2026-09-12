@@ -321,13 +321,20 @@ export type PortalRequestDetail = {
 };
 
 export type PortalUserDevice = {
+  name?: string;
   hostname: string;
   device_type: string;
   status: string;
-  assigned_date: string | null;
+  assigned_date?: string | null;
+  held_from?: string | null;
+  held_until?: string | null;
+  is_current?: boolean;
 };
 
+export type PortalUserDeviceHistory = PortalUserDevice & { holder_record: string };
+
 export type PortalUserService = {
+  name?: string;
   service_name: string;
   hostname: string | null;
   operational_status: string;
@@ -349,7 +356,11 @@ export type PortalUserDetail = {
     disabled_date: string | null;
   };
   devices: PortalUserDevice[];
+  current_devices?: PortalUserDevice[];
+  device_history?: PortalUserDeviceHistory[];
   services: PortalUserService[];
+  user_services?: PortalUserService[];
+  device_services?: { device: PortalUserDevice; services: PortalUserService[] }[];
   requests: {
     name: string;
     status: string;

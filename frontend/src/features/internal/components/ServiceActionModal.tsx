@@ -26,6 +26,7 @@ const COPY: Record<
     tone: string;
     icon: typeof CircleX;
     modalTone: 'amber' | 'blue' | 'red';
+    dateLabel: string;
   }
 > = {
   Suspend: {
@@ -36,6 +37,7 @@ const COPY: Record<
     tone: 'bg-amber-600 hover:bg-amber-700',
     icon: PauseCircle,
     modalTone: 'amber',
+    dateLabel: 'Suspend from',
   },
   Resume: {
     title: 'Resume this service',
@@ -45,6 +47,7 @@ const COPY: Record<
     tone: 'bg-blue-600 hover:bg-blue-700',
     icon: PlayCircle,
     modalTone: 'blue',
+    dateLabel: 'Resume on',
   },
   End: {
     title: 'Close this service',
@@ -54,6 +57,7 @@ const COPY: Record<
     tone: 'bg-red-600 hover:bg-red-700',
     icon: CircleX,
     modalTone: 'red',
+    dateLabel: 'Close on',
   },
 };
 
@@ -71,13 +75,13 @@ const ServiceActionModal: React.FC<Props> = ({
   onClose,
 }) => {
   const change = useChangeService(clientUser);
-  const [endDate, setEndDate] = useState(today());
+  const [actionDate, setActionDate] = useState(today());
   const [notes, setNotes] = useState('');
   const [sourceRequest, setSourceRequest] = useState('');
 
   useEffect(() => {
     if (!target) return;
-    setEndDate(today());
+    setActionDate(today());
     setNotes('');
     setSourceRequest(defaultRequest ?? '');
     change.reset();
@@ -93,7 +97,7 @@ const ServiceActionModal: React.FC<Props> = ({
       await change.mutateAsync({
         assignment: target.row.name,
         action: target.action,
-        effective_date: target.action === 'End' ? endDate : undefined,
+        effective_date: actionDate,
         notes: notes.trim() || undefined,
         source_request: sourceRequest || undefined,
       });
@@ -143,19 +147,23 @@ const ServiceActionModal: React.FC<Props> = ({
             {target.row.hostname ? `${target.row.hostname} · ` : ''}
             open since {(target.row.effective_start_date ?? 'N/A').slice(0, 10)}
           </p>
+          {target.row.device_serial_number && (
+            <p className="mt-1 text-xs text-slate-500">Serial: {target.row.device_serial_number}</p>
+          )}
+          {target.row.device_user_name && (
+            <p className="mt-1 text-xs text-slate-500">Current holder: {target.row.device_user_name}</p>
+          )}
         </div>
 
-        {target.action === 'End' && (
-          <div>
-            <FieldLabel required>Close on</FieldLabel>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(event) => setEndDate(event.target.value)}
-              className={inputClass}
-            />
-          </div>
-        )}
+        <div>
+          <FieldLabel required>{copy.dateLabel}</FieldLabel>
+          <input
+            type="date"
+            value={actionDate}
+            onChange={(event) => setActionDate(event.target.value)}
+            className={inputClass}
+          />
+        </div>
 
         <p className="text-xs leading-relaxed text-slate-500">{copy.hint}</p>
 

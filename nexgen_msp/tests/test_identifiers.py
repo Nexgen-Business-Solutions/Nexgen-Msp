@@ -75,49 +75,62 @@ class TestIdentifiersKeepTheirRules(MSPTestCase):
         self.assertEqual(frappe.db.get_value("MSP Managed Device", self.box_b, "serial_number"), "SN-NEW")
 
     # ------------------------------------------------ the customer, when raising
-    def test_the_customer_cannot_hand_a_person_a_colleagues_username(self):
-        with self.assertRaises(ValidationError):
-            self.as_user(
-                self.asker,
-                lambda: PortalService.create_request(
-                    customer=self.customer,
-                    request_type="Add",
-                    lines=[
-                        {
-                            "request_action": self.action(),
-                            "action": "Add",
-                            "target_scope": "User",
-                            "client_user": self.bob,
-                            "new_user_username": "taken",
-                            "requested_service": self.service,
-                        }
-                    ],
-                ),
-            )
+    def test_raising_a_request_writes_no_username_on_the_person(self):
+        """Asking for something is an intention: it changes nothing operational yet.
 
-        self.assertFalse(frappe.db.get_value("MSP Client User", self.bob, "username"))
+        Whatever the customer happens to know about an account name is carried on the line
+        for whoever does the work, and is only written to the person's record then.
+        """
+        person = self.make_person(self.customer, "Ursula")
+        service = self.make_service("IDU", scope="User")
+        self.cover_service(self.customer, service)
 
-    def test_the_customer_cannot_hand_a_machine_another_machines_serial(self):
-        with self.assertRaises(ValidationError):
-            self.as_user(
-                self.asker,
-                lambda: PortalService.create_request(
-                    customer=self.customer,
-                    request_type="Add",
-                    lines=[
-                        {
-                            "request_action": self.action(),
-                            "action": "Add",
-                            "target_scope": "Device",
-                            "managed_device": self.box_b,
-                            "new_device_serial": "SN-TAKEN",
-                            "requested_service": self.service,
-                        }
-                    ],
-                ),
-            )
+        out = self.as_user(
+            self.asker,
+            lambda: PortalService.create_request(
+                customer=self.customer,
+                request_type="Add",
+                lines=[
+                    {
+                        "request_action": self.action(),
+                        "action": "Add",
+                        "target_scope": "User",
+                        "client_user": person,
+                        "new_user_username": "taken",
+                        "requested_service": service,
+                    }
+                ],
+            ),
+        )
+        self.track("MSP Service Request", out["name"])
 
-        self.assertFalse(frappe.db.get_value("MSP Managed Device", self.box_b, "serial_number"))
+        self.assertFalse(frappe.db.get_value("MSP Client User", person, "username"))
+
+    def test_raising_a_request_writes_no_serial_on_the_machine(self):
+        machine = self.make_device(self.customer, hostname="BOXID", serial=None)
+        service = self.make_service("IDD", scope="Device")
+        self.cover_service(self.customer, service)
+
+        out = self.as_user(
+            self.asker,
+            lambda: PortalService.create_request(
+                customer=self.customer,
+                request_type="Add",
+                lines=[
+                    {
+                        "request_action": self.action(),
+                        "action": "Add",
+                        "target_scope": "Device",
+                        "managed_device": machine,
+                        "new_device_serial": "SN-TAKEN",
+                        "requested_service": service,
+                    }
+                ],
+            ),
+        )
+        self.track("MSP Service Request", out["name"])
+
+        self.assertFalse(frappe.db.get_value("MSP Managed Device", machine, "serial_number"))
 
     # ------------------------------------------ the technician, when delivering
     def test_the_technician_is_refused_a_duplicate_username_at_closure(self):

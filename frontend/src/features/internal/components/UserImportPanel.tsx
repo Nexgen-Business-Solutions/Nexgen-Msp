@@ -268,7 +268,6 @@ const UserImportPanel: React.FC = () => {
                   <Th>Company in file</Th>
                   <Th>Customer id</Th>
                   <Th>Create if missing</Th>
-                  <Th>Department prefix</Th>
                   <Th />
                 </tr>
               </thead>
@@ -307,17 +306,6 @@ const UserImportPanel: React.FC = () => {
                         value={row.create_as ?? ''}
                         placeholder="Leave empty to reject"
                         onChange={(event) => patchCustomer(index, { create_as: event.target.value })}
-                        className={inputClass}
-                      />
-                    </td>
-                    <td className="px-3 py-2">
-                      <input
-                        type="text"
-                        value={row.department_prefix ?? ''}
-                        placeholder="For a sub-account"
-                        onChange={(event) =>
-                          patchCustomer(index, { department_prefix: event.target.value })
-                        }
                         className={inputClass}
                       />
                     </td>

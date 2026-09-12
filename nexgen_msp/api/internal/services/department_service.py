@@ -22,7 +22,7 @@ class DepartmentService:
 
     @staticmethod
     def _normalized(value):
-        return (value or "").strip().casefold()
+        return " ".join((value or "").split()).casefold()
 
     @staticmethod
     def _get(name):
@@ -100,6 +100,7 @@ class DepartmentService:
         DepartmentService._guard_admin()
 
         doc = DepartmentService._get(name)
+        old_label = doc.department_name
 
         if department_name is not None:
             new_name = " ".join(department_name.strip().split())
@@ -125,13 +126,17 @@ class DepartmentService:
         if sort_order is not None:
             doc.sort_order = frappe.utils.cint(sort_order) if sort_order != "" else None
 
-        renamed_from = doc.name if doc.name != doc.department_name else None
+        new_label = doc.department_name
+        renamed_from = doc.name if doc.name != new_label else None
 
         doc.save(ignore_permissions=True)
 
-        # the record is named after its label, so a rename keeps every link intact
-        if renamed_from and doc.name != doc.department_name:
-            frappe.rename_doc(DOCTYPE, renamed_from, doc.department_name, force=True)
+        # The DocType hooks also propagate the label to current Data-field references.
+        if renamed_from:
+            frappe.rename_doc(DOCTYPE, renamed_from, new_label, force=True)
+
+        if old_label != new_label:
+            DepartmentService.rename_references(old_label, new_label)
 
         frappe.db.commit()
 
@@ -148,7 +153,11 @@ class DepartmentService:
                 department_name=department.get("department_name"),
                 description=department.get("description"),
                 enabled=department.get("enabled"),
-                sort_order=department.get("sort_order"),
+                sort_order=(
+                    ""
+                    if "sort_order" in department and department.get("sort_order") is None
+                    else department.get("sort_order")
+                ),
             )
 
         return DepartmentService.create_department(
@@ -171,11 +180,7 @@ class DepartmentService:
 
         doc = DepartmentService._get(name)
 
-        if DepartmentService._usage_count(doc.department_name):
-            raise ValidationError(
-                "This department is currently in use.\nDisable it instead of deleting it.",
-                "VALIDATION_ERROR",
-            )
+        DepartmentService.ensure_unused(doc.department_name)
 
         frappe.delete_doc(DOCTYPE, doc.name, ignore_permissions=True)
         frappe.db.commit()
@@ -183,50 +188,73 @@ class DepartmentService:
         return DepartmentService.list_departments(enabled_only=False)
 
     @staticmethod
-    def validate_department(department):
+    def validate_department(department, *, required=False, allow_disabled=False):
         """Exists, and is currently enabled. Used by every consumer, server-side, so a raw
         API call cannot smuggle in a department nobody configured.
 
         Returns the catalogue's own canonical spelling, so a value that reaches us with
         different casing or stray whitespace is corrected rather than left to drift.
         """
-        if not department:
-            return department
-
         normalized = DepartmentService._normalized(department)
 
-        row = frappe.db.sql(
-            """
-            select name, department_name, enabled from `tabMSP Department`
-            where lower(trim(department_name)) = %(normalized)s
-            limit 1
-            """,
-            {"normalized": normalized},
-            as_dict=True,
-        )
+        if not normalized:
+            if required:
+                raise ValidationError("Select a department for the new user.", "VALIDATION_ERROR")
+            return None
 
-        if not row:
+        name = DepartmentService._find_by_name(department)
+        if not name:
             raise ValidationError(f"Department '{department}' does not exist.", "VALIDATION_ERROR")
 
-        row = row[0]
+        row = frappe.db.get_value(
+            DOCTYPE, name, ["department_name", "enabled"], as_dict=True
+        )
 
-        if not row.enabled:
+        if not row.enabled and not allow_disabled:
             raise ValidationError(f"Department '{row.department_name}' is disabled.", "VALIDATION_ERROR")
 
         return row.department_name
 
     @staticmethod
-    def _find_by_name(department_name):
-        names = frappe.db.sql_list(
-            """
-            select name from `tabMSP Department`
-            where lower(trim(department_name)) = %(normalized)s
-            limit 1
-            """,
-            {"normalized": DepartmentService._normalized(department_name)},
-        )
+    def ensure_unused(department_name):
+        """Shared by the custom API and standard document deletion paths."""
+        if DepartmentService._usage_count(department_name):
+            raise ValidationError(
+                "This department is currently in use.\nDisable it instead of deleting it.",
+                "VALIDATION_ERROR",
+            )
 
-        return names[0] if names else None
+    @staticmethod
+    def rename_references(old, new):
+        """Update current labels, never completed request or billing snapshots."""
+        if not old or old == new:
+            return
+
+        values = {"old": old, "new": new, "closed": CLOSED_STATUSES}
+        for doctype in ("MSP Client User", "MSP Approver"):
+            frappe.db.set_value(
+                doctype, {"department": old}, "department", new, update_modified=False
+            )
+
+        active_lines = frappe.db.sql_list(
+            """select line.name from `tabMSP Service Request Line` line
+                join `tabMSP Service Request` request on request.name = line.parent
+                where line.new_user_department = %(old)s
+                  and request.status not in %(closed)s""",
+            values,
+        )
+        for name in active_lines:
+            frappe.db.set_value(
+                "MSP Service Request Line", name, "new_user_department", new, update_modified=False
+            )
+
+    @staticmethod
+    def _find_by_name(department_name):
+        normalized = DepartmentService._normalized(department_name)
+        for row in frappe.get_all(DOCTYPE, fields=["name", "department_name"]):
+            if DepartmentService._normalized(row.department_name) == normalized:
+                return row.name
+        return None
 
     @staticmethod
     def _usage_count(department_name):

@@ -53,7 +53,9 @@ class TestServiceAssignmentMigration(MSPTestCase):
                 "price_source": "Contract",
             }
         )
+        doc.flags.via_service_lifecycle = True
         doc.insert(ignore_permissions=True)
+        doc.flags.via_service_lifecycle = False
         self.track("MSP Service Assignment", doc.name)
 
         return doc
@@ -189,6 +191,7 @@ class TestServiceAssignmentMigration(MSPTestCase):
         doc = self.assignment(service, start=self.days_ago(60))
         doc.operational_status = "Suspended"
         doc.append("suspension_log", {"suspended_on": suspended_on})
+        doc.flags.via_service_lifecycle = True
         # a test run keeps no version trail of its own, and the trail is the whole point here
         doc.save(ignore_permissions=True, ignore_version=False)
         frappe.db.commit()
@@ -240,9 +243,11 @@ class TestServiceAssignmentMigration(MSPTestCase):
         doc = self.assignment(service, start=self.days_ago(60))
         doc.operational_status = "Suspended"
         doc.append("suspension_log", {"suspended_on": self.days_ago(20)})
+        doc.flags.via_service_lifecycle = True
         doc.save(ignore_permissions=True, ignore_version=False)
         doc.operational_status = "Active"
         doc.suspension_log[0].resumed_on = self.days_ago(10)
+        doc.flags.via_service_lifecycle = True
         doc.save(ignore_permissions=True, ignore_version=False)
         frappe.db.commit()
 

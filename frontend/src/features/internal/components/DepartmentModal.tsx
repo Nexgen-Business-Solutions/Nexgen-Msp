@@ -20,12 +20,14 @@ const DepartmentModal: React.FC<Props> = ({ open, department, onClose }) => {
   const [departmentName, setDepartmentName] = useState('');
   const [description, setDescription] = useState('');
   const [enabled, setEnabled] = useState(true);
+  const [sortOrder, setSortOrder] = useState('');
 
   useEffect(() => {
     if (!open) return;
     setDepartmentName(department?.department_name ?? '');
     setDescription(department?.description ?? '');
     setEnabled(department ? Boolean(department.enabled) : true);
+    setSortOrder(department?.sort_order == null ? '' : String(department.sort_order));
     save.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, department]);
@@ -34,7 +36,12 @@ const DepartmentModal: React.FC<Props> = ({ open, department, onClose }) => {
     try {
       await save.mutateAsync({
         name: department?.name,
-        department: { department_name: departmentName, description, enabled: enabled ? 1 : 0 },
+        department: {
+          department_name: departmentName,
+          description,
+          enabled: enabled ? 1 : 0,
+          sort_order: sortOrder === '' ? null : Number(sortOrder),
+        },
       });
       onClose();
     } catch {
@@ -95,20 +102,32 @@ const DepartmentModal: React.FC<Props> = ({ open, department, onClose }) => {
             rows={3}
             value={description}
             onChange={(event) => setDescription(event.target.value)}
-            placeholder="optional"
+            placeholder="What this department covers (optional)"
             className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
           />
         </div>
 
-        <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-slate-700">
-          <input
-            type="checkbox"
-            checked={enabled}
-            onChange={(event) => setEnabled(event.target.checked)}
-            className="h-4 w-4 rounded border-slate-300"
-          />
-          Enabled
-        </label>
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+          <div>
+            <FieldLabel>Display order</FieldLabel>
+            <input
+              type="number"
+              value={sortOrder}
+              onChange={(event) => setSortOrder(event.target.value)}
+              placeholder="Automatic"
+              className={inputClass}
+            />
+          </div>
+          <label className="mt-7 inline-flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={(event) => setEnabled(event.target.checked)}
+              className="h-4 w-4 rounded border-slate-300"
+            />
+            Available for selection
+          </label>
+        </div>
 
         {save.error instanceof Error && (
           <div className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
