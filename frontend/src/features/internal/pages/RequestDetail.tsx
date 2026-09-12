@@ -1,24 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import {
-  AlertCircle,
-  ArrowLeft,
-  ArrowUpRight,
-  Check,
-  CircleAlert,
-  UserPlus,
-  Laptop,
-  TriangleAlert,
-  X,
-} from 'lucide-react';
+import { AlertCircle, ArrowLeft, Check, CircleAlert, TriangleAlert, X } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
 import StatusBadge from '@/shared/components/StatusBadge';
-import CreateUserModal from '../components/CreateUserModal';
-import AddDeviceModal from '../components/AddDeviceModal';
-import { useUserDetail } from '../hooks/useUsers';
-import DeliveryDetailsModal from '../components/DeliveryDetailsModal';
-import { outstanding } from '../lib/delivery';
-import { useRequestDetail, useRunRequestAction, useSetLineStatus } from '../hooks/useRequests';
+import RequestProgressStepper from '../components/RequestProgressStepper';
+import RequestWorkbench from '../components/RequestWorkbench';
+import {
+  useRequestDetail,
+  useRequestExecutionPlan,
+  useRunRequestAction,
+  useSetLineStatus,
+} from '../hooks/useRequests';
 import type { RequestDetailLine } from '@/lib/api/internal';
 import RequestLinesByPerson, { type PersonLine } from '@/shared/components/RequestLinesByPerson';
 
@@ -26,7 +18,8 @@ const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) :
 const fmtStamp = (value?: string | null) =>
   value ? String(value).slice(0, 16).replace('T', ' ') : null;
 
-const DESTRUCTIVE = ['reject', 'cancel'];
+// the review is still being written: everything after it belongs to the workbench
+const UNDER_REVIEW = ['Submitted', 'Under Review'];
 
 /** A line as the technician reads it: the person first, then what was asked for them. */
 const asPersonLine = (line: RequestDetailLine, extra?: React.ReactNode): PersonLine => {
@@ -71,24 +64,11 @@ export default function RequestDetail() {
   const setLine = useSetLineStatus();
 
   const [prompt, setPrompt] = useState<ReasonPrompt | null>(null);
-  const [askingDetails, setAskingDetails] = useState(false);
   const [reason, setReason] = useState('');
-  const [newUserLine, setNewUserLine] = useState<{
-    idx: number;
-    full_name: string | null;
-    department: string | null;
-    email: string | null;
-    username: string | null;
-  } | null>(null);
-
-  // the machine a request asked for is registered from here, for the person it names
-  const [registering, setRegistering] = useState<{
-    person: string;
-    initial: { hostname: string | null; device_type: string | null; serial_number: string | null };
-  } | null>(null);
-  const holder = useUserDetail(registering?.person);
 
   const data = detail.data;
+  const reviewing = Boolean(data && UNDER_REVIEW.includes(data.status));
+  const plan = useRequestExecutionPlan(data && !reviewing ? name : undefined);
   const actionError = (runAction.error ?? setLine.error) as Error | undefined;
 
   // a dispute is handled on the invoice it contests, so a direct link lands there
@@ -141,6 +121,14 @@ export default function RequestDetail() {
 
   const review = data.review;
   const checkFor = (idx: number) => review?.lines.find((row) => row.idx === idx);
+  const decided = data.lines.filter((line) => line.line_status !== 'Pending');
+  const allDecided = decided.length === data.lines.length && data.lines.length > 0;
+  const anyApproved = data.lines.some((line) => line.line_status === 'Approved');
+
+  // the header keeps only what ends a request early; the rest lives where the work is
+  const headerActions = data.available_actions.filter((action) =>
+    ['reject', 'cancel'].includes(action.action)
+  );
 
   return (
     <div className="space-y-5 px-6 pb-6 pt-4">
@@ -176,40 +164,19 @@ export default function RequestDetail() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {data.available_actions.map((action) => {
-              const destructive = DESTRUCTIVE.includes(action.action);
-              return (
-                <button
-                  key={action.action}
-                  type="button"
-                  disabled={runAction.isLoading}
-                  onClick={() => {
-                    // the closure is refused without them, so they are asked for here
-                    // rather than reported as an error after the fact
-                    if (action.action === 'complete' && outstanding(data).length) {
-                      setAskingDetails(true);
-                      return;
-                    }
-
-                    if (action.needs_reason) {
-                      openPrompt({ kind: 'action', action: action.action, label: action.label });
-                    } else {
-                      runAction.mutate({ name, action: action.action });
-                    }
-                  }}
-                  className={`inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-60 ${
-                    destructive
-                      ? 'border border-red-200 bg-white text-red-600 hover:bg-red-50'
-                      : 'bg-blue-600 text-white shadow-sm hover:bg-blue-700'
-                  }`}
-                >
-                  {action.label}
-                </button>
-              );
-            })}
-            {data.available_actions.length === 0 && (
-              <span className="text-xs text-slate-400">No action available at this stage.</span>
-            )}
+            {headerActions.map((action) => (
+              <button
+                key={action.action}
+                type="button"
+                disabled={runAction.isLoading}
+                onClick={() =>
+                  openPrompt({ kind: 'action', action: action.action, label: action.label })
+                }
+                className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:opacity-60"
+              >
+                {action.label}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -238,166 +205,110 @@ export default function RequestDetail() {
           </div>
         )}
 
-        <div className="px-6 py-5">
-          <RequestLinesByPerson
-            lines={data.lines.map((line) => {
-              const check = checkFor(line.idx);
+        {reviewing ? (
+          <>
+            <RequestProgressStepper
+              current="review"
+              stages={[
+                { key: 'review', label: 'Review', done: false, needed: true, state: 'current' },
+                { key: 'prepare', label: 'Prepare', done: false, needed: true, state: 'todo' },
+                { key: 'execute', label: 'Execute', done: false, needed: true, state: 'todo' },
+                { key: 'verify', label: 'Verify', done: false, needed: true, state: 'todo' },
+                { key: 'complete', label: 'Complete', done: false, needed: true, state: 'todo' },
+              ]}
+            />
 
-              return asPersonLine(
-                line,
-                check && (
-                  <p
-                    className={`mt-0.5 inline-flex items-center gap-1 text-xs font-medium ${
-                      check.priced ? 'text-slate-500' : 'text-amber-700'
-                    }`}
-                  >
-                    {check.priced ? <Check size={12} /> : <CircleAlert size={12} />}
-                    {check.priced
-                      ? review?.shows_rates && check.rate !== null
-                        ? `Rate ${check.rate.toLocaleString()} ${review.currency ?? ''}`
-                        : 'Rate set in contract'
-                      : 'No rate — delivered but never billed'}
-                    {check.duplicate ? ` · already held (${check.duplicate})` : ''}
-                  </p>
-                )
-              );
-            })}
-            headerActions={({ first, lines }) => {
-              const source = data.lines.find((line) => line.idx === first.idx);
-              const wantsDevice = lines.some((line) => line.isNewDevice);
+            <div className="px-6 py-5">
+              <RequestLinesByPerson
+                lines={data.lines.map((line) => {
+                  const check = checkFor(line.idx);
 
-              return (
-                <>
-                  {wantsDevice && first.person && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const asked = data.lines.find(
-                          (line) =>
-                            line.is_new_device && lines.some((row) => row.idx === line.idx)
-                        );
-                        setRegistering({
-                          person: first.person as string,
-                          initial: {
-                            hostname: asked?.new_device_label ?? null,
-                            device_type: asked?.new_device_type ?? null,
-                            serial_number: asked?.new_device_serial ?? null,
-                          },
-                        });
-                      }}
-                      title="Register this machine for them, with what the request already says"
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-slate-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-700"
-                    >
-                      <Laptop size={15} />
-                      Register device
-                    </button>
-                  )}
-
-                  {first.person && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        navigate(`/msp/users/${first.person}?ref=${encodeURIComponent(name)}`)
-                      }
-                      title="Open this user, with the request pre-selected"
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 hover:text-slate-900"
-                    >
-                      Open profile
-                      <ArrowUpRight size={15} />
-                    </button>
-                  )}
-
-                  {first.isNewUser && source && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setNewUserLine({
-                          idx: source.idx,
-                          full_name: source.new_user_full_name,
-                          department: source.new_user_department,
-                          email: source.new_user_email,
-                          username: source.new_user_username,
-                        })
-                      }
-                      title="Create this person, then continue on their profile"
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
-                    >
-                      <UserPlus size={15} />
-                      Create user
-                    </button>
-                  )}
-                </>
-              );
-            }}
-            rowActions={
-              data.can_decide_lines
-                ? (line) =>
-                    line.status === 'Pending' && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setLine.mutate({ name, idx: line.idx, line_status: 'Approved' })
-                          }
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-50"
-                        >
-                          <Check size={13} />
-                          Approve
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openPrompt({ kind: 'line', idx: line.idx })}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-50"
-                        >
-                          <X size={13} />
-                          Reject
-                        </button>
-                      </>
+                  return asPersonLine(
+                    line,
+                    check && (
+                      <p
+                        className={`mt-0.5 inline-flex items-center gap-1 text-xs font-medium ${
+                          check.priced ? 'text-slate-500' : 'text-amber-700'
+                        }`}
+                      >
+                        {check.priced ? <Check size={12} /> : <CircleAlert size={12} />}
+                        {check.priced
+                          ? review?.shows_rates && check.rate !== null
+                            ? `Rate ${check.rate.toLocaleString()} ${review.currency ?? ''}`
+                            : 'Rate set in contract'
+                          : 'No rate — delivered but never billed'}
+                        {check.duplicate ? ` · already held (${check.duplicate})` : ''}
+                      </p>
                     )
-                : undefined
-            }
-          />
-        </div>
+                  );
+                })}
+                rowActions={
+                  data.can_decide_lines
+                    ? (line) =>
+                        line.status === 'Pending' && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setLine.mutate({ name, idx: line.idx, line_status: 'Approved' })
+                              }
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-50"
+                            >
+                              <Check size={13} />
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openPrompt({ kind: 'line', idx: line.idx })}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-50"
+                            >
+                              <X size={13} />
+                              Reject
+                            </button>
+                          </>
+                        )
+                    : undefined
+                }
+              />
+
+              {allDecided && data.can_decide_lines && (
+                <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4">
+                  <p className="text-sm text-slate-500">
+                    {data.lines.filter((line) => line.line_status === 'Approved').length} approved ·{' '}
+                    {data.lines.filter((line) => line.line_status === 'Rejected').length} rejected
+                  </p>
+                  {anyApproved ? (
+                    <button
+                      type="button"
+                      disabled={runAction.isLoading}
+                      onClick={() => runAction.mutate({ name, action: 'approve' })}
+                      className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:opacity-60"
+                    >
+                      Approve request and prepare work
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        openPrompt({ kind: 'action', action: 'reject', label: 'Reject request' })
+                      }
+                      className="rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50"
+                    >
+                      Reject request
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </>
+        ) : plan.data ? (
+          <RequestWorkbench plan={plan.data} />
+        ) : (
+          <div className="px-6 py-10 text-center text-sm text-slate-500">
+            {plan.error ? (plan.error as Error).message : 'Loading the work…'}
+          </div>
+        )}
       </div>
-
-      {askingDetails && (
-        <DeliveryDetailsModal
-          request={data}
-          onClose={() => setAskingDetails(false)}
-          onComplete={() => {
-            setAskingDetails(false);
-            runAction.mutate({ name, action: 'complete' });
-          }}
-        />
-      )}
-
-      <CreateUserModal
-        open={Boolean(newUserLine)}
-        request={name}
-        customer={data.customer}
-        line={newUserLine}
-        onClose={() => setNewUserLine(null)}
-        onCreated={() => {
-          // the person now exists: their card turns into an existing one, and the machine
-          // they were owed can be registered from right here
-          setNewUserLine(null);
-        }}
-      />
-
-      {registering && holder.data && (
-        <AddDeviceModal
-          open
-          clientUser={registering.person}
-          userName={holder.data.user.full_name}
-          customer={data.customer}
-          deviceTypes={holder.data.device_types}
-          interfaceTypes={holder.data.interface_types}
-          requests={holder.data.customer_requests}
-          defaultRequest={name}
-          initial={registering.initial}
-          onClose={() => setRegistering(null)}
-        />
-      )}
 
       <Modal
         open={Boolean(prompt)}

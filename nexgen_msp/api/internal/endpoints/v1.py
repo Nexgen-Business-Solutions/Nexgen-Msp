@@ -67,14 +67,6 @@ def run_request_action(name=None, action=None, reason=None):
 
 @frappe.whitelist()
 @handle_errors
-def set_request_delivery_detail(name=None, idx=None, serial_number=None, username=None):
-    return RequestService.set_delivery_detail(
-        name=name, idx=idx, serial_number=serial_number, username=username
-    )
-
-
-@frappe.whitelist()
-@handle_errors
 def set_request_line_status(name=None, idx=None, line_status=None, reason=None):
     return RequestService.set_line_status(
         name=name, idx=idx, line_status=line_status, reason=reason
@@ -99,6 +91,110 @@ def get_request_execution_plan(name=None):
 @handle_errors
 def build_request_execution_plan(name=None):
     return _execution().build_execution_plan(request=name)
+
+
+@frappe.whitelist()
+@handle_errors
+def execute_user_setup(work_order=None, username=None, email=None, department=None, notes=None):
+    return _execution().execute_user_setup(
+        work_order=work_order, username=username, email=email, department=department, notes=notes
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def execute_device_provisioning(
+    work_order=None,
+    mode=None,
+    managed_device=None,
+    hostname=None,
+    serial_number=None,
+    device_type=None,
+    interfaces=None,
+    effective_date=None,
+    confirm_transfer=None,
+    notes=None,
+):
+    return _execution().execute_device_provisioning(
+        work_order=work_order,
+        mode=mode,
+        managed_device=managed_device,
+        hostname=hostname,
+        serial_number=serial_number,
+        device_type=device_type,
+        interfaces=interfaces,
+        effective_date=effective_date,
+        confirm_transfer=confirm_transfer,
+        notes=notes,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def execute_service_action(
+    work_order=None,
+    effective_date=None,
+    quantity=None,
+    username=None,
+    serial_number=None,
+    notes=None,
+    customer_note=None,
+):
+    return _execution().execute_service_action(
+        work_order=work_order,
+        effective_date=effective_date,
+        quantity=quantity,
+        username=username,
+        serial_number=serial_number,
+        notes=notes,
+        customer_note=customer_note,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def block_work_item(work_order=None, reason=None):
+    return _execution().block_work_item(work_order=work_order, reason=reason)
+
+
+@frappe.whitelist()
+@handle_errors
+def resume_work_item(work_order=None):
+    return _execution().resume_work_item(work_order=work_order)
+
+
+@frappe.whitelist()
+@handle_errors
+def fail_work_item(work_order=None, reason=None):
+    return _execution().fail_work_item(work_order=work_order, reason=reason)
+
+
+@frappe.whitelist()
+@handle_errors
+def cancel_work_item(work_order=None, reason=None):
+    return _execution().cancel_work_item(work_order=work_order, reason=reason)
+
+
+@frappe.whitelist()
+@handle_errors
+def verify_work_item(work_order=None, checklist=None, customer_note=None, notes=None):
+    return _execution().verify_work_item(
+        work_order=work_order, checklist=checklist, customer_note=customer_note, notes=notes
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def complete_request(name=None):
+    return _execution().complete_request(request=name)
+
+
+@frappe.whitelist()
+@handle_errors
+def assign_request_technician(name=None, work_order=None, technician=None):
+    return _execution().assign_technician(
+        request=name, work_order=work_order, technician=technician
+    )
 
 
 @frappe.whitelist()

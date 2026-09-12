@@ -46,6 +46,13 @@ cd apps/nexgen_msp/frontend && yarn build && yarn lint && yarn test
   deux méthodes concurrentes se marchent dessus). Ils portent le préfixe : après une suite
   complète, balayer les `MSP Department` contenant `ZZTEST` pour ne pas les laisser dans le
   catalogue que voient les clients.
+- Les règles d'intention de la Phase 3 ne sont rejouées que **quand la demande est écrite**
+  (lignes modifiées, ou demande qui quitte Draft / Awaiting Customer Approval). Sinon une
+  machine qui change de mains rendait la demande impossible à sauvegarder — alors que c'est
+  précisément le cas que le transfert de la Phase 4 doit traiter.
+- Un Work Order est committé dès la construction du plan : `MSPTestCase` les balaie avec la
+  demande (`_purge_work`), sinon un test qui échoue après l'approbation les laisse orphelins
+  et le numéro de demande réutilisé fait échouer le suivant.
 - Une session portail porte une User Permission sur son `Customer` : Frappe la recopie
   automatiquement dans tout champ Link `customer` d'un document créé par cette session.
   `make_department()` insère donc en tant qu'`Administrator`, sinon le département partagé
@@ -61,7 +68,8 @@ cd apps/nexgen_msp/frontend && yarn build && yarn lint && yarn test
 | 2 | Service Lifecycle & Ownership | ✅ terminée |
 | 2.5 | Global Managed Departments | ✅ terminée |
 | 3 | Client Request Workflow | ✅ terminée |
-| **4** | **Request Technician Workbench & Execution Stepper** | **⬜ à faire — prochaine** |
+| 4 | Request Technician Workbench & Execution Stepper | ✅ terminée |
+| **5** | **User 360° Operational View** | **⬜ à faire — prochaine** |
 | 5 | User 360° Operational View | ⬜ |
 | 6 | Settings & Managed References | ⬜ |
 | 7 | Billing Workbench & Flexible Billing | ⬜ |
@@ -174,6 +182,62 @@ raison exacte (§33, §49, §50).
 
 Les 30 scénarios backend de §58 et la liste frontend de §59 sont couverts.
 
+### Phase 4 — Poste de travail du technicien ✅
+
+**Règle de la phase : la Request est l'interface de travail, le Work Order le moteur de
+traçabilité, le Lifecycle Service le moteur métier.** Le technicien ne quitte jamais la
+demande : plus de `CreateUserModal`, `AddDeviceModal`, `DeliveryDetailsModal`, plus de bouton
+« Open profile », aucune navigation vers un Work Order.
+
+| # | Tâche | État |
+|---|---|---|
+| 1 | `subject_key` + `device_requirement_key` | ✅ 14 tests |
+| 2 | Work Order étendu + `build_execution_plan()` | ✅ 28 tests |
+| 3 | `RequestExecutionService` + orchestration | ✅ 36 tests |
+| 4 | Préparation personne / machine | ✅ inclus en 3 |
+| 5 | Exécution des actions de service | ✅ inclus en 3 |
+| 6 | Workbench React + stepper | ✅ 20 tests Vitest |
+| 7 | Vérification, checklists, complétion | ✅ inclus en 3 et 6 |
+| 8 | Concurrence + E2E métier | ✅ inclus en 3 |
+
+**Ce qui a changé, côté modèle :**
+
+- `MSP Service Request Line` porte `subject_key` et `device_requirement_key`, **dérivés côté
+  serveur** (jamais envoyés par l'écran) : une personne sur fiche donne `user:CU-00045`, une
+  personne à créer donne son nom normalisé, une machine attendue est clé de la personne.
+- `MSP Service Work Order` porte `work_type` (Service Action / User Setup / Device
+  Provisioning), `plan_key` **unique**, `subject_key`, `device_requirement_key`,
+  `request_line_name`, `request_line_idx`, `source_service_assignment`, et les trois
+  résultats : `resulting_client_user`, `resulting_device`, `resulting_assignment`.
+- `service_item` n'est plus obligatoire : seule une Service Action nomme un service.
+- La cible (personne / machine) n'est exigée **qu'au moment où le travail est pris**, pas à
+  la planification : c'est justement parce qu'elle n'existe pas encore qu'il y a du travail.
+
+**Le plan (`request_execution_service.py`) :**
+
+- Généré à l'approbation, **idempotent** : un Work Order par groupe, adressé par `plan_key`
+  unique en base. Deux techniciens qui ouvrent la demande en même temps n'en créent qu'un.
+- Un `User Setup` par personne à créer, un `Device Provisioning` par machine à régler, une
+  `Service Action` par ligne approuvée. Une ligne rejetée ne produit aucun travail.
+- `ready` / `waiting_on` sont **calculés**, jamais écrits : attendre l'étape précédente n'est
+  pas un blocage, `Blocked` reste réservé à l'imprévu.
+- Propagation : la personne créée et la machine réglée sont recopiées sur **toutes** les
+  lignes et tous les Work Orders du même groupe.
+
+**Ce qui a été supprimé, et pourquoi :**
+
+- `RequestService.set_delivery_detail` et `_guard_delivery_details` : la clôture ne part plus
+  à la pêche au numéro de série ou au nom de compte (§65). Le garde-fou existe toujours, mais
+  au bon endroit : `_identify_target` le demande sur la carte qui met le service en service.
+- `DeliveryDetailsModal` et `lib/delivery.ts` côté front.
+- Les boutons du header : seuls Reject et Cancel y restent. Approuver, exécuter, vérifier et
+  clôturer se font dans l'étape concernée.
+
+**Décision signalée :** le portail access d'une nouvelle personne est *affiché* sur la carte
+User Setup (« Portal access was requested ») mais **l'invitation n'est pas envoyée
+automatiquement** : créer un compte avec des identifiants n'est pas un effet de bord acceptable
+d'un clic sur « Create user ». À trancher avec Idriss si ce doit être automatisé.
+
 ---
 
 ## 4. Journal
@@ -187,5 +251,8 @@ Les 30 scénarios backend de §58 et la liste frontend de §59 sont couverts.
 | 2026-09-12 | agent principal | Phase 3 terminée : brouillons/corrections et couverture §58–§59 (`after phase 3 done`). |
 | 2026-09-12 | agent principal | Départements : champ `customer` facultatif, options filtrées par entreprise. |
 | 2026-09-12 | agent principal | Données techniques rendues facultatives mais saisissables, visibles partout, pré-remplies côté technicien. |
+| 2026-09-12 | agent principal | Phase 4 tâche 1 : clés de regroupement (`after phase 4 execution keys`). |
+| 2026-09-12 | agent principal | Phase 4 tâche 2 : Work Order étendu et plan d'exécution (`after phase 4 execution plan`). |
+| 2026-09-12 | agent principal | Phase 4 terminée : exécution, vérification, clôture et workbench React. |
 
 > Ajoute ta ligne ici quand tu termines quelque chose.

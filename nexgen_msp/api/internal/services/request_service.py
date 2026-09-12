@@ -2,7 +2,7 @@ import frappe
 
 from nexgen_msp.utils.meta import select_options
 
-from nexgen_msp.utils import identifiers, permissions
+from nexgen_msp.utils import permissions
 from nexgen_msp.utils.assignments import OPEN_ASSIGNMENT_STATUSES
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
@@ -60,11 +60,11 @@ ACTIONS = {
     },
     "complete": {
         "label": "Mark completed",
-        "from": ("In Progress",),
+        "from": ("Approved", "In Progress"),
         "to": "Completed",
         "roles": TECHNICIAN_ROLES,
         "stamp": None,
-        "requires_delivery_details": True,
+        "requires_finished_work": True,
     },
     "reject": {
         "label": "Reject",
@@ -508,8 +508,12 @@ class RequestService:
                     "VALIDATION_ERROR",
                 )
 
-        if spec.get("requires_delivery_details"):
-            RequestService._guard_delivery_details(doc)
+        if spec.get("requires_finished_work"):
+            from nexgen_msp.api.internal.services.request_execution_service import (
+                RequestExecutionService,
+            )
+
+            RequestExecutionService.guard_completion(doc)
 
         doc.status = spec["to"]
 
@@ -765,112 +769,6 @@ class RequestService:
 
         return None
 
-
-    @staticmethod
-    def set_delivery_detail(name=None, idx=None, serial_number=None, username=None):
-        """Record, from the request itself, what the technician found on the bench.
-
-        The closure is refused without these two facts, so they are collected where the
-        work is being done rather than on another screen.
-        """
-        RequestService._guard_internal()
-
-        if not name or not idx:
-            raise ValidationError("name and idx are required.", "VALIDATION_ERROR")
-
-        if not frappe.db.exists("MSP Service Request", name):
-            raise NotFoundError(f"Service Request {name} not found.", "NOT_FOUND")
-
-        doc = frappe.get_doc("MSP Service Request", name)
-
-        if doc.status in CLOSED_STATUSES or doc.status == CUSTOMER_STATUS:
-            raise ValidationError(
-                f"Request {name} is {doc.status.lower()} and can no longer be edited.",
-                "INVALID_TRANSITION",
-            )
-
-        row = next((line for line in doc.lines if line.idx == frappe.utils.cint(idx)), None)
-
-        if not row:
-            raise NotFoundError(f"Line {idx} does not exist on {name}.", "NOT_FOUND")
-
-        serial = (serial_number or "").strip()
-        account = (username or "").strip()
-
-        if serial:
-            device = row.managed_device
-
-            if not device:
-                raise ValidationError("This line carries no machine.", "VALIDATION_ERROR")
-
-            identifiers.record_serial(device, serial, overwrite=True)
-
-        if account:
-            person = row.client_user
-
-            if not person:
-                raise ValidationError("This line carries no person.", "VALIDATION_ERROR")
-
-            identifiers.record_username(person, account, overwrite=True)
-
-        frappe.db.commit()
-
-        return RequestService.get_request(name)
-
-    @staticmethod
-    def _guard_delivery_details(doc):
-        """What a technician must hold before a request can be called done.
-
-        The customer is not asked for either of these when they raise the request — they
-        rarely know them. They are collected while the work is carried out, and this is the
-        gate that stops a request being closed without them.
-
-        What is required follows the target the line really resolved to. A service that
-        lands on a machine needs that machine's serial number; one that licenses a person
-        needs their account name. A service the catalogue lets us sell either way asks for
-        one of the two, never both: 'Both' is a permission to target, not a target.
-        """
-        missing = []
-
-        for row in doc.lines:
-            if row.line_status in ("Rejected", "Cancelled"):
-                continue
-
-            # a person or a machine the customer asked us to create has to exist before the
-            # request that asked for them can be called done
-            if row.is_new_user and not row.client_user:
-                missing.append(f"line {row.idx}: {row.new_user_full_name} has not been created")
-                continue
-
-            if row.is_new_device and not row.managed_device:
-                missing.append(f"line {row.idx}: {row.new_device_label} has not been registered")
-                continue
-
-            service = frappe.db.get_value("Item", row.requested_service, "item_name")
-
-            if row.target_scope == "Device":
-                device = row.managed_device
-
-                if device and not (
-                    frappe.db.get_value("MSP Managed Device", device, "serial_number") or ""
-                ).strip():
-                    hostname = frappe.db.get_value("MSP Managed Device", device, "hostname")
-                    missing.append(f"line {row.idx}: {hostname} has no serial number for {service}")
-
-            if row.target_scope == "User":
-                person = row.client_user
-
-                if person and not (
-                    frappe.db.get_value("MSP Client User", person, "username") or ""
-                ).strip():
-                    full_name = frappe.db.get_value("MSP Client User", person, "full_name")
-                    missing.append(f"line {row.idx}: {full_name} has no username for {service}")
-
-        if missing:
-            raise ValidationError(
-                "This request cannot be closed yet — " + "; ".join(missing) + ".",
-                "VALIDATION_ERROR",
-            )
 
     @staticmethod
     def _review_checks(doc):

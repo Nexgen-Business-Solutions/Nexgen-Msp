@@ -247,50 +247,34 @@ class TestServiceCallers(MSPTestCase):
             }
         )
 
+    def owed_on(self, service, **fields):
+        """What one line is still owed, read the way the workbench reads it."""
+        doc = self.both_line(service, **fields)
+        doc.insert(ignore_permissions=True)
+        self.track("MSP Service Request", doc.name)
+        frappe.db.commit()
+
+        return RequestService.get_request(doc.name)["lines"][0]
+
     def test_a_both_service_landing_on_a_machine_is_never_asked_for_a_username(self):
         service = self.offering("CBD", scope="Both")
         device = self.make_device(self.customer, hostname="BOTHD", holder=self.john, serial="ZZTEST-SN-CBD")
         self.assertFalse(frappe.db.get_value("MSP Client User", self.john, "username"))
 
-        doc = self.both_line(
-            service,
-            target_scope="Device",
-            is_new_device=1,
-            managed_device=device,
-            client_user=self.john,
-        )
+        line = self.owed_on(service, target_scope="Device", managed_device=device)
 
-        RequestService._guard_delivery_details(doc)
+        self.assertFalse(line["needs_username"])
+        self.assertFalse(line["needs_serial"], "this machine already carries its serial")
 
     def test_a_both_service_landing_on_a_person_is_never_asked_for_a_serial(self):
         service = self.offering("CBU", scope="Both")
-        device = self.make_device(self.customer, hostname="BOTHU", holder=self.john)
+        self.make_device(self.customer, hostname="BOTHU", holder=self.john)
         frappe.db.set_value("MSP Client User", self.john, "username", "j.john")
-        self.assertFalse(frappe.db.get_value("MSP Managed Device", device, "serial_number"))
 
-        doc = self.both_line(
-            service,
-            target_scope="User",
-            is_new_user=1,
-            new_user_full_name="ZZTEST John",
-            client_user=self.john,
-            managed_device=device,
-        )
+        line = self.owed_on(service, target_scope="User", client_user=self.john)
 
-        RequestService._guard_delivery_details(doc)
-
-    def test_what_the_real_target_does_need_is_still_asked_for(self):
-        service = self.offering("CBM", scope="Both")
-        device = self.make_device(self.customer, hostname="BOTHM", holder=self.john)
-
-        doc = self.both_line(
-            service, target_scope="Device", is_new_device=1, managed_device=device
-        )
-
-        with self.assertRaises(ValidationError) as caught:
-            RequestService._guard_delivery_details(doc)
-
-        self.assertIn("no serial number", caught.exception.message)
+        self.assertFalse(line["needs_serial"])
+        self.assertFalse(line["needs_username"], "this person already carries their account name")
 
     def test_the_screen_asks_a_line_for_what_its_own_target_needs(self):
         service = self.offering("CBS", scope="Both")

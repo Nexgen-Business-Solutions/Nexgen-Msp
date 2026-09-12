@@ -23,6 +23,7 @@ class TestTheRequestProcess(MSPTestCase):
         self.track("MSP Approval Authority", self.customer)
         self.person = self.make_person(self.customer, "Subject")
         self.service = self.make_service("P", scope="User")
+        self.cover_service(self.customer, self.service)
 
         self.asker = self.make_account("customer", "MSP Customer Operator", self.customer, suffix="ask")
         self.decider = self.make_account("customer", "MSP Customer Manager", self.customer, suffix="dec")
@@ -183,14 +184,42 @@ class TestTheRequestProcess(MSPTestCase):
         self.as_user(self.tech, lambda: RequestService.run_action(name, "approve"))
         self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Approved")
 
-        self.as_user(self.tech, lambda: RequestService.run_action(name, "start_work"))
+        # the work exists from the moment it is approved, and closing is refused until it is done
+        from nexgen_msp.api.internal.services.request_execution_service import (
+            RequestExecutionService,
+        )
 
-        # the closing gate still applies at the end of the road
+        work = frappe.get_all(
+            "MSP Service Work Order", filters={"service_request": name}, pluck="name"
+        )[0]
+        self.track("MSP Service Work Order", work)
+
         with self.assertRaises(ValidationError):
-            self.as_user(self.tech, lambda: RequestService.run_action(name, "complete"))
+            self.as_user(self.tech, lambda: RequestExecutionService.complete_request(name))
 
-        self.as_user(self.tech, lambda: RequestService.set_delivery_detail(name, 1, username="p.subject"))
-        self.as_user(self.tech, lambda: RequestService.run_action(name, "complete"))
+        self.as_user(
+            self.tech,
+            lambda: RequestExecutionService.execute_service_action(
+                work_order=work, username="p.subject"
+            ),
+        )
+        self.track(
+            "MSP Service Assignment",
+            frappe.db.get_value("MSP Service Work Order", work, "resulting_assignment"),
+        )
+        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "In Progress")
+
+        # verified before it is closed, never closed on the strength of having been run
+        with self.assertRaises(ValidationError):
+            self.as_user(self.tech, lambda: RequestExecutionService.complete_request(name))
+
+        self.as_user(
+            self.tech,
+            lambda: RequestExecutionService.verify_work_item(
+                work_order=work, checklist={"Confirmed working for the customer": 1}
+            ),
+        )
+        self.as_user(self.tech, lambda: RequestExecutionService.complete_request(name))
 
         self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Completed")
 

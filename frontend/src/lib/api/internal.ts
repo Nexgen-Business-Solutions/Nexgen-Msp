@@ -133,13 +133,6 @@ export const getRequestStats = (params: RequestListParams = {}, signal?: AbortSi
 export const listRequests = (params: RequestListParams = {}, signal?: AbortSignal) =>
   get<Paginated<RequestRow>>(`${BASE}.list_requests`, params, signal);
 
-export const setRequestDeliveryDetail = (payload: {
-  name: string;
-  idx: number;
-  serial_number?: string;
-  username?: string;
-}) => post<RequestDetail>(`${BASE}.set_request_delivery_detail`, payload);
-
 export const getRequest = (name: string, signal?: AbortSignal) =>
   get<RequestDetail>(`${BASE}.get_request`, { name }, signal);
 
@@ -152,6 +145,182 @@ export const setRequestLineStatus = (payload: {
   line_status: string;
   reason?: string;
 }) => post<RequestDetail>(`${BASE}.set_request_line_status`, payload);
+
+// ---------------------------------------------------------------- the technician's workbench
+
+export type WorkChecklistItem = {
+  name: string;
+  idx: number;
+  step: string;
+  is_done: number;
+  note: string | null;
+};
+
+export type WorkDeviceCard = {
+  name: string;
+  hostname: string | null;
+  serial_number: string | null;
+  device_type: string | null;
+  status: string;
+  assigned_client_user: string | null;
+  holder_name?: string | null;
+};
+
+export type WorkPersonCard = {
+  name: string | null;
+  full_name: string | null;
+  department: string | null;
+  email: string | null;
+  username: string | null;
+  lifecycle_status: string | null;
+  is_new: boolean;
+  needs_portal_access?: boolean;
+};
+
+export type WorkCard = {
+  name: string;
+  plan_key: string;
+  work_type: 'Service Action' | 'User Setup' | 'Device Provisioning';
+  action: string;
+  status: string;
+  target_scope: string | null;
+  subject_key: string | null;
+  device_requirement_key: string | null;
+  request_line_name: string | null;
+  request_line_idx: number;
+  client_user: string | null;
+  managed_device: string | null;
+  service_item: string | null;
+  service_name: string | null;
+  source_service_assignment: string | null;
+  effective_date: string | null;
+  assigned_technician: string | null;
+  assigned_technician_name: string | null;
+  execution_notes: string | null;
+  customer_visible_note: string | null;
+  failure_reason: string | null;
+  completed_by: string | null;
+  completed_at: string | null;
+  resulting_assignment: string | null;
+  resulting_client_user: string | null;
+  resulting_device: string | null;
+  checklist: WorkChecklistItem[];
+  ready: boolean;
+  waiting_on: string | null;
+  comment?: string | null;
+  requested_quantity?: number | null;
+  asked_hostname?: string | null;
+  asked_serial?: string | null;
+  asked_device_type?: string | null;
+  device: WorkDeviceCard | null;
+  current: {
+    name: string;
+    operational_status: string;
+    quantity: number;
+    effective_start_date: string | null;
+    effective_end_date: string | null;
+  } | null;
+};
+
+export type WorkStage = {
+  key: 'review' | 'prepare' | 'execute' | 'verify' | 'complete';
+  label: string;
+  done: boolean;
+  needed: boolean;
+  state: 'done' | 'current' | 'todo' | 'skipped';
+};
+
+export type SubjectWorkGroup = {
+  subject_key: string;
+  person: WorkPersonCard | null;
+  user_setup: WorkCard | null;
+  devices: {
+    device_requirement_key: string;
+    device: WorkDeviceCard | null;
+    work: WorkCard;
+  }[];
+  services: WorkCard[];
+};
+
+export type ExecutionPlan = {
+  request: string;
+  customer: string;
+  status: string;
+  stages: { stages: WorkStage[]; current: WorkStage['key'] };
+  groups: SubjectWorkGroup[];
+  rejected: { idx: number; service: string; reason: string | null }[];
+  summary: {
+    people: number;
+    devices: number;
+    services: number;
+    open: number;
+    blocked: number;
+    failed: number;
+  };
+  activity: { at: string; who: string; about: string | null; said: string }[];
+};
+
+export const getRequestExecutionPlan = (name: string, signal?: AbortSignal) =>
+  get<ExecutionPlan>(`${BASE}.get_request_execution_plan`, { name }, signal);
+
+export const executeUserSetup = (payload: {
+  work_order: string;
+  username?: string;
+  email?: string;
+  department?: string;
+  notes?: string;
+}) => post<ExecutionPlan>(`${BASE}.execute_user_setup`, payload);
+
+export const executeDeviceProvisioning = (payload: {
+  work_order: string;
+  mode: 'new' | 'existing';
+  managed_device?: string;
+  hostname?: string;
+  serial_number?: string;
+  device_type?: string;
+  interfaces?: DeviceInterface[];
+  effective_date?: string;
+  confirm_transfer?: number;
+  notes?: string;
+}) => post<ExecutionPlan>(`${BASE}.execute_device_provisioning`, payload);
+
+export const executeServiceAction = (payload: {
+  work_order: string;
+  effective_date?: string;
+  quantity?: number;
+  username?: string;
+  serial_number?: string;
+  notes?: string;
+  customer_note?: string;
+}) => post<ExecutionPlan>(`${BASE}.execute_service_action`, payload);
+
+export const blockWorkItem = (payload: { work_order: string; reason: string }) =>
+  post<ExecutionPlan>(`${BASE}.block_work_item`, payload);
+
+export const resumeWorkItem = (payload: { work_order: string }) =>
+  post<ExecutionPlan>(`${BASE}.resume_work_item`, payload);
+
+export const failWorkItem = (payload: { work_order: string; reason: string }) =>
+  post<ExecutionPlan>(`${BASE}.fail_work_item`, payload);
+
+export const cancelWorkItem = (payload: { work_order: string; reason: string }) =>
+  post<ExecutionPlan>(`${BASE}.cancel_work_item`, payload);
+
+export const verifyWorkItem = (payload: {
+  work_order: string;
+  checklist?: Record<string, number>;
+  customer_note?: string;
+  notes?: string;
+}) => post<ExecutionPlan>(`${BASE}.verify_work_item`, payload);
+
+export const completeRequest = (payload: { name: string }) =>
+  post<ExecutionPlan>(`${BASE}.complete_request`, payload);
+
+export const assignRequestTechnician = (payload: {
+  name?: string;
+  work_order?: string;
+  technician?: string;
+}) => post<ExecutionPlan>(`${BASE}.assign_request_technician`, payload);
 
 export type DeviceInterface = {
   interface_type: string;

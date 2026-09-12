@@ -76,33 +76,16 @@ class TestRequests(MSPTestCase):
         self.assertEqual(out["lines"][0]["is_new_device"], 1)
 
     # ------------------------------------------------------- closing the request
-    def test_a_device_service_cannot_be_closed_without_a_serial(self):
-        name = self.open_request(
-            [self.line(self.device_service, target_scope="Device", client_user=None,
-                       managed_device=self.device, line_status="Approved")],
-            status="In Progress",
-        )
-
-        with self.assertRaises(ValidationError):
-            RequestService.run_action(name, "complete")
-
-        RequestService.set_delivery_detail(name, 1, serial_number="ZZTEST-SN-1")
-        RequestService.run_action(name, "complete")
-
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Completed")
-
-    def test_a_user_service_cannot_be_closed_without_a_username(self):
+    def test_a_request_with_work_still_open_cannot_be_closed(self):
+        """What stops a closure is unfinished work, never a field discovered at the last moment."""
         name = self.open_request(
             [self.line(self.user_service, line_status="Approved")], status="In Progress"
         )
 
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(ValidationError) as caught:
             RequestService.run_action(name, "complete")
 
-        RequestService.set_delivery_detail(name, 1, username="zz.user")
-        RequestService.run_action(name, "complete")
-
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Completed")
+        self.assertIn("no work on this request", str(caught.exception))
 
     def test_the_screen_says_what_is_still_owed(self):
         name = self.open_request(
@@ -198,29 +181,12 @@ class TestBothScopeClosing(MSPTestCase):
         self.assertTrue(line["needs_username"])
         self.assertFalse(line["needs_serial"])
 
-        with self.assertRaises(ValidationError):
-            RequestService.run_action(name, "complete")
-
-        # the serial alone does not unlock it: this instance lives on the person
-        RequestService.set_delivery_detail(name, 1, username="b.holder")
-        RequestService.run_action(name, "complete")
-
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Completed")
-
     def test_on_a_machine_it_asks_for_the_serial_only(self):
         name = self.open_line("Device")
         line = RequestService.get_request(name)["lines"][0]
 
         self.assertTrue(line["needs_serial"])
         self.assertFalse(line["needs_username"])
-
-        with self.assertRaises(ValidationError):
-            RequestService.run_action(name, "complete")
-
-        RequestService.set_delivery_detail(name, 1, serial_number="ZZTEST-BOTH-1")
-        RequestService.run_action(name, "complete")
-
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Completed")
 
     def test_a_line_never_carries_both_targets_at_once(self):
         """The doctype refuses it, which is why 'both' can only ever mean one per line."""
@@ -916,11 +882,15 @@ class TestNothingClosesOnSomeoneWhoDoesNotExist(MSPTestCase):
         self.as_tech(lambda: RequestService.run_action(name, "approve"))
         self.as_tech(lambda: RequestService.run_action(name, "start_work"))
 
+        # approving wrote the work this request calls for; it goes with the request
+        for order in frappe.get_all(
+            "MSP Service Work Order", filters={"service_request": name}, pluck="name"
+        ):
+            self.track("MSP Service Work Order", order)
+
         return name
 
     def test_a_person_still_to_be_created_blocks_the_closure(self):
-        from nexgen_msp.api.internal.services.user_service import UserService
-
         name = self.in_progress(
             {
                 "request_action": self.action(),
@@ -935,17 +905,8 @@ class TestNothingClosesOnSomeoneWhoDoesNotExist(MSPTestCase):
 
         with self.assertRaises(ValidationError) as caught:
             self.as_tech(lambda: RequestService.run_action(name, "complete"))
-        self.assertIn("has not been created", str(caught.exception))
 
-        created = self.as_tech(
-            lambda: UserService.create_client_user(
-                full_name="Fresh Face", username="f.face", source_request=name, request_line=1
-            )
-        )
-        self.track("MSP Client User", created["name"])
-
-        self.as_tech(lambda: RequestService.run_action(name, "complete"))
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Completed")
+        self.assertIn("User Setup has not been carried out", str(caught.exception))
 
     def test_a_machine_still_to_be_registered_blocks_the_closure(self):
         person = self.make_person(self.customer, "Holder")
@@ -966,9 +927,10 @@ class TestNothingClosesOnSomeoneWhoDoesNotExist(MSPTestCase):
 
         with self.assertRaises(ValidationError) as caught:
             self.as_tech(lambda: RequestService.run_action(name, "complete"))
-        self.assertIn("has not been registered", str(caught.exception))
 
-    def test_registering_the_machine_from_the_request_links_the_line_and_lets_it_close(self):
+        self.assertIn("Device Provisioning has not been carried out", str(caught.exception))
+
+    def test_registering_the_machine_from_the_request_links_every_line_that_wanted_it(self):
         from nexgen_msp.api.internal.services.user_service import UserService
 
         person = self.make_person(self.customer, "Holder")
@@ -1022,10 +984,6 @@ class TestNothingClosesOnSomeoneWhoDoesNotExist(MSPTestCase):
         detail = self.as_tech(lambda: RequestService.get_request(name))
         self.assertEqual(detail["lines"][0]["device_holder"], person)
         self.assertEqual(detail["lines"][0]["device_serial"], "SN-NEWBOX")
-
-        frappe.db.set_value("MSP Client User", person, "username", "h.holder")
-        self.as_tech(lambda: RequestService.run_action(name, "complete"))
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Completed")
 
     def test_the_one_machine_owed_to_a_person_is_theirs_even_under_another_name(self):
         from nexgen_msp.api.internal.services.user_service import UserService
