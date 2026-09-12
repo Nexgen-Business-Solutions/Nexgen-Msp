@@ -184,6 +184,17 @@ export default function CustomersList() {
                 </tr>
               )}
 
+              {!error && !isLoading && rows.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={COLUMNS.length}
+                    className="px-4 py-12 text-center text-sm text-slate-500"
+                  >
+                    No company matches these filters.
+                  </td>
+                </tr>
+              )}
+
               {!error &&
                 !isLoading &&
                 rows.map((row) => {

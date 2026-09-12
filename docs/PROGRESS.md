@@ -76,7 +76,11 @@ cd apps/nexgen_msp/frontend && yarn build && yarn lint && yarn test
 | 5 | User 360° Operational View | ✅ terminée |
 | 6 | Settings & Managed References | ✅ terminée |
 | 7 | Billing Workbench & Flexible Billing Workflow | ✅ terminée |
-| **8** | **Cross-System Audit, Migration & E2E Acceptance** | **⬜ à faire — prochaine** |
+| 8 | Cross-System Audit, Migration & E2E Acceptance | ✅ terminée |
+
+Les huit phases des specs sont faites. Reste hors de ce découpage :
+**Addon Integration Spec — Hassan Customer Management & Security** (accès client fondé sur
+Contact + User Permission, Customer 360), référencé par la Phase 8 §41-43 et §77 items 7-8.
 | 5 | User 360° Operational View | ⬜ |
 | 6 | Settings & Managed References | ⬜ |
 | 7 | Billing Workbench & Flexible Billing | ⬜ |
@@ -400,6 +404,95 @@ entreprise pouvait bloquer une affectation. La jointure est ajoutée.
   **à l'intérieur de chaque segment de tarif**, ce qui est la seule lecture qui préserve les
   deux prix.
 
+### Phase 8 — Audit transverse, migration et recette ✅
+
+**Cette phase ne crée pas de fonctionnalité.** Elle demande si les sept précédentes forment un
+seul produit. Le verdict se lit dans les enregistrements laissés, pas sur un écran.
+
+| # | Travail | État |
+|---|---|---|
+| 1 | Audit des écritures directes interdites (§5-8) | ✅ propre |
+| 2 | Audit des anciens parcours frontend (§9-10) | ✅ propre |
+| 3 | Isolation inter-clients / IDOR (§13, §57-58) | ✅ 18 tests |
+| 4 | Diagnostic de migration (§16-22) | ✅ `data_audit`, 10 tests |
+| 5 | Backfill des clés de ligne de demande (§19) | ✅ patch |
+| 6 | Recette de bout en bout (§24-50) | ✅ 11 parcours |
+| 7 | Vocabulaire, états vides, messages (§62-68) | ✅ 1 correction |
+| 8 | Rapport de recette (§76) | ✅ ci-dessous |
+
+**Audit des écritures directes (§5-8) : rien à corriger.**
+`assigned_client_user` n'est écrit que par `device_holders.sync_current`, qui le dérive de
+l'historique — c'est le miroir prévu, pas un contournement. Toutes les écritures de
+`operational_status` sont dans `service_lifecycle_service.py`. `effective_end_date` n'est écrit
+qu'à la clôture. `billing_status` est dérivé par le DocType.
+
+**Audit des anciens parcours (§9-10) : rien à corriger.**
+« Open profile » et « View profile » ne subsistent que sur des listes, où aller d'une liste à
+une fiche est de la navigation normale, pas l'aller-retour interdit depuis une Request.
+`DeliveryDetailsModal` a disparu en Phase 4. `AddDeviceModal`, `CreateUserModal` et
+`EditClientUserModal` restent utilisés pour des opérations administratives, ce que le §10
+autorise explicitement.
+
+**Diagnostic de migration.** `nexgen_msp/utils/data_audit.py`, à lancer avant toute migration
+ou mise en production :
+
+```
+bench --site msp.localhost execute nexgen_msp.utils.data_audit.print_report
+```
+
+Il lit machines, services, départements, demandes et facturation, compte ce qui contredit une
+règle, et distingue ce qui **bloque une release** (deux détenteurs courants, deux périodes
+ouvertes sur une même cible, un historique de détention impossible à ordonner) de ce qui est
+seulement à savoir. Il ne répare rien : inventer une date ou un propriétaire pour rendre un
+rapport propre, c'est ainsi qu'on écrit un mauvais historique.
+
+**Correction trouvée par l'audit :** `get_run` lisait les instantanés de Phase 7, donc une Run
+antérieure s'affichait vide. Elle retombe désormais sur les enregistrements, ce qu'elle a
+toujours eu (§21 : « conserver les anciennes données »).
+
+**Correction trouvée par l'audit UI :** la liste des entreprises n'avait pas d'état vide (§67).
+
+---
+
+### Rapport de recette (§76)
+
+Lancé le 2026-09-12 sur `msp.localhost`, 685 tests backend et 129 Vitest, tous verts.
+
+| Domaine | Verdict | Preuve |
+|---|---|---|
+| Device Lifecycle | PASS | `test_device_lifecycle` 30 |
+| Service Lifecycle | PASS | `test_service_lifecycle` 31 |
+| Request Builder | PASS | `test_request_intents` 25, `test_request_builder_context` 20 |
+| Request Workbench | PASS | `test_execution_plan` 28, `test_request_execution` 36 |
+| User 360 | PASS | `test_user_360` 31 |
+| Customer Access | PASS | `test_cross_customer` 18, `test_portal_scope` |
+| Settings | PASS | `test_managed_references` 30 |
+| Billing | PASS | `test_billing_history` 22, `test_billing_rules`, `test_billing_suspensions` |
+| Security | PASS | `test_cross_customer`, `test_roles`, `test_accounts_and_roles` |
+| Migrations | PASS | `data_audit` : aucun bloqueur sur la base réelle |
+| E2E métier | PASS | `test_e2e_acceptance` 11 parcours |
+| Performance | **NON MESURÉ** | voir ci-dessous |
+
+**Ce qui n'a pas été fait, et pourquoi.**
+
+- **Performance (§51-56).** La spec demande de tester avec 5 000 personnes, 3 000 machines et
+  10 000 services. Le site réel en compte 270 et 689 : le jeu de données n'existe pas et le
+  fabriquer sur la base de production n'est pas envisageable. Les mesures structurelles
+  demandées sont en place (recherche serveur du Request Builder, chargement paresseux de
+  l'historique en User 360, pagination Billing), mais **aucun chiffre n'a été relevé**. À faire
+  sur une copie de préproduction.
+- **Scénarios §41-43 (accès client via Contact + User Permission) et §77 items 7-8
+  (Customer Access Foundation, Customer 360).** Ils appartiennent à l'addon Hassan, qui n'est
+  pas encore implémenté : l'accès repose aujourd'hui sur la seule User Permission.
+  `test_cross_customer` teste ce qui existe, y compris qu'un rôle interne collé par erreur sur
+  un compte client n'élargit rien (§42).
+
+**Bloqueurs de release (§74) : aucun.** Vérifiés un par un — pas de fuite inter-clients, pas de
+double détenteur, pas de double période ouverte, une demande ne modifie rien avant exécution,
+un Work Order ne s'exécute pas deux fois, une Run approuvée ne bouge plus, les exclusions
+manuelles survivent, la double facturation est refusée, un Customer Manager n'atteint pas les
+champs commerciaux, aucun département en texte libre, le workbench n'exige aucune navigation.
+
 ---
 
 ## 4. Journal
@@ -420,5 +513,6 @@ entreprise pouvait bloquer une affectation. La jointure est ajoutée.
 | 2026-09-12 | agent principal | Interfaces réseau : clé libre et valeur (demande d'Idriss). |
 | 2026-09-12 | agent principal | Phase 6 terminée : import sans préfixe, une offre par acte, ordre d'affichage, Settings réorganisé. |
 | 2026-09-12 | agent principal | Phase 7 terminée : instantanés historiques, tarif de la période, sélection persistante, stepper Billing. |
+| 2026-09-12 | agent principal | Phase 8 terminée : audits, `data_audit`, isolation inter-clients, recette de bout en bout. Les huit phases sont faites. |
 
 > Ajoute ta ligne ici quand tu termines quelque chose.

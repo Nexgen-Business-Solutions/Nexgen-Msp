@@ -1996,12 +1996,12 @@ class BillingService:
                 coalesce(brl.service_name_snapshot, item.item_name, brl.service_item)
                     as service_name,
                 brl.assignment_scope, brl.client_user, brl.managed_device,
-                brl.user_name_snapshot as user_name,
-                brl.email_snapshot as email,
-                brl.department_snapshot as department,
-                brl.hostname_snapshot as hostname,
-                brl.serial_snapshot as serial_number,
-                brl.device_type_snapshot as device_type,
+                coalesce(brl.user_name_snapshot, legacy_user.full_name) as user_name,
+                coalesce(brl.email_snapshot, legacy_user.email) as email,
+                coalesce(brl.department_snapshot, legacy_user.department) as department,
+                coalesce(brl.hostname_snapshot, legacy_device.hostname) as hostname,
+                coalesce(brl.serial_snapshot, legacy_device.serial_number) as serial_number,
+                coalesce(brl.device_type_snapshot, legacy_device.device_type) as device_type,
                 brl.holder_context_snapshot as holder_context,
                 brl.billable_segments_json,
                 brl.quantity, brl.billable_days, brl.period_days, brl.billable_months,
@@ -2013,6 +2013,10 @@ class BillingService:
             from `tabMSP Billing Run Line` brl
             left join `tabMSP Service Assignment` sa on sa.name = brl.service_assignment
             left join `tabItem` item on item.name = brl.service_item
+            -- only ever reached by a line drawn before the snapshots existed
+            left join `tabMSP Client User` legacy_user on legacy_user.name = brl.client_user
+            left join `tabMSP Managed Device` legacy_device
+                on legacy_device.name = brl.managed_device
             where brl.parent = %(parent)s
             order by brl.exception_code desc, brl.service_item asc, brl.idx asc
             """,

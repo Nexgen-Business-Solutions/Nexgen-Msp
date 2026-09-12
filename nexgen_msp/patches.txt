@@ -33,3 +33,4 @@ nexgen_msp.patches.normalize_service_assignments
 nexgen_msp.patches.build_department_catalogue
 nexgen_msp.patches.repair_department_catalogue
 nexgen_msp.patches.order_request_actions
+nexgen_msp.patches.stamp_request_line_keys
