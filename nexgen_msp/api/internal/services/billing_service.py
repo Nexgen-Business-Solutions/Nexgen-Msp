@@ -31,6 +31,7 @@ DISPLAY_ONLY = (
     "user_name",
     "email",
     "hostname",
+    "serial_number",
     "department",
     "user_status",
     "device_type",
@@ -255,6 +256,78 @@ class BillingService:
         return covered_from, covered_to
 
     @staticmethod
+    def _billable_segments(assignment, period_start, period_end, suspensions=None):
+        """The stretches the line was live over, with the pauses cut out of them.
+
+        Two dates cannot describe a month with a hole in the middle. A service paused from
+        the 10th to the 15th was live twice, and an invoice that says "Aug 1 to Aug 31"
+        tells the customer something that did not happen.
+        """
+        start = getdate(assignment.effective_start_date)
+        end = getdate(assignment.effective_end_date) if assignment.effective_end_date else None
+
+        first = max(start, getdate(period_start))
+        last = min(end, getdate(period_end)) if end else getdate(period_end)
+
+        if last < first:
+            return []
+
+        paused = BillingService._suspended_intervals(assignment, suspensions, first, last)
+        segments = []
+        cursor = first
+
+        for pause_from, pause_to in paused:
+            if pause_from > cursor:
+                segments.append((cursor, getdate(add_days(pause_from, -1))))
+
+            cursor = max(cursor, getdate(add_days(pause_to, 1)))
+
+        if cursor <= last:
+            segments.append((cursor, last))
+
+        return [
+            {"from": str(begins), "to": str(ends)}
+            for begins, ends in segments
+            if ends >= begins
+        ]
+
+    @staticmethod
+    def _holder_context(managed_device, period_start, period_end):
+        """Who was holding the machine while it was being billed, read from the history.
+
+        Context only. A device service belongs to the machine, and whoever happened to be
+        carrying it never becomes the party billed — but an invoice is easier to answer for
+        when it says who had the laptop that month.
+        """
+        if not managed_device:
+            return None
+
+        periods = frappe.db.sql(
+            """
+            select coalesce(person.full_name, holder.client_user) as who,
+                   holder.from_date, holder.to_date
+            from `tabMSP Device Holder` holder
+            left join `tabMSP Client User` person on person.name = holder.client_user
+            where holder.parenttype = 'MSP Managed Device'
+              and holder.parent = %(device)s
+              and holder.from_date <= %(period_end)s
+              and (holder.to_date is null or holder.to_date >= %(period_start)s)
+            order by holder.from_date asc
+            """,
+            {"device": managed_device, "period_start": period_start, "period_end": period_end},
+            as_dict=True,
+        )
+
+        if not periods:
+            return None
+
+        return "\n".join(
+            f"{row.who}: {max(getdate(row.from_date), getdate(period_start))}"
+            f" \u2192 {min(getdate(row.to_date), getdate(period_end)) if row.to_date else getdate(period_end)}"
+            for row in periods
+        )
+
+    @staticmethod
     def _rate_for(customer, assignment, terms, period_start, period_end):
         """Resolve the unit rate and the discount that travels with it.
 
@@ -270,13 +343,15 @@ class BillingService:
             return flt(assignment.agreed_rate), source, None, None, 0.0
 
         if source == "Contract":
-            # the price in force is the price applied, whatever period is being billed;
-            # the dated history only steps in when nothing is in force today
-            price = ContractService.current_rate(customer, assignment.service_item)
+            # the price that was in force over the days being billed, never the one in force
+            # today: an invoice for August must not be drawn at a September rate
+            price = ContractService.current_rate(
+                customer, assignment.service_item, period_start
+            )
 
             if not price or not flt(price.price_list_rate):
                 price = ContractService.current_rate(
-                    customer, assignment.service_item, period_start
+                    customer, assignment.service_item, period_end
                 )
 
             if not price or not flt(price.price_list_rate):
@@ -284,8 +359,8 @@ class BillingService:
                     None,
                     source,
                     "Missing Rate",
-                    f"No rate is in force for {assignment.service_item}, and none covers "
-                    f"{period_start} either.",
+                    f"No rate covers {assignment.service_item} over "
+                    f"{period_start} to {period_end}.",
                     0.0,
                 )
 
@@ -317,6 +392,81 @@ class BillingService:
             )
 
         return flt(price), source, None, None, 0.0
+
+    @staticmethod
+    def _rate_periods(customer, assignment, terms, period_start, period_end):
+        """The window cut into the stretches over which one rate held.
+
+        A rate that changed on the 16th means the month was sold at two prices, and an
+        invoice that charges all of it at either one is wrong by the difference. Each
+        stretch is priced on its own and the line is split to match.
+
+        A rate that never changed gives one stretch, which is the ordinary case and reads
+        exactly as it always did.
+        """
+        source = assignment.price_source or "Contract"
+        window_start = getdate(period_start)
+        window_end = getdate(period_end)
+
+        if source != "Contract":
+            rate, source, code, detail, discount = BillingService._rate_for(
+                customer, assignment, terms, period_start, period_end
+            )
+
+            return [(window_start, window_end, rate, source, code, detail, discount)]
+
+        boundaries = {window_start}
+
+        for row in frappe.db.sql(
+            """
+            select valid_from, valid_upto
+            from `tabItem Price`
+            where item_code = %(item)s and selling = 1
+              and (customer = %(customer)s or customer is null or customer = '')
+              and (valid_from is null or valid_from <= %(period_end)s)
+              and (valid_upto is null or valid_upto >= %(period_start)s)
+            """,
+            {
+                "item": assignment.service_item,
+                "customer": customer,
+                "period_start": period_start,
+                "period_end": period_end,
+            },
+            as_dict=True,
+        ):
+            if row.valid_from and window_start < getdate(row.valid_from) <= window_end:
+                boundaries.add(getdate(row.valid_from))
+
+            if row.valid_upto:
+                after = getdate(add_days(row.valid_upto, 1))
+                if window_start < after <= window_end:
+                    boundaries.add(after)
+
+        marks = sorted(boundaries)
+        stretches = []
+
+        for index, begins in enumerate(marks):
+            ends = getdate(add_days(marks[index + 1], -1)) if index + 1 < len(marks) else window_end
+
+            if ends < begins:
+                continue
+
+            rate, priced_by, code, detail, discount = BillingService._rate_for(
+                customer, assignment, terms, begins, ends
+            )
+            stretches.append((begins, ends, rate, priced_by, code, detail, discount))
+
+        # neighbouring stretches priced the same are one stretch: only a real change splits
+        merged = []
+
+        for stretch in stretches:
+            if merged and merged[-1][2:] == stretch[2:]:
+                merged[-1] = (merged[-1][0], stretch[1]) + stretch[2:]
+            else:
+                merged.append(stretch)
+
+        return merged or [(window_start, window_end, None, source, "Missing Rate",
+                           f"No rate covers {assignment.service_item}.", 0.0)]
 
     @staticmethod
     def _terms(contract, period_start, period_end):
@@ -397,7 +547,11 @@ class BillingService:
             select br.name
             from `tabMSP Billing Run Line` brl
             join `tabMSP Billing Run` br on br.name = brl.parent
+            join `tabMSP Service Assignment` sa on sa.name = brl.service_assignment
             where brl.service_assignment = %(assignment)s
+              -- a run of another company can never have billed this: an assignment belongs
+              -- to one customer, and only their runs can double-charge it
+              and br.customer = sa.customer
               and br.docstatus < 2
               and br.status not in ('Cancelled')
               and (br.credit_note_of is null or br.credit_note_of = '')
@@ -493,13 +647,14 @@ class BillingService:
                 sa.effective_start_date, sa.effective_end_date,
                 sa.price_source, sa.agreed_rate, sa.rate_override_reason,
                 sa.internal_notes as line_comment,
-                coalesce(cu.name, dcu.name) as holder,
-                coalesce(cu.full_name, dcu.full_name) as user_name,
-                coalesce(cu.email, dcu.email) as email,
-                coalesce(cu.department, dcu.department) as department,
-                coalesce(cu.lifecycle_status, dcu.lifecycle_status) as user_status,
-                coalesce(device.hostname, owned.hostname) as hostname,
-                coalesce(device.device_type, owned.device_type) as device_type,
+                cu.name as holder,
+                cu.full_name as user_name,
+                cu.email as email,
+                cu.department as department,
+                cu.lifecycle_status as user_status,
+                device.hostname as hostname,
+                device.serial_number as serial_number,
+                device.device_type as device_type,
                 coalesce(item.item_name, sa.service_item) as service_name,
                 (
                     select max(br.billing_period_end)
@@ -511,9 +666,6 @@ class BillingService:
             left join `tabItem` item on item.name = sa.service_item
             left join `tabMSP Client User` cu on cu.name = sa.client_user
             left join `tabMSP Managed Device` device on device.name = sa.managed_device
-            left join `tabMSP Client User` dcu on dcu.name = device.assigned_client_user
-            left join `tabMSP Managed Device` owned
-                on owned.assigned_client_user = sa.client_user and owned.status = 'Active'
             where sa.customer = %(customer)s
               and sa.service_item in %(services)s
               and sa.billing_status in %(billing)s
@@ -556,102 +708,130 @@ class BillingService:
         lines = []
 
         for assignment in assignments:
-            exception_code = None
-            exception_detail = None
             suspensions = suspensions_by_assignment.get(assignment.name, [])
 
-            if assignment.effective_end_date and getdate(assignment.effective_end_date) < getdate(
-                assignment.effective_start_date
-            ):
-                exception_code = "Invalid Dates"
-                exception_detail = "End date precedes start date."
-
+            invalid_dates = bool(
+                assignment.effective_end_date
+                and getdate(assignment.effective_end_date)
+                < getdate(assignment.effective_start_date)
+            )
             quantity = flt(assignment.quantity or 0)
-            if not exception_code and quantity <= 0:
-                exception_code = "Negative Quantity"
-                exception_detail = f"Quantity is {quantity}."
-
             invoiced_in = BillingService._already_invoiced(
                 assignment.name, period_start, period_end, exclude_run
             )
-            if not exception_code and invoiced_in:
-                exception_code = "Already Invoiced"
-                exception_detail = f"Already billed on {invoiced_in} for an overlapping period."
 
-            rate, source, rate_exception, rate_detail, rate_discount = BillingService._rate_for(
+            # what the machine and the person were on the day this was priced: read back in
+            # five years, the run must say the same thing it says today
+            snapshot = {
+                "service_name_snapshot": assignment.service_name,
+                "user_name_snapshot": assignment.user_name,
+                "email_snapshot": assignment.email,
+                "department_snapshot": assignment.department,
+                "hostname_snapshot": assignment.hostname,
+                "serial_snapshot": assignment.serial_number,
+                "device_type_snapshot": assignment.device_type,
+                "holder_context_snapshot": BillingService._holder_context(
+                    assignment.managed_device, period_start, period_end
+                ),
+            }
+
+            stretches = BillingService._rate_periods(
                 customer, assignment, terms, period_start, period_end
             )
 
-            if not exception_code and rate_exception:
-                exception_code = rate_exception
-                exception_detail = rate_detail
+            for begins, ends, rate, source, rate_exception, rate_detail, rate_discount in stretches:
+                exception_code = None
+                exception_detail = None
 
-            months, billable_days = BillingService._billable_months(
-                method, assignment, period_start, period_end, suspensions
-            )
+                if invalid_dates:
+                    exception_code = "Invalid Dates"
+                    exception_detail = "End date precedes start date."
+                elif quantity <= 0:
+                    exception_code = "Negative Quantity"
+                    exception_detail = f"Quantity is {quantity}."
+                elif invoiced_in:
+                    exception_code = "Already Invoiced"
+                    exception_detail = (
+                        f"Already billed on {invoiced_in} for an overlapping period."
+                    )
+                elif rate_exception:
+                    exception_code = rate_exception
+                    exception_detail = rate_detail
 
-            # a discount carried by the rate applies as long as that rate does, and the
-            # run's own discount comes on top of it — the two are granted for different
-            # reasons, so they add up rather than one replacing the other
-            rate_discount = flt(rate_discount)
-            run_discount = flt(run_discount)
-            discount = min(rate_discount + run_discount, 100.0)
+                months, billable_days = BillingService._billable_months(
+                    method, assignment, begins, ends, suspensions
+                )
+                covered_from, covered_to = BillingService._covered_window(
+                    assignment, begins, ends, suspensions
+                )
+                segments = BillingService._billable_segments(
+                    assignment, begins, ends, suspensions
+                )
 
-            if rate_discount and run_discount:
-                discount_source = "Rate + Run"
-            elif rate_discount:
-                discount_source = "Rate"
-            elif run_discount:
-                discount_source = "Run"
-            else:
-                discount_source = None
+                # a stretch the service was never live over is not a line of its own: it
+                # would print a zero on the invoice for days nobody was served. A line that
+                # was never live at all still appears once, so nobody wonders where it went
+                if not billable_days and not exception_code and len(stretches) > 1:
+                    continue
 
-            gross = 0.0 if exception_code else flt(rate) * quantity * months
-            amount = gross * (1 - flt(discount) / 100.0)
+                # a discount carried by the rate applies as long as that rate does, and the
+                # run's own discount comes on top of it — the two are granted for different
+                # reasons, so they add up rather than one replacing the other
+                rate_discount = flt(rate_discount)
+                discount = min(rate_discount + run_discount, 100.0)
 
-            # the days the line was actually live inside the period, so the duration on the
-            # invoice can be read back and not only its month count
-            covered_from, covered_to = BillingService._covered_window(
-                assignment, period_start, period_end, suspensions
-            )
+                if rate_discount and run_discount:
+                    discount_source = "Rate + Run"
+                elif rate_discount:
+                    discount_source = "Rate"
+                elif run_discount:
+                    discount_source = "Run"
+                else:
+                    discount_source = None
 
-            lines.append(
-                {
-                    "service_assignment": assignment.name,
-                    "service_item": assignment.service_item,
-                    "service_name": assignment.service_name,
-                    "user_name": assignment.user_name,
-                    "email": assignment.email,
-                    "hostname": assignment.hostname,
-                    "department": assignment.department,
-                    "user_status": assignment.user_status,
-                    "device_type": assignment.device_type,
-                    "billed_to": assignment.assignment_scope,
-                    "operational_status": assignment.operational_status,
-                    "effective_start_date": assignment.effective_start_date,
-                    "effective_end_date": assignment.effective_end_date,
-                    "last_billed_on": assignment.last_billed_on,
-                    "assignment_scope": assignment.assignment_scope,
-                    "client_user": assignment.client_user,
-                    "managed_device": assignment.managed_device,
-                    "quantity": quantity,
-                    "billable_days": billable_days,
-                    "period_days": period_days,
-                    "covered_from": covered_from,
-                    "covered_to": covered_to,
-                    "billable_months": flt(months, 3),
-                    "gross_amount": flt(gross, 2),
-                    "discount_percent": flt(discount, 2),
-                    "discount_source": discount_source,
-                    "unit_rate": rate,
-                    "price_source": source,
-                    "proration_method": method,
-                    "amount": flt(amount, 2),
-                    "exception_code": exception_code,
-                    "exception_detail": exception_detail,
-                    "line_comment": assignment.line_comment,
-                }
-            )
+                gross = 0.0 if exception_code else flt(rate) * quantity * months
+                amount = gross * (1 - flt(discount) / 100.0)
+
+                lines.append(
+                    {
+                        "service_assignment": assignment.name,
+                        "service_item": assignment.service_item,
+                        "service_name": assignment.service_name,
+                        "user_name": assignment.user_name,
+                        "email": assignment.email,
+                        "hostname": assignment.hostname,
+                        "serial_number": assignment.serial_number,
+                        "department": assignment.department,
+                        "user_status": assignment.user_status,
+                        "device_type": assignment.device_type,
+                        "billed_to": assignment.assignment_scope,
+                        "operational_status": assignment.operational_status,
+                        "effective_start_date": assignment.effective_start_date,
+                        "effective_end_date": assignment.effective_end_date,
+                        "last_billed_on": assignment.last_billed_on,
+                        "assignment_scope": assignment.assignment_scope,
+                        "client_user": assignment.client_user,
+                        "managed_device": assignment.managed_device,
+                        "quantity": quantity,
+                        "billable_days": billable_days,
+                        "period_days": period_days,
+                        "covered_from": covered_from,
+                        "covered_to": covered_to,
+                        "billable_months": flt(months, 3),
+                        "gross_amount": flt(gross, 2),
+                        "discount_percent": flt(discount, 2),
+                        "discount_source": discount_source,
+                        "unit_rate": rate,
+                        "price_source": source,
+                        "proration_method": method,
+                        "amount": flt(amount, 2),
+                        "exception_code": exception_code,
+                        "exception_detail": exception_detail,
+                        "line_comment": assignment.line_comment,
+                        "billable_segments_json": frappe.as_json(segments),
+                        **snapshot,
+                    }
+                )
 
         return lines, terms
 
@@ -888,6 +1068,7 @@ class BillingService:
                 "status": "Validating",
                 "adjustment_of": adjustment_of or None,
                 "generation_version": "1",
+                "prepared_by": frappe.session.user,
                 "lines": [
                     {k: v for k, v in line.items() if k not in DISPLAY_ONLY} for line in lines
                 ],
@@ -902,10 +1083,24 @@ class BillingService:
 
     @staticmethod
     def revalidate(name=None):
-        """Rebuild the lines of a draft run after the underlying data was fixed."""
+        """Reprice what this run is billing, and only that.
+
+        Two things must survive: what somebody decided to leave out, and what somebody
+        decided to take off a price. Rebuilding the whole period would quietly bring back
+        every assignment that was deliberately excluded, which is how a run ends up
+        invoicing people it was told not to.
+        """
         BillingService._guard_admin()
 
         doc = BillingService._open_run(name)
+
+        scope = {row.service_assignment for row in doc.lines}
+        # a discount somebody typed is a decision, not a calculation: it is not recomputed
+        manual = {
+            row.service_assignment: flt(row.discount_percent)
+            for row in doc.lines
+            if row.discount_source == "Manual"
+        }
 
         lines, terms = BillingService.build_lines(
             doc.contract,
@@ -914,13 +1109,113 @@ class BillingService:
             exclude_run=doc.name,
             run_discount=doc.discount_percent,
         )
+        lines = [line for line in lines if line["service_assignment"] in scope]
 
         doc.lines = []
         for line in lines:
+            if line["service_assignment"] in manual:
+                discount = manual[line["service_assignment"]]
+                line = {
+                    **line,
+                    "discount_percent": discount,
+                    "discount_source": "Manual",
+                    "amount": flt(flt(line["gross_amount"]) * (1 - discount / 100.0), 2),
+                }
+
             doc.append("lines", {k: v for k, v in line.items() if k not in DISPLAY_ONLY})
 
         doc.currency = terms["currency"]
         doc.status = "Exception" if any(line["exception_code"] for line in lines) else "Ready for Approval"
+        doc.save()
+        frappe.db.commit()
+
+        return BillingService.get_run(doc.name)
+
+    @staticmethod
+    def remove_from_run(name=None, service_assignment=None):
+        """Take something out of this run. The service itself is untouched.
+
+        This is how a blocker that cannot be fixed today stops holding up everything else:
+        it leaves this run and can be billed on the next one.
+        """
+        BillingService._guard_admin()
+
+        doc = BillingService._open_run(name)
+
+        if doc.sales_invoice:
+            raise ValidationError(
+                "This run already carries an invoice; its scope can no longer change.",
+                "INVALID_TRANSITION",
+            )
+
+        keep = [
+            {
+                field: row.get(field)
+                for field in row.as_dict(no_default_fields=True)
+                if field not in ("name", "parent", "parentfield", "parenttype", "idx")
+            }
+            for row in doc.lines
+            if row.service_assignment != service_assignment
+        ]
+
+        if len(keep) == len(doc.lines):
+            raise NotFoundError(f"{service_assignment} is not on this run.", "NOT_FOUND")
+
+        if not keep:
+            raise ValidationError(
+                "A run cannot be emptied. Cancel it instead.", "VALIDATION_ERROR"
+            )
+
+        doc.set("lines", keep)
+        doc.status = (
+            "Exception"
+            if any(row.get("exception_code") for row in keep)
+            else "Ready for Approval"
+        )
+        doc.save()
+        frappe.db.commit()
+
+        return BillingService.get_run(doc.name)
+
+    @staticmethod
+    def add_to_run(name=None, service_assignment=None):
+        """Bring something into a run that was left out of it, before anyone approves it."""
+        BillingService._guard_admin()
+
+        doc = BillingService._open_run(name)
+
+        if doc.sales_invoice:
+            raise ValidationError(
+                "This run already carries an invoice; its scope can no longer change.",
+                "INVALID_TRANSITION",
+            )
+
+        if any(row.service_assignment == service_assignment for row in doc.lines):
+            raise ValidationError(
+                f"{service_assignment} is already on this run.", "VALIDATION_ERROR"
+            )
+
+        lines, terms = BillingService.build_lines(
+            doc.contract,
+            doc.billing_period_start,
+            doc.billing_period_end,
+            exclude_run=doc.name,
+            run_discount=doc.discount_percent,
+        )
+        wanted = [line for line in lines if line["service_assignment"] == service_assignment]
+
+        if not wanted:
+            raise NotFoundError(
+                f"{service_assignment} is not billable over this period.", "NOT_FOUND"
+            )
+
+        for line in wanted:
+            doc.append("lines", {k: v for k, v in line.items() if k not in DISPLAY_ONLY})
+
+        doc.currency = terms["currency"]
+        doc.status = (
+            "Exception" if any(row.exception_code for row in doc.lines) else "Ready for Approval"
+        )
         doc.save()
         frappe.db.commit()
 
@@ -1692,35 +1987,45 @@ class BillingService:
 
         doc = frappe.get_doc("MSP Billing Run", name)
 
+        # read from what was written when the run was drawn, never from the records as they
+        # stand today: a laptop handed to somebody else in September must not rewrite August
         lines = frappe.db.sql(
             """
             select
-                brl.idx, brl.service_assignment, brl.service_item,
-                coalesce(item.item_name, brl.service_item) as service_name,
-                brl.assignment_scope,
-                coalesce(brl.client_user, device.assigned_client_user) as client_user,
-                coalesce(cu.full_name, device_holder.full_name) as user_name,
-                device.hostname,
+                brl.name as line, brl.idx, brl.service_assignment, brl.service_item,
+                coalesce(brl.service_name_snapshot, item.item_name, brl.service_item)
+                    as service_name,
+                brl.assignment_scope, brl.client_user, brl.managed_device,
+                brl.user_name_snapshot as user_name,
+                brl.email_snapshot as email,
+                brl.department_snapshot as department,
+                brl.hostname_snapshot as hostname,
+                brl.serial_snapshot as serial_number,
+                brl.device_type_snapshot as device_type,
+                brl.holder_context_snapshot as holder_context,
+                brl.billable_segments_json,
                 brl.quantity, brl.billable_days, brl.period_days, brl.billable_months,
                 brl.covered_from, brl.covered_to,
                 brl.gross_amount, brl.discount_percent, brl.discount_source,
                 brl.unit_rate, brl.price_source, brl.proration_method, brl.amount,
                 brl.exception_code, brl.exception_detail, brl.line_comment,
-                coalesce(cu.department, device_holder.department) as department,
-                coalesce(cu.email, device_holder.email) as email,
                 sa.effective_start_date, sa.effective_end_date, sa.operational_status
             from `tabMSP Billing Run Line` brl
             left join `tabMSP Service Assignment` sa on sa.name = brl.service_assignment
             left join `tabItem` item on item.name = brl.service_item
-            left join `tabMSP Client User` cu on cu.name = brl.client_user
-            left join `tabMSP Managed Device` device on device.name = brl.managed_device
-            left join `tabMSP Client User` device_holder on device_holder.name = device.assigned_client_user
             where brl.parent = %(parent)s
             order by brl.exception_code desc, brl.service_item asc, brl.idx asc
             """,
             {"parent": name},
             as_dict=True,
         )
+
+        for row in lines:
+            row["segments"] = (
+                frappe.parse_json(row.billable_segments_json)
+                if row.billable_segments_json
+                else []
+            )
 
         posted = (
             frappe.db.get_value("Sales Invoice", doc.sales_invoice, "docstatus") == 1
@@ -2265,6 +2570,7 @@ class BillingService:
                 "credit_note_of": run.name,
                 "credit_note_reason": reason,
                 "generation_version": "1",
+                "prepared_by": frappe.session.user,
                 "lines": [
                     {
                         "service_assignment": line["service_assignment"],

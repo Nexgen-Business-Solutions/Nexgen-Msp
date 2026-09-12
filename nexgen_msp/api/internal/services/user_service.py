@@ -470,7 +470,10 @@ class UserService:
             select max(br.billing_period_end)
             from `tabMSP Billing Run Line` brl
             join `tabMSP Billing Run` br on br.name = brl.parent
+            join `tabMSP Service Assignment` sa on sa.name = brl.service_assignment
             where brl.service_assignment = %s
+              -- only that company's own runs can have billed it
+              and br.customer = sa.customer
               and br.docstatus = 1
               and ifnull(br.credit_note_of, '') = ''
             """,

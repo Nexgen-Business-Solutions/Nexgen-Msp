@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
   ArrowLeft,
   ArrowRight,
-  Check,
   ChevronDown,
   Info,
   Receipt,
@@ -13,6 +12,7 @@ import {
   TriangleAlert,
 } from 'lucide-react';
 import FieldLabel from '@/shared/components/FieldLabel';
+import BillingProgressStepper from '../components/BillingProgressStepper';
 import Select from '@/shared/components/Select';
 import MultiSelect from '@/shared/components/MultiSelect';
 import StatusBadge from '@/shared/components/StatusBadge';
@@ -28,7 +28,7 @@ import {
 const inputClass =
   'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
 
-const STEPS = ['Period', 'Selection'];
+
 
 const iso = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
@@ -119,10 +119,14 @@ export default function NewBillingRun() {
   const [contract, setContract] = useState(searchParams.get('contract') ?? '');
   const [start, setStart] = useState(searchParams.get('start') ?? defaults.start);
   const [end, setEnd] = useState(searchParams.get('end') ?? defaults.end);
-  const [filters, setFilters] = useState<BillingFilters>({ only_billable: 1 });
+  const [filters, setFilters] = useState<BillingFilters>({ only_billable: 0 });
   const [advanced, setAdvanced] = useState(false);
   const [discount, setDiscount] = useState('');
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState('');
+  const [groupBy, setGroupBy] = useState<'none' | 'service' | 'user' | 'device' | 'department'>(
+    'none'
+  );
 
   const chosen = (contracts.data ?? []).find((row) => row.name === contract);
   const options = useBillingFilterOptions(chosen?.customer);
@@ -163,7 +167,18 @@ export default function NewBillingRun() {
   const result = preview.data;
   const lines = result?.lines ?? [];
   const billable = lines.filter((line) => !line.exception_code);
-  const kept = billable.filter((line) => !excluded.has(line.service_assignment));
+  const candidates = search.trim()
+    ? lines.filter((line) =>
+        [line.user_name, line.email, line.hostname, line.service_name, line.department]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(search.trim().toLowerCase()))
+      )
+    : lines;
+  // what somebody chose to bill, blockers included: a blocker is answered for in Validation,
+  // not quietly dropped before the run is even drawn
+  const kept = lines.filter((line) => !excluded.has(line.service_assignment));
+  const keptBillable = kept.filter((line) => !line.exception_code);
+  const keptBlocked = kept.filter((line) => line.exception_code);
   // an untick made under one filter still holds under the next, so some of them are
   // out of sight; saying how many keeps the count below honest
   const hiddenExcluded =
@@ -184,7 +199,7 @@ export default function NewBillingRun() {
       { name: string; count: number; months: number; amount: number; partial: number }
     >();
 
-    for (const line of kept) {
+    for (const line of keptBillable) {
       const key = line.service_item;
       const row = tally.get(key) ?? {
         name: line.service_name || key,
@@ -202,7 +217,31 @@ export default function NewBillingRun() {
     }
 
     return [...tally.values()].sort((a, b) => b.amount - a.amount);
-  }, [kept]);
+  }, [keptBillable]);
+
+  // grouping never changes what is billed: it is a way of finding what to untick
+  const grouped = useMemo(() => {
+    const key = (line: (typeof candidates)[number]) => {
+      if (groupBy === 'service') return line.service_name || line.service_item;
+      if (groupBy === 'user') return line.user_name || 'Not a person';
+      if (groupBy === 'device') return line.hostname || 'Not a machine';
+      if (groupBy === 'department') return line.department || 'No department';
+      return '';
+    };
+
+    if (groupBy === 'none') return [{ label: '', lines: candidates }];
+
+    const buckets = new Map<string, typeof candidates>();
+
+    for (const line of candidates) {
+      const label = key(line);
+      buckets.set(label, [...(buckets.get(label) ?? []), line]);
+    }
+
+    return [...buckets.entries()]
+      .map(([label, rows]) => ({ label, lines: rows }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [candidates, groupBy]);
 
   const set = (patch: Partial<BillingFilters>) =>
     setFilters((current) => ({ ...current, ...patch }));
@@ -276,38 +315,11 @@ export default function NewBillingRun() {
         Back to billing runs
       </button>
 
-      <div className="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
-        <div className="flex flex-wrap items-center gap-3">
-          {STEPS.map((label, index) => (
-            <button
-              key={label}
-              type="button"
-              disabled={index > 0 && !canContinue}
-              onClick={() => setStep(index)}
-              className={`inline-flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                index === step
-                  ? 'bg-blue-600 text-white'
-                  : index < step
-                    ? 'bg-emerald-50 text-emerald-700'
-                    : 'text-slate-500 hover:bg-slate-50'
-              }`}
-            >
-              <span
-                className={`flex h-5 w-5 items-center justify-center rounded-full text-[11px] ${
-                  index === step
-                    ? 'bg-white/20'
-                    : index < step
-                      ? 'bg-emerald-100'
-                      : 'bg-slate-100'
-                }`}
-              >
-                {index < step ? <Check size={12} /> : index + 1}
-              </span>
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
+      <BillingProgressStepper
+        current={step === 0 ? 'scope' : 'selection'}
+        reachable={canContinue ? ['scope', 'selection'] : ['scope']}
+        onGo={(stage) => setStep(stage === 'scope' ? 0 : 1)}
+      />
 
       {step === 0 && (
         <div className="rounded-xl border border-slate-100 bg-white shadow-sm">
@@ -645,7 +657,7 @@ export default function NewBillingRun() {
                   <div className="flex items-end pb-1">
                     <button
                       type="button"
-                      onClick={() => setFilters({ only_billable: 1 })}
+                      onClick={() => setFilters({ only_billable: 0 })}
                       className="text-xs font-semibold text-blue-600 transition-colors hover:text-blue-700"
                     >
                       Reset filters
@@ -671,16 +683,97 @@ export default function NewBillingRun() {
                     {result?.currency ?? ''}
                   </span>
                 </p>
-                <p className="text-xs text-slate-400">
-                  {kept.length} of {billable.length} lines · {keptMonths.toFixed(1)} months
-                  {hiddenExcluded > 0 && (
-                    <span className="text-amber-600">
-                      {' '}
-                      · {hiddenExcluded} unticked out of view
-                    </span>
-                  )}
-                </p>
+                <p className="text-xs text-slate-400">estimated total</p>
               </div>
+            </div>
+
+            {/* a filter is a view; a decision to leave somebody out is a billing decision.
+                The two are counted apart so neither is mistaken for the other */}
+            <div className="flex flex-wrap gap-x-6 gap-y-1 border-y border-slate-100 bg-slate-50/70 px-5 py-2.5 text-xs">
+              <span className="text-slate-500">
+                <strong className="font-semibold text-slate-900 tabular-nums">
+                  {result?.available ?? 0}
+                </strong>{' '}
+                candidates
+              </span>
+              <span className="text-slate-500">
+                <strong className="font-semibold text-emerald-700 tabular-nums">
+                  {keptBillable.length}
+                </strong>{' '}
+                selected · {keptMonths.toFixed(1)} months
+              </span>
+              <span className="text-slate-500">
+                <strong className="font-semibold text-slate-700 tabular-nums">
+                  {excluded.size}
+                </strong>{' '}
+                excluded by hand
+                {hiddenExcluded > 0 && (
+                  <span className="text-amber-600"> ({hiddenExcluded} out of view)</span>
+                )}
+              </span>
+              <span className="text-slate-500">
+                <strong className="font-semibold text-amber-700 tabular-nums">
+                  {keptBlocked.length}
+                </strong>{' '}
+                blocked
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 px-5 py-3">
+              <div className="relative min-w-[14rem] flex-1">
+                <Search
+                  size={14}
+                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                />
+                <input
+                  className={`${inputClass} pl-9`}
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search a person, email, hostname or service"
+                  aria-label="Search the candidates"
+                />
+              </div>
+
+              <Select
+                className="w-44"
+                value={groupBy}
+                onChange={(value) => setGroupBy(value as typeof groupBy)}
+                options={[
+                  { value: 'none', label: 'No grouping' },
+                  { value: 'service', label: 'Group by service' },
+                  { value: 'user', label: 'Group by person' },
+                  { value: 'device', label: 'Group by machine' },
+                  { value: 'department', label: 'Group by department' },
+                ]}
+              />
+
+              {/* matching means what the filters and the search show, never the whole run */}
+              <button
+                type="button"
+                onClick={() =>
+                  setExcluded((current) => {
+                    const next = new Set(current);
+                    candidates.forEach((line) => next.delete(line.service_assignment));
+                    return next;
+                  })
+                }
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+              >
+                Select all matching
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setExcluded((current) => {
+                    const next = new Set(current);
+                    candidates.forEach((line) => next.add(line.service_assignment));
+                    return next;
+                  })
+                }
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+              >
+                Exclude all matching
+              </button>
             </div>
 
             {perService.length > 0 && (
@@ -770,7 +863,7 @@ export default function NewBillingRun() {
               </button>
               <button
                 type="button"
-                onClick={() => setExcluded(new Set(billable.map((line) => line.service_assignment)))}
+                onClick={() => setExcluded(new Set(lines.map((line) => line.service_assignment)))}
                 className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
               >
                 Clear
@@ -796,7 +889,25 @@ export default function NewBillingRun() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {billable.map((line) => (
+                  {grouped.map((group) => (
+                    <Fragment key={group.label}>
+                      {groupBy !== 'none' && (
+                        <tr className="bg-slate-50/80">
+                          <td
+                            colSpan={resultColumns.length}
+                            className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-600"
+                          >
+                            {group.label}
+                            <span className="ml-2 font-normal normal-case text-slate-400">
+                              {group.lines.filter(
+                                (line) => !excluded.has(line.service_assignment)
+                              ).length}{' '}
+                              of {group.lines.length} selected
+                            </span>
+                          </td>
+                        </tr>
+                      )}
+                      {group.lines.map((line) => (
                     <tr key={line.service_assignment} className="hover:bg-slate-50">
                       <td className="px-3 py-2.5">
                         <input
@@ -854,8 +965,10 @@ export default function NewBillingRun() {
                         {line.amount.toLocaleString()}
                       </td>
                     </tr>
+                      ))}
+                    </Fragment>
                   ))}
-                  {billable.length === 0 && (
+                  {candidates.length === 0 && (
                     <tr>
                       <td
                         colSpan={resultColumns.length}
@@ -916,7 +1029,7 @@ export default function NewBillingRun() {
           <button
             type="button"
             onClick={submit}
-            disabled={kept.length === 0 || generate.isLoading}
+            disabled={keptBillable.length === 0 || generate.isLoading}
             className="inline-flex min-w-[11rem] items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {generate.isLoading ? (

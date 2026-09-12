@@ -926,6 +926,12 @@ export type BillingRunLine = {
   exception_code: string | null;
   exception_detail: string | null;
   line_comment: string | null;
+  /** on a stored run: what was written when it was drawn, not what the records say today */
+  line?: string;
+  managed_device?: string | null;
+  serial_number?: string | null;
+  holder_context?: string | null;
+  segments?: { from: string; to: string }[];
 };
 
 export type BillingRunDetail = {
@@ -1144,6 +1150,12 @@ export const getBillingPeriodStatus = (
 
 export const getBillingRun = (name: string, signal?: AbortSignal) =>
   get<BillingRunDetail>(`${BASE}.get_billing_run`, { name }, signal);
+
+export const removeFromBillingRun = (payload: { name: string; service_assignment: string }) =>
+  post<BillingRunDetail>(`${BASE}.remove_from_billing_run`, payload);
+
+export const addToBillingRun = (payload: { name: string; service_assignment: string }) =>
+  post<BillingRunDetail>(`${BASE}.add_to_billing_run`, payload);
 
 const BILLING_ENDPOINTS: Record<string, string> = {
   finalise: `${BASE}.finalise_billing_run`,

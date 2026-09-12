@@ -75,7 +75,8 @@ cd apps/nexgen_msp/frontend && yarn build && yarn lint && yarn test
 | 4 | Request Technician Workbench & Execution Stepper | ✅ terminée |
 | 5 | User 360° Operational View | ✅ terminée |
 | 6 | Settings & Managed References | ✅ terminée |
-| **7** | **Billing Workbench & Flexible Billing Workflow** | **⬜ à faire — prochaine** |
+| 7 | Billing Workbench & Flexible Billing Workflow | ✅ terminée |
+| **8** | **Cross-System Audit, Migration & E2E Acceptance** | **⬜ à faire — prochaine** |
 | 5 | User 360° Operational View | ⬜ |
 | 6 | Settings & Managed References | ⬜ |
 | 7 | Billing Workbench & Flexible Billing | ⬜ |
@@ -341,6 +342,64 @@ entreprise. La demande d'Idriss prime, le champ `customer` reste.
 réellement présentes dans les données, pas le catalogue actif. Un département désactivé reste
 filtrable dans l'historique. Vérifié, rien à changer.
 
+### Phase 7 — Poste de travail de facturation ✅
+
+**Invariants de la phase :** un filtre est une vue, une sélection est une décision de
+facturation, une Billing Run Line est un instantané historique, et une Run approuvée est de
+l'histoire financière immuable.
+
+| # | Travail | État |
+|---|---|---|
+| 1 | Instantanés historiques + fin de la dépendance au détenteur actuel | ✅ 22 tests |
+| 2 | Facturation consciente des suspensions + tarif historique | ✅ inclus |
+| 3 | Sélection persistante + revalidation sûre | ✅ inclus |
+| 4 | APIs de sélection (retirer / ajouter) | ✅ |
+| 5 | Stepper Billing en six phases | ✅ 10 tests Vitest |
+| 6 | Étape Validation et cartes d'exception | ✅ inclus |
+| 7-9 | Review / Invoice / régressions | ✅ existants conservés |
+
+**Trois erreurs de fond corrigées, pas seulement du design :**
+
+1. **Le détenteur actuel décidait de l'identité facturée.** `build_lines` joignait
+   `device.assigned_client_user` pour donner un nom, un email et un département à une ligne
+   d'appareil, et joignait la machine détenue à une ligne personnelle. Transférer un
+   portable en septembre réécrivait donc la facture d'août. Les jointures sont supprimées :
+   une ligne d'appareil appartient à la machine, une ligne personnelle à la personne.
+2. **Le tarif du jour servait à facturer le passé.** `_rate_for` essayait d'abord
+   `current_rate(customer, item)` sans date : une facture d'août pouvait être tirée au tarif
+   entré en vigueur en septembre. Le tarif est désormais résolu **sur la période facturée**,
+   et si le tarif change en cours de mois la ligne est **segmentée** (une charge par tarif).
+3. **`revalidate()` reconstruisait toute la période.** Il ramenait donc les affectations
+   volontairement exclues et écrasait les remises saisies à la main. Il ne recalcule plus
+   que le périmètre de la Run, et une remise `Manual` y survit.
+
+**Instantanés (`MSP Billing Run Line`) :** `service_name_snapshot`, `user_name_snapshot`,
+`email_snapshot`, `department_snapshot`, `hostname_snapshot`, `serial_snapshot`,
+`device_type_snapshot`, `holder_context_snapshot`, `billable_segments_json`. `get_run` et
+donc l'export lisent ces champs, plus jamais les enregistrements courants.
+
+**Ce que la Run dit maintenant :** les tranches réellement live (`billable_segments`), au
+lieu de deux dates qui masquent une suspension au milieu ; et qui détenait la machine pendant
+la période, en contexte, jamais comme partie facturée.
+
+**Sélection :** les lignes bloquées entrent dans la Run (le filtre « masquer les bloquées »
+n'est plus actif par défaut) et sont traitées à l'étape Validation, qui les regroupe par cause
+avec leur contexte et un bouton « Remove from this run ». `add_to_run` / `remove_from_run`
+modifient le périmètre du brouillon sans toucher aux services.
+
+**Correction annexe :** `_already_invoiced` ne comparait pas le client. Une Run d'une autre
+entreprise pouvait bloquer une affectation. La jointure est ajoutée.
+
+**Écarts signalés :**
+
+- §67 demandait d'intégrer les champs comptables dans l'étape Invoice plutôt qu'en modale.
+  La modale existante est conservée, ouverte depuis l'étape ; le workflow se lit d'un bloc
+  grâce au stepper mais le formulaire reste une modale. À reprendre si Idriss le souhaite.
+- §47 (arrondi 5 jours agrégé par mois) et §42 (segmentation par tarif) se contredisent quand
+  un tarif change en cours de mois. Choix retenu : l'agrégation par mois calendaire se fait
+  **à l'intérieur de chaque segment de tarif**, ce qui est la seule lecture qui préserve les
+  deux prix.
+
 ---
 
 ## 4. Journal
@@ -360,5 +419,6 @@ filtrable dans l'historique. Vérifié, rien à changer.
 | 2026-09-12 | agent principal | Phase 5 terminée : ownership corrigé, DTO 360, workbench utilisateur interne et portail. |
 | 2026-09-12 | agent principal | Interfaces réseau : clé libre et valeur (demande d'Idriss). |
 | 2026-09-12 | agent principal | Phase 6 terminée : import sans préfixe, une offre par acte, ordre d'affichage, Settings réorganisé. |
+| 2026-09-12 | agent principal | Phase 7 terminée : instantanés historiques, tarif de la période, sélection persistante, stepper Billing. |
 
 > Ajoute ta ligne ici quand tu termines quelque chose.

@@ -608,6 +608,18 @@ def revalidate_billing_run(name=None):
 
 @frappe.whitelist()
 @handle_errors
+def remove_from_billing_run(name=None, service_assignment=None):
+    return _billing().remove_from_run(name=name, service_assignment=service_assignment)
+
+
+@frappe.whitelist()
+@handle_errors
+def add_to_billing_run(name=None, service_assignment=None):
+    return _billing().add_to_run(name=name, service_assignment=service_assignment)
+
+
+@frappe.whitelist()
+@handle_errors
 def approve_billing_run(name=None):
     return _billing().approve(name=name)
 

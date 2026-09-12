@@ -27,7 +27,18 @@
   "section_exception",
   "exception_code",
   "exception_detail",
-  "line_comment"
+  "line_comment",
+  "section_snapshot",
+  "service_name_snapshot",
+  "user_name_snapshot",
+  "email_snapshot",
+  "department_snapshot",
+  "column_break_snapshot",
+  "hostname_snapshot",
+  "serial_snapshot",
+  "device_type_snapshot",
+  "holder_context_snapshot",
+  "billable_segments_json"
  ],
  "fields": [
   {
@@ -165,6 +176,70 @@
    "fieldname": "covered_to",
    "fieldtype": "Date",
    "label": "Covered To"
+  },
+  {
+   "fieldname": "section_snapshot",
+   "fieldtype": "Section Break",
+   "label": "Snapshot",
+   "read_only": 1
+  },
+  {
+   "fieldname": "service_name_snapshot",
+   "fieldtype": "Data",
+   "label": "Service Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "user_name_snapshot",
+   "fieldtype": "Data",
+   "label": "User Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "email_snapshot",
+   "fieldtype": "Data",
+   "label": "Email",
+   "read_only": 1
+  },
+  {
+   "fieldname": "department_snapshot",
+   "fieldtype": "Data",
+   "label": "Department",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_snapshot",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "hostname_snapshot",
+   "fieldtype": "Data",
+   "label": "Hostname",
+   "read_only": 1
+  },
+  {
+   "fieldname": "serial_snapshot",
+   "fieldtype": "Data",
+   "label": "Serial Number",
+   "read_only": 1
+  },
+  {
+   "fieldname": "device_type_snapshot",
+   "fieldtype": "Data",
+   "label": "Device Type",
+   "read_only": 1
+  },
+  {
+   "fieldname": "holder_context_snapshot",
+   "fieldtype": "Small Text",
+   "label": "Holder During Period",
+   "read_only": 1
+  },
+  {
+   "fieldname": "billable_segments_json",
+   "fieldtype": "Long Text",
+   "label": "Billable Segments",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
