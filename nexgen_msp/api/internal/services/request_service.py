@@ -600,6 +600,38 @@ class RequestService:
         return RequestService.get_request(name)
 
     @staticmethod
+    def list_customer_requests(customer=None, limit=30):
+        """The recent requests of one company, for a form that wants to cite one.
+
+        Asked for by the screens that need it rather than carried along with every reading
+        of a person or a machine that has nothing to do with them.
+        """
+        RequestService._guard_internal()
+
+        if not customer:
+            raise ValidationError("customer is required.", "VALIDATION_ERROR")
+
+        return frappe.db.sql(
+            """
+            select sr.name, sr.request_type, sr.status, sr.priority, sr.source,
+                   coalesce(requester.full_name, sr.requester) as requester,
+                   sr.creation, sr.customer
+            from `tabMSP Service Request` sr
+            left join `tabUser` requester on requester.name = sr.requester
+            where sr.customer = %(customer)s and sr.status != %(customer_status)s
+            order by field(sr.status, 'Completed', 'Rejected', 'Cancelled') asc,
+                     sr.creation desc
+            limit %(limit)s
+            """,
+            {
+                "customer": customer,
+                "customer_status": CUSTOMER_STATUS,
+                "limit": min(max(frappe.utils.cint(limit) or 30, 1), 100),
+            },
+            as_dict=True,
+        )
+
+    @staticmethod
     def _service_scope(service_item):
         """Declared on the Item; older services fall back to how they are already assigned."""
         declared = frappe.db.get_value("Item", service_item, "msp_service_scope")

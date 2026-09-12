@@ -1,13 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as internal from '@/lib/api/internal';
 import type {
-  ServiceAvailability,
-  ServiceAvailabilityCurrent,
+  HeldDevice,
   UserDetail as UserDetailData,
-  UserDevice,
+  UserServiceEntry,
 } from '@/lib/api/internal';
 import UserDetail from './UserDetail';
 
@@ -16,96 +15,114 @@ vi.mock('@/lib/api/internal', async (importOriginal) => {
   return {
     ...actual,
     getUser: vi.fn(),
-    userServiceAvailability: vi.fn(),
-    deviceServiceAvailability: vi.fn(),
-    getDeviceContext: vi.fn(),
-    changeUserService: vi.fn(),
+    getUserHistory: vi.fn(),
+    listCustomerRequests: vi.fn(),
+    getDeviceFilterOptions: vi.fn(),
+    getSession: vi.fn(),
   };
 });
 
-vi.mock('@/lib/api/session', () => ({
-  getSessionContext: vi.fn().mockResolvedValue({ user: 'tech@nexgen.test', roles: [] }),
-}));
+// ------------------------------------------------------------------ fixtures
 
-const USER = 'USR-001';
-
-const device = (overrides: Partial<UserDevice> = {}): UserDevice => ({
-  name: 'DEV-001',
-  hostname: 'LAPTOP-A',
-  device_type: 'Laptop',
-  status: 'Active',
-  serial_number: 'SN-123',
-  assigned_date: '2026-06-04',
-  retired_date: null,
-  assigned_client_user: USER,
-  interfaces: [],
-  ...overrides,
-});
-
-const buildDetail = (devices: UserDevice[] = []): UserDetailData => ({
-  user: {
-    name: USER,
-    full_name: 'John Doe',
-    department: 'Accounting',
-    customer: 'CUST-001',
-    email: 'john@company.com',
-    username: 'jdoe',
-    lifecycle_status: 'Active',
-    start_date: '2024-01-01',
-    disabled_date: null,
-    portal_user: null,
-    remarks: null,
-    remark_log: [],
-    covered_until: null,
-    last_billed_on: null,
-    can_delete: false,
-    delete_blockers: [],
-  },
-  devices,
-  services: [],
-  requests: [],
-  customer_requests: [],
-  device_types: [],
-  interface_types: [],
-  catalogue: [],
-});
-
-const openService = (
-  overrides: Partial<ServiceAvailabilityCurrent> = {}
-): ServiceAvailabilityCurrent => ({
+const service = (overrides: Partial<UserServiceEntry> = {}): UserServiceEntry => ({
   name: 'SA-001',
-  service_item: 'ITEM-M365',
-  item_name: 'Microsoft 365',
-  service_scope: 'User',
+  service_item: 'M365',
+  service_name: 'Microsoft 365',
   operational_status: 'Active',
   billing_status: 'Billable',
   quantity: 1,
   effective_start_date: '2026-01-10',
+  effective_end_date: null,
+  source_request: null,
+  allowed_actions: ['Change', 'Suspend', 'Remove'],
+  pending_request: null,
   ...overrides,
 });
 
-const availability = (
-  scope: 'User' | 'Device',
-  current: ServiceAvailabilityCurrent[]
-): ServiceAvailability => ({
-  target: { scope, name: scope === 'User' ? USER : 'DEV-001', label: 'target', customer: 'CUST-001' },
-  is_admin: false,
-  target_reason: null,
-  current,
-  available: [],
-  blocked: [],
+const held = (overrides: Partial<HeldDevice> = {}): HeldDevice => ({
+  device: {
+    name: 'DEV-001',
+    hostname: 'LAPTOP-JDOE',
+    device_type: 'Laptop',
+    status: 'Active',
+    serial_number: 'DELL-93821',
+    in_service_since: '2025-01-05',
+  },
+  holder_since: '2026-09-11',
+  interfaces: [{ interface_type: 'Wi-Fi', mac_address: '00:11:22:33:44:55' }],
+  services: {
+    current: [service({ name: 'SA-DEV', service_name: 'Sophos Endpoint' })],
+    available: [{ service_item: 'RMM', item_name: 'RMM', service_scope: 'Device' }],
+  },
+  ...overrides,
 });
 
-const renderPage = async (
-  detail: UserDetailData,
-  userCurrent: ServiceAvailabilityCurrent[],
-  deviceCurrent: Record<string, ServiceAvailabilityCurrent[]> = {}
-) => {
-  vi.mocked(internal.getUser).mockResolvedValue(detail);
-  vi.mocked(internal.userServiceAvailability).mockResolvedValue(availability('User', userCurrent));
-  vi.mocked(internal.deviceServiceAvailability).mockImplementation(async (name: string) =>
-    availability('Device', deviceCurrent[name] ?? [])
-  );
+const detail = (overrides: Partial<UserDetailData> = {}): UserDetailData => ({
+  user: {
+    name: 'CU-001',
+    full_name: 'John Doe',
+    department: 'Accounting',
+    customer: 'ACME',
+    email: 'john@acme.com',
+    username: 'jdoe',
+    lifecycle_status: 'Active',
+    start_date: '2025-01-10',
+    disabled_date: null,
+    portal_access: true,
+  },
+  summary: {
+    current_devices: 1,
+    active_personal_services: 1,
+    active_device_services: 1,
+    open_requests: 0,
+    attention_count: 0,
+  },
+  personal_services: {
+    current: [service()],
+    available: [{ service_item: 'VPN', item_name: 'VPN', service_scope: 'User' }],
+    blocked: [],
+    target_reason: null,
+  },
+  devices: [held()],
+  open_requests: [],
+  attention: [],
+  recent_activity: [
+    { on: '2026-09-11', kind: 'device', entity: 'DEV-001', what: 'LAPTOP-JDOE handed over' },
+  ],
+  can_delete: false,
+  delete_blockers: ['1 open service'],
+  billing: { covered_until: '2026-08-31', last_billed_on: '2026-09-01' },
+  notes: { latest: null, count: 0, log: [] },
+  ...overrides,
+});
+
+const renderPage = async (data: UserDetailData) => {
+  vi.mocked(internal.getUser).mockResolvedValue(data);
+  vi.mocked(internal.listCustomerRequests).mockResolvedValue([]);
+  vi.mocked(internal.getDeviceFilterOptions).mockResolvedValue({
+    customers: [],
+    device_types: ['Laptop'],
+    statuses: [],
+    coverage: [],
+    interface_types: ['Wi-Fi', 'LAN'],
+  });
+  vi.mocked(internal.getUserHistory).mockResolvedValue({
+    past_devices: [
+      {
+        period: 'H1',
+        name: 'DEV-OLD',
+        hostname: 'LAPTOP-17',
+        device_type: 'Laptop',
+        serial_number: 'OLD-1',
+        status: 'Stock',
+        held_from: '2025-01-12',
+        held_until: '2025-06-04',
+      },
+    ],
+    past_personal_services: [],
+    past_requests: [],
+    activity: [],
+  });
 
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -113,7 +130,7 @@ const renderPage = async (
 
   render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={[`/msp/users/${USER}`]}>
+      <MemoryRouter initialEntries={['/msp/users/CU-001']}>
         <Routes>
           <Route path="/msp/users/:name" element={<UserDetail />} />
         </Routes>
@@ -121,7 +138,7 @@ const renderPage = async (
     </QueryClientProvider>
   );
 
-  await screen.findByRole('heading', { name: 'John Doe' });
+  await screen.findByText('John Doe');
 };
 
 afterEach(() => {
@@ -129,117 +146,185 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe('UserDetail — personal services', () => {
-  it('shows an active personal service with Suspend and Close, and no Resume', async () => {
-    await renderPage(buildDetail(), [openService()]);
+// ------------------------------------------------------------------ the reading
 
-    expect(await screen.findByText('Microsoft 365')).toBeInTheDocument();
-    expect(screen.getByText('Active since 2026-01-10')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^suspend$/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^close$/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^resume$/i })).not.toBeInTheDocument();
+describe('the page says who this is before anything else', () => {
+  it('leads with the name, the department and the state', async () => {
+    await renderPage(detail());
+
+    expect(screen.getByText('John Doe')).toBeInTheDocument();
+    expect(screen.getByText('Accounting')).toBeInTheDocument();
+    expect(screen.getByText(/jdoe/)).toBeInTheDocument();
   });
 
-  it('shows a suspended personal service with Resume and Close, and no Suspend', async () => {
-    await renderPage(buildDetail(), [
-      openService({
-        name: 'SA-002',
-        item_name: 'VPN',
-        operational_status: 'Suspended',
-        billing_status: 'On Hold',
-        effective_start_date: '2026-09-01',
-      }),
-    ]);
+  it('counts what is theirs and what their machines carry separately', async () => {
+    await renderPage(detail());
 
-    expect(await screen.findByText('VPN')).toBeInTheDocument();
-    expect(screen.getByText('Suspended since 2026-09-01')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^resume$/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^close$/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^suspend$/i })).not.toBeInTheDocument();
+    const header = screen.getByText('John Doe').closest('section') as HTMLElement;
+
+    expect(within(header).getByText(/personal services/i)).toBeInTheDocument();
+    expect(within(header).getByText(/device services/i)).toBeInTheDocument();
   });
 
-  it('does not fold a device service into the personal list', async () => {
-    await renderPage(
-      buildDetail([device()]),
-      [],
-      { 'DEV-001': [openService({ name: 'SA-003', item_name: 'Sophos Endpoint', service_scope: 'Device' })] }
-    );
+  it('keeps the money out of the identity card', async () => {
+    await renderPage(detail());
 
-    expect(await screen.findByText('Sophos Endpoint')).toBeInTheDocument();
-    expect(screen.getByText('No personal service open for John Doe.')).toBeInTheDocument();
-  });
+    const header = screen.getByText('John Doe').closest('section') as HTMLElement;
 
-  it('sends the selected suspension date', async () => {
-    vi.mocked(internal.changeUserService).mockResolvedValue(buildDetail());
-    await renderPage(buildDetail(), [openService()]);
-
-    fireEvent.click(await screen.findByRole('button', { name: /^suspend$/i }));
-    const dialog = await screen.findByRole('dialog');
-    expect(within(dialog).getByText(/suspend from/i)).toBeInTheDocument();
-    const date = dialog.querySelector('input[type="date"]') as HTMLInputElement;
-    fireEvent.change(date, { target: { value: '2026-01-20' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: /^suspend$/i }));
-
-    await waitFor(() =>
-      expect(internal.changeUserService).toHaveBeenCalledWith(
-        expect.objectContaining({
-          assignment: 'SA-001',
-          action: 'Suspend',
-          effective_date: '2026-01-20',
-        })
-      )
-    );
-  });
-
-  it('offers no invalid close action for a service awaiting setup', async () => {
-    await renderPage(buildDetail(), [
-      openService({ operational_status: 'Pending Setup', billing_status: 'Pending' }),
-    ]);
-
-    await screen.findByText('Microsoft 365');
-    expect(screen.queryByRole('button', { name: /^close$/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^suspend$/i })).not.toBeInTheDocument();
+    expect(within(header).queryByText(/billed/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/billing & coverage/i)).toBeInTheDocument();
   });
 });
 
-describe('UserDetail — device services', () => {
-  it('reads the services of a device the person holds today', async () => {
-    await renderPage(buildDetail([device()]), [], {
-      'DEV-001': [openService({ name: 'SA-003', item_name: 'Sophos Endpoint', service_scope: 'Device' })],
-    });
+describe('what is theirs and what the machine carries', () => {
+  it('reads a personal service in its own section', async () => {
+    await renderPage(detail());
 
-    expect(await screen.findByText('Sophos Endpoint')).toBeInTheDocument();
-    expect(internal.deviceServiceAvailability).toHaveBeenCalledWith('DEV-001', expect.anything());
-    expect(screen.getByText(/Serial: SN-123 · Active · held since 2026-06-04/)).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: /^suspend$/i }));
-    const dialog = await screen.findByRole('dialog');
-    expect(within(dialog).getByText('Serial: SN-123')).toBeInTheDocument();
-    expect(within(dialog).getByText('Current holder: John Doe')).toBeInTheDocument();
+    expect(screen.getByText('Microsoft 365')).toBeInTheDocument();
   });
 
-  it('never reads availability for a device the person only held in the past', async () => {
+  it('reads a device service inside the machine that runs it', async () => {
+    await renderPage(detail());
+
+    const card = screen.getByText('LAPTOP-JDOE').closest('section') as HTMLElement;
+
+    expect(within(card).getByText('Sophos Endpoint')).toBeInTheDocument();
+    expect(within(card).getByText(/DELL-93821/)).toBeInTheDocument();
+    expect(within(card).getByText(/Held since 2026-09-11/)).toBeInTheDocument();
+  });
+
+  it('offers what is still available on that one machine, inside it', async () => {
+    await renderPage(detail());
+
+    const card = screen.getByText('LAPTOP-JDOE').closest('section') as HTMLElement;
+
+    expect(within(card).getByRole('button', { name: /RMM/ })).toBeInTheDocument();
+  });
+
+  it('says plainly when they hold nothing', async () => {
     await renderPage(
-      buildDetail([
-        device(),
-        device({
-          name: 'DEV-002',
-          hostname: 'LAPTOP-B',
-          serial_number: 'SN-456',
-          assigned_client_user: 'USR-002',
-        }),
-      ]),
-      []
+      detail({ devices: [], summary: { ...detail().summary, current_devices: 0 } })
     );
 
-    await screen.findByText('No service open on this device.');
+    expect(screen.getByText(/currently holds no device/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /request a device/i })).toBeInTheDocument();
+  });
+});
 
-    expect(internal.deviceServiceAvailability).toHaveBeenCalledWith('DEV-001', expect.anything());
-    expect(internal.deviceServiceAvailability).not.toHaveBeenCalledWith(
-      'DEV-002',
-      expect.anything()
+describe('the actions this page has always offered are still here', () => {
+  it('adds a service directly', async () => {
+    await renderPage(detail());
+
+    expect(screen.getAllByRole('button', { name: /add service/i }).length).toBeGreaterThan(0);
+  });
+
+  it('assigns a device directly', async () => {
+    await renderPage(detail());
+
+    expect(screen.getByRole('button', { name: /assign a device/i })).toBeInTheDocument();
+  });
+
+  it('suspends and closes a running service from the row', async () => {
+    await renderPage(detail());
+
+    expect(screen.getAllByRole('button', { name: /^suspend$/i }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: /^close$/i }).length).toBeGreaterThan(0);
+  });
+
+  it('starts a request for the person too', async () => {
+    await renderPage(detail());
+
+    expect(screen.getByRole('button', { name: /new request/i })).toBeInTheDocument();
+  });
+
+  it('offers nothing on a service somebody is already changing', async () => {
+    await renderPage(
+      detail({
+        personal_services: {
+          current: [service({ allowed_actions: [], pending_request: 'SR-0125' })],
+          available: [],
+          blocked: [],
+          target_reason: null,
+        },
+      })
     );
-    // the machine still belongs to the history table, it simply gets no live services panel
-    expect(screen.getByText('LAPTOP-B')).toBeInTheDocument();
+
+    const row = screen
+      .getByText(/change in progress · SR-0125/i)
+      .closest('div')?.parentElement as HTMLElement;
+
+    expect(within(row).queryByRole('button', { name: /^suspend$/i })).not.toBeInTheDocument();
+    expect(within(row).queryByRole('button', { name: /^close$/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('what needs looking at, and what is being done', () => {
+  it('shows the backend’s own words and nothing invented here', async () => {
+    await renderPage(
+      detail({
+        attention: [
+          {
+            code: 'DEVICE_SERIAL_MISSING',
+            severity: 'warning',
+            entity_type: 'Device',
+            entity: 'DEV-001',
+            message: 'LAPTOP-JDOE has no serial number.',
+          },
+        ],
+      })
+    );
+
+    expect(screen.getByText('LAPTOP-JDOE has no serial number.')).toBeInTheDocument();
+  });
+
+  it('says nothing at all when there is nothing wrong', async () => {
+    await renderPage(detail());
+
+    expect(screen.queryByText(/^attention$/i)).not.toBeInTheDocument();
+  });
+
+  it('puts open requests above the past', async () => {
+    await renderPage(
+      detail({
+        open_requests: [
+          {
+            name: 'SR-0125',
+            status: 'In Progress',
+            priority: 'High',
+            request_type: 'Add',
+            creation: '2026-09-01',
+            modified: '2026-09-02',
+            lines: [
+              { idx: 1, action: 'Add', service_name: 'Microsoft 365', line_status: 'Approved', hostname: null },
+            ],
+            work_total: 5,
+            work_done: 3,
+            technician: 'Peter',
+          },
+        ],
+      })
+    );
+
+    const requests = screen.getByText('Open requests');
+    const history = screen.getByText('Recent activity');
+
+    expect(requests.compareDocumentPosition(history)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(screen.getByText(/3 of 5 work items done/i)).toBeInTheDocument();
+  });
+});
+
+describe('the past is asked for, not carried', () => {
+  it('does not fetch the history until somebody opens it', async () => {
+    await renderPage(detail());
+
+    expect(internal.getUserHistory).not.toHaveBeenCalled();
+  });
+
+  it('loads past devices on demand', async () => {
+    await renderPage(detail());
+
+    fireEvent.click(screen.getByRole('button', { name: /load older activity/i }));
+
+    expect(await screen.findByText(/LAPTOP-17/)).toBeInTheDocument();
   });
 });

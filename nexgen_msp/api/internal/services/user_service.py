@@ -9,7 +9,6 @@ from nexgen_msp.utils.meta import select_options
 
 from nexgen_msp.api.internal.services.request_service import (
     ADMIN_ROLES,
-    CUSTOMER_STATUS,
     RequestService,
 )
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
@@ -20,7 +19,53 @@ LIFECYCLE_STATUSES = ("Pending", "Active", "Disabled", "Archived")
 
 MAX_PAGE_LENGTH = 200
 
-COVERAGE_FILTERS = ("no_device", "no_service", "disabled_with_services")
+COVERAGE_FILTERS = (
+    "no_device",
+    "no_personal_service",
+    "no_service",
+    "disabled_with_services",
+    "open_requests",
+    "needs_attention",
+)
+
+# what the 360 view flags, said once in SQL so the register and the page agree
+NEEDS_ATTENTION = """(
+    exists (
+        select 1 from `tabMSP Managed Device` device
+        where device.assigned_client_user = cu.name
+          and ifnull(device.serial_number, '') = ''
+    )
+    or (
+        cu.lifecycle_status in ('Disabled', 'Archived')
+        and (
+            exists (
+                select 1 from `tabMSP Service Assignment` sa
+                where sa.client_user = cu.name and sa.operational_status in %(open)s
+            )
+            or exists (
+                select 1 from `tabMSP Managed Device` device
+                where device.assigned_client_user = cu.name
+            )
+        )
+    )
+    or (
+        ifnull(cu.username, '') = ''
+        and exists (
+            select 1 from `tabMSP Service Assignment` sa
+            where sa.client_user = cu.name and sa.assignment_scope = 'User'
+              and sa.operational_status in %(open)s
+        )
+    )
+)"""
+
+# a request still waiting inside the customer's own company has not reached us
+OPEN_REQUEST_FOR = """exists (
+    select 1
+    from `tabMSP Service Request Line` srl
+    join `tabMSP Service Request` sr on sr.name = srl.parent
+    where (srl.client_user = cu.name or srl.requested_for_user = cu.name)
+      and sr.status in ('Submitted', 'Under Review', 'Approved', 'In Progress')
+)"""
 
 class UserService:
     @staticmethod
@@ -176,6 +221,19 @@ class UserService:
                       )
                 )"""
             )
+        elif coverage == "no_personal_service":
+            conditions.append("cu.lifecycle_status = 'Active'")
+            conditions.append(
+                """not exists (
+                    select 1 from `tabMSP Service Assignment` sa
+                    where sa.client_user = cu.name and sa.assignment_scope = 'User'
+                      and sa.operational_status in %(open)s
+                )"""
+            )
+        elif coverage == "open_requests":
+            conditions.append(OPEN_REQUEST_FOR)
+        elif coverage == "needs_attention":
+            conditions.append(NEEDS_ATTENTION)
         elif coverage == "disabled_with_services":
             conditions.append("cu.lifecycle_status in ('Disabled', 'Archived')")
             conditions.append(
@@ -230,6 +288,7 @@ class UserService:
         )
 
         total = frappe.db.sql(f"select count(*) from `tabMSP Client User` cu {where}", params)[0][0]
+        attention = NEEDS_ATTENTION
 
         rows = frappe.db.sql(
             f"""
@@ -259,6 +318,23 @@ class UserService:
                     where sa.operational_status = 'Active'
                       and (sa.client_user = cu.name or sad.assigned_client_user = cu.name))
                     as active_services,
+                -- theirs, and their machines': counted apart, because they are owned apart
+                (select count(*) from `tabMSP Service Assignment` sa
+                    where sa.client_user = cu.name and sa.assignment_scope = 'User'
+                      and sa.operational_status in %(open)s) as personal_services,
+                (select count(*) from `tabMSP Service Assignment` sa
+                    join `tabMSP Managed Device` sad on sad.name = sa.managed_device
+                    where sad.assigned_client_user = cu.name and sa.assignment_scope = 'Device'
+                      and sa.operational_status in %(open)s) as device_services,
+                (select count(*) from `tabMSP Managed Device` device
+                    where device.assigned_client_user = cu.name) as current_devices,
+                (select count(distinct sr.name)
+                    from `tabMSP Service Request Line` srl
+                    join `tabMSP Service Request` sr on sr.name = srl.parent
+                    where (srl.client_user = cu.name or srl.requested_for_user = cu.name)
+                      and sr.status in ('Submitted', 'Under Review', 'Approved', 'In Progress'))
+                    as open_requests,
+                {attention} as needs_attention,
                 (select count(*) from `tabMSP Service Assignment` sa
                     left join `tabMSP Managed Device` sad on sad.name = sa.managed_device
                     where sa.operational_status != 'Active'
@@ -299,227 +375,14 @@ class UserService:
 
     @staticmethod
     def get_user(name=None):
-        """Everything known about one person: devices, services and request history."""
-        RequestService._guard_internal()
+        """One person's whole situation, read through the Phase 5 ownership rule.
 
-        if not name:
-            raise ValidationError("name is required.", "VALIDATION_ERROR")
+        The endpoint stays where it was; what it answers with is a different shape, because
+        the old one said a machine's services belonged to whoever happened to hold it.
+        """
+        from nexgen_msp.api.internal.services.user_360_service import User360Service
 
-        if not frappe.db.exists("MSP Client User", name):
-            raise NotFoundError(f"Client User {name} not found.", "NOT_FOUND")
-
-        user = frappe.db.get_value(
-            "MSP Client User",
-            name,
-            [
-                "name",
-                "full_name",
-                "department",
-                "customer",
-                "email",
-                "username",
-                "lifecycle_status",
-                "start_date",
-                "disabled_date",
-                "remarks",
-                "covered_until",
-                "last_billed_on",
-            ],
-            as_dict=True,
-        )
-
-        user["remark_log"] = remarks_util.log("MSP Client User", name)
-
-        # said before the button is pressed, so the refusal is never a surprise
-        blockers = UserService.deletion_blockers(name)
-        user["delete_blockers"] = blockers
-        user["can_delete"] = not blockers
-
-        # the stored date is what the engine restates on every posted invoice and what the
-        # sheet seeds; the query below only covers records neither has touched yet
-        if not user.get("last_billed_on"):
-            user["last_billed_on"] = frappe.db.sql(
-                """
-                select max(br.billing_period_end)
-                from `tabMSP Billing Run Line` brl
-                join `tabMSP Billing Run` br on br.name = brl.parent
-                left join `tabMSP Managed Device` device on device.name = brl.managed_device
-                where br.docstatus = 1
-                  and (brl.client_user = %(user)s or device.assigned_client_user = %(user)s)
-                """,
-                {"user": name},
-            )[0][0]
-
-        current_devices = frappe.db.sql(
-            """
-            select device.name, device.hostname, device.device_type, device.status,
-                   device.serial_number, device.assigned_date, device.retired_date,
-                   device.assigned_client_user, holder.from_date as held_from,
-                   holder.to_date as held_until, holder.is_current
-            from `tabMSP Managed Device` device
-            join `tabMSP Device Holder` holder
-                on holder.parent = device.name and holder.parenttype = 'MSP Managed Device'
-            where holder.client_user = %(user)s and holder.is_current = 1
-            order by device.hostname asc
-            """,
-            {"user": name},
-            as_dict=True,
-        )
-
-        device_history = frappe.db.sql(
-            """
-            select holder.name as holder_record, device.name, device.hostname,
-                   device.device_type, device.status, device.serial_number,
-                   holder.from_date as held_from, holder.to_date as held_until,
-                   holder.is_current
-            from `tabMSP Device Holder` holder
-            join `tabMSP Managed Device` device on device.name = holder.parent
-            where holder.parenttype = 'MSP Managed Device'
-              and holder.client_user = %(user)s
-            order by holder.is_current desc, holder.from_date desc, device.hostname asc
-            """,
-            {"user": name},
-            as_dict=True,
-        )
-
-        if current_devices:
-            interfaces = frappe.get_all(
-                "MSP Network Interface",
-                filters={"parent": ("in", [device.name for device in current_devices])},
-                fields=["parent", "interface_type", "mac_address"],
-            )
-            grouped = {}
-            for interface in interfaces:
-                grouped.setdefault(interface.parent, []).append(
-                    {
-                        "interface_type": interface.interface_type,
-                        "mac_address": interface.mac_address,
-                    }
-                )
-            for device in current_devices:
-                device["interfaces"] = grouped.get(device.name, [])
-
-        user_services = frappe.db.sql(
-            """
-            select
-                sa.name, sa.service_item,
-                coalesce(item.item_name, sa.service_item) as service_name,
-                sa.assignment_scope, sa.managed_device, device.hostname,
-                sa.operational_status, sa.billing_status,
-                sa.effective_start_date, sa.effective_end_date,
-                sa.internal_notes,
-                sa.source_request,
-                (
-                    select max(br.billing_period_end)
-                    from `tabMSP Billing Run Line` brl
-                    join `tabMSP Billing Run` br on br.name = brl.parent
-                    where brl.service_assignment = sa.name and br.docstatus = 1
-                ) as last_billed_on
-            from `tabMSP Service Assignment` sa
-            left join `tabItem` item on item.name = sa.service_item
-            left join `tabMSP Managed Device` device on device.name = sa.managed_device
-            where sa.client_user = %(user)s
-            order by field(sa.operational_status, 'Ended', 'Cancelled') asc,
-                     sa.effective_start_date desc
-            """,
-            {"user": name},
-            as_dict=True,
-        )
-
-        device_service_rows = frappe.db.sql(
-            """
-            select sa.name, sa.service_item,
-                   coalesce(item.item_name, sa.service_item) as service_name,
-                   sa.assignment_scope, sa.managed_device, device.hostname,
-                   sa.operational_status, sa.billing_status,
-                   sa.effective_start_date, sa.effective_end_date,
-                   sa.internal_notes, sa.source_request,
-                   (select max(br.billing_period_end)
-                      from `tabMSP Billing Run Line` brl
-                      join `tabMSP Billing Run` br on br.name = brl.parent
-                     where brl.service_assignment = sa.name and br.docstatus = 1) as last_billed_on
-            from `tabMSP Service Assignment` sa
-            join `tabMSP Managed Device` device on device.name = sa.managed_device
-            join `tabMSP Device Holder` holder
-              on holder.parent = device.name
-             and holder.parenttype = 'MSP Managed Device'
-             and holder.is_current = 1
-            left join `tabItem` item on item.name = sa.service_item
-            where holder.client_user = %(user)s
-            order by device.hostname asc,
-                     field(sa.operational_status, 'Ended', 'Cancelled') asc,
-                     sa.effective_start_date desc
-            """,
-            {"user": name},
-            as_dict=True,
-        )
-        services_by_device = {}
-        for row in device_service_rows:
-            services_by_device.setdefault(row.managed_device, []).append(row)
-        device_services = [
-            {"device": device, "services": services_by_device.get(device.name, [])}
-            for device in current_devices
-        ]
-
-        requests = frappe.db.sql(
-            """
-            select distinct sr.name, sr.status, sr.priority, sr.request_type, sr.creation
-            from `tabMSP Service Request` sr
-            join `tabMSP Service Request Line` srl on srl.parent = sr.name
-            where srl.client_user = %(user)s
-              and sr.status != %(customer_status)s
-            order by sr.creation desc
-            limit 10
-            """,
-            {"user": name, "customer_status": CUSTOMER_STATUS},
-            as_dict=True,
-        )
-
-        return {
-            "user": user,
-            "devices": current_devices,
-            "current_devices": current_devices,
-            "device_history": device_history,
-            "services": user_services,
-            "user_services": user_services,
-            "device_services": device_services,
-            "requests": requests,
-            "customer_requests": frappe.db.sql(
-                """
-                select sr.name, sr.request_type, sr.status, sr.priority, sr.source,
-                       coalesce(requester.full_name, sr.requester) as requester,
-                       sr.creation, sr.customer
-                from `tabMSP Service Request` sr
-                left join `tabUser` requester on requester.name = sr.requester
-                where sr.customer = %(customer)s
-                  and sr.status != %(customer_status)s
-                order by field(sr.status, 'Completed', 'Rejected', 'Cancelled') asc,
-                         sr.creation desc
-                limit 30
-                """,
-                {"customer": user.customer, "customer_status": CUSTOMER_STATUS},
-                as_dict=True,
-            ),
-            "device_types": frappe.get_meta("MSP Managed Device")
-            .get_field("device_type")
-            .options.split("\n"),
-            "interface_types": frappe.get_meta("MSP Network Interface")
-            .get_field("interface_type")
-            .options.split("\n"),
-            "catalogue": [
-                {
-                    "name": item.name,
-                    "item_name": item.item_name,
-                    "scope": RequestService._service_scope(item.name),
-                }
-                for item in frappe.get_all(
-                    "Item",
-                    filters={"disabled": 0, "is_stock_item": 0},
-                    fields=["name", "item_name"],
-                    order_by="item_name asc",
-                )
-            ],
-        }
+        return User360Service.get_user(name=name)
 
     @staticmethod
     def add_device(

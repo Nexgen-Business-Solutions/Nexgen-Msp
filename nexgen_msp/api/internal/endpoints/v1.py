@@ -61,6 +61,12 @@ def get_request(name=None):
 
 @frappe.whitelist()
 @handle_errors
+def list_customer_requests(customer=None, limit=30):
+    return RequestService.list_customer_requests(customer=customer, limit=limit)
+
+
+@frappe.whitelist()
+@handle_errors
 def run_request_action(name=None, action=None, reason=None):
     return RequestService.run_action(name=name, action=action, reason=reason)
 
@@ -414,6 +420,14 @@ def get_user(name=None):
     from nexgen_msp.api.internal.services.user_service import UserService
 
     return UserService.get_user(name=name)
+
+
+@frappe.whitelist()
+@handle_errors
+def get_user_history(name=None, limit=50):
+    from nexgen_msp.api.internal.services.user_360_service import User360Service
+
+    return User360Service.get_user_history(name=name, limit=limit)
 
 
 @frappe.whitelist()

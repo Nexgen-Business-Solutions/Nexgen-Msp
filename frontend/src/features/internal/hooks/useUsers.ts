@@ -145,6 +145,23 @@ export const useUserDetail = (name?: string) =>
     enabled: Boolean(name),
   });
 
+/** The requests a form may cite, asked for by that form rather than carried everywhere. */
+export const useCustomerRequests = (customer?: string | null) =>
+  useQuery({
+    queryKey: ['internal', 'requests', 'ofCustomer', customer] as const,
+    queryFn: ({ signal }) => internal.listCustomerRequests(customer as string, signal),
+    enabled: Boolean(customer),
+    staleTime: 60 * 1000,
+  });
+
+/** The past, fetched only when somebody opens it. */
+export const useUserHistory = (name?: string, enabled = true) =>
+  useQuery({
+    queryKey: [...userKeys.detail(name || ''), 'history'] as const,
+    queryFn: ({ signal }) => internal.getUserHistory(name as string, undefined, signal),
+    enabled: Boolean(name) && enabled,
+  });
+
 export const useUserServiceAvailability = (clientUser?: string) =>
   useQuery({
     queryKey: userKeys.availability(clientUser || ''),

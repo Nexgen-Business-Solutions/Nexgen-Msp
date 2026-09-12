@@ -53,6 +53,10 @@ cd apps/nexgen_msp/frontend && yarn build && yarn lint && yarn test
 - Un Work Order est committé dès la construction du plan : `MSPTestCase` les balaie avec la
   demande (`_purge_work`), sinon un test qui échoue après l'approbation les laisse orphelins
   et le numéro de demande réutilisé fait échouer le suivant.
+- Les redis de bench (ports 11000 et 13000) doivent tourner, sinon **tous** les tests
+  échouent sur `Should not fail silently in tests` à la première écriture indexée. Les
+  relancer : `redis-server config/redis_cache.conf` et `redis-server config/redis_queue.conf`
+  depuis `frappe-bench`.
 - Une session portail porte une User Permission sur son `Customer` : Frappe la recopie
   automatiquement dans tout champ Link `customer` d'un document créé par cette session.
   `make_department()` insère donc en tant qu'`Administrator`, sinon le département partagé
@@ -69,7 +73,8 @@ cd apps/nexgen_msp/frontend && yarn build && yarn lint && yarn test
 | 2.5 | Global Managed Departments | ✅ terminée |
 | 3 | Client Request Workflow | ✅ terminée |
 | 4 | Request Technician Workbench & Execution Stepper | ✅ terminée |
-| **5** | **User 360° Operational View** | **⬜ à faire — prochaine** |
+| 5 | User 360° Operational View | ✅ terminée |
+| **6** | **Settings & Managed References** | **⬜ à faire — prochaine** |
 | 5 | User 360° Operational View | ⬜ |
 | 6 | Settings & Managed References | ⬜ |
 | 7 | Billing Workbench & Flexible Billing | ⬜ |
@@ -238,6 +243,54 @@ User Setup (« Portal access was requested ») mais **l'invitation n'est pas env
 automatiquement** : créer un compte avec des identifiants n'est pas un effet de bord acceptable
 d'un clic sur « Create user ». À trancher avec Idriss si ce doit être automatisé.
 
+### Phase 5 — Vue utilisateur à 360° ✅
+
+**Règle de la phase : une personne possède ses services personnels et *détient* des machines ;
+la machine possède les services qui tournent dessus.** L'ancien `get_user()` disait qu'un
+service appartenait à qui détenait la machine ce jour-là. C'est cette confusion qui disparaît.
+
+| # | Tâche | État |
+|---|---|---|
+| 1 | Refonte `get_user()` : ownership + DTO | ✅ 31 tests |
+| 2 | Requêtes ouvertes + moteur d'alertes | ✅ inclus en 1 |
+| 3 | Historique de détention + `holder_since` | ✅ inclus en 1 |
+| 4 | Reconstruction de `UserDetail.tsx` | ✅ 17 tests Vitest |
+| 5 | User 360 portail | ✅ 6 tests Vitest |
+| 6 | Compteurs et filtres de la liste | ✅ |
+| 7 | Chargement paresseux du passé | ✅ inclus en 1 et 4 |
+| 8 | Tests de scénarios métier | ✅ inclus en 1 |
+
+**Le service (`user_360_service.py`) :**
+
+- `personal_services` = portée User, sur la personne. `devices[].services` = portée Device,
+  sur la machine. Jamais mélangés, ni dans les comptes, ni dans l'historique.
+- `holder_since` vient de la période de détention en cours, pas de `assigned_date`. Détenir
+  deux fois la même machine donne deux périodes, jamais une.
+- `open_requests` trouve une demande par `client_user` **ou** `requested_for_user` : une ligne
+  qui vise une machine nomme la machine, et la personne à côté.
+- `attention` renvoie des signaux structurés (code, gravité, entité, phrase). Le React
+  n'invente aucune règle métier à partir de douze champs.
+- La disponibilité vient de la Phase 2, lue **par machine** : un service sur un portable ne
+  dit rien du suivant.
+- Un service déjà visé par une demande en cours n'offre plus aucune action : la Phase 3 le
+  refuserait de toute façon.
+- Le portail lit exactement le même service (`read_user(internal=False)`) : mêmes règles de
+  propriété, moins de données.
+
+**Ce que la page ne charge plus** (§58) : le catalogue global, les 30 dernières demandes du
+client, les types d'appareils et d'interfaces. Le passé (anciennes machines, services clos,
+demandes closes, activité ancienne) est derrière `get_user_history`.
+
+**Décision signalée :** la spec §19-21 recommandait de réserver les actions directes à un menu
+« administratif ». Idriss a demandé de **conserver les actions comme avant** : ajouter un
+service, assigner une machine, suspendre, reprendre, clôturer restent des boutons de premier
+plan sur la fiche, et la voie « demande » s'ajoute à côté (menu par ligne, plus le bouton
+« New request »).
+
+**Ajustement hors spec, demandé par Idriss :** une interface réseau est désormais une **clé
+libre et une valeur** (`interface_type` passe de Select à Data). Le technicien écrit ce qu'il
+veut, les quatre libellés habituels restant proposés en suggestion.
+
 ---
 
 ## 4. Journal
@@ -254,5 +307,7 @@ d'un clic sur « Create user ». À trancher avec Idriss si ce doit être automa
 | 2026-09-12 | agent principal | Phase 4 tâche 1 : clés de regroupement (`after phase 4 execution keys`). |
 | 2026-09-12 | agent principal | Phase 4 tâche 2 : Work Order étendu et plan d'exécution (`after phase 4 execution plan`). |
 | 2026-09-12 | agent principal | Phase 4 terminée : exécution, vérification, clôture et workbench React. |
+| 2026-09-12 | agent principal | Phase 5 terminée : ownership corrigé, DTO 360, workbench utilisateur interne et portail. |
+| 2026-09-12 | agent principal | Interfaces réseau : clé libre et valeur (demande d'Idriss). |
 
 > Ajoute ta ligne ici quand tu termines quelque chose.

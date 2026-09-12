@@ -636,7 +636,7 @@ class ExcelImportService:
                 report["skipped"]["assignments_existing"] += 1
                 continue
 
-            frappe.get_doc(
+            assignment = frappe.get_doc(
                 {
                     "doctype": "MSP Service Assignment",
                     "customer": customer,
@@ -652,7 +652,12 @@ class ExcelImportService:
                     "effective_end_date": lifecycle["end"],
                     "price_source": "Contract",
                 }
-            ).insert()
+            )
+            # The importer is a controlled history reconstruction path. It must still
+            # pass every DocType invariant, but it is intentionally allowed through the
+            # lifecycle entry-point guard used to reject arbitrary direct writes.
+            assignment.flags.via_service_lifecycle = True
+            assignment.insert()
 
             report["created"]["service_assignments"] += 1
             report["created"][f"assignments_{lifecycle['status'].lower()}"] += 1

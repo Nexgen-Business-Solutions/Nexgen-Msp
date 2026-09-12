@@ -814,144 +814,25 @@ class PortalService:
 
     @staticmethod
     def get_user_detail(client_user=None):
-        """What one of our people actually uses: services, device, dates and billing."""
+        """One of our people, read the same way our own team reads them.
+
+        The ownership rule is the same on both sides — their own services are theirs, the
+        services on the machine they hold are the machine's. What differs is only how much
+        of it a customer has any business seeing.
+        """
+        from nexgen_msp.api.internal.services.user_360_service import User360Service
+
         if not client_user:
             raise ValidationError("client_user is required.", "VALIDATION_ERROR")
 
-        user = frappe.db.get_value(
-            "MSP Client User",
-            client_user,
-            [
-                "name",
-                "full_name",
-                "department",
-                "customer",
-                "lifecycle_status",
-                "start_date",
-                "disabled_date",
-            ],
-            as_dict=True,
-        )
+        customer = frappe.db.get_value("MSP Client User", client_user, "customer")
 
-        if not user:
+        if not customer:
             raise NotFoundError(f"Client User {client_user} does not exist.", "NOT_FOUND")
 
-        PortalService._resolve_customer(user.customer)
+        PortalService._resolve_customer(customer)
 
-        current_devices = frappe.db.sql(
-            """
-            select device.name, device.hostname, device.device_type, device.status,
-                   holder.from_date as held_from, holder.to_date as held_until,
-                   holder.is_current
-            from `tabMSP Managed Device` device
-            join `tabMSP Device Holder` holder
-                on holder.parent = device.name and holder.parenttype = 'MSP Managed Device'
-            where holder.client_user = %(user)s and holder.is_current = 1
-            order by device.hostname asc
-            """,
-            {"user": client_user},
-            as_dict=True,
-        )
-
-        device_history = frappe.db.sql(
-            """
-            select holder.name as holder_record, device.name, device.hostname,
-                   device.device_type, device.status, holder.from_date as held_from,
-                   holder.to_date as held_until, holder.is_current
-            from `tabMSP Device Holder` holder
-            join `tabMSP Managed Device` device on device.name = holder.parent
-            where holder.parenttype = 'MSP Managed Device'
-              and holder.client_user = %(user)s
-            order by holder.is_current desc, holder.from_date desc, device.hostname asc
-            """,
-            {"user": client_user},
-            as_dict=True,
-        )
-
-        user_services = frappe.db.sql(
-            """
-            select
-                sa.name,
-                coalesce(item.item_name, sa.service_item) as service_name,
-                device.hostname,
-                sa.operational_status,
-                sa.effective_start_date,
-                sa.effective_end_date,
-                sa.customer_visible_notes,
-                sa.source_request,
-                (
-                    select max(br.billing_period_end)
-                    from `tabMSP Billing Run Line` brl
-                    join `tabMSP Billing Run` br on br.name = brl.parent
-                    where brl.service_assignment = sa.name and br.docstatus = 1
-                ) as last_billed_on
-            from `tabMSP Service Assignment` sa
-            left join `tabItem` item on item.name = sa.service_item
-            left join `tabMSP Managed Device` device on device.name = sa.managed_device
-            where sa.client_user = %(user)s
-            order by field(sa.operational_status, 'Ended', 'Cancelled') asc,
-                     sa.effective_start_date desc
-            """,
-            {"user": client_user},
-            as_dict=True,
-        )
-
-        device_service_rows = frappe.db.sql(
-            """
-            select sa.name, coalesce(item.item_name, sa.service_item) as service_name,
-                   sa.managed_device, device.hostname, sa.operational_status,
-                   sa.effective_start_date, sa.effective_end_date,
-                   sa.customer_visible_notes, sa.source_request,
-                   (select max(br.billing_period_end)
-                      from `tabMSP Billing Run Line` brl
-                      join `tabMSP Billing Run` br on br.name = brl.parent
-                     where brl.service_assignment = sa.name and br.docstatus = 1) as last_billed_on
-            from `tabMSP Service Assignment` sa
-            join `tabMSP Managed Device` device on device.name = sa.managed_device
-            join `tabMSP Device Holder` holder
-              on holder.parent = device.name
-             and holder.parenttype = 'MSP Managed Device'
-             and holder.is_current = 1
-            left join `tabItem` item on item.name = sa.service_item
-            where holder.client_user = %(user)s
-            order by device.hostname asc,
-                     field(sa.operational_status, 'Ended', 'Cancelled') asc,
-                     sa.effective_start_date desc
-            """,
-            {"user": client_user},
-            as_dict=True,
-        )
-        services_by_device = {}
-        for row in device_service_rows:
-            services_by_device.setdefault(row.managed_device, []).append(row)
-        device_services = [
-            {"device": device, "services": services_by_device.get(device.name, [])}
-            for device in current_devices
-        ]
-
-        requests = frappe.db.sql(
-            """
-            select distinct sr.name, sr.status, sr.priority, sr.request_type, sr.creation
-            from `tabMSP Service Request` sr
-            join `tabMSP Service Request Line` srl on srl.parent = sr.name
-            where srl.client_user = %(user)s
-            order by sr.creation desc
-            limit 10
-            """,
-            {"user": client_user},
-            as_dict=True,
-        )
-
-        return {
-            "user": user,
-            "devices": current_devices,
-            "current_devices": current_devices,
-            "device_history": device_history,
-            "services": user_services,
-            "user_services": user_services,
-            "device_services": device_services,
-            "requests": requests,
-        }
+        return User360Service.read_user(client_user, internal=False)
 
     @staticmethod
     def _acknowledge(doc):

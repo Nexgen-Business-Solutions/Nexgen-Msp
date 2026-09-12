@@ -10,13 +10,16 @@ operational status instead of being set beside it.
 
 import frappe
 
+from nexgen_msp.api.excel_import.services.excel_import_service import ExcelImportService
+
 from .base import MSPTestCase
 
 
 class TestServiceAssignmentInvariants(MSPTestCase):
     def setUp(self):
         super().setUp()
-        self.customer = self.make_customer()
+        self.tag = frappe.generate_hash(length=6)
+        self.customer = self.make_customer(self.tag)
         self.john = self.make_person(self.customer, "John")
         self.today = frappe.utils.today()
 
@@ -80,6 +83,43 @@ class TestServiceAssignmentInvariants(MSPTestCase):
 
         with self.assertRaises(frappe.ValidationError):
             doc.insert(ignore_permissions=True)
+
+    def test_the_controlled_excel_import_can_reconstruct_an_assignment(self):
+        service = self.make_service("IMPORTCREATE", scope="User")
+        report = {
+            "exceptions": [],
+            "skipped": {"inconsistent_dates": 0, "assignments_existing": 0},
+            "created": {"service_assignments": 0, "assignments_active": 0},
+        }
+
+        ExcelImportService._create_assignments(
+            {
+                "row_number": 2,
+                "services": {
+                    "service": {
+                        "assigned": True,
+                        "inconsistent_start": False,
+                        "status": "Active",
+                        "start": self.today,
+                        "end": None,
+                    }
+                },
+            },
+            self.customer,
+            self.john,
+            None,
+            {"service": service},
+            {"service": "User"},
+            report,
+        )
+
+        assignment = frappe.db.get_value(
+            "MSP Service Assignment",
+            {"client_user": self.john, "service_item": service},
+        )
+        self.track("MSP Service Assignment", assignment)
+        self.assertTrue(assignment)
+        self.assertEqual(report["created"]["service_assignments"], 1)
 
     # -------------------------------------------------------- catalogue scope is binding
     def test_a_user_only_service_cannot_be_assigned_to_a_device(self):

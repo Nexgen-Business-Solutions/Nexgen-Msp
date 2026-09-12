@@ -39,6 +39,7 @@ class DeviceService:
                 if option
             ],
             "coverage": list(COVERAGE_FILTERS),
+            "interface_types": DeviceService.interface_labels(),
         }
 
     @staticmethod
@@ -431,10 +432,15 @@ class DeviceService:
             "device_types": frappe.get_meta("MSP Managed Device")
             .get_field("device_type")
             .options.split("\n"),
-            "interface_types": frappe.get_meta("MSP Network Interface")
-            .get_field("interface_type")
-            .options.split("\n"),
+            "interface_types": DeviceService.interface_labels(),
         }
+
+    # the usual ones, offered as a hint: the label itself is whatever the technician writes
+    INTERFACE_LABELS = ("Wi-Fi", "LAN", "Extra", "Other")
+
+    @staticmethod
+    def interface_labels():
+        return list(DeviceService.INTERFACE_LABELS)
 
     @staticmethod
     def deletion_blockers(device):

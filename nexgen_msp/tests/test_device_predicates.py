@@ -193,8 +193,8 @@ class TestDevicePredicates(MSPTestCase):
             )
             return [
                 row["service_name"]
-                for group in detail["device_services"]
-                for row in group["services"]
+                for slot in detail["devices"]
+                for row in slot["services"]["current"]
             ]
 
         item_name = frappe.db.get_value("Item", self.service, "item_name")

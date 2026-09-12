@@ -31,7 +31,8 @@ export default function NewServiceRequest() {
   const builder = useRequestBuilder(
     () => navigate('/msp/requests'),
     params.get('draft') ?? undefined,
-    params.get('from') ?? undefined
+    params.get('from') ?? undefined,
+    params.get('client_user') ?? undefined
   );
 
   // staff serve every customer, so they must say who they are acting for; a contact has

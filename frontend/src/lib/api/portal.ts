@@ -348,15 +348,16 @@ export type PortalUserDevice = {
 export type PortalUserDeviceHistory = PortalUserDevice & { holder_record: string };
 
 export type PortalUserService = {
-  name?: string;
+  name: string;
+  service_item: string;
   service_name: string;
-  hostname: string | null;
   operational_status: string;
+  quantity: number | null;
   effective_start_date: string | null;
   effective_end_date: string | null;
-  customer_visible_notes: string | null;
   source_request: string | null;
-  last_billed_on: string | null;
+  allowed_actions: string[];
+  pending_request: string | null;
 };
 
 export type PortalUserDetail = {
@@ -365,23 +366,49 @@ export type PortalUserDetail = {
     full_name: string;
     department: string | null;
     customer: string;
+    email: string | null;
+    username: string | null;
     lifecycle_status: string;
     start_date: string | null;
     disabled_date: string | null;
   };
-  devices: PortalUserDevice[];
-  current_devices?: PortalUserDevice[];
-  device_history?: PortalUserDeviceHistory[];
-  services: PortalUserService[];
-  user_services?: PortalUserService[];
-  device_services?: { device: PortalUserDevice; services: PortalUserService[] }[];
-  requests: {
+  summary: {
+    current_devices: number;
+    active_personal_services: number;
+    active_device_services: number;
+    open_requests: number;
+    attention_count: number;
+  };
+  personal_services: { current: PortalUserService[]; available: []; blocked: []; target_reason: null };
+  devices: {
+    device: {
+      name: string;
+      hostname: string;
+      device_type: string | null;
+      status: string;
+      serial_number: string | null;
+      in_service_since: string | null;
+    };
+    holder_since: string | null;
+    interfaces: { interface_type: string; mac_address: string }[];
+    services: { current: PortalUserService[]; available: [] };
+  }[];
+  open_requests: {
     name: string;
     status: string;
     priority: string;
     request_type: string;
     creation: string;
+    lines: { idx: number; action: string; service_name: string; hostname: string | null }[];
   }[];
+  attention: {
+    code: string;
+    severity: 'warning' | 'info';
+    entity_type: string;
+    entity: string;
+    message: string;
+  }[];
+  recent_activity: { on: string; kind: string; entity: string; what: string; via?: string | null }[];
 };
 
 export const getRequest = (name: string, signal?: AbortSignal) =>

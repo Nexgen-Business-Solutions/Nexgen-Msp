@@ -3,6 +3,7 @@ import type { NewRequestLine, PortalRequestDetail, RequestAction } from '@/lib/a
 import {
   useCreateServiceRequest,
   useDiscardRequestDraft,
+  useRequestSubjectContext,
   useSaveRequestDraft,
   useServiceRequest,
 } from './usePortal';
@@ -131,7 +132,9 @@ export const fromSavedRequest = (saved: PortalRequestDetail) => {
 export const useRequestBuilder = (
   onCreated?: (created: { name: string }) => void,
   reopen?: string,
-  correct?: string
+  correct?: string,
+  /** the person a page sent us here about, so nobody searches for who they were just reading */
+  about?: string
 ) => {
   const [subjects, setSubjects] = useState<RequestSubject[]>([]);
   const [intents, setIntents] = useState<RequestIntent[]>([]);
@@ -148,6 +151,26 @@ export const useRequestBuilder = (
   // the first case, a fresh one in the second
   const source = reopen ?? correct;
   const saved = useServiceRequest(source);
+
+  // arriving from somebody's page: they are the subject, picked for us
+  const seeded = useRequestSubjectContext(source || !about ? undefined : about);
+
+  useEffect(() => {
+    if (source || loaded || !seeded.data) return;
+
+    const person = seeded.data.user;
+    setSubjects([
+      {
+        key: newKey(),
+        kind: 'existing',
+        clientUser: person.name,
+        fullName: person.full_name,
+        department: person.department ?? undefined,
+        email: person.email ?? undefined,
+      },
+    ]);
+    setLoaded(true);
+  }, [source, loaded, seeded.data]);
 
   useEffect(() => {
     if (!source || loaded || !saved.data) return;

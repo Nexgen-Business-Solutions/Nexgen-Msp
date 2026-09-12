@@ -1,52 +1,31 @@
-import { useEffect, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import {
-  ArrowLeft,
-  CircleX,
-  Eye,
-  Laptop,
-  PauseCircle,
-  Pencil,
-  PlayCircle,
-  Plus,
-  Trash2,
-  ShieldCheck,
-} from 'lucide-react';
-import StatusBadge from '@/shared/components/StatusBadge';
+import { useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { ArrowLeft, Laptop, Plus } from 'lucide-react';
 import RemarkLog from '@/shared/components/RemarkLog';
+import ConfirmModal from '@/shared/components/ConfirmModal';
 import { useSession } from '@/shared/hooks/useSession';
 import { isAdmin as hasAdminRole } from '@/shared/layout/navigation';
-import RowActionsMenu from '@/shared/components/RowActionsMenu';
-import AddUserServiceModal from '../components/AddUserServiceModal';
-import ServiceActionModal, { type ServiceAction } from '../components/ServiceActionModal';
-import DeviceServiceModal from '../components/DeviceServiceModal';
 import AddDeviceModal from '../components/AddDeviceModal';
+import AddUserServiceModal from '../components/AddUserServiceModal';
+import DeviceServiceModal from '../components/DeviceServiceModal';
 import EditClientUserModal from '../components/EditClientUserModal';
+import HeldDeviceCard from '../components/HeldDeviceCard';
+import ServiceActionModal, { type ServiceAction } from '../components/ServiceActionModal';
+import UserAttentionPanel from '../components/UserAttentionPanel';
+import UserHistoryPanel from '../components/UserHistoryPanel';
+import UserIdentityCard from '../components/UserIdentityCard';
+import UserOpenRequests from '../components/UserOpenRequests';
+import UserServiceList from '../components/UserServiceList';
 import {
   userKeys,
+  useCustomerRequests,
   useDeleteClientUser,
   useUserDetail,
-  useUserServiceAvailability,
 } from '../hooks/useUsers';
-import { useDeviceServiceAvailability } from '../hooks/useDevices';
-import ConfirmModal from '@/shared/components/ConfirmModal';
+import { useDeviceFilterOptions } from '../hooks/useDevices';
+import type { HeldDevice, UserServiceEntry } from '@/lib/api/internal';
 
-import type {
-  ServiceAvailabilityCurrent,
-  UserDevice,
-  UserServiceRow as UserServiceRowType,
-} from '@/lib/api/internal';
-
-const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
-
-const INTERFACE_ORDER = ['Wi-Fi', 'LAN', 'Extra', 'Other'];
-
-const INTERFACE_LABEL: Record<string, string> = {
-  'Wi-Fi': 'MAC WIFI',
-  LAN: 'MAC LAN',
-  Extra: 'EXTRA MAC',
-  Other: 'OTHER MAC',
-};
+const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'Never');
 
 const Panel = ({
   title,
@@ -57,190 +36,45 @@ const Panel = ({
   action?: React.ReactNode;
   children: React.ReactNode;
 }) => (
-  <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
-    <div className="flex items-center justify-between gap-3 px-5 py-4">
-      <h2 className="text-base font-semibold text-slate-900">{title}</h2>
+  <section className="rounded-xl border border-slate-200 bg-white p-4">
+    <div className="flex items-center justify-between gap-3">
+      <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">{title}</h2>
       {action}
     </div>
-    <div className="max-h-[26rem] overflow-auto px-5 pb-4">{children}</div>
-  </div>
+    <div className="mt-2">{children}</div>
+  </section>
 );
 
-const Th = ({ children }: { children?: React.ReactNode }) => (
-  <th className="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 first:rounded-l-lg last:rounded-r-lg">
-    {children}
-  </th>
-);
-
-const Empty = ({ span, children }: { span: number; children: React.ReactNode }) => (
-  <tr>
-    <td colSpan={span} className="px-4 py-10 text-center text-sm text-slate-500">
-      {children}
-    </td>
-  </tr>
-);
-
-type ServiceTarget = { row: UserServiceRowType; action: ServiceAction };
-
-/** The availability payload names an open period; the action modal reads a service row. */
-const toServiceRow = (
-  entry: ServiceAvailabilityCurrent,
-  device?: UserDevice | null,
-  holderName?: string
-): UserServiceRowType => ({
-  name: entry.name,
-  service_item: entry.service_item,
-  service_name: entry.item_name,
-  assignment_scope: device ? 'Device' : 'User',
-  managed_device: device?.name ?? null,
-  hostname: device?.hostname ?? null,
-  operational_status: entry.operational_status,
-  billing_status: entry.billing_status,
-  effective_start_date: entry.effective_start_date,
-  effective_end_date: null,
-  source_request: null,
-  device_serial_number: device?.serial_number ?? null,
-  device_user_name: holderName ?? null,
-});
-
-const actionClass =
-  'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors';
-
-const ServiceLine = ({
-  row,
-  onAction,
-}: {
-  row: UserServiceRowType;
-  onAction: (target: ServiceTarget) => void;
-}) => (
-  <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-    <div className="min-w-0">
-      <p className="text-sm font-semibold text-slate-900">{row.service_name}</p>
-      <p className="mt-0.5 text-xs text-slate-500">
-        {row.operational_status} since {fmtDate(row.effective_start_date)}
-      </p>
-    </div>
-    <div className="flex shrink-0 items-center gap-2">
-      {row.operational_status === 'Active' && (
-        <button
-          type="button"
-          onClick={() => onAction({ row, action: 'Suspend' })}
-          className={`${actionClass} border-amber-200 bg-white text-amber-700 hover:bg-amber-50`}
-        >
-          <PauseCircle size={13} />
-          Suspend
-        </button>
-      )}
-      {row.operational_status === 'Suspended' && (
-        <button
-          type="button"
-          onClick={() => onAction({ row, action: 'Resume' })}
-          className={`${actionClass} border-blue-200 bg-white text-blue-700 hover:bg-blue-50`}
-        >
-          <PlayCircle size={13} />
-          Resume
-        </button>
-      )}
-      {['Active', 'Suspended', 'Pending Removal'].includes(row.operational_status) && (
-        <button
-          type="button"
-          onClick={() => onAction({ row, action: 'End' })}
-          className={`${actionClass} border-red-200 bg-white text-red-600 hover:bg-red-50`}
-        >
-          <CircleX size={13} />
-          Close
-        </button>
-      )}
-    </div>
-  </div>
-);
-
-/** One machine this person holds today, read for what it alone carries. */
-const DeviceServicesCard = ({
-  device,
-  holderName,
-  onAddService,
-  onAction,
-}: {
-  device: UserDevice;
-  holderName: string;
-  onAddService: () => void;
-  onAction: (target: ServiceTarget) => void;
-}) => {
-  const availability = useDeviceServiceAvailability(device.name);
-  const rows = availability.data?.current ?? [];
-
-  return (
-    <div className="overflow-hidden rounded-xl border border-slate-200">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
-        <div className="min-w-0">
-          <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
-            <Laptop size={14} className="text-slate-400" />
-            {device.hostname}
-          </p>
-          <p className="mt-0.5 text-xs text-slate-500">
-            {device.serial_number ? `Serial: ${device.serial_number}` : 'Serial: missing'} ·{' '}
-            {device.status} · held since {fmtDate(device.held_from ?? device.assigned_date)}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={onAddService}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
-        >
-          <Plus size={13} />
-          Add service
-        </button>
-      </div>
-
-      {availability.isLoading && (
-        <p className="px-4 py-6 text-center text-sm text-slate-500">Loading…</p>
-      )}
-
-      {!!availability.error && (
-        <p className="px-4 py-6 text-center text-sm text-red-600">
-          {(availability.error as Error)?.message || 'Failed to read this device.'}
-        </p>
-      )}
-
-      {availability.data && rows.length === 0 && (
-        <p className="px-4 py-6 text-center text-sm text-slate-500">
-          No service open on this device.
-        </p>
-      )}
-
-      <div className="divide-y divide-slate-100">
-        {rows.map((entry) => (
-          <ServiceLine key={entry.name} row={toServiceRow(entry, device, holderName)} onAction={onAction} />
-        ))}
-      </div>
-    </div>
-  );
-};
-
+/**
+ * One person's situation, in the order somebody acting on it needs it: who they are, what
+ * needs looking at, what is being done for them, what is theirs, what they hold, then the past.
+ *
+ * Nothing is carried out from here. The standard way to change anything is to raise a
+ * request, which the workbench then executes — one workflow, not four.
+ */
 export default function UserDetail() {
   const { name = '' } = useParams();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const referencedRequest = searchParams.get('ref') ?? undefined;
-  const wantsNewDevice = searchParams.get('device') === 'new';
   const detail = useUserDetail(name);
-  const availability = useUserServiceAvailability(name);
-  const [addServiceOpen, setAddServiceOpen] = useState(false);
-  const [editingUser, setEditingUser] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const remove = useDeleteClientUser();
 
-  const { data: session } = useSession();
-  // only an administrator hands out portal access
-  const isAdmin = hasAdminRole(session?.roles);
-  const [deviceOpen, setDeviceOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [addingService, setAddingService] = useState(false);
+  const [addingDevice, setAddingDevice] = useState(false);
   const [deviceService, setDeviceService] = useState<string | null>(null);
+  const [applying, setApplying] = useState<{
+    service: UserServiceEntry;
+    device: HeldDevice | null;
+    action: ServiceAction;
+  } | null>(null);
 
-  useEffect(() => {
-    if (wantsNewDevice) setDeviceOpen(true);
-  }, [wantsNewDevice]);
-  const [target, setTarget] = useState<ServiceTarget | null>(null);
+  // the request list a citation field offers, fetched by the forms that want it
+  const customerRequests = useCustomerRequests(detail.data?.user.customer);
+  const deviceOptions = useDeviceFilterOptions();
+
+  const { data: session } = useSession();
+  const isAdmin = hasAdminRole(session?.roles);
 
   if (detail.isLoading) {
     return (
@@ -260,22 +94,29 @@ export default function UserDetail() {
     );
   }
 
-  const {
-    user,
-    devices,
-    device_history: deviceHistory = [],
-    requests,
-    device_types,
-    interface_types,
-  } = detail.data;
+  const data = detail.data;
+  const { user } = data;
 
-  // every row the endpoint returns for a person is a User-scope period on that person
-  const personalServices = availability.data?.current ?? [];
-  // a device service belongs to the machine, and is read only where the machine is held today
-  const heldDevices = devices.filter((device) => device.assigned_client_user === user.name);
+  const ask = (params: Record<string, string>) =>
+    navigate(`/msp/requests/new?${new URLSearchParams(params).toString()}`);
+
+  const openRequest = (request: string) => navigate(`/msp/requests/${request}`);
+
+  // the request rules say Remove; the modal that carries it out here says End
+  const DIRECT_ACTION: Record<string, ServiceAction> = {
+    Suspend: 'Suspend',
+    Resume: 'Resume',
+    Remove: 'End',
+  };
+
+  const apply = (service: UserServiceEntry, action: string, device: HeldDevice | null) => {
+    const direct = DIRECT_ACTION[action];
+
+    if (direct) setApplying({ service, device, action: direct });
+  };
 
   return (
-    <div className="space-y-5 px-6 pb-6 pt-4">
+    <div className="space-y-4 px-6 pb-6 pt-4">
       <button
         type="button"
         onClick={() => navigate('/msp/users')}
@@ -285,421 +126,204 @@ export default function UserDetail() {
         Back to users
       </button>
 
-      {referencedRequest && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3">
-          <p className="text-sm text-blue-800">
-            Working in reference to{' '}
-            <span className="font-semibold">{referencedRequest}</span> — every action here will cite
-            it.
-          </p>
-          <button
-            type="button"
-            onClick={() => navigate(`/msp/requests/${referencedRequest}`)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-white px-4 py-2 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-50"
-          >
-            Back to the request
-          </button>
-        </div>
-      )}
+      <UserIdentityCard
+        detail={data}
+        isAdmin={isAdmin}
+        onEdit={() => setEditing(true)}
+        onDelete={() => setDeleting(true)}
+        onNewRequest={() => ask({ client_user: user.name })}
+      />
 
-      <div className="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <span className="min-w-0">
-                <h1 className="text-lg font-bold text-slate-900">{user.full_name}</h1>
-                {user.email && (
-                  <p className="mt-0.5 text-sm text-slate-400">{user.email}</p>
-                )}
-              </span>
-              <StatusBadge value={user.lifecycle_status} />
-              <button
-                type="button"
-                onClick={() => setEditingUser(true)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
-              >
-                <Pencil size={13} />
-                Edit details
-              </button>
-              {isAdmin && (
-                <button
-                  type="button"
-                  onClick={() => setDeleting(true)}
-                  disabled={!user.can_delete}
-                  title={
-                    user.can_delete
-                      ? 'Erase this person'
-                      : `Cannot be deleted: ${user.delete_blockers.join(', ')}`
-                  }
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-2.5 py-2.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
-                >
-                  <Trash2 size={13} />
-                  Delete
-                </button>
-              )}
-            </div>
+      <UserAttentionPanel signals={data.attention} />
 
-            <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-4">
-              <div>
-                <p className="text-xs font-medium text-slate-400">Username</p>
-                <p className="mt-0.5 text-sm text-slate-700">
-                  {user.username || <span className="text-amber-600">Not recorded</span>}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs font-medium text-slate-400">Email</p>
-                <p className="mt-0.5 text-sm text-slate-700">{user.email}</p>
-              </div>
-              <div>
-                <p className="text-xs font-medium text-slate-400">Customer</p>
-                <p className="mt-0.5 text-sm text-slate-700">{user.customer}</p>
-              </div>
-              <div>
-                <p className="text-xs font-medium text-slate-400">Department</p>
-                <p className="mt-0.5 text-sm text-slate-700">{user.department || 'N/A'}</p>
-              </div>
-              <div>
-                <p className="text-xs font-medium text-slate-400">In service since</p>
-                <p className="mt-0.5 text-sm text-slate-700">{fmtDate(user.start_date)}</p>
-              </div>
-              <div>
-                <p className="text-xs font-medium text-slate-400">Billed up to</p>
-                <p className="mt-0.5 text-sm text-slate-700">
-                  {user.covered_until ? fmtDate(user.covered_until) : 'Never billed'}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs font-medium text-slate-400">Last billed on</p>
-                <p className="mt-0.5 text-sm text-slate-700">
-                  {user.last_billed_on ? fmtDate(user.last_billed_on) : 'Never'}
-                </p>
-              </div>
-            </div>
-
-          </div>
-        </div>
-      </div>
-
-      <Panel title="Remarks">
-        <RemarkLog
-          entries={user.remark_log}
-          target={{ doctype: 'MSP Client User', name: user.name }}
-          invalidate={userKeys.detail(user.name)}
-        />
-      </Panel>
+      <UserOpenRequests requests={data.open_requests} onOpen={openRequest} />
 
       <Panel
-        title="Personal services"
+        title={`Personal services · ${data.summary.active_personal_services} open`}
         action={
           <button
             type="button"
-            onClick={() => setAddServiceOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+            onClick={() => setAddingService(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
           >
-            <Plus size={14} />
+            <Plus size={13} />
             Add service
           </button>
         }
       >
-        {availability.isLoading && (
-          <p className="py-8 text-center text-sm text-slate-500">Loading…</p>
-        )}
-
-        {!!availability.error && (
-          <p className="py-8 text-center text-sm text-red-600">
-            {(availability.error as Error)?.message || 'Failed to read this person’s services.'}
+        {data.personal_services.target_reason && (
+          <p className="mb-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            {data.personal_services.target_reason}
           </p>
         )}
-
-        {availability.data && personalServices.length === 0 && (
-          <p className="py-8 text-center text-sm text-slate-500">
-            No personal service open for {user.full_name}.
-          </p>
-        )}
-
-        <div className="divide-y divide-slate-100">
-          {personalServices.map((entry) => (
-            <ServiceLine key={entry.name} row={toServiceRow(entry)} onAction={setTarget} />
-          ))}
-        </div>
+        <UserServiceList
+          services={data.personal_services.current}
+          available={data.personal_services.available}
+          emptyMessage={`No personal service open for ${user.full_name}.`}
+          onAsk={(service, action) =>
+            ask({
+              client_user: user.name,
+              assignment: service.name,
+              action,
+            })
+          }
+          onAdd={() => setAddingService(true)}
+          onApply={(service, action) => apply(service, action, null)}
+          onOpenRequest={openRequest}
+        />
       </Panel>
 
-      <Panel title="Device services">
-        {heldDevices.length === 0 ? (
-          <p className="py-8 text-center text-sm text-slate-500">
-            <span className="inline-flex items-center gap-1.5">
+      <section>
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+            Current devices
+          </h2>
+          <button
+            type="button"
+            onClick={() => setAddingDevice(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+          >
+            <Plus size={13} />
+            Assign a device
+          </button>
+        </div>
+
+        {data.devices.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center">
+            <p className="inline-flex items-center gap-1.5 text-sm text-slate-500">
               <Laptop size={15} className="text-slate-400" />
-              No device currently held by this user.
-            </span>
-          </p>
+              {user.full_name} currently holds no device.
+            </p>
+            <div className="mt-3 flex flex-wrap justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => setAddingDevice(true)}
+                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+              >
+                Assign a device
+              </button>
+              <button
+                type="button"
+                onClick={() => ask({ client_user: user.name, device: 'new' })}
+                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+              >
+                Request a device
+              </button>
+            </div>
+          </div>
         ) : (
           <div className="space-y-3">
-            {heldDevices.map((device) => (
-              <DeviceServicesCard
-                key={device.name}
-                device={device}
-                holderName={user.full_name}
-                onAddService={() => setDeviceService(device.name)}
-                onAction={setTarget}
+            {data.devices.map((slot) => (
+              <HeldDeviceCard
+                key={slot.device.name}
+                slot={slot}
+                onAsk={(service, action) =>
+                  ask({
+                    client_user: user.name,
+                    device: slot.device.name,
+                    assignment: service.name,
+                    action,
+                  })
+                }
+                onAdd={() => setDeviceService(slot.device.name)}
+                onApply={(service, action) => apply(service, action, slot)}
+                onAddService={() => setDeviceService(slot.device.name)}
+                onOpenRequest={openRequest}
+                onOpenDevice={(device) => navigate(`/msp/devices/${device}`)}
               />
             ))}
           </div>
         )}
-      </Panel>
+      </section>
 
-      <Panel
-        title="Current devices"
-        action={
-          <button
-            type="button"
-            onClick={() => setDeviceOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
-          >
-            <Plus size={14} />
-            Add device
-          </button>
-        }
-      >
-        <table className="w-full">
-          <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
-            <tr>
-              <Th>Hostname</Th>
-              <Th>Type</Th>
-              <Th>Network interfaces</Th>
-              <Th>Serial number</Th>
-              <Th>Assigned</Th>
-              <Th>Status</Th>
-              <Th />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {devices.length === 0 && (
-              <Empty span={7}>
-                <span className="inline-flex items-center gap-1.5">
-                  <Laptop size={15} className="text-slate-400" />
-                  No device currently assigned to this user.
-                </span>
-              </Empty>
-            )}
-            {devices.map((device) => (
-              <tr key={device.name} className="transition-colors hover:bg-slate-50">
-                <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
-                  {device.hostname}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                  {device.device_type}
-                </td>
-                <td className="px-4 py-3">
-                  {device.interfaces?.length ? (
-                    <div className="space-y-1">
-                      {[...device.interfaces]
-                        .sort(
-                          (a, b) =>
-                            INTERFACE_ORDER.indexOf(a.interface_type) -
-                            INTERFACE_ORDER.indexOf(b.interface_type)
-                        )
-                        .map((item) => (
-                          <div
-                            key={`${item.interface_type}-${item.mac_address}`}
-                            className="flex items-baseline gap-3"
-                          >
-                            <span className="w-[5.5rem] shrink-0 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                              {INTERFACE_LABEL[item.interface_type] ?? item.interface_type}
-                            </span>
-                            <span className="font-mono text-xs tracking-tight text-slate-800">
-                              {item.mac_address}
-                            </span>
-                          </div>
-                        ))}
-                    </div>
-                  ) : (
-                    <span className="text-sm text-slate-400">N/A</span>
-                  )}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 text-sm">
-                  {device.serial_number ? (
-                    <span className="font-mono text-xs tracking-tight text-slate-800">
-                      {device.serial_number}
-                    </span>
-                  ) : (
-                    <span className="text-amber-600">Missing</span>
-                  )}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                  {fmtDate(device.held_from ?? device.assigned_date)}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3">
-                  <StatusBadge value={device.status} />
-                  {device.retired_date && (
-                    <p className="mt-1 text-xs text-slate-400">
-                      since {fmtDate(device.retired_date)}
-                    </p>
-                  )}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3">
-                  <div className="flex justify-end">
-                    <RowActionsMenu
-                      actions={[
-                        {
-                          label: 'Add service',
-                          icon: ShieldCheck,
-                          onClick: () => setDeviceService(device.name),
-                          disabled: device.assigned_client_user !== user.name,
-                        },
-                        {
-                          label: 'Manage device',
-                          icon: Laptop,
-                          onClick: () =>
-                            navigate(`/msp/devices?q=${encodeURIComponent(device.hostname)}`),
-                        },
-                      ]}
-                    />
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Panel>
+      <UserHistoryPanel name={user.name} recent={data.recent_activity} />
 
-      <Panel title="Previous devices">
-        <table className="w-full">
-          <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
-            <tr>
-              <Th>Hostname</Th>
-              <Th>Type</Th>
-              <Th>Held from</Th>
-              <Th>Held until</Th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {deviceHistory.filter((item) => !item.is_current).length === 0 && (
-              <Empty span={4}>No previous device assignment.</Empty>
-            )}
-            {deviceHistory
-              .filter((item) => !item.is_current)
-              .map((item) => (
-                <tr key={item.holder_record} className="transition-colors hover:bg-slate-50">
-                  <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
-                    {item.hostname}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                    {item.device_type}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                    {fmtDate(item.held_from)}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                    {fmtDate(item.held_until)}
-                  </td>
-                </tr>
-              ))}
-          </tbody>
-        </table>
-      </Panel>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Panel title="Billing & coverage">
+          <dl className="grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <dt className="text-xs text-slate-400">Billed up to</dt>
+              <dd className="text-slate-700">{fmtDate(data.billing.covered_until)}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-slate-400">Last billed on</dt>
+              <dd className="text-slate-700">{fmtDate(data.billing.last_billed_on)}</dd>
+            </div>
+          </dl>
+        </Panel>
 
-      <Panel title="Request history">
-        <table className="w-full">
-          <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
-            <tr>
-              <Th>Request</Th>
-              <Th>Type</Th>
-              <Th>Priority</Th>
-              <Th>Raised</Th>
-              <Th>Status</Th>
-              <Th />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {requests.length === 0 && <Empty span={6}>No request for this user yet.</Empty>}
-            {requests.map((row) => (
-              <tr
-                key={row.name}
-                onClick={() => navigate(`/msp/requests/${row.name}`)}
-                className="cursor-pointer transition-colors hover:bg-slate-50"
-              >
-                <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
-                  {row.name}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3">
-                  <StatusBadge value={row.request_type} />
-                </td>
-                <td className="whitespace-nowrap px-4 py-3">
-                  <StatusBadge value={row.priority} />
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                  {fmtDate(row.creation)}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3">
-                  <StatusBadge value={row.status} />
-                </td>
-                <td className="whitespace-nowrap px-4 py-3">
-                  <div className="flex justify-end">
-                    <RowActionsMenu
-                      actions={[
-                        {
-                          label: 'View request',
-                          icon: Eye,
-                          onClick: () => navigate(`/msp/requests/${row.name}`),
-                        },
-                      ]}
-                    />
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Panel>
+        <Panel title="Internal notes">
+          <RemarkLog
+            entries={data.notes.log}
+            target={{ doctype: 'MSP Client User', name: user.name }}
+            invalidate={userKeys.detail(user.name)}
+          />
+        </Panel>
+      </div>
+
+      <AddUserServiceModal
+        open={addingService}
+        user={user}
+        requests={customerRequests.data ?? []}
+        onClose={() => setAddingService(false)}
+      />
 
       <DeviceServiceModal device={deviceService} onClose={() => setDeviceService(null)} />
 
-      <EditClientUserModal
-        open={editingUser}
-        user={user}
-        onClose={() => setEditingUser(false)}
-      />
-
       <AddDeviceModal
-        open={deviceOpen}
+        open={addingDevice}
         clientUser={user.name}
         userName={user.full_name}
         customer={user.customer}
-        deviceTypes={device_types}
-        interfaceTypes={interface_types}
-        requests={detail.data.customer_requests}
-        defaultRequest={referencedRequest}
-        onClose={() => setDeviceOpen(false)}
+        deviceTypes={deviceOptions.data?.device_types ?? []}
+        interfaceTypes={deviceOptions.data?.interface_types ?? []}
+        requests={customerRequests.data ?? []}
+        onClose={() => setAddingDevice(false)}
       />
+
+      <ServiceActionModal
+        clientUser={user.name}
+        target={
+          applying
+            ? {
+                row: {
+                  name: applying.service.name,
+                  service_item: applying.service.service_item,
+                  service_name: applying.service.service_name,
+                  assignment_scope: applying.device ? 'Device' : 'User',
+                  managed_device: applying.device?.device.name ?? null,
+                  hostname: applying.device?.device.hostname ?? null,
+                  operational_status: applying.service.operational_status,
+                  billing_status: applying.service.billing_status ?? '',
+                  effective_start_date: applying.service.effective_start_date,
+                  effective_end_date: applying.service.effective_end_date,
+                  source_request: applying.service.source_request,
+                  device_serial_number: applying.device?.device.serial_number ?? null,
+                  device_user_name: user.full_name,
+                },
+                action: applying.action,
+              }
+            : null
+        }
+        requests={customerRequests.data ?? []}
+        onClose={() => setApplying(null)}
+      />
+
+      <EditClientUserModal open={editing} user={user} onClose={() => setEditing(false)} />
 
       <ConfirmModal
         open={deleting}
-        tone="danger"
         title={`Delete ${user.full_name}?`}
-        description="They carry nothing — no service, no device, no request, no billed line. This cannot be undone."
+        description="This erases the person and everything recorded against them. It cannot be undone."
         confirmLabel="Delete"
+        tone="danger"
         loading={remove.isLoading}
+        error={(remove.error as Error)?.message}
         onCancel={() => setDeleting(false)}
         onConfirm={async () => {
           await remove.mutateAsync(user.name);
           navigate('/msp/users');
         }}
-      />
-
-      <AddUserServiceModal
-        open={addServiceOpen}
-        user={user}
-        requests={detail.data.customer_requests}
-        defaultRequest={referencedRequest}
-        onClose={() => setAddServiceOpen(false)}
-      />
-
-      <ServiceActionModal
-        clientUser={user.name}
-        target={target}
-        requests={detail.data.customer_requests}
-        defaultRequest={referencedRequest}
-        onClose={() => setTarget(null)}
       />
     </div>
   );

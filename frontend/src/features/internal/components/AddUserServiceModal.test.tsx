@@ -25,13 +25,6 @@ const user: UserDetail['user'] = {
   lifecycle_status: 'Active',
   start_date: '2024-01-01',
   disabled_date: null,
-  portal_user: null,
-  remarks: null,
-  remark_log: [],
-  covered_until: null,
-  last_billed_on: null,
-  can_delete: false,
-  delete_blockers: [],
 };
 
 const availability = (overrides: Partial<ServiceAvailability> = {}): ServiceAvailability => ({
@@ -49,16 +42,9 @@ const renderModal = async (
   overrides: Partial<ComponentProps<typeof AddUserServiceModal>> = {}
 ) => {
   vi.mocked(internal.userServiceAvailability).mockResolvedValue(data);
-  vi.mocked(internal.assignUserService).mockResolvedValue({
-    user,
-    devices: [],
-    services: [],
-    requests: [],
-    customer_requests: [],
-    device_types: [],
-    interface_types: [],
-    catalogue: [],
-  });
+  vi.mocked(internal.assignUserService).mockResolvedValue(
+    {} as unknown as Awaited<ReturnType<typeof internal.assignUserService>>
+  );
 
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },

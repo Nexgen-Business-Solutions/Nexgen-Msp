@@ -441,6 +441,11 @@ export type UserRow = {
   device_type: string | null;
   active_services: number;
   inactive_services: number;
+  personal_services: number;
+  device_services: number;
+  current_devices: number;
+  open_requests: number;
+  needs_attention: number;
 };
 
 export type UserDevice = {
@@ -497,6 +502,76 @@ export type RemarkEntry = {
   idx: number;
 };
 
+export type UserServiceEntry = {
+  name: string;
+  service_item: string;
+  service_name: string;
+  operational_status: string;
+  billing_status: string | null;
+  quantity: number | null;
+  effective_start_date: string | null;
+  effective_end_date: string | null;
+  source_request: string | null;
+  allowed_actions: string[];
+  pending_request: string | null;
+};
+
+export type ServiceOffer = {
+  service_item: string;
+  item_name: string;
+  service_scope: string;
+  reason?: string;
+};
+
+export type HeldDevice = {
+  device: {
+    name: string;
+    hostname: string;
+    device_type: string | null;
+    status: string;
+    serial_number: string | null;
+    in_service_since: string | null;
+  };
+  holder_since: string | null;
+  interfaces: DeviceInterface[];
+  services: { current: UserServiceEntry[]; available: ServiceOffer[] };
+};
+
+export type AttentionSignal = {
+  code: string;
+  severity: 'warning' | 'info';
+  entity_type: 'User' | 'Device' | 'Request';
+  entity: string;
+  message: string;
+};
+
+export type UserOpenRequest = {
+  name: string;
+  status: string;
+  priority: string;
+  request_type: string;
+  creation: string;
+  modified: string;
+  lines: {
+    idx: number;
+    action: string;
+    service_name: string;
+    line_status: string;
+    hostname: string | null;
+  }[];
+  work_total: number;
+  work_done: number;
+  technician: string | null;
+};
+
+export type UserActivityEvent = {
+  on: string;
+  kind: 'device' | 'service' | 'device-service' | 'request';
+  entity: string;
+  what: string;
+  via?: string | null;
+};
+
 export type UserDetail = {
   user: {
     name: string;
@@ -508,25 +583,45 @@ export type UserDetail = {
     lifecycle_status: string;
     start_date: string | null;
     disabled_date: string | null;
-    portal_user: string | null;
-    remarks: string | null;
-    remark_log: RemarkEntry[];
-    covered_until: string | null;
-    last_billed_on: string | null;
-    can_delete: boolean;
-    delete_blockers: string[];
+    portal_access?: boolean;
   };
-  devices: UserDevice[];
-  current_devices?: UserDevice[];
-  device_history?: UserDeviceHistory[];
-  services: UserServiceRow[];
-  user_services?: UserServiceRow[];
-  device_services?: { device: UserDevice; services: UserServiceRow[] }[];
-  requests: { name: string; status: string; priority: string; request_type: string; creation: string }[];
-  customer_requests: CustomerRequestRef[];
-  device_types: string[];
-  interface_types: string[];
-  catalogue: { name: string; item_name: string; scope: string }[];
+  summary: {
+    current_devices: number;
+    active_personal_services: number;
+    active_device_services: number;
+    open_requests: number;
+    attention_count: number;
+  };
+  personal_services: {
+    current: UserServiceEntry[];
+    available: ServiceOffer[];
+    blocked: ServiceOffer[];
+    target_reason: string | null;
+  };
+  devices: HeldDevice[];
+  open_requests: UserOpenRequest[];
+  attention: AttentionSignal[];
+  recent_activity: UserActivityEvent[];
+  can_delete: boolean;
+  delete_blockers: string[];
+  billing: { covered_until: string | null; last_billed_on: string | null };
+  notes: { latest: RemarkEntry | null; count: number; log: RemarkEntry[] };
+};
+
+export type UserHistory = {
+  past_devices: {
+    period: string;
+    name: string;
+    hostname: string;
+    device_type: string | null;
+    serial_number: string | null;
+    status: string;
+    held_from: string | null;
+    held_until: string | null;
+  }[];
+  past_personal_services: UserServiceEntry[];
+  past_requests: UserOpenRequest[];
+  activity: UserActivityEvent[];
 };
 
 export type DeviceDetail = {
@@ -604,6 +699,12 @@ export const listUsers = (params: UserListParams = {}, signal?: AbortSignal) =>
 
 export const getUser = (name: string, signal?: AbortSignal) =>
   get<UserDetail>(`${BASE}.get_user`, { name }, signal);
+
+export const getUserHistory = (name: string, limit?: number, signal?: AbortSignal) =>
+  get<UserHistory>(`${BASE}.get_user_history`, { name, limit }, signal);
+
+export const listCustomerRequests = (customer: string, signal?: AbortSignal) =>
+  get<CustomerRequestRef[]>(`${BASE}.list_customer_requests`, { customer }, signal);
 
 export const deleteClientUser = (name: string) =>
   post<{ deleted: string }>(`${BASE}.delete_client_user`, { name });
@@ -1119,6 +1220,7 @@ export type DeviceFilterOptions = {
   device_types: string[];
   statuses: string[];
   coverage: string[];
+  interface_types: string[];
 };
 
 export type DeviceStats = {

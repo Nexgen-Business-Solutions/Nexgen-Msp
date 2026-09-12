@@ -6,11 +6,17 @@ import KpiCard from '@/shared/components/KpiCard';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import TablePagination from '@/shared/components/TablePagination';
 import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
+import StatusBadge from '@/shared/components/StatusBadge';
 import NewUserModal from '../components/NewUserModal';
 import { useUserFilterOptions, useUserFilters, useUserList, useUserStats } from '../hooks/useUsers';
 
 const COVERAGE_OPTIONS = [
   { value: 'no_device', label: 'No device', description: 'Active users with no active device' },
+  {
+    value: 'no_personal_service',
+    label: 'No personal service',
+    description: 'Active users holding nothing of their own',
+  },
   {
     value: 'no_service',
     label: 'Device without services',
@@ -21,9 +27,29 @@ const COVERAGE_OPTIONS = [
     label: 'Disabled with open services',
     description: 'Offboarding never completed',
   },
+  {
+    value: 'open_requests',
+    label: 'Open requests',
+    description: 'Somebody is already working on them',
+  },
+  {
+    value: 'needs_attention',
+    label: 'Needs attention',
+    description: 'A missing serial, a missing account name, or an unfinished offboarding',
+  },
 ];
 
-const COLUMNS = ['User', 'Department', 'Customer', 'Device', 'Active services', 'Inactive services', ''];
+// what is theirs and what their machines carry are counted apart: they are owned apart
+const COLUMNS = [
+  'User',
+  'Department',
+  'Status',
+  'Devices',
+  'Personal services',
+  'Device services',
+  'Open requests',
+  '',
+];
 
 export default function UsersList() {
   const navigate = useNavigate();
@@ -218,8 +244,19 @@ export default function UsersList() {
                     <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
                       {row.department || 'N/A'}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                      {row.customer}
+                    <td className="whitespace-nowrap px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <StatusBadge value={row.lifecycle_status} />
+                        {Boolean(row.needs_attention) && (
+                          <span
+                            title="Something on this person needs looking at"
+                            className="inline-flex items-center gap-1 rounded-lg bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700"
+                          >
+                            <ShieldAlert size={12} />
+                            Attention
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="max-w-[14rem] px-4 py-3">
                       {row.hostnames ? (
@@ -232,22 +269,28 @@ export default function UsersList() {
                           )}
                         </>
                       ) : (
-                        <span className="text-sm text-slate-400">N/A</span>
+                        <span className="text-sm text-slate-400">None</span>
                       )}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3">
                       <span className="inline-flex min-w-[2rem] justify-center rounded-lg bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 tabular-nums">
-                        {row.active_services}
+                        {row.personal_services}
+                      </span>
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3">
+                      <span className="inline-flex min-w-[2rem] justify-center rounded-lg bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600 tabular-nums">
+                        {row.device_services}
                       </span>
                     </td>
                     <td className="whitespace-nowrap px-4 py-3">
                       <span
-                        className={`inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-1 text-xs font-semibold tabular-nums ${row.inactive_services
-                            ? 'bg-slate-100 text-slate-600'
+                        className={`inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-1 text-xs font-semibold tabular-nums ${
+                          row.open_requests
+                            ? 'bg-blue-50 text-blue-700'
                             : 'bg-transparent text-slate-300'
-                          }`}
+                        }`}
                       >
-                        {row.inactive_services}
+                        {row.open_requests}
                       </span>
                     </td>
                     <td className="whitespace-nowrap px-4 py-3">

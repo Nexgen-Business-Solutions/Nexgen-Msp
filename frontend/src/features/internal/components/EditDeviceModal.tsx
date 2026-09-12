@@ -18,12 +18,6 @@ type Props = {
   onClose: () => void;
 };
 
-const INTERFACE_LABEL: Record<string, string> = {
-  'Wi-Fi': 'MAC WIFI',
-  LAN: 'MAC LAN',
-  Extra: 'EXTRA MAC',
-  Other: 'OTHER MAC',
-};
 
 const INTERFACE_TYPES = ['Wi-Fi', 'LAN', 'Extra', 'Other'];
 
@@ -208,22 +202,29 @@ const EditDeviceModal: React.FC<Props> = ({ device, onClose }) => {
             </p>
           ) : (
             <div className="space-y-2">
+              <datalist id="interface-labels">
+                {INTERFACE_TYPES.map((type) => (
+                  <option key={type} value={type} />
+                ))}
+              </datalist>
               {interfaces.map((item, position) => (
                 <div key={position} className="flex items-center gap-2">
-                  <Select
-                    className="w-36 shrink-0"
+                  {/* whatever the technician needs to write down: they name it themselves */}
+                  <input
+                    type="text"
+                    list="interface-labels"
                     value={item.interface_type}
-                    onChange={(value) => change(position, { interface_type: value })}
-                    options={INTERFACE_TYPES.map((type) => ({
-                      value: type,
-                      label: INTERFACE_LABEL[type] ?? type,
-                    }))}
+                    onChange={(event) => change(position, { interface_type: event.target.value })}
+                    placeholder="Wi-Fi"
+                    aria-label="Interface"
+                    className={`${inputClass} w-36 shrink-0`}
                   />
                   <input
                     type="text"
                     value={item.mac_address}
                     onChange={(event) => change(position, { mac_address: event.target.value })}
                     placeholder="AA-BB-CC-DD-EE-FF"
+                    aria-label="Value"
                     className={`${inputClass} font-mono uppercase`}
                   />
                   <button
