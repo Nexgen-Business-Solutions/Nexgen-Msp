@@ -119,7 +119,7 @@ const subjectContext: portal.RequestSubjectContext = {
   ],
 };
 
-const renderPage = async () => {
+const renderPage = async (context: portal.RequestSubjectContext = subjectContext) => {
   vi.mocked(portal.getMyApprovalRights).mockResolvedValue({
     customer: 'ACME',
     has_authority: false,
@@ -129,7 +129,7 @@ const renderPage = async () => {
     awaiting: 0,
   } as unknown as Awaited<ReturnType<typeof portal.getMyApprovalRights>>);
   vi.mocked(portal.searchRequestUsers).mockResolvedValue([john]);
-  vi.mocked(portal.getRequestSubjectContext).mockResolvedValue(subjectContext);
+  vi.mocked(portal.getRequestSubjectContext).mockResolvedValue(context);
   vi.mocked(portal.getNewUserRequestContext).mockResolvedValue({
     customer: 'ACME',
     departments: [{ value: 'Human Resources', label: 'Human Resources' }],
@@ -479,5 +479,60 @@ describe('picking up what was put aside', () => {
       await screen.findByText(/no longer available because Adobe Acrobat is now active/i)
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /remove it/i })).toBeInTheDocument();
+  });
+});
+
+describe('what the screen must never hide', () => {
+  it('says when a service is already being changed, and offers nothing further', async () => {
+    await renderPage({
+      ...subjectContext,
+      personal_services: {
+        current: [
+          {
+            ...subjectContext.personal_services.current[0],
+            pending_request: 'SR-2026-0014',
+            allowed_request_actions: [],
+          },
+        ],
+        available: [],
+      },
+      devices: [],
+    });
+    await goToChanges();
+
+    expect(await screen.findByText(/already requested — SR-2026-0014/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Temporarily suspend' })).not.toBeInTheDocument();
+  });
+
+  it('gives every machine its own card, each with its serial', async () => {
+    await renderPage({
+      ...subjectContext,
+      devices: [
+        subjectContext.devices[0],
+        {
+          ...subjectContext.devices[0],
+          name: 'DEV-002',
+          hostname: 'PHONE-JDOE',
+          serial_number: 'IPH92812',
+          device_type: 'Phone',
+          services: { current: [], available: [] },
+        },
+      ],
+    });
+    await goToChanges();
+
+    expect(await screen.findByText('LAPTOP-JDOE')).toBeInTheDocument();
+    expect(screen.getByText(/Serial: ABC-493022/)).toBeInTheDocument();
+    expect(screen.getByText('PHONE-JDOE')).toBeInTheDocument();
+    expect(screen.getByText(/Serial: IPH92812/)).toBeInTheDocument();
+  });
+
+  it('tells a person with no machine that a technician will settle it', async () => {
+    await renderPage({ ...subjectContext, devices: [] });
+    await goToChanges();
+
+    expect(
+      await screen.findByText(/No device currently assigned to John Doe/i)
+    ).toBeInTheDocument();
   });
 });

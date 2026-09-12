@@ -56,15 +56,15 @@ cd apps/nexgen_msp/frontend && yarn build && yarn lint && yarn test
 | 1 | Device Lifecycle & Holder Management | ✅ terminée |
 | 2 | Service Lifecycle & Ownership | ✅ terminée |
 | 2.5 | Global Managed Departments | ✅ terminée |
-| **3** | **Client Request Workflow** | **🔵 en cours** |
-| 4 | Request Technician Workbench & Execution Stepper | ⬜ |
+| 3 | Client Request Workflow | ✅ terminée |
+| **4** | **Request Technician Workbench & Execution Stepper** | **⬜ à faire — prochaine** |
 | 5 | User 360° Operational View | ⬜ |
 | 6 | Settings & Managed References | ⬜ |
 | 7 | Billing Workbench & Flexible Billing | ⬜ |
 | 8 | Cross-System Audit, Migration & E2E | ⬜ |
 | — | Addon Hassan — Customer Management & Security | ⬜ |
 
-Repères actuels : **479 tests backend**, **71 tests frontend**, `pyflakes` et `yarn lint` propres.
+Repères actuels : **480 tests backend**, **76 tests frontend**, `pyflakes` et `yarn lint` propres.
 
 ---
 
@@ -115,7 +115,7 @@ Référentiel **global MSP**, sans lien avec un client.
 - Plus aucun champ texte libre : Réglages, portail, formulaires internes, droits
   d'approbation, import Excel passent tous par le catalogue.
 
-### Phase 3 — Workflow de demande client 🔵
+### Phase 3 — Workflow de demande client ✅
 
 **Invariant de la phase : soumettre une demande ne modifie jamais la réalité opérationnelle.**
 Aucune écriture sur Client User, Managed Device, Device Holder, Service Assignment. Les
@@ -129,7 +129,7 @@ mutations appartiennent à la Phase 4.
 | 4 | Cartes services Current/Available + contexte appareil | ✅ inclus en 3 |
 | 5 | Brouillons / réouverture / correction d'un refus | ✅ 2 tests |
 | 6 | Recherche utilisateur backend | ✅ inclus en 2 |
-| 7 | Tests portail + Vitest de bout en bout | 🔵 **en cours** |
+| 7 | Tests portail + Vitest de bout en bout | ✅ §58 et §59 couverts |
 
 **Déjà en place :**
 
@@ -151,7 +151,7 @@ Réouverture d'un brouillon et correction d'un refus : les sujets et intentions 
 reconstruits depuis les lignes, et tout élément que le monde a dépassé est signalé avec la
 raison exacte (§33, §49, §50).
 
-**Reste à faire :** la passe finale de tests portail (§58 restants, §59).
+Les 30 scénarios backend de §58 et la liste frontend de §59 sont couverts.
 
 ---
 
@@ -163,5 +163,6 @@ raison exacte (§33, §49, §50).
 | 2026-09-11 | agent principal | Phase 2.5 terminée (`after phase 2.5 done`). Correction d'une fuite de départements de test dans le catalogue réel. |
 | 2026-09-12 | second agent | Extension Phase 2.5 : renommage propagé, département obligatoire pour un nouvel utilisateur. |
 | 2026-09-12 | agent principal | Phase 3 tâche 1 (`after phase 3 request intents`) puis tâches 2–4 et 6 (`after phase 3 request builder`). |
+| 2026-09-12 | agent principal | Phase 3 terminée : brouillons/corrections et couverture §58–§59 (`after phase 3 done`). |
 
 > Ajoute ta ligne ici quand tu termines quelque chose.

@@ -478,3 +478,26 @@ class TestWhoMayAgreeToWhat(RequestIntentCase):
         )
 
         self.assertFalse(self.can_decide(name), "one line outside their scope is enough")
+
+
+class TestADraftIsNobodyElsesBusiness(RequestIntentCase):
+    """§58-18: what one person put aside must not stand in another's way."""
+
+    def test_one_persons_draft_does_not_block_another_persons_request(self):
+        service = self.offering("OTHERS")
+        other = self.make_account(
+            "customer", "MSP Customer Manager", self.customer, suffix=f"ro{self.tag[:3]}"
+        )
+        self.grant(other, can_submit=1, can_approve=0)
+
+        draft = self.as_user(
+            self.asker,
+            lambda: PortalService.save_draft(
+                customer=self.customer, request_type="Add", lines=[self.line(service)]
+            ),
+        )
+        self.track("MSP Service Request", draft["name"])
+
+        name = self.raise_request(self.line(service), asker=other)
+
+        self.assertEqual(self.lines_of(name)[0].requested_service, service)
