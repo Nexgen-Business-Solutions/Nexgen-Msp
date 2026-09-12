@@ -54,13 +54,22 @@ class MSPClientUser(Document):
 			)
 
 	def validate_department(self):
+		"""A new choice comes from the live catalogue; a department already borne is kept.
+
+		A request approved last month named a department that has since been retired. That
+		is not a reason to refuse the person it asked for: the choice was valid when it was
+		made, and whoever carries the work out is told so rather than blocked.
+		"""
 		from nexgen_msp.api.internal.services.department_service import DepartmentService
 
 		if self.department:
 			previous = self.get_doc_before_save()
 			unchanged = bool(previous and previous.customer == self.customer and
 				DepartmentService._normalized(previous.department) == DepartmentService._normalized(self.department))
-			self.department = DepartmentService.validate_department(self.department, allow_disabled=unchanged)
+			settled = bool(self.flags.department_already_agreed)
+			self.department = DepartmentService.validate_department(
+				self.department, allow_disabled=unchanged or settled
+			)
 
 	def prevent_delete_with_history(self):
 		for doctype in LINKED_DOCTYPES:

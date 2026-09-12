@@ -162,3 +162,78 @@ describe('Settings — Departments', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 });
+
+describe('Settings — Request actions', () => {
+  const action = (overrides: Partial<RequestActionRow> = {}): RequestActionRow => ({
+    name: 'Grant a service',
+    title: 'Grant a service',
+    action_type: 'Add',
+    description: null,
+    enabled: 1,
+    sort_order: 10,
+    used: 0,
+    ...overrides,
+  });
+
+  const renderActions = async (rows: RequestActionRow[]) => {
+    vi.mocked(internal.getInvoiceSettings).mockResolvedValue(invoiceSettings);
+    vi.mocked(internal.getInvoiceDimensions).mockResolvedValue([]);
+    vi.mocked(internal.getSettingsOptions).mockResolvedValue(settingsOptions);
+    vi.mocked(internal.listDepartments).mockResolvedValue([]);
+    vi.mocked(internal.listRequestActions).mockResolvedValue(rows);
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={client}>
+        <Settings />
+      </QueryClientProvider>
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: /request actions/i }));
+  };
+
+  it('shows the order an administrator settled, not the alphabet', async () => {
+    await renderActions([action(), action({ name: 'Close', title: 'Close', action_type: 'Remove', sort_order: 50 })]);
+
+    expect(await screen.findByText('Grant a service')).toBeInTheDocument();
+    expect(screen.getByText('10')).toBeInTheDocument();
+    expect(screen.getByText('50')).toBeInTheDocument();
+  });
+
+  it('lets an unused action be re-pointed at another act', async () => {
+    await renderActions([action({ used: 0 })]);
+
+    fireEvent.click(await screen.findByTitle('More options'));
+    fireEvent.click(await screen.findByRole('button', { name: /edit action/i }));
+
+    const dialog = await screen.findByRole('dialog');
+
+    expect(within(dialog).getByText(/action type/i)).toBeInTheDocument();
+    expect(
+      within(dialog).queryByText(/can no longer be changed/i)
+    ).not.toBeInTheDocument();
+  });
+
+  it('settles what a used action does, and says why', async () => {
+    await renderActions([action({ used: 12 })]);
+
+    fireEvent.click(await screen.findByTitle('More options'));
+    fireEvent.click(await screen.findByRole('button', { name: /edit action/i }));
+
+    const dialog = await screen.findByRole('dialog');
+
+    expect(within(dialog).getByText(/can no longer be changed/i)).toBeInTheDocument();
+  });
+
+  it('does not offer to delete an action customers have already used', async () => {
+    await renderActions([action({ used: 12 })]);
+
+    fireEvent.click(await screen.findByTitle('More options'));
+    await screen.findByRole('button', { name: /edit action/i });
+
+    expect(screen.queryByRole('button', { name: /delete action/i })).not.toBeInTheDocument();
+  });
+});

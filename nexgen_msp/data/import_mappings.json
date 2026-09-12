@@ -3,50 +3,42 @@
   {
    "excel_label": "sonecomx",
    "customer_id": "SUPPLY SOLUTIONS WEST AFRICA LIMITED - SX",
-   "create_as": null,
-   "department_prefix": null
+   "create_as": null
   },
   {
    "excel_label": "SICG",
    "customer_id": "SUPPLY SOLUTIONS WEST AFRICA LIMITED - SICG",
-   "create_as": null,
-   "department_prefix": null
+   "create_as": null
   },
   {
    "excel_label": "kakivu",
    "customer_id": "Kakivu Mousse USD",
-   "create_as": null,
-   "department_prefix": null
+   "create_as": null
   },
   {
    "excel_label": "Avittal",
    "customer_id": "Kakivu Mousse USD",
-   "create_as": null,
-   "department_prefix": "Avittal"
+   "create_as": null
   },
   {
    "excel_label": "ACI",
    "customer_id": "Assurances Cameroun International (ACI)",
-   "create_as": null,
-   "department_prefix": null
+   "create_as": null
   },
   {
    "excel_label": "Miral",
    "customer_id": "Miral Construction",
-   "create_as": null,
-   "department_prefix": null
+   "create_as": null
   },
   {
    "excel_label": "nexgen",
    "customer_id": "Nexgen Business Solutions",
-   "create_as": "Nexgen Business Solutions",
-   "department_prefix": null
+   "create_as": "Nexgen Business Solutions"
   },
   {
    "excel_label": "Clever Pays",
    "customer_id": "Clever Pays",
-   "create_as": "Clever Pays",
-   "department_prefix": null
+   "create_as": "Clever Pays"
   }
  ],
  "service_mappings": [

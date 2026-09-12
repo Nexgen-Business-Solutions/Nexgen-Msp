@@ -264,9 +264,14 @@ class RequestBuilderService:
         if not action_types:
             return []
 
-        return frappe.get_all(
-            "MSP Request Action",
-            filters={"enabled": 1, "action_type": ("in", list(action_types))},
-            fields=["name", "title", "action_type", "description"],
-            order_by="title asc",
+        # in the order an administrator settled, not the alphabet
+        return frappe.db.sql(
+            """
+            select name, title, action_type, description
+            from `tabMSP Request Action`
+            where enabled = 1 and action_type in %(types)s
+            order by ifnull(sort_order, 9999) asc, title asc
+            """,
+            {"types": tuple(action_types)},
+            as_dict=True,
         )

@@ -64,6 +64,14 @@ class DepartmentService:
             """
             select
                 d.name, d.department_name, d.enabled, d.description, d.sort_order, d.customer,
+                (select count(*) from `tabMSP Client User` cu
+                    where lower(trim(cu.department)) = lower(trim(d.department_name))) as users,
+                (select count(*) from `tabMSP Approver` a
+                    where lower(trim(a.department)) = lower(trim(d.department_name))) as approvers,
+                (select count(*) from `tabMSP Service Request Line` srl
+                    join `tabMSP Service Request` sr on sr.name = srl.parent
+                    where lower(trim(srl.new_user_department)) = lower(trim(d.department_name))
+                      and sr.status not in %(closed)s) as open_requests,
                 (
                     (select count(*) from `tabMSP Client User` cu
                         where lower(trim(cu.department)) = lower(trim(d.department_name)))
@@ -239,6 +247,34 @@ class DepartmentService:
             raise ValidationError(f"Department '{row.department_name}' is disabled.", "VALIDATION_ERROR")
 
         return row.department_name
+
+    @staticmethod
+    def resolve_department(department, *, required=False):
+        """What a spreadsheet wrote, matched against the catalogue and never added to it.
+
+        Casing and stray spaces are the file's business, not a new department: "accounting"
+        is Accounting. A word the catalogue has never heard of is refused rather than
+        invented — "HR" is not Human Resources unless somebody says so, and only an
+        administrator can say so.
+        """
+        written = " ".join((department or "").strip().split())
+
+        if not written:
+            if required:
+                raise ValidationError("A department is required.", "VALIDATION_ERROR")
+
+            return None
+
+        name = DepartmentService._find_by_name(written)
+
+        if not name:
+            raise ValidationError(
+                f"Unknown department '{written}'. Create it in Settings before importing "
+                "this user.",
+                "UNKNOWN_DEPARTMENT",
+            )
+
+        return frappe.db.get_value(DOCTYPE, name, "department_name")
 
     @staticmethod
     def ensure_unused(department_name):

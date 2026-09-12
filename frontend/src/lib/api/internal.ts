@@ -170,6 +170,7 @@ export type WorkPersonCard = {
   name: string | null;
   full_name: string | null;
   department: string | null;
+  department_retired?: boolean;
   email: string | null;
   username: string | null;
   lifecycle_status: string | null;
@@ -1881,6 +1882,7 @@ export type RequestActionRow = {
   action_type: string;
   description: string | null;
   enabled: number;
+  sort_order: number | null;
   used: number;
 };
 
@@ -1910,7 +1912,11 @@ export type DepartmentRow = {
   enabled: number;
   description: string | null;
   sort_order: number | null;
+  customer?: string | null;
   used?: number;
+  users?: number;
+  approvers?: number;
+  open_requests?: number;
 };
 
 export type DepartmentOption = { value: string; label: string };
@@ -2004,7 +2010,6 @@ export type CustomerMapping = {
   excel_label: string;
   customer_id: string;
   create_as: string | null;
-  department_prefix: string | null;
   exists?: boolean;
 };
 

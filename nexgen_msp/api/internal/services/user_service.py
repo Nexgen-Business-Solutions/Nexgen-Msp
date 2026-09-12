@@ -645,6 +645,7 @@ class UserService:
         remarks=None,
         source_request=None,
         request_line=None,
+        department_already_agreed=False,
     ):
         """Create the person a request asked for, and tie the line back to them."""
         RequestService._guard_internal()
@@ -677,7 +678,12 @@ class UserService:
                 "portal_visible": 1,
                 "remarks": remarks or None,
             }
-        ).insert()
+        )
+
+        # the department was agreed when the request was approved; retiring it since is not
+        # a reason to refuse the person that request asked for
+        doc.flags.department_already_agreed = bool(department_already_agreed)
+        doc.insert()
 
         if source_request and request_line:
             request = frappe.get_doc("MSP Service Request", source_request)

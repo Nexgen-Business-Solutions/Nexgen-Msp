@@ -2285,16 +2285,17 @@ class PortalService:
         A brand new person has nothing to change, suspend or remove, so only the actions
         that grant something make sense for them.
         """
-        filters = {"enabled": 1}
+        only_add = " and action_type = 'Add'" if frappe.utils.cint(for_new_user) else ""
 
-        if frappe.utils.cint(for_new_user):
-            filters["action_type"] = "Add"
-
-        return frappe.get_all(
-            "MSP Request Action",
-            filters=filters,
-            fields=["name", "title", "action_type", "description"],
-            order_by="action_type asc, title asc",
+        # in the order an administrator settled, not the alphabet
+        return frappe.db.sql(
+            f"""
+            select name, title, action_type, description
+            from `tabMSP Request Action`
+            where enabled = 1{only_add}
+            order by ifnull(sort_order, 9999) asc, title asc
+            """,
+            as_dict=True,
         )
 
     @staticmethod

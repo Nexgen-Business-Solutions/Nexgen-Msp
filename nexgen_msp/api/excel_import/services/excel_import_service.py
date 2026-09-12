@@ -78,6 +78,9 @@ class ExcelImportService:
                 "assignments_existing": 0,
                 "invalid_macs": 0,
                 "inconsistent_dates": 0,
+                # a legacy sheet with an empty column: the person is imported without one,
+                # and the figure says how many so nobody discovers it months later
+                "users_without_department": 0,
             },
             "exceptions": [],
         }
@@ -123,9 +126,8 @@ class ExcelImportService:
 
                 try:
                     customer = customers.get(record["company"].lower())
-                    prefix = customer_map[record["company"].lower()].department_prefix
                     client_user = ExcelImportService._create_client_user(
-                        record, customer, report, prefix
+                        record, customer, report
                     )
                     device = ExcelImportService._create_device(
                         record, customer, client_user, hostname_seen, report
@@ -341,37 +343,29 @@ class ExcelImportService:
         return None
 
     @staticmethod
-    def _department(record, prefix):
-        """Return the spreadsheet value unchanged: departments are global catalogue values.
+    def _department(record, report):
+        """What the sheet wrote, matched against the catalogue and never added to it.
 
-        ``prefix`` remains accepted for backward-compatible saved mappings but no longer
-        changes department identity.
+        One company's "Accounting" and another's are the same department: there is one
+        catalogue and the file only has to name it, whatever its casing. A word nobody has
+        configured refuses the row rather than quietly creating a thirteenth department.
         """
-        return (record["department"] or "").strip() or None
-
-    @staticmethod
-    def _validated_department(department):
-        """The catalogue never gains a new entry silently: an unknown department refuses
-        the row instead, naming exactly what to add in Settings first."""
         from nexgen_msp.api.internal.services.department_service import DepartmentService
 
-        try:
-            return DepartmentService.validate_department(department)
-        except (ValidationError, NotFoundError):
-            raise ValidationError(
-                f'Department "{department}" is not configured.\n'
-                "Create it in Settings before importing this user.",
-                "VALIDATION_ERROR",
-            )
+        written = (record["department"] or "").strip()
+
+        if not written:
+            report["skipped"]["users_without_department"] += 1
+
+            return None
+
+        return DepartmentService.resolve_department(written)
 
     @staticmethod
-    def _create_client_user(record, customer, report, prefix=None):
+    def _create_client_user(record, customer, report):
         status = ExcelImportService._lifecycle_status(record)
         start_date, disabled_date = ExcelImportService._lifecycle_dates(record, status)
-        department = ExcelImportService._department(record, prefix)
-
-        if department:
-            department = ExcelImportService._validated_department(department)
+        department = ExcelImportService._department(record, report)
 
         values = {
                 "doctype": "MSP Client User",

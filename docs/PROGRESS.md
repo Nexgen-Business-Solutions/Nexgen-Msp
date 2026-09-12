@@ -74,7 +74,8 @@ cd apps/nexgen_msp/frontend && yarn build && yarn lint && yarn test
 | 3 | Client Request Workflow | ✅ terminée |
 | 4 | Request Technician Workbench & Execution Stepper | ✅ terminée |
 | 5 | User 360° Operational View | ✅ terminée |
-| **6** | **Settings & Managed References** | **⬜ à faire — prochaine** |
+| 6 | Settings & Managed References | ✅ terminée |
+| **7** | **Billing Workbench & Flexible Billing Workflow** | **⬜ à faire — prochaine** |
 | 5 | User 360° Operational View | ⬜ |
 | 6 | Settings & Managed References | ⬜ |
 | 7 | Billing Workbench & Flexible Billing | ⬜ |
@@ -291,6 +292,55 @@ plan sur la fiche, et la voie « demande » s'ajoute à côté (menu par ligne, 
 libre et une valeur** (`interface_type` passe de Select à Data). Le technicien écrit ce qu'il
 veut, les quatre libellés habituels restant proposés en suggestion.
 
+### Phase 6 — Référentiels administrés ✅
+
+**Règle de la phase : deux petits référentiels globaux et contrôlés, et rien d'autre.**
+Départements et actions de demande s'administrent. Les types d'appareils, les statuts, les
+portées et tous les cycles de vie restent des constantes du produit : Settings ne peut pas
+les atteindre.
+
+La moitié « départements » avait déjà été faite en Phase 2.5 (catalogue, service, migration,
+Selects partout, rapport d'alias). Ce qui restait :
+
+| # | Travail | État |
+|---|---|---|
+| 1 | `resolve_department()` pour l'import | ✅ |
+| 2 | Comptes d'usage détaillés (users / approvers / demandes) | ✅ |
+| 3 | Suppression de `department_prefix` | ✅ |
+| 4 | `sort_order` sur les actions de demande | ✅ |
+| 5 | Une seule action offerte par acte moteur | ✅ |
+| 6 | `action_type` figé dès qu'une action est utilisée | ✅ |
+| 7 | UI Settings : ordre des sections, ordre d'affichage, « Used by » | ✅ |
+| 8 | Tests | ✅ 30 backend, 9 Vitest |
+
+**Ce qui a changé :**
+
+- `resolve_department()` fait correspondre ce que la feuille Excel a écrit au catalogue, à la
+  casse près, et **n'y ajoute jamais rien**. « HR » n'est pas deviné comme « Human Resources ».
+  Un mot inconnu refuse la ligne en disant quoi créer dans Settings d'abord.
+- `department_prefix` disparaît du DocType, du service d'import, des mappings livrés et de
+  l'UI : « Accounting » de deux entreprises est le même département.
+- Un département vide dans une feuille ancienne laisse la personne sans département et est
+  compté dans `users_without_department`.
+- `MSP Request Action` : une seule action **offerte** par acte moteur. Plusieurs libellés
+  peuvent coexister pour l'historique, un seul est activé.
+- Ce qu'une action fait est figé dès qu'une demande a été levée dessus : changer
+  « Close service » de Remove vers Suspend réécrirait ce que des clients ont demandé.
+- Désactiver une offre ne retire rien au moteur : `ServiceLifecycleService.suspend()`
+  fonctionne toujours pour une opération administrative.
+
+**Nouvelle validation / ancienne donnée (§45-46) :** un département retiré après l'approbation
+d'une demande ne bloque plus l'exécution. La carte « User setup » du workbench le signale
+(« n'est plus proposé pour de nouvelles personnes ») et laisse le technicien décider.
+
+**Conflit de spec signalé :** le §3 dit qu'un département n'a aucun lien vers Customer. Idriss
+a demandé l'inverse en Phase 2.5 : un département peut exceptionnellement appartenir à une
+entreprise. La demande d'Idriss prime, le champ `customer` reste.
+
+**Filtres (§42-43) :** les listes utilisateurs et facturation lisent toujours les valeurs
+réellement présentes dans les données, pas le catalogue actif. Un département désactivé reste
+filtrable dans l'historique. Vérifié, rien à changer.
+
 ---
 
 ## 4. Journal
@@ -309,5 +359,6 @@ veut, les quatre libellés habituels restant proposés en suggestion.
 | 2026-09-12 | agent principal | Phase 4 terminée : exécution, vérification, clôture et workbench React. |
 | 2026-09-12 | agent principal | Phase 5 terminée : ownership corrigé, DTO 360, workbench utilisateur interne et portail. |
 | 2026-09-12 | agent principal | Interfaces réseau : clé libre et valeur (demande d'Idriss). |
+| 2026-09-12 | agent principal | Phase 6 terminée : import sans préfixe, une offre par acte, ordre d'affichage, Settings réorganisé. |
 
 > Ajoute ta ligne ici quand tu termines quelque chose.

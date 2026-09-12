@@ -404,12 +404,24 @@ class RequestExecutionService:
 			"name": None,
 			"full_name": row.new_user_full_name,
 			"department": row.new_user_department,
+			# retired since the request was agreed: said, not enforced. Whoever is doing the
+			# work decides whether it still makes sense, and the account opens either way
+			"department_retired": RequestExecutionService._retired(row.new_user_department),
 			"email": row.new_user_email,
 			"username": row.new_user_username,
 			"lifecycle_status": None,
 			"is_new": True,
 			"needs_portal_access": bool(row.needs_portal_access),
 		}
+
+	@staticmethod
+	def _retired(department):
+		if not department:
+			return False
+
+		enabled = frappe.db.get_value("MSP Department", {"department_name": department}, "enabled")
+
+		return enabled == 0
 
 	@staticmethod
 	def _device_card(device):
@@ -619,6 +631,8 @@ class RequestExecutionService:
 				email=email or asked.new_user_email,
 				username=username or asked.new_user_username,
 				source_request=doc.name,
+				# what the request agreed to stands, even if the catalogue has moved on
+				department_already_agreed=not department,
 			)
 
 			RequestExecutionService._propagate_person(doc, order.subject_key, created["name"])

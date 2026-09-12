@@ -30,13 +30,18 @@ const RequestActionModal: React.FC<Props> = ({ open, action, onClose }) => {
   const [title, setTitle] = useState('');
   const [type, setType] = useState('Add');
   const [description, setDescription] = useState('');
+  const [order, setOrder] = useState('');
   const [enabled, setEnabled] = useState(true);
+
+  // what an action already used stands for cannot be rewritten: requests were raised on it
+  const settled = Boolean(action && action.used > 0);
 
   useEffect(() => {
     if (!open) return;
     setTitle(action?.title ?? '');
     setType(action?.action_type ?? 'Add');
     setDescription(action?.description ?? '');
+    setOrder(action?.sort_order ? String(action.sort_order) : '');
     setEnabled(action ? Boolean(action.enabled) : true);
     save.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -46,7 +51,13 @@ const RequestActionModal: React.FC<Props> = ({ open, action, onClose }) => {
     try {
       await save.mutateAsync({
         name: action?.name,
-        action: { title, action_type: type, description, enabled: enabled ? 1 : 0 },
+        action: {
+          title,
+          action_type: type,
+          description,
+          enabled: enabled ? 1 : 0,
+          sort_order: order.trim() ? Number(order) : null,
+        },
       });
       onClose();
     } catch {
@@ -99,18 +110,43 @@ const RequestActionModal: React.FC<Props> = ({ open, action, onClose }) => {
           />
         </div>
 
-        <div>
-          <FieldLabel required>Action type</FieldLabel>
-          <Select
-            className="w-full"
-            value={type}
-            onChange={setType}
-            options={(options.data?.action_types ?? []).map((value) => ({
-              value,
-              label: value,
-              description: TYPE_HINTS[value],
-            }))}
-          />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <FieldLabel required>Action type</FieldLabel>
+            {settled ? (
+              <>
+                <p className={`${inputClass} flex items-center bg-slate-50 text-slate-500`}>
+                  {type}
+                </p>
+                <p className="mt-1 text-xs text-slate-400">
+                  {action?.used} request line(s) were raised on this. What it does can no
+                  longer be changed.
+                </p>
+              </>
+            ) : (
+              <Select
+                className="w-full"
+                value={type}
+                onChange={setType}
+                options={(options.data?.action_types ?? []).map((value) => ({
+                  value,
+                  label: value,
+                  description: TYPE_HINTS[value],
+                }))}
+              />
+            )}
+          </div>
+
+          <div>
+            <FieldLabel>Display order</FieldLabel>
+            <input
+              type="number"
+              value={order}
+              onChange={(event) => setOrder(event.target.value)}
+              placeholder="20"
+              className={inputClass}
+            />
+          </div>
         </div>
 
         <div>

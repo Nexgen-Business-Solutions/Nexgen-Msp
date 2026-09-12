@@ -20,40 +20,40 @@ import {
 
 /** Sections are declared here so adding a new area of settings stays a one-liner. */
 const SECTIONS = [
-  {
-    id: 'invoice',
-    label: 'Invoice',
-    icon: FileText,
-    blurb: 'The issuer block and the wire details printed on every invoice.',
-  },
-  {
+{
     id: 'portal',
     label: 'Portal',
     icon: Globe,
     blurb: 'What customer accounts are given when they sign in.',
   },
-  {
-    id: 'import',
-    icon: Upload,
-    label: 'Import',
-    blurb: 'Rehearse first — nothing is written until you say so.',
-  },
-  {
-    id: 'request-actions',
-    label: 'Request actions',
-    icon: ListChecks,
-    blurb: 'What a customer can ask for, and what each choice makes the engine do.',
-  },
-  {
+{
     id: 'departments',
     label: 'Departments',
     icon: Building2,
     blurb: 'Manage the shared department list used by all customers.',
   },
+{
+    id: 'request-actions',
+    label: 'Request actions',
+    icon: ListChecks,
+    blurb: 'What a customer can ask for, and what each choice makes the engine do.',
+  },
+{
+    id: 'import',
+    icon: Upload,
+    label: 'Import',
+    blurb: 'Rehearse first — nothing is written until you say so.',
+  },
+{
+    id: 'invoice',
+    label: 'Invoice',
+    icon: FileText,
+    blurb: 'The issuer block and the wire details printed on every invoice.',
+  },
 ];
 
-const COLUMNS = ['Title', 'Type', 'Description', 'Used', 'Offered', ''];
-const DEPARTMENT_COLUMNS = ['Department', 'Description', 'Order', 'Status', ''];
+const COLUMNS = ['Title', 'Type', 'Description', 'Order', 'Used', 'Offered', ''];
+const DEPARTMENT_COLUMNS = ['Department', 'Description', 'Order', 'Used by', 'Status', ''];
 
 export default function Settings() {
   const [section, setSection] = useState(SECTIONS[0].id);
@@ -211,6 +211,9 @@ export default function Settings() {
                       <StatusBadge value={row.action_type} />
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-600">{row.description || '—'}</td>
+                    <td className="px-4 py-3 text-sm text-slate-600 tabular-nums">
+                      {row.sort_order ?? 'Automatic'}
+                    </td>
                     <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600 tabular-nums">
                       {row.used}
                     </td>
@@ -314,6 +317,19 @@ export default function Settings() {
                     <td className="px-4 py-3 text-sm text-slate-600">{row.description || '—'}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">
                       {row.sort_order ?? 'Automatic'}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                      {row.used ? (
+                        <>
+                          {row.users} user{row.users === 1 ? '' : 's'}
+                          {row.approvers ? `, ${row.approvers} approver` : ''}
+                          {row.approvers && row.approvers > 1 ? 's' : ''}
+                          {row.open_requests ? `, ${row.open_requests} open request` : ''}
+                          {row.open_requests && row.open_requests > 1 ? 's' : ''}
+                        </>
+                      ) : (
+                        <span className="text-slate-400">Nobody yet</span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span

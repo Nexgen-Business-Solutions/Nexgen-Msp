@@ -5,7 +5,7 @@ import frappe
 from nexgen_msp.api.internal.services.contract_service import ContractService
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
-ACTION_FIELDS = ("title", "action_type", "description", "enabled")
+ACTION_FIELDS = ("title", "action_type", "description", "enabled", "sort_order")
 
 PORTAL_FIELDS = ("portal_url", "customer_session_timeout")
 
@@ -57,11 +57,11 @@ class SettingsService:
         return frappe.db.sql(
             """
             select
-                ra.name, ra.title, ra.action_type, ra.description, ra.enabled,
+                ra.name, ra.title, ra.action_type, ra.description, ra.enabled, ra.sort_order,
                 (select count(*) from `tabMSP Service Request Line` srl
                     where srl.request_action = ra.name) as used
             from `tabMSP Request Action` ra
-            order by ra.action_type asc, ra.title asc
+            order by ifnull(ra.sort_order, 9999) asc, ra.title asc
             """,
             as_dict=True,
         )
@@ -146,7 +146,6 @@ class SettingsService:
                     "excel_label": row.excel_label,
                     "customer_id": row.customer_id,
                     "create_as": row.create_as,
-                    "department_prefix": row.department_prefix,
                     "exists": bool(frappe.db.exists("Customer", row.customer_id)),
                 }
                 for row in doc.customer_mappings
@@ -198,7 +197,6 @@ class SettingsService:
                     "excel_label": (row.get("excel_label") or "").strip(),
                     "customer_id": (row.get("customer_id") or "").strip(),
                     "create_as": (row.get("create_as") or "").strip() or None,
-                    "department_prefix": (row.get("department_prefix") or "").strip() or None,
                 },
             )
 

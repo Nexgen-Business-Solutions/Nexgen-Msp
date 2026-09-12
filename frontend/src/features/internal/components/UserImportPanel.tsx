@@ -332,7 +332,7 @@ const UserImportPanel: React.FC = () => {
             onClick={() => {
               setCustomers((rows) => [
                 ...rows,
-                { excel_label: '', customer_id: '', create_as: '', department_prefix: '' },
+                { excel_label: '', customer_id: '', create_as: '' },
               ]);
               setDirty(true);
             }}
