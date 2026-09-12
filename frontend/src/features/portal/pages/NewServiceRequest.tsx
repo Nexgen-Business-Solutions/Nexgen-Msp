@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertCircle, ArrowLeft, ArrowRight, Check, Info, Save, Trash2 } from 'lucide-react';
 import ConfirmModal from '@/shared/components/ConfirmModal';
 import Select from '@/shared/components/Select';
@@ -23,10 +23,16 @@ const STEPS = [
 
 export default function NewServiceRequest() {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const [step, setStep] = useState(0);
   const [givingUp, setGivingUp] = useState(false);
   const rights = useMyApprovalRights();
-  const builder = useRequestBuilder(() => navigate('/msp/requests'));
+  // a draft is picked up where it was left; a refused request is read back and corrected
+  const builder = useRequestBuilder(
+    () => navigate('/msp/requests'),
+    params.get('draft') ?? undefined,
+    params.get('from') ?? undefined
+  );
 
   // staff serve every customer, so they must say who they are acting for; a contact has
   // only their own and never sees this
@@ -112,6 +118,22 @@ export default function NewServiceRequest() {
           </li>
         ))}
       </ol>
+
+      {builder.correcting && (
+        <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+          <Info size={16} className="mt-0.5 shrink-0 text-amber-700" />
+          <p className="text-sm text-amber-900">
+            This is a copy of a refused request. What it asked for has been read again against
+            today's state — anything that no longer applies is flagged on the Changes step.
+          </p>
+        </div>
+      )}
+
+      {builder.reopening && (
+        <p className="rounded-xl border border-slate-200 bg-white px-4 py-6 text-center text-sm text-slate-500">
+          Reading what was put aside…
+        </p>
+      )}
 
       {step === 0 && <RequestSubjectStep builder={builder} />}
       {step === 1 && <RequestChangesStep builder={builder} />}

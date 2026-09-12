@@ -2,7 +2,7 @@ import React from 'react';
 import { AlertCircle, Laptop, Wrench } from 'lucide-react';
 import type { RequestAction } from '@/lib/api/portal';
 import { useNewUserRequestContext, useRequestSubjectContext } from '../hooks/usePortal';
-import type { RequestSubject, useRequestBuilder } from '../hooks/useRequestBuilder';
+import { staleReason, type RequestSubject, type useRequestBuilder } from '../hooks/useRequestBuilder';
 import { AvailableServiceRow, CurrentServiceRow } from './RequestServiceCard';
 
 type Builder = ReturnType<typeof useRequestBuilder>;
@@ -67,9 +67,35 @@ const ExistingSubjectChanges: React.FC<{ subject: RequestSubject; builder: Build
       deviceLabel: device?.hostname,
     });
 
+  // an intention written earlier may no longer make sense: somebody else may have moved
+  // the very service it was about while the draft sat there
+  const stale = builder
+    .intentsOf(subject.key)
+    .map((intent) => ({ intent, reason: staleReason(intent, data) }))
+    .filter((row) => row.reason);
+
   return (
     <div className="space-y-4">
       {data.target_reason && <Note>{data.target_reason}</Note>}
+
+      {stale.length > 0 && (
+        <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
+          {stale.map(({ intent, reason }) => (
+            <div key={intent.key} className="flex items-start justify-between gap-3">
+              <p className="text-sm text-amber-900">
+                {reason} Review this item before submitting.
+              </p>
+              <button
+                type="button"
+                onClick={() => builder.removeIntent(intent.key)}
+                className="shrink-0 rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-amber-800 transition-colors hover:bg-amber-100"
+              >
+                Remove it
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       <Section title="Personal services" hint="Services this person holds in their own name.">
         {data.personal_services.current.length === 0 && (

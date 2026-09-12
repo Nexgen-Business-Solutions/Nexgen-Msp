@@ -103,6 +103,9 @@ export type ServiceRequestLine = {
   new_user_username?: string | null;
   client_user: string | null;
   managed_device: string | null;
+  /** the exact service period this line acts on, and who it was raised for */
+  source_service_assignment?: string | null;
+  requested_for_user?: string | null;
   is_new_device?: number;
   new_device_label?: string | null;
   new_device_type?: string | null;
@@ -300,6 +303,10 @@ export type PortalRequestLine = {
   service_scope: string;
   client_user: string | null;
   managed_device: string | null;
+  /** the exact service period this line acts on, and who it was raised for */
+  source_service_assignment: string | null;
+  requested_for_user: string | null;
+  requested_quantity: number | null;
   requested_service: string | null;
   new_user_email: string | null;
   new_user_username: string | null;

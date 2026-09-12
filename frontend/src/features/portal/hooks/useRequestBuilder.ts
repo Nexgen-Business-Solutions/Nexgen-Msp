@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
-import type { NewRequestLine, RequestAction } from '@/lib/api/portal';
+import { useEffect, useMemo, useState } from 'react';
+import type { NewRequestLine, PortalRequestDetail, RequestAction } from '@/lib/api/portal';
 import {
   useCreateServiceRequest,
   useDiscardRequestDraft,
   useSaveRequestDraft,
+  useServiceRequest,
 } from './usePortal';
 
 /**
@@ -43,16 +44,110 @@ const newKey = () => Math.random().toString(36).slice(2, 10);
 
 export const today = () => new Date().toISOString().slice(0, 10);
 
-export const useRequestBuilder = (onCreated?: (created: { name: string }) => void) => {
+/**
+ * Rebuild the subjects and intentions a saved request stands for.
+ *
+ * A draft is reopened, and a refused request is corrected and sent again — in both cases
+ * what was stored is a list of lines, and the builder thinks in people and intentions.
+ */
+export const fromSavedRequest = (saved: PortalRequestDetail) => {
+  const subjects: RequestSubject[] = [];
+  const intents: RequestIntent[] = [];
+  const keyOfPerson = new Map<string, string>();
+
+  const subjectFor = (line: PortalRequestDetail['lines'][number]) => {
+    if (line.is_new_user) {
+      // each new person written into the request is their own subject
+      const identity = `new:${line.new_user_full_name ?? ''}`;
+      const existing = keyOfPerson.get(identity);
+
+      if (existing) return existing;
+
+      const key = newKey();
+      keyOfPerson.set(identity, key);
+      subjects.push({
+        key,
+        kind: 'new',
+        fullName: line.new_user_full_name ?? undefined,
+        department: line.new_user_department ?? undefined,
+        email: line.new_user_email ?? undefined,
+      });
+
+      return key;
+    }
+
+    const person = line.requested_for_user || line.client_user;
+    const identity = `existing:${person ?? ''}`;
+    const existing = keyOfPerson.get(identity);
+
+    if (existing) return existing;
+
+    const key = newKey();
+    keyOfPerson.set(identity, key);
+    subjects.push({
+      key,
+      kind: 'existing',
+      clientUser: person ?? undefined,
+      fullName: line.user_name ?? person ?? undefined,
+      department: line.department ?? undefined,
+    });
+
+    return key;
+  };
+
+  saved.lines.forEach((line) => {
+    intents.push({
+      key: newKey(),
+      subjectKey: subjectFor(line),
+      action: line.action,
+      requestAction: line.request_action ?? '',
+      actionLabel: line.action_label || line.action,
+      serviceItem: line.requested_service ?? '',
+      serviceLabel: line.service_name || line.requested_service || '',
+      targetScope: line.managed_device ? ('Device' as const) : ('User' as const),
+      sourceServiceAssignment: line.source_service_assignment ?? undefined,
+      managedDevice: line.managed_device ?? undefined,
+      deviceLabel: line.hostname ?? undefined,
+      isNewDevice: Boolean(line.is_new_device),
+      requestedQuantity: line.requested_quantity ?? undefined,
+      requestedEffectiveDate: line.requested_effective_date ?? undefined,
+      comment: line.comment ?? undefined,
+    });
+  });
+
+  return { subjects, intents, priority: saved.priority };
+};
+
+export const useRequestBuilder = (
+  onCreated?: (created: { name: string }) => void,
+  reopen?: string,
+  correct?: string
+) => {
   const [subjects, setSubjects] = useState<RequestSubject[]>([]);
   const [intents, setIntents] = useState<RequestIntent[]>([]);
   const [priority, setPriority] = useState('Medium');
   const [defaultDate, setDefaultDate] = useState(today());
-  const [draft, setDraft] = useState<string | null>(null);
+  const [draft, setDraft] = useState<string | null>(reopen ?? null);
+  const [loaded, setLoaded] = useState(false);
 
   const create = useCreateServiceRequest();
   const saveDraft = useSaveRequestDraft();
   const discardDraft = useDiscardRequestDraft();
+
+  // a draft picked up again, or a refused request being corrected: the same document in
+  // the first case, a fresh one in the second
+  const source = reopen ?? correct;
+  const saved = useServiceRequest(source);
+
+  useEffect(() => {
+    if (!source || loaded || !saved.data) return;
+
+    const rebuilt = fromSavedRequest(saved.data);
+    setSubjects(rebuilt.subjects);
+    setIntents(rebuilt.intents);
+    if (rebuilt.priority) setPriority(rebuilt.priority);
+    setLoaded(true);
+  }, [source, loaded, saved.data]);
 
   // ------------------------------------------------------------------ subjects
   const addExistingSubject = (person: {
@@ -241,8 +336,69 @@ export const useRequestBuilder = (onCreated?: (created: { name: string }) => voi
     giveUp,
     sending: create.isLoading,
     saving: saveDraft.isLoading,
+    reopening: Boolean(source) && !loaded,
+    correcting: Boolean(correct),
     error: (create.error || saveDraft.error) as Error | null,
   };
+};
+
+/**
+ * Whether an intention written earlier still makes sense against what is true now.
+ *
+ * A draft can sit for days: somebody else may have activated the very service it wanted to
+ * add, or resolved the one it wanted to suspend. The screen says so rather than letting the
+ * request be sent into a refusal.
+ */
+export const staleReason = (
+  intent: RequestIntent,
+  context?: {
+    personal_services: { current: { assignment: string; service_item: string; label: string; status: string; allowed_request_actions: RequestAction[]; pending_request: string | null }[] };
+    devices: {
+      name: string;
+      services: {
+        current: { assignment: string; service_item: string; label: string; status: string; allowed_request_actions: RequestAction[]; pending_request: string | null }[];
+      };
+    }[];
+  }
+): string | null => {
+  if (!context) return null;
+
+  const current = [
+    ...context.personal_services.current.map((row) => ({ ...row, device: null as string | null })),
+    ...context.devices.flatMap((device) =>
+      device.services.current.map((row) => ({ ...row, device: device.name }))
+    ),
+  ];
+
+  if (!intent.sourceServiceAssignment) {
+    const live = current.find(
+      (row) =>
+        row.service_item === intent.serviceItem &&
+        (row.device ?? undefined) === (intent.managedDevice ?? undefined)
+    );
+
+    return live
+      ? `This change is no longer available because ${live.label} is now ${live.status.toLowerCase()}.`
+      : null;
+  }
+
+  const running = current.find((row) => row.assignment === intent.sourceServiceAssignment);
+
+  if (!running) {
+    return `${intent.serviceLabel} is no longer running, so it cannot be ${intent.actionLabel.toLowerCase()}.`;
+  }
+
+  if (running.pending_request) {
+    return `${running.label} is already being changed by request ${running.pending_request}.`;
+  }
+
+  const allowed = running.allowed_request_actions.some(
+    (action) => action.action_type === intent.action
+  );
+
+  return allowed
+    ? null
+    : `${running.label} is now ${running.status.toLowerCase()}, so ${intent.actionLabel} no longer applies.`;
 };
 
 /** The act a button stands for, as the administrator named it. */

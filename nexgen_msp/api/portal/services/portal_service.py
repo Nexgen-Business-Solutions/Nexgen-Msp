@@ -730,6 +730,7 @@ class PortalService:
                 srl.idx, srl.action, srl.line_status, srl.rejection_reason,
                 -- the raw links as well as their names: a draft is reopened from these
                 srl.request_action, srl.target_scope, srl.client_user, srl.managed_device,
+                srl.source_service_assignment, srl.requested_for_user,
                 srl.requested_service, srl.needs_portal_access,
                 srl.is_new_user, srl.new_user_full_name, srl.new_user_department,
                 srl.new_user_email, srl.new_user_username,

@@ -15,6 +15,7 @@ vi.mock('@/lib/api/portal', async (importOriginal) => {
     getNewUserRequestContext: vi.fn(),
     getRequestSubmissionContext: vi.fn(),
     createRequest: vi.fn(),
+    getRequest: vi.fn(),
     saveRequestDraft: vi.fn(),
   };
 });
@@ -166,6 +167,37 @@ const renderPage = async () => {
   render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
+        <NewServiceRequest />
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+
+  await screen.findByText('New request');
+};
+
+const renderPageWithParams = async (search: string) => {
+  vi.mocked(portal.getMyApprovalRights).mockResolvedValue({
+    customer: 'ACME',
+    has_authority: false,
+    can_submit: true,
+    can_approve: false,
+    department: null,
+    awaiting: 0,
+  } as unknown as Awaited<ReturnType<typeof portal.getMyApprovalRights>>);
+  vi.mocked(portal.getRequestSubmissionContext).mockResolvedValue({
+    customer: 'ACME',
+    may_submit: true,
+    needs_customer_approval: false,
+    message: 'This request will be sent to Nexgen for review.',
+  });
+
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+
+  render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={[`/msp/requests/new${search}`]}>
         <NewServiceRequest />
       </MemoryRouter>
     </QueryClientProvider>
@@ -343,5 +375,109 @@ describe('a person who does not exist yet', () => {
     expect(
       await screen.findByText(/a technician will prepare or identify it/i)
     ).toBeInTheDocument();
+  });
+});
+
+describe('picking up what was put aside', () => {
+  const savedDraft = {
+    name: 'SR-DRAFT-1',
+    customer: 'ACME',
+    request_type: 'Add',
+    status: 'Draft',
+    priority: 'High',
+    source: 'Portal',
+    creation: '2026-09-01 10:00:00',
+    modified: '2026-09-01 10:00:00',
+    requester: 'john@acme.com',
+    lines: [
+      {
+        idx: 1,
+        action: 'Add',
+        line_status: 'Pending',
+        rejection_reason: null,
+        is_new_user: 0,
+        new_user_full_name: null,
+        new_user_department: null,
+        is_new_device: 0,
+        new_device_label: null,
+        user_name: 'John Doe',
+        department: 'Accounting',
+        username: null,
+        service_name: 'Adobe Acrobat',
+        action_label: 'Grant a service',
+        hostname: null,
+        serial_number: null,
+        device_type: null,
+        device_holder: null,
+        requested_effective_date: '2026-09-15',
+        comment: null,
+        service_status: null,
+        service_start_date: null,
+        delivered_on: null,
+        request_action: 'Grant a service',
+        target_scope: 'User',
+        service_scope: 'User',
+        client_user: 'CU-001',
+        managed_device: null,
+        source_service_assignment: null,
+        requested_for_user: 'CU-001',
+        requested_quantity: 1,
+        requested_service: 'ADOBE',
+        new_user_email: null,
+        new_user_username: null,
+        new_device_type: null,
+        new_device_serial: null,
+        needs_portal_access: 0,
+      },
+    ],
+  };
+
+  it('rebuilds the person and what was asked for', async () => {
+    vi.mocked(portal.getRequest).mockResolvedValue(
+      savedDraft as unknown as Awaited<ReturnType<typeof portal.getRequest>>
+    );
+
+    await renderPageWithParams('?draft=SR-DRAFT-1');
+
+    expect(await screen.findByText('John Doe')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+
+    expect(await screen.findByRole('button', { name: /Adobe Acrobat — added/ })).toBeInTheDocument();
+  });
+
+  it('flags an item the world has moved past', async () => {
+    vi.mocked(portal.getRequest).mockResolvedValue(
+      savedDraft as unknown as Awaited<ReturnType<typeof portal.getRequest>>
+    );
+    // somebody else granted Adobe while the draft sat there
+    vi.mocked(portal.getRequestSubjectContext).mockResolvedValue({
+      ...subjectContext,
+      personal_services: {
+        current: [
+          {
+            assignment: 'SA-009',
+            service_item: 'ADOBE',
+            label: 'Adobe Acrobat',
+            status: 'Active',
+            since: '2026-09-03',
+            quantity: 1,
+            managed_device: null,
+            hostname: null,
+            pending_request: null,
+            allowed_request_actions: [suspendAction],
+          },
+        ],
+        available: [],
+      },
+    });
+
+    await renderPageWithParams('?draft=SR-DRAFT-1');
+    fireEvent.click(await screen.findByRole('button', { name: /continue/i }));
+
+    expect(
+      await screen.findByText(/no longer available because Adobe Acrobat is now active/i)
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /remove it/i })).toBeInTheDocument();
   });
 });
