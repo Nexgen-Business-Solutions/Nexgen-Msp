@@ -8,11 +8,12 @@ DOCTYPE = "MSP Department"
 
 
 class DepartmentService:
-    """The global, MSP-managed department catalogue.
+    """The MSP-managed department catalogue.
 
-    Departments are not tied to any Customer: one "Accounting" serves every customer, so
-    the catalogue is administered once and consumed everywhere as a controlled list, never
-    typed by hand.
+    Almost all of it is global: one "Accounting" serves every customer, administered once
+    and consumed everywhere as a controlled list rather than typed by hand. A department may
+    exceptionally name a Customer, and is then offered to that company alone — the names stay
+    unique across the whole catalogue either way, since a record carries the label itself.
     """
 
     @staticmethod
@@ -32,20 +33,29 @@ class DepartmentService:
         return frappe.get_doc(DOCTYPE, name)
 
     @staticmethod
-    def list_departments(enabled_only=True):
+    def list_departments(enabled_only=True, customer=None):
         """Every department, for the admin table, or only the active ones for a form.
 
         A form only ever offers what is currently enabled; the Settings screen needs to
         see a disabled entry too, so it stays the one place that can bring one back.
+
+        Nearly every department is global: it carries no customer and everyone may use it.
+        The rare one that belongs to a single company is offered to that company alone, so
+        a form asked on behalf of a customer sees the global list plus their own.
         """
         enabled_only = frappe.utils.cint(enabled_only)
 
         if enabled_only:
-            return frappe.get_all(
-                DOCTYPE,
-                filters={"enabled": 1},
-                fields=["name", "department_name", "enabled", "description", "sort_order"],
-                order_by="sort_order asc, department_name asc",
+            return frappe.db.sql(
+                """
+                select name, department_name, enabled, description, sort_order, customer
+                from `tabMSP Department`
+                where enabled = 1
+                  and (ifnull(customer, '') = '' or customer = %(customer)s)
+                order by sort_order asc, department_name asc
+                """,
+                {"customer": customer or ""},
+                as_dict=True,
             )
 
         DepartmentService._guard_admin()
@@ -53,7 +63,7 @@ class DepartmentService:
         return frappe.db.sql(
             """
             select
-                d.name, d.department_name, d.enabled, d.description, d.sort_order,
+                d.name, d.department_name, d.enabled, d.description, d.sort_order, d.customer,
                 (
                     (select count(*) from `tabMSP Client User` cu
                         where lower(trim(cu.department)) = lower(trim(d.department_name)))
@@ -72,7 +82,9 @@ class DepartmentService:
         )
 
     @staticmethod
-    def create_department(department_name=None, description=None, enabled=1, sort_order=None):
+    def create_department(
+        department_name=None, description=None, enabled=1, sort_order=None, customer=None
+    ):
         DepartmentService._guard_admin()
 
         department_name = " ".join((department_name or "").strip().split())
@@ -87,6 +99,7 @@ class DepartmentService:
 
         doc = frappe.new_doc(DOCTYPE)
         doc.department_name = department_name
+        doc.customer = customer or None
         doc.description = description
         doc.enabled = frappe.utils.cint(enabled)
         doc.sort_order = frappe.utils.cint(sort_order) if sort_order not in (None, "") else None
@@ -96,7 +109,14 @@ class DepartmentService:
         return DepartmentService.list_departments(enabled_only=False)
 
     @staticmethod
-    def update_department(name=None, department_name=None, description=None, enabled=None, sort_order=None):
+    def update_department(
+        name=None,
+        department_name=None,
+        description=None,
+        enabled=None,
+        sort_order=None,
+        customer=None,
+    ):
         DepartmentService._guard_admin()
 
         doc = DepartmentService._get(name)
@@ -119,6 +139,9 @@ class DepartmentService:
 
         if description is not None:
             doc.description = description
+
+        if customer is not None:
+            doc.customer = customer or None
 
         if enabled is not None:
             doc.enabled = frappe.utils.cint(enabled)
@@ -153,6 +176,7 @@ class DepartmentService:
                 department_name=department.get("department_name"),
                 description=department.get("description"),
                 enabled=department.get("enabled"),
+                customer=department.get("customer"),
                 sort_order=(
                     ""
                     if "sort_order" in department and department.get("sort_order") is None
@@ -164,6 +188,7 @@ class DepartmentService:
             department_name=department.get("department_name"),
             description=department.get("description"),
             enabled=department.get("enabled", 1),
+            customer=department.get("customer"),
             sort_order=department.get("sort_order"),
         )
 

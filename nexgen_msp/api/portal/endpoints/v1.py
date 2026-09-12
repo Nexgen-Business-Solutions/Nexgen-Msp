@@ -30,8 +30,8 @@ def list_device_choices(customer=None):
 
 @frappe.whitelist()
 @handle_errors
-def list_departments():
-    return PortalService.list_departments()
+def list_departments(customer=None):
+    return PortalService.list_departments(customer=customer)
 
 
 @frappe.whitelist()

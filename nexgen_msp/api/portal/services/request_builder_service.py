@@ -145,7 +145,7 @@ class RequestBuilderService:
             "customer": customer,
             "departments": [
                 {"value": row.department_name, "label": row.department_name}
-                for row in DepartmentService.list_departments()
+                for row in DepartmentService.list_departments(customer=customer)
             ],
             "available_user_services": RequestBuilderService._offered(customer, "User"),
             "available_device_services": RequestBuilderService._offered(customer, "Device"),

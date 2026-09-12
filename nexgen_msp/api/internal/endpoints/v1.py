@@ -1192,8 +1192,8 @@ def _departments():
 
 @frappe.whitelist()
 @handle_errors
-def list_departments(enabled_only=1):
-    return _departments().list_departments(enabled_only=enabled_only)
+def list_departments(enabled_only=1, customer=None):
+    return _departments().list_departments(enabled_only=enabled_only, customer=customer)
 
 
 @frappe.whitelist()

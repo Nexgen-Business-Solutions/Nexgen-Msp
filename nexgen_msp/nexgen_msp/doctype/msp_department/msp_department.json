@@ -8,6 +8,7 @@
  "engine": "InnoDB",
  "field_order": [
   "department_name",
+  "customer",
   "enabled",
   "column_break_department",
   "sort_order",
@@ -22,6 +23,15 @@
    "label": "Department Name",
    "reqd": 1,
    "unique": 1
+  },
+  {
+   "description": "Leave empty for a department every customer may use. Set it only for the rare department that belongs to one company alone.",
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Customer",
+   "options": "Customer"
   },
   {
    "default": "1",

@@ -384,3 +384,65 @@ class TestDepartmentMigration(MSPTestCase):
         )
         self.assertGreaterEqual(first["created"], 0)
         self.assertGreaterEqual(second["reused"], 0)
+
+
+class TestADepartmentMayBelongToOneCompany(MSPTestCase):
+    """The rare department that is one company's own is offered to them and to nobody else."""
+
+    def setUp(self):
+        super().setUp()
+        self.tag = frappe.generate_hash(length=6)
+        self.mine = self.make_customer(self.tag)
+        self.theirs = self.make_customer(f"{self.tag}B")
+
+    def named(self, label):
+        return f"ZZTEST {label} {self.tag}"
+
+    def make_owned(self, label, customer=None):
+        rows = DepartmentService.create_department(
+            department_name=self.named(label), customer=customer
+        )
+        created = next(row for row in rows if row.department_name == self.named(label))
+        self.track("MSP Department", created.name)
+
+        return created.name
+
+    def offered_to(self, customer):
+        return [row.department_name for row in DepartmentService.list_departments(customer=customer)]
+
+    def test_one_without_a_customer_is_offered_to_everyone(self):
+        shared = self.make_owned("Shared")
+
+        self.assertIn(shared, self.offered_to(self.mine))
+        self.assertIn(shared, self.offered_to(self.theirs))
+
+    def test_one_named_for_a_company_is_offered_to_them_alone(self):
+        private = self.make_owned("Workshop", customer=self.mine)
+
+        self.assertIn(private, self.offered_to(self.mine))
+        self.assertNotIn(private, self.offered_to(self.theirs))
+
+    def test_it_is_not_offered_when_no_company_is_named_at_all(self):
+        private = self.make_owned("Atelier", customer=self.mine)
+
+        self.assertNotIn(private, [row.department_name for row in DepartmentService.list_departments()])
+
+    def test_the_administrator_table_still_shows_every_one_of_them(self):
+        private = self.make_owned("Cellar", customer=self.mine)
+
+        listed = {
+            row.department_name: row.customer
+            for row in DepartmentService.list_departments(enabled_only=False)
+        }
+
+        self.assertIn(private, listed)
+        self.assertEqual(listed[private], self.mine)
+
+    def test_the_portal_offers_a_company_only_what_is_theirs(self):
+        private = self.make_owned("Cellier", customer=self.mine)
+        elsewhere = self.make_owned("Cave", customer=self.theirs)
+
+        offered = [row["value"] for row in PortalService.list_departments(customer=self.mine)]
+
+        self.assertIn(private, offered)
+        self.assertNotIn(elsewhere, offered)

@@ -485,13 +485,19 @@ class PortalService:
         return rows
 
     @staticmethod
-    def list_departments():
-        """The global department catalogue, for a Select. No Customer context needed."""
+    def list_departments(customer=None):
+        """The department catalogue as this company sees it, for a Select.
+
+        Almost all of it is global. A department belonging to one company alone is offered
+        to that company and to nobody else.
+        """
         from nexgen_msp.api.internal.services.department_service import DepartmentService
+
+        customer = PortalService._resolve_customer(customer)
 
         return [
             {"value": row.department_name, "label": row.department_name}
-            for row in DepartmentService.list_departments(enabled_only=True)
+            for row in DepartmentService.list_departments(enabled_only=True, customer=customer)
         ]
 
     @staticmethod

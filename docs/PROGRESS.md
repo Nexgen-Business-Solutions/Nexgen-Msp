@@ -64,7 +64,7 @@ cd apps/nexgen_msp/frontend && yarn build && yarn lint && yarn test
 | 8 | Cross-System Audit, Migration & E2E | ⬜ |
 | — | Addon Hassan — Customer Management & Security | ⬜ |
 
-Repères actuels : **480 tests backend**, **76 tests frontend**, `pyflakes` et `yarn lint` propres.
+Repères actuels : **485 tests backend**, **76 tests frontend**, `pyflakes` et `yarn lint` propres.
 
 ---
 
@@ -114,6 +114,9 @@ Référentiel **global MSP**, sans lien avec un client.
   anciennes saisies libres.
 - Plus aucun champ texte libre : Réglages, portail, formulaires internes, droits
   d'approbation, import Excel passent tous par le catalogue.
+- Un département peut exceptionnellement porter un `customer` : il n'est alors proposé qu'à
+  cette entreprise. Sans client renseigné (le cas normal), il reste offert à tout le monde.
+  Les noms restent uniques sur l'ensemble du catalogue, le libellé servant d'identifiant.
 
 ### Phase 3 — Workflow de demande client ✅
 
@@ -164,5 +167,6 @@ Les 30 scénarios backend de §58 et la liste frontend de §59 sont couverts.
 | 2026-09-12 | second agent | Extension Phase 2.5 : renommage propagé, département obligatoire pour un nouvel utilisateur. |
 | 2026-09-12 | agent principal | Phase 3 tâche 1 (`after phase 3 request intents`) puis tâches 2–4 et 6 (`after phase 3 request builder`). |
 | 2026-09-12 | agent principal | Phase 3 terminée : brouillons/corrections et couverture §58–§59 (`after phase 3 done`). |
+| 2026-09-12 | agent principal | Départements : champ `customer` facultatif, options filtrées par entreprise. |
 
 > Ajoute ta ligne ici quand tu termines quelque chose.
