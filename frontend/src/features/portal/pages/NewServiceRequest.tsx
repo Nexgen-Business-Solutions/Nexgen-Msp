@@ -1,40 +1,35 @@
 import { useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { AlertCircle, ArrowLeft, ArrowRight, Check, Info, Save, Trash2 } from 'lucide-react';
 import ConfirmModal from '@/shared/components/ConfirmModal';
-import { AlertCircle, Copy, Info, Plus, Trash2, TriangleAlert, UserPlus, Users, X } from 'lucide-react';
 import Select from '@/shared/components/Select';
-import ServiceStateHint from '../components/ServiceStateHint';
-import { NEW_DEVICE, useServiceRequestForm } from '../hooks/useServiceRequestForm';
 import { useSession } from '@/shared/hooks/useSession';
 import { isPortalOnly } from '@/shared/layout/navigation';
 import { useUserFilterOptions } from '@/features/internal/hooks/useUsers';
 import { usePortalFilters } from '../store/usePortalFilters';
 import { useMyApprovalRights } from '../hooks/usePortal';
+import { useRequestBuilder } from '../hooks/useRequestBuilder';
+import RequestSubjectStep from '../components/RequestSubjectStep';
+import RequestChangesStep from '../components/RequestChangesStep';
+import RequestScheduleStep from '../components/RequestScheduleStep';
+import RequestReviewStep from '../components/RequestReviewStep';
 
-const labelClass = 'mb-1.5 block text-xs font-semibold text-slate-700';
-const inputClass =
-  'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
+const STEPS = [
+  { key: 'person', label: 'Person' },
+  { key: 'changes', label: 'Changes' },
+  { key: 'when', label: 'When & details' },
+  { key: 'review', label: 'Review' },
+];
 
 export default function NewServiceRequest() {
   const navigate = useNavigate();
-  // a listing can send someone here about one person, machine or service — the first line
-  // opens already pointed at it
-  const [params] = useSearchParams();
+  const [step, setStep] = useState(0);
   const [givingUp, setGivingUp] = useState(false);
   const rights = useMyApprovalRights();
-  const form = useServiceRequestForm(
-    () => navigate('/msp/requests'),
-    {
-      client_user: params.get('client_user') ?? undefined,
-      managed_device: params.get('device') ?? undefined,
-      service: params.get('service') ?? undefined,
-    },
-    params.get('draft') ?? undefined,
-    params.get('from') ?? undefined
-  );
+  const builder = useRequestBuilder(() => navigate('/msp/requests'));
 
-  // staff serve every customer, so they must say who they are acting for; a contact
-  // has only their own and never sees this
+  // staff serve every customer, so they must say who they are acting for; a contact has
+  // only their own and never sees this
   const { data: session } = useSession();
   const onBehalf = !isPortalOnly(session?.roles);
   const customer = usePortalFilters((state) => state.customer);
@@ -59,603 +54,143 @@ export default function NewServiceRequest() {
     );
   }
 
-  if (form.reopening) {
-    return (
-      <div className="flex h-full items-center justify-center p-10">
-        <span className="h-8 w-8 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />
-      </div>
-    );
-  }
+  const hasSubjects = builder.subjects.length > 0;
+  const canLeaveStep = [hasSubjects, builder.intents.length > 0, true, builder.canSend][step];
 
-  if (onBehalf && !customer) {
-    return (
-      <div className="px-6 pb-6 pt-4">
-        <div className="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
-          <h2 className="text-base font-semibold text-slate-900">Who is this request for?</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Pick the customer you are raising it on behalf of. Only what their contract covers
-            can be requested.
+  return (
+    <div className="space-y-5 px-6 pb-6 pt-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-lg font-bold text-slate-900">New request</h1>
+          <p className="mt-0.5 text-sm text-slate-500">
+            Say who it is for and what should change. We work out how to carry it out.
           </p>
-          <div className="mt-4 sm:max-w-sm">
+        </div>
+
+        {onBehalf && (
+          <div className="w-64">
             <Select
               searchable
               className="w-full"
-              value=""
+              value={customer ?? ''}
               onChange={setCustomer}
-              placeholder="Pick a customer"
-              options={(options.data?.customers ?? []).map((value) => ({ value, label: value }))}
+              placeholder="Acting for which customer"
+              options={(options.data?.customers ?? []).map((name) => ({
+                value: name,
+                label: name,
+              }))}
             />
           </div>
-        </div>
+        )}
       </div>
-    );
-  }
 
-  return (
-    <div className="px-6 pb-6 pt-4">
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          void form.submit();
-        }}
-        className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm"
-      >
-        <div className="border-b border-slate-100 px-6 py-5">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <h2 className="text-base font-semibold text-slate-900">Services request</h2>
-              <p className="mt-1 text-sm text-slate-500">
-                Choose who needs a service, what should change, and when.
-              </p>
-              {onBehalf && customer && (
-                <p className="mt-2 inline-flex items-center gap-2 text-sm text-slate-600">
-                  On behalf of <span className="font-semibold text-slate-900">{customer}</span>
-                  <button
-                    type="button"
-                    onClick={() => setCustomer(null)}
-                    className="font-medium text-blue-600 transition-colors hover:text-blue-700"
-                  >
-                    change
-                  </button>
-                </p>
-              )}
-            </div>
-
-            <div className="w-full sm:w-48">
-              <span className={labelClass}>Priority</span>
-              <Select
-                className="w-full"
-                value={form.priority}
-                onChange={form.setPriority}
-                options={form.options.priorities}
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-4 px-6 py-5">
-          {form.lines.map((line, index) => {
-            const errors = form.errors[index];
-            const showErrors = form.touched;
-            return (
-              <div
-                key={line.key}
-                className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md"
+      <ol className="flex flex-wrap items-center gap-2">
+        {STEPS.map((entry, index) => (
+          <li key={entry.key} className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => index < step && setStep(index)}
+              disabled={index > step}
+              className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${
+                index === step
+                  ? 'bg-blue-600 text-white'
+                  : index < step
+                    ? 'bg-blue-50 text-blue-700 hover:bg-blue-100'
+                    : 'bg-slate-100 text-slate-400'
+              }`}
+            >
+              <span
+                className={`flex h-5 w-5 items-center justify-center rounded-full text-xs ${
+                  index < step ? 'bg-blue-600 text-white' : 'bg-white/20'
+                }`}
               >
-                <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/60 px-4 py-3">
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-6 w-6 items-center justify-center rounded-md bg-slate-200 text-xs font-bold text-slate-600 tabular-nums">
-                      {index + 1}
-                    </span>
+                {index < step ? <Check size={12} /> : index + 1}
+              </span>
+              {entry.label}
+            </button>
+            {index < STEPS.length - 1 && <span className="text-slate-300">/</span>}
+          </li>
+        ))}
+      </ol>
 
-                    {line.services.length > 0 && (
-                      <span className="hidden text-xs font-medium text-slate-500 sm:inline">
-                        {line.services.length} service{line.services.length > 1 ? 's' : ''}
-                      </span>
-                    )}
-                  </div>
+      {step === 0 && <RequestSubjectStep builder={builder} />}
+      {step === 1 && <RequestChangesStep builder={builder} />}
+      {step === 2 && <RequestScheduleStep builder={builder} />}
+      {step === 3 && <RequestReviewStep builder={builder} />}
 
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => form.duplicateLine(line.key)}
-                      aria-label="Duplicate block"
-                      title="Duplicate block"
-                      className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-white hover:text-slate-600"
-                    >
-                      <Copy size={15} />
-                    </button>
-                    <button
-                      type="button"
-                      disabled={form.lines.length <= 1}
-                      onClick={() => form.removeLine(line.key)}
-                      aria-label="Remove block"
-                      title="Remove block"
-                      className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-400"
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
-                </div>
+      {builder.error && (
+        <div className="flex items-start gap-2.5 rounded-xl border border-red-100 bg-red-50 p-4">
+          <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
+          <span className="text-sm font-medium text-red-700">{builder.error.message}</span>
+        </div>
+      )}
 
-                <div className="space-y-4 p-4">
-                  <div className="inline-flex rounded-lg bg-slate-100 p-1">
-                    <button
-                      type="button"
-                      onClick={() => form.updateLine(line.key, 'isNewUser', false)}
-                      className={`inline-flex items-center gap-1.5 rounded-md px-3 py-2.5 text-xs font-semibold transition-all ${line.isNewUser
-                          ? 'text-slate-500 hover:text-slate-700'
-                          : 'bg-white text-slate-900 shadow-sm'
-                        }`}
-                    >
-                      <Users size={13} />
-                      Existing user
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => form.updateLine(line.key, 'isNewUser', true)}
-                      className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${line.isNewUser
-                          ? 'bg-white text-slate-900 shadow-sm'
-                          : 'text-slate-500 hover:text-slate-700'
-                        }`}
-                    >
-                      <UserPlus size={13} />
-                      New user
-                    </button>
-                  </div>
-
-                  {line.isNewUser ? (
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                      <div>
-                        <span className={labelClass}>Full name</span>
-                        <input
-                          type="text"
-                          value={line.new_user_full_name}
-                          onChange={(event) =>
-                            form.updateLine(line.key, 'new_user_full_name', event.target.value)
-                          }
-                          placeholder="Marie Dupont"
-                          className={inputClass}
-                        />
-                        {showErrors && errors.new_user_full_name && (
-                          <p className="mt-1 text-xs text-red-600">{errors.new_user_full_name}</p>
-                        )}
-                      </div>
-                      <div>
-                        <span className={labelClass}>Email</span>
-                        <input
-                          type="email"
-                          value={line.new_user_email}
-                          onChange={(event) =>
-                            form.updateLine(line.key, 'new_user_email', event.target.value)
-                          }
-                          placeholder="marie.dupont@compagny.com"
-                          className={inputClass}
-                        />
-                        {showErrors && errors.new_user_email && (
-                          <p className="mt-1 text-xs text-red-600">{errors.new_user_email}</p>
-                        )}
-                      </div>
-                      <div>
-                        <span className={labelClass}>Username</span>
-                        <input
-                          type="text"
-                          value={line.new_user_username}
-                          onChange={(event) =>
-                            form.updateLine(line.key, 'new_user_username', event.target.value)
-                          }
-                          placeholder="If you already know it"
-                          className={inputClass}
-                        />
-                      </div>
-                      <div>
-                        <span className={labelClass}>Department</span>
-                        <Select
-                          className="w-full"
-                          value={line.new_user_department}
-                          onChange={(value) =>
-                            form.updateLine(line.key, 'new_user_department', value)
-                          }
-                          placeholder="Select department"
-                          options={form.options.departments}
-                        />
-                        {showErrors && errors.new_user_department && (
-                          <p className="mt-1 text-xs text-red-600">{errors.new_user_department}</p>
-                        )}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="sm:w-2/3">
-                      <span className={labelClass}>User</span>
-                      <Select
-                        className="w-full"
-                        value={line.client_user}
-                        onChange={(value) => form.updateLine(line.key, 'client_user', value)}
-                        placeholder="Select a user"
-                        options={form.options.users}
-                      />
-                      {showErrors && errors.client_user && (
-                        <p className="mt-1 text-xs text-red-600">{errors.client_user}</p>
-                      )}
-                      {(() => {
-                        const picked = form.userFor(line.client_user);
-                        if (!picked) return null;
-
-                        const gone = ['Disabled', 'Archived'].includes(picked.lifecycle_status);
-
-                        return (
-                          <div
-                            className={`mt-2 flex items-start gap-2 rounded-lg border p-2.5 ${
-                              gone
-                                ? 'border-amber-200 bg-amber-50'
-                                : 'border-slate-200 bg-slate-50'
-                            }`}
-                          >
-                            {gone ? (
-                              <TriangleAlert size={15} className="mt-0.5 shrink-0 text-amber-600" />
-                            ) : (
-                              <Info size={15} className="mt-0.5 shrink-0 text-slate-400" />
-                            )}
-                            <p className={`text-xs ${gone ? 'text-amber-800' : 'text-slate-600'}`}>
-                              {gone && (
-                                <span className="font-semibold">
-                                  {picked.lifecycle_status}
-                                  {picked.disabled_date
-                                    ? ` since ${String(picked.disabled_date).slice(0, 10)}`
-                                    : ''}
-                                  {' — '}
-                                </span>
-                              )}
-                              {[picked.email, picked.department].filter(Boolean).join(' · ') ||
-                                'No email or department on file.'}
-                            </p>
-                          </div>
-                        );
-                      })()}
-                      {(() => {
-                        const picked = form.userFor(line.client_user);
-                        if (!picked) return null;
-
-                        // what the technician will need in hand: which machine, its serial,
-                        // and the account name a licence is issued against
-                        const facts = [
-                          ['Device', picked.hostnames],
-                          ['Serial', picked.serial_numbers],
-                          ['Username', picked.username],
-                        ].filter(([, value]) => Boolean(value)) as [string, string][];
-
-                        if (!facts.length) return null;
-
-                        return (
-                          <dl className="mt-2 flex flex-wrap gap-x-5 gap-y-1 px-1 text-xs">
-                            {facts.map(([label, value]) => (
-                              <div key={label} className="flex items-baseline gap-1.5">
-                                <dt className="text-slate-400">{label}</dt>
-                                <dd className="font-medium text-slate-700">{value}</dd>
-                              </div>
-                            ))}
-                          </dl>
-                        );
-                      })()}
-                      {(() => {
-                        const picked = form.userFor(line.client_user);
-                        if (!picked || picked.username) return null;
-
-                        return (
-                          <div className="mt-3">
-                            <span className={labelClass}>Username</span>
-                            <input
-                              type="text"
-                              value={line.new_user_username}
-                              onChange={(event) =>
-                                form.updateLine(line.key, 'new_user_username', event.target.value)
-                              }
-                              placeholder="If you already know it"
-                              className={inputClass}
-                            />
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                    <div >
-                      <span className={labelClass}>Services</span>
-                      <Select
-                        className="w-full"
-                        searchable
-                        value=""
-                        onChange={(value) => {
-                          if (!value || line.services.includes(value)) return;
-                          form.updateLine(line.key, 'services', [...line.services, value]);
-                        }}
-                        options={form.options.services.filter(
-                          (option) => !line.services.includes(option.value)
-                        )}
-                        placeholder="Add a service"
-                      />
-
-                      {line.services.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {line.services.map((service) => (
-                            <span
-                              key={service}
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 py-1 pl-2.5 pr-1.5 text-xs font-medium text-blue-800"
-                            >
-                              {form.options.services.find((o) => o.value === service)?.label ??
-                                service}
-                              <button
-                                type="button"
-                                aria-label={`Remove ${service}`}
-                                onClick={() =>
-                                  form.updateLine(
-                                    line.key,
-                                    'services',
-                                    line.services.filter((item) => item !== service)
-                                  )
-                                }
-                                className="rounded p-0.5 text-blue-500 transition-colors hover:bg-blue-100 hover:text-blue-800"
-                              >
-                                <X size={12} />
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                      )}
-
-                      {showErrors && errors.services && (
-                        <p className="mt-1 text-xs text-red-600">{errors.services}</p>
-                      )}
-                      {!line.isNewUser && line.services.length === 1 && (
-                        <ServiceStateHint
-                          serviceItem={line.services[0]}
-                          clientUser={line.client_user || undefined}
-                          managedDevice={
-                            line.managed_device && line.managed_device !== NEW_DEVICE
-                              ? line.managed_device
-                              : undefined
-                          }
-                        />
-                      )}
-                    </div>
-                    <div >
-                      <span className={labelClass}>Action</span>
-                      <Select
-                        className="w-full"
-                        // label="Action"
-                        searchable
-                        value={line.action}
-                        placeholder="Choose an action"
-                        onChange={(value) => form.updateLine(line.key, 'action', value)}
-                        options={
-                          line.isNewUser ? form.options.actionsForNewUser : form.options.actions
-                        }
-                      />
-                      {showErrors && errors.action && (
-                        <p className="mt-1 text-xs text-red-600">{errors.action}</p>
-                      )}
-                    </div>
-                    <div>
-                      <span className={labelClass}>Wanted modification date</span>
-                      <input
-                        type="date"
-                        value={line.requested_effective_date}
-                        onChange={(event) =>
-                          form.updateLine(line.key, 'requested_effective_date', event.target.value)
-                        }
-                        className={inputClass}
-                      />
-                    </div>
-                  </div>
-
-                  {line.services.some((service) => form.deviceServices.has(service)) && (
-                    <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3.5">
-                      <span className={labelClass}>
-                        Which machine is this for?
-                      </span>
-                      <p className="-mt-1 mb-2 text-xs text-slate-500">
-                        One of these services runs on a machine. Tell us which one — we take its
-                        details when we carry the work out.
-                      </p>
-
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => form.updateLine(line.key, 'managed_device', '')}
-                          className={`rounded-lg border px-3.5 py-2 text-sm font-medium transition-colors ${
-                            line.managed_device && line.managed_device !== form.newDeviceValue
-                              ? 'border-blue-500 bg-white text-blue-700'
-                              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                          }`}
-                        >
-                          One we already hold
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            form.updateLine(line.key, 'managed_device', form.newDeviceValue)
-                          }
-                          className={`rounded-lg border px-3.5 py-2 text-sm font-medium transition-colors ${
-                            line.managed_device === form.newDeviceValue
-                              ? 'border-blue-500 bg-white text-blue-700'
-                              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                          }`}
-                        >
-                          A new one
-                        </button>
-                      </div>
-
-                      {line.managed_device !== form.newDeviceValue && (
-                        <div className="mt-3">
-                          <Select
-                            className="w-full"
-                            searchable
-                            value={line.managed_device}
-                            onChange={(value) => form.updateLine(line.key, 'managed_device', value)}
-                            placeholder="Select the machine"
-                            options={form.devicesFor(line.client_user || undefined)}
-                          />
-                        </div>
-                      )}
-
-                      {line.managed_device === form.newDeviceValue && (
-                        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                          <div>
-                            <span className={labelClass}>Hostname</span>
-                            <input
-                              type="text"
-                              value={line.new_device_label}
-                              onChange={(event) =>
-                                form.updateLine(line.key, 'new_device_label', event.target.value)
-                              }
-                              placeholder="If you know it"
-                              className={inputClass}
-                            />
-                          </div>
-                          <div>
-                            <span className={labelClass}>Type</span>
-                            <Select
-                              className="w-full"
-                              value={line.new_device_type}
-                              onChange={(value) =>
-                                form.updateLine(line.key, 'new_device_type', value)
-                              }
-                              placeholder="If you know it"
-                              options={form.options.deviceTypes}
-                            />
-                          </div>
-                          <div>
-                            <span className={labelClass}>Serial number</span>
-                            <input
-                              type="text"
-                              value={line.new_device_serial}
-                              onChange={(event) =>
-                                form.updateLine(line.key, 'new_device_serial', event.target.value)
-                              }
-                              placeholder="If you have it"
-                              className={inputClass}
-                            />
-                          </div>
-                        </div>
-                      )}
-
-                      {showErrors && errors.managed_device && (
-                        <p className="mt-2 text-xs text-red-600">{errors.managed_device}</p>
-                      )}
-                    </div>
-                  )}
-
-                  <div>
-                    <span className={labelClass}>Comment</span>
-                    <textarea
-                      rows={5}
-                      value={line.comment}
-                      onChange={(event) => form.updateLine(line.key, 'comment', event.target.value)}
-                      placeholder="Any detail we should know: replacement, temporary access, specific configuration…"
-                      className="w-full resize-y rounded-lg border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm leading-relaxed text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
-                    />
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
+        <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={form.addLine}
-            className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 py-3 text-sm font-medium text-slate-500 transition-colors hover:border-blue-400 hover:bg-blue-50/40 hover:text-blue-600"
+            onClick={() => (step === 0 ? navigate('/msp/requests') : setStep(step - 1))}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
           >
-            <Plus size={16} />
-            Add another need
+            <ArrowLeft size={15} />
+            {step === 0 ? 'Cancel' : 'Back'}
           </button>
-        </div>
 
-        {form.submitError instanceof Error && (
-          <div className="mx-6 mb-4 flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3 text-red-700">
-            <AlertCircle size={16} className="mt-0.5 shrink-0" />
-            <span className="text-sm font-medium">{form.submitError.message}</span>
-          </div>
-        )}
+          {builder.intents.length > 0 && (
+            <button
+              type="button"
+              onClick={() => builder.putAside()}
+              disabled={builder.saving}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60"
+            >
+              <Save size={15} />
+              Save draft
+            </button>
+          )}
 
-        {form.optionsError instanceof Error && (
-          <div className="mx-6 mb-4 flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3 text-red-700">
-            <AlertCircle size={16} className="mt-0.5 shrink-0" />
-            <span className="text-sm font-medium">
-              We could not load the choices for this request. {form.optionsError.message}
-            </span>
-          </div>
-        )}
-
-        <div className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/60 px-6 py-4">
-          <span className="text-xs text-slate-500">
-            {form.draft && (
-              <span className="mr-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
-                Saved as a draft — only you can see it
-              </span>
-            )}
-            {form.lines.length} block{form.lines.length > 1 ? 's' : ''} ·{' '}
-            <span className="font-semibold text-slate-700 tabular-nums">
-              {form.totalServices}
-            </span>{' '}
-            service{form.totalServices > 1 ? 's' : ''} requested
-          </span>
-
-          <div className="flex items-center gap-2">
+          {builder.draft && (
             <button
               type="button"
               onClick={() => setGivingUp(true)}
-              disabled={form.submitting || form.saving || form.discarding}
-              className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-4 py-2.5 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50"
             >
-              Cancel
+              <Trash2 size={15} />
+              Discard
             </button>
-            <button
-              type="button"
-              onClick={() => void form.save()}
-              disabled={!form.hasSomething || form.submitting || form.saving}
-              title={
-                form.hasSomething
-                  ? 'Put it aside and come back to it. Nobody else sees it until you send it.'
-                  : 'Pick at least one service before saving.'
-              }
-              className="flex min-w-[6rem] items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {form.saving ? (
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />
-              ) : (
-                'Save'
-              )}
-            </button>
-            <button
-              type="submit"
-              disabled={form.submitting || form.loadingOptions}
-              className="flex min-w-[9rem] items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70"
-            >
-              {form.submitting ? (
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-              ) : (
-                'Submit request'
-              )}
-            </button>
-          </div>
+          )}
         </div>
-      </form>
+
+        {step < STEPS.length - 1 ? (
+          <button
+            type="button"
+            onClick={() => setStep(step + 1)}
+            disabled={!canLeaveStep}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Continue
+            <ArrowRight size={15} />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => builder.send()}
+            disabled={!builder.canSend || builder.sending}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {builder.sending ? 'Sending…' : 'Submit request'}
+          </button>
+        )}
+      </div>
 
       <ConfirmModal
         open={givingUp}
-        title="Give up this request?"
-        description={
-          form.draft
-            ? 'What you saved will be deleted. Nothing has been sent to us, so there is nothing to undo afterwards.'
-            : 'What you have filled in will be lost.'
-        }
-        confirmLabel="Give it up"
         tone="danger"
-        loading={form.discarding}
+        title="Discard this draft?"
+        description="What you put aside goes with it. This cannot be undone."
+        confirmLabel="Discard"
         onCancel={() => setGivingUp(false)}
         onConfirm={async () => {
-          await form.discard();
+          await builder.giveUp();
           setGivingUp(false);
           navigate('/msp/requests');
         }}

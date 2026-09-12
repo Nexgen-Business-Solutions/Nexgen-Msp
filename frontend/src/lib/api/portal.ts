@@ -163,6 +163,10 @@ export type NewRequestLine = {
   new_device_type?: string;
   managed_device?: string;
   customer_site?: string;
+  /** the exact service period this line acts on — required for anything but Add */
+  source_service_assignment?: string;
+  /** who the line was raised for, kept even when it targets a machine */
+  requested_for_user?: string;
   requested_service: string;
   requested_quantity?: number;
   requested_effective_date?: string;
@@ -652,3 +656,96 @@ export const getServiceState = (
   params: { service_item: string; client_user?: string; managed_device?: string },
   signal?: AbortSignal
 ) => get<ServiceState>(`${BASE}.get_service_state`, params, signal);
+
+// ---------------------------------------------------------------- request builder
+
+export type RequestUserResult = {
+  name: string;
+  full_name: string;
+  email: string | null;
+  department: string | null;
+  lifecycle_status: string;
+};
+
+export type RequestServiceOffer = {
+  service_item: string;
+  item_name: string;
+  service_scope: string | null;
+  allowed_request_actions: RequestAction[];
+};
+
+export type RequestCurrentService = {
+  assignment: string;
+  service_item: string;
+  label: string;
+  status: string;
+  since: string | null;
+  quantity: number | null;
+  managed_device: string | null;
+  hostname: string | null;
+  pending_request: string | null;
+  allowed_request_actions: RequestAction[];
+};
+
+export type RequestDeviceContext = {
+  name: string;
+  hostname: string;
+  serial_number: string | null;
+  device_type: string | null;
+  status: string;
+  assigned_date: string | null;
+  target_reason: string | null;
+  services: {
+    current: RequestCurrentService[];
+    available: RequestServiceOffer[];
+  };
+};
+
+export type RequestSubjectContext = {
+  user: {
+    name: string;
+    customer: string;
+    full_name: string;
+    email: string | null;
+    department: string | null;
+    lifecycle_status: string;
+  };
+  personal_services: {
+    current: RequestCurrentService[];
+    available: RequestServiceOffer[];
+  };
+  target_reason: string | null;
+  devices: RequestDeviceContext[];
+};
+
+export type NewUserRequestContext = {
+  customer: string;
+  departments: { value: string; label: string }[];
+  available_user_services: RequestServiceOffer[];
+  available_device_services: RequestServiceOffer[];
+};
+
+export type RequestSubmissionContext = {
+  customer: string;
+  may_submit: boolean;
+  needs_customer_approval: boolean;
+  message: string;
+};
+
+export const searchRequestUsers = (
+  params: { customer?: string; search?: string; limit?: number } = {},
+  signal?: AbortSignal
+) => get<RequestUserResult[]>(`${BASE}.search_request_users`, params, signal);
+
+export const getRequestSubjectContext = (clientUser: string, signal?: AbortSignal) =>
+  get<RequestSubjectContext>(
+    `${BASE}.get_request_subject_context`,
+    { client_user: clientUser },
+    signal
+  );
+
+export const getNewUserRequestContext = (customer?: string, signal?: AbortSignal) =>
+  get<NewUserRequestContext>(`${BASE}.get_new_user_request_context`, { customer }, signal);
+
+export const getRequestSubmissionContext = (customer?: string, signal?: AbortSignal) =>
+  get<RequestSubmissionContext>(`${BASE}.get_request_submission_context`, { customer }, signal);

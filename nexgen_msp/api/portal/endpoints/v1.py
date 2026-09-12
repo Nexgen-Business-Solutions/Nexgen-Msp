@@ -357,3 +357,33 @@ def get_service_state(
         managed_device=managed_device,
         customer=customer,
     )
+
+
+def _request_builder():
+    from nexgen_msp.api.portal.services.request_builder_service import RequestBuilderService
+
+    return RequestBuilderService
+
+
+@frappe.whitelist()
+@handle_errors
+def search_request_users(customer=None, search=None, limit=None):
+    return _request_builder().search_users(customer=customer, search=search, limit=limit)
+
+
+@frappe.whitelist()
+@handle_errors
+def get_request_subject_context(client_user=None):
+    return _request_builder().subject_context(client_user=client_user)
+
+
+@frappe.whitelist()
+@handle_errors
+def get_new_user_request_context(customer=None):
+    return _request_builder().new_user_context(customer=customer)
+
+
+@frappe.whitelist()
+@handle_errors
+def get_request_submission_context(customer=None):
+    return _request_builder().submission_context(customer=customer)

@@ -45,11 +45,11 @@ La spec découpe en 7 tâches. Ordre imposé : backend d'abord, React ensuite.
 
 | # | Tâche | État |
 |---|---|---|
-| 2 | APIs de contexte (`get_request_subject_context`, disponibilité, conflits) | ⬜ |
-| 3 | Nouveau Request Builder React (stepper 4 étapes) | ⬜ |
-| 4 | Cartes services Current/Available + contexte Device | ⬜ |
-| 5 | Brouillons / réouverture / correction d'une demande rejetée | ⬜ |
-| 6 | Recherche utilisateur backend (remplace le chargement de tous les users) | ⬜ |
+| 2 | APIs de contexte (`get_request_subject_context`, disponibilité, conflits) | ✅ 20 tests |
+| 3 | Nouveau Request Builder React (stepper 4 étapes) | ✅ 10 tests |
+| 4 | Cartes services Current/Available + contexte Device | ✅ inclus en 3 |
+| 5 | Brouillons / réouverture / correction d'une demande rejetée | 🔵 en cours |
+| 6 | Recherche utilisateur backend (remplace le chargement de tous les users) | ✅ inclus en 2 |
 | 7 | Tests portail + Vitest | ⬜ |
 
 ---

@@ -1,0 +1,347 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import * as portal from '@/lib/api/portal';
+import NewServiceRequest from './NewServiceRequest';
+
+vi.mock('@/lib/api/portal', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api/portal')>();
+  return {
+    ...actual,
+    getMyApprovalRights: vi.fn(),
+    searchRequestUsers: vi.fn(),
+    getRequestSubjectContext: vi.fn(),
+    getNewUserRequestContext: vi.fn(),
+    getRequestSubmissionContext: vi.fn(),
+    createRequest: vi.fn(),
+    saveRequestDraft: vi.fn(),
+  };
+});
+
+vi.mock('@/shared/hooks/useSession', () => ({
+  useSession: () => ({ data: { roles: ['MSP Customer Manager'] } }),
+}));
+
+vi.mock('@/features/internal/hooks/useUsers', () => ({
+  useUserFilterOptions: () => ({ data: { customers: [] } }),
+}));
+
+const addAction = {
+  name: 'Grant a service',
+  title: 'Grant a service',
+  action_type: 'Add',
+  description: null,
+};
+const suspendAction = {
+  name: 'Suspend a service',
+  title: 'Temporarily suspend',
+  action_type: 'Suspend',
+  description: null,
+};
+const removeAction = {
+  name: 'Remove a service',
+  title: 'Terminate service',
+  action_type: 'Remove',
+  description: null,
+};
+
+const john = {
+  name: 'CU-001',
+  full_name: 'John Doe',
+  email: 'john@acme.com',
+  department: 'Accounting',
+  lifecycle_status: 'Active',
+};
+
+const subjectContext: portal.RequestSubjectContext = {
+  user: { ...john, customer: 'ACME' },
+  personal_services: {
+    current: [
+      {
+        assignment: 'SA-001',
+        service_item: 'M365',
+        label: 'Microsoft 365',
+        status: 'Active',
+        since: '2026-01-10',
+        quantity: 1,
+        managed_device: null,
+        hostname: null,
+        pending_request: null,
+        allowed_request_actions: [suspendAction, removeAction],
+      },
+    ],
+    available: [
+      {
+        service_item: 'ADOBE',
+        item_name: 'Adobe Acrobat',
+        service_scope: 'User',
+        allowed_request_actions: [addAction],
+      },
+    ],
+  },
+  target_reason: null,
+  devices: [
+    {
+      name: 'DEV-001',
+      hostname: 'LAPTOP-JDOE',
+      serial_number: 'ABC-493022',
+      device_type: 'Laptop',
+      status: 'Active',
+      assigned_date: '2026-06-04',
+      target_reason: null,
+      services: {
+        current: [
+          {
+            assignment: 'SA-002',
+            service_item: 'SOPHOS',
+            label: 'Sophos Endpoint',
+            status: 'Active',
+            since: '2026-02-01',
+            quantity: 1,
+            managed_device: 'DEV-001',
+            hostname: 'LAPTOP-JDOE',
+            pending_request: null,
+            allowed_request_actions: [suspendAction, removeAction],
+          },
+        ],
+        available: [
+          {
+            service_item: 'RMM',
+            item_name: 'RMM',
+            service_scope: 'Device',
+            allowed_request_actions: [addAction],
+          },
+        ],
+      },
+    },
+  ],
+};
+
+const renderPage = async () => {
+  vi.mocked(portal.getMyApprovalRights).mockResolvedValue({
+    customer: 'ACME',
+    has_authority: false,
+    can_submit: true,
+    can_approve: false,
+    department: null,
+    awaiting: 0,
+  } as unknown as Awaited<ReturnType<typeof portal.getMyApprovalRights>>);
+  vi.mocked(portal.searchRequestUsers).mockResolvedValue([john]);
+  vi.mocked(portal.getRequestSubjectContext).mockResolvedValue(subjectContext);
+  vi.mocked(portal.getNewUserRequestContext).mockResolvedValue({
+    customer: 'ACME',
+    departments: [{ value: 'Human Resources', label: 'Human Resources' }],
+    available_user_services: [
+      {
+        service_item: 'M365',
+        item_name: 'Microsoft 365',
+        service_scope: 'User',
+        allowed_request_actions: [addAction],
+      },
+    ],
+    available_device_services: [
+      {
+        service_item: 'SOPHOS',
+        item_name: 'Sophos Endpoint',
+        service_scope: 'Device',
+        allowed_request_actions: [addAction],
+      },
+    ],
+  });
+  vi.mocked(portal.getRequestSubmissionContext).mockResolvedValue({
+    customer: 'ACME',
+    may_submit: true,
+    needs_customer_approval: true,
+    message: 'This request will first wait for approval inside your company.',
+  });
+  vi.mocked(portal.createRequest).mockResolvedValue({
+    name: 'SR-2026-0001',
+  } as unknown as Awaited<ReturnType<typeof portal.createRequest>>);
+
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+
+  render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
+        <NewServiceRequest />
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+
+  await screen.findByText('New request');
+};
+
+const pickJohn = async () => {
+  fireEvent.change(screen.getByPlaceholderText(/search a user/i), {
+    target: { value: 'John' },
+  });
+  fireEvent.click(await screen.findByText('John Doe'));
+};
+
+const goToChanges = async () => {
+  await pickJohn();
+  fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+  await screen.findByText('Personal services');
+};
+
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
+
+describe('the request builder walks four steps', () => {
+  it('will not leave the first step until somebody is chosen', async () => {
+    await renderPage();
+
+    expect(screen.getByRole('button', { name: /continue/i })).toBeDisabled();
+
+    await pickJohn();
+
+    expect(screen.getByRole('button', { name: /continue/i })).toBeEnabled();
+  });
+
+  it('shows the person with their department, email and machines framed', async () => {
+    await renderPage();
+    await pickJohn();
+
+    expect(await screen.findByText(/Accounting · john@acme.com/)).toBeInTheDocument();
+    expect(await screen.findByText('LAPTOP-JDOE')).toBeInTheDocument();
+    expect(screen.getByText('Serial: ABC-493022')).toBeInTheDocument();
+  });
+
+  it('offers no free service, action or scope dropdown', async () => {
+    await renderPage();
+    await goToChanges();
+
+    expect(screen.queryByText(/^scope$/i)).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/select service/i)).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/select an action/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('acts are embedded with the service they belong to', () => {
+  it('offers only what a running service can receive, named by the administrator', async () => {
+    await renderPage();
+    await goToChanges();
+
+    const row = screen.getByText('Microsoft 365').closest('div')?.parentElement as HTMLElement;
+
+    expect(within(row).getByRole('button', { name: 'Temporarily suspend' })).toBeInTheDocument();
+    expect(within(row).getByRole('button', { name: 'Terminate service' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^resume/i })).not.toBeInTheDocument();
+  });
+
+  it('turns one click into one intention, and lets it be taken back', async () => {
+    await renderPage();
+    await goToChanges();
+
+    fireEvent.click(screen.getByRole('button', { name: /Adobe Acrobat/ }));
+
+    expect(await screen.findByRole('button', { name: /Adobe Acrobat — added/ })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Adobe Acrobat — added/ }));
+
+    expect(screen.getByRole('button', { name: /^\s*Adobe Acrobat$/ })).toBeInTheDocument();
+  });
+
+  it('keeps a device service under its own machine', async () => {
+    await renderPage();
+    await goToChanges();
+
+    const deviceCard = screen.getByText('LAPTOP-JDOE').closest('div')?.parentElement;
+
+    expect(within(deviceCard as HTMLElement).getByText('Sophos Endpoint')).toBeInTheDocument();
+    expect(within(deviceCard as HTMLElement).getByRole('button', { name: /RMM/ })).toBeInTheDocument();
+  });
+});
+
+describe('sending what was asked for', () => {
+  it('sends one line per intention, each naming its own target', async () => {
+    await renderPage();
+    await goToChanges();
+
+    const m365 = screen.getByText('Microsoft 365').closest('div')?.parentElement as HTMLElement;
+
+    fireEvent.click(screen.getByRole('button', { name: /Adobe Acrobat/ }));
+    fireEvent.click(within(m365).getByRole('button', { name: 'Temporarily suspend' }));
+    fireEvent.click(screen.getByRole('button', { name: /RMM/ }));
+
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+    await screen.findByText(/what you are asking for/i);
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+    await screen.findByText(/after submission/i);
+
+    fireEvent.click(screen.getByRole('button', { name: /submit request/i }));
+
+    await waitFor(() => expect(portal.createRequest).toHaveBeenCalledTimes(1));
+
+    const payload = vi.mocked(portal.createRequest).mock.calls[0][0];
+    expect(payload.lines).toHaveLength(3);
+
+    const adobe = payload.lines.find((line) => line.requested_service === 'ADOBE');
+    expect(adobe).toMatchObject({ target_scope: 'User', client_user: 'CU-001', action: 'Add' });
+    expect(adobe?.source_service_assignment).toBeUndefined();
+
+    const suspend = payload.lines.find((line) => line.requested_service === 'M365');
+    expect(suspend).toMatchObject({
+      action: 'Suspend',
+      source_service_assignment: 'SA-001',
+      client_user: 'CU-001',
+    });
+
+    const rmm = payload.lines.find((line) => line.requested_service === 'RMM');
+    expect(rmm).toMatchObject({
+      target_scope: 'Device',
+      managed_device: 'DEV-001',
+      requested_for_user: 'CU-001',
+    });
+    expect(rmm?.client_user).toBeUndefined();
+  });
+
+  it('tells the customer what happens after they send it', async () => {
+    await renderPage();
+    await goToChanges();
+
+    fireEvent.click(screen.getByRole('button', { name: /Adobe Acrobat/ }));
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+    await screen.findByText(/what you are asking for/i);
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+
+    expect(
+      await screen.findByText(/wait for approval inside your company/i)
+    ).toBeInTheDocument();
+  });
+});
+
+describe('a person who does not exist yet', () => {
+  it('asks only for a name, a department and an email', async () => {
+    await renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: /new user/i }));
+
+    expect(await screen.findByPlaceholderText('Marie Dupont')).toBeInTheDocument();
+    expect(screen.getByText('Department')).toBeInTheDocument();
+    expect(screen.queryByText(/username/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/hostname/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/serial/i)).not.toBeInTheDocument();
+  });
+
+  it('says a technician will settle the machine for a device service', async () => {
+    await renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: /new user/i }));
+    fireEvent.change(await screen.findByPlaceholderText('Marie Dupont'), {
+      target: { value: 'Marie Dupont' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+
+    fireEvent.click(await screen.findByRole('button', { name: /Sophos Endpoint/ }));
+
+    expect(
+      await screen.findByText(/a technician will prepare or identify it/i)
+    ).toBeInTheDocument();
+  });
+});

@@ -39,6 +39,15 @@ class ServiceAvailabilityService:
         """What this person holds, what they may be given, and what is out of reach."""
         RequestService._guard_internal()
 
+        return ServiceAvailabilityService.read_user(client_user)
+
+    @staticmethod
+    def read_user(client_user=None):
+        """The same reading, for a caller that has already established its own right to it.
+
+        The portal asks this too, about its own people: it checks the customer rather than
+        the workspace, and there is no reason for the rules themselves to exist twice.
+        """
         if not client_user:
             raise ValidationError("client_user is required.", "VALIDATION_ERROR")
 
@@ -72,6 +81,11 @@ class ServiceAvailabilityService:
         """The same reading for one machine, and for that machine alone."""
         RequestService._guard_internal()
 
+        return ServiceAvailabilityService.read_device(managed_device)
+
+    @staticmethod
+    def read_device(managed_device=None):
+        """The machine's own reading, for a caller that has established its right to it."""
         if not managed_device:
             raise ValidationError("managed_device is required.", "VALIDATION_ERROR")
 
