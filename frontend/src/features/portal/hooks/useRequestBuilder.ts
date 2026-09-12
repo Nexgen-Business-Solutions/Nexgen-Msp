@@ -28,6 +28,10 @@ export type RequestIntent = {
   requestedQuantity?: number;
   requestedEffectiveDate?: string;
   comment?: string;
+  /** never asked for, but kept when the customer happens to know it */
+  deviceHostname?: string;
+  deviceSerial?: string;
+  deviceType?: string;
 };
 
 /** The person a group of intentions is about, whether or not they exist yet. */
@@ -38,6 +42,8 @@ export type RequestSubject = {
   fullName?: string;
   department?: string;
   email?: string;
+  /** optional: some customers know the account name they want, most do not */
+  username?: string;
 };
 
 const newKey = () => Math.random().toString(36).slice(2, 10);
@@ -71,6 +77,7 @@ export const fromSavedRequest = (saved: PortalRequestDetail) => {
         fullName: line.new_user_full_name ?? undefined,
         department: line.new_user_department ?? undefined,
         email: line.new_user_email ?? undefined,
+        username: line.new_user_username ?? undefined,
       });
 
       return key;
@@ -112,6 +119,9 @@ export const fromSavedRequest = (saved: PortalRequestDetail) => {
       requestedQuantity: line.requested_quantity ?? undefined,
       requestedEffectiveDate: line.requested_effective_date ?? undefined,
       comment: line.comment ?? undefined,
+      deviceHostname: line.new_device_label ?? undefined,
+      deviceSerial: line.new_device_serial ?? undefined,
+      deviceType: line.new_device_type ?? undefined,
     });
   });
 
@@ -241,11 +251,18 @@ export const useRequestBuilder = (
         line.source_service_assignment = intent.sourceServiceAssignment;
       }
 
+      // whatever the customer knew is carried for whoever does the work; none of it is
+      // written to a person or a machine by sending the request
+      if (intent.deviceHostname) line.new_device_label = intent.deviceHostname;
+      if (intent.deviceSerial) line.new_device_serial = intent.deviceSerial;
+      if (intent.deviceType) line.new_device_type = intent.deviceType;
+
       if (subject?.kind === 'new') {
         line.is_new_user = 1;
         line.new_user_full_name = subject.fullName;
         line.new_user_department = subject.department;
         line.new_user_email = subject.email;
+        if (subject.username) line.new_user_username = subject.username;
         // a machine for somebody who does not exist yet is the technician's to identify
         if (intent.targetScope === 'Device' || intent.isNewDevice) {
           line.target_scope = 'User';

@@ -161,9 +161,12 @@ export type NewRequestLine = {
   new_user_full_name?: string;
   new_user_department?: string;
   new_user_email?: string;
+  /** never required of the customer, but kept when they happen to know it */
+  new_user_username?: string;
   is_new_device?: number;
   new_device_label?: string;
   new_device_type?: string;
+  new_device_serial?: string;
   managed_device?: string;
   customer_site?: string;
   /** the exact service period this line acts on — required for anything but Add */

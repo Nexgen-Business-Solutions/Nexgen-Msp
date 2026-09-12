@@ -234,9 +234,13 @@ class MSPTestCase(IntegrationTestCase):
         if existing:
             return existing
 
+        # as Administrator: a portal session carries a Customer user permission, and Frappe
+        # would stamp it onto the shared department as though it belonged to that company
+        session = frappe.session.user
+        frappe.set_user("Administrator")
         try:
             doc = frappe.get_doc(
-                {"doctype": "MSP Department", "department_name": label, "enabled": 1}
+                {"doctype": "MSP Department", "department_name": label, "enabled": 1, "customer": None}
             ).insert(ignore_permissions=True)
             frappe.db.commit()
 
@@ -245,6 +249,8 @@ class MSPTestCase(IntegrationTestCase):
             frappe.db.rollback()
 
             return frappe.db.get_value("MSP Department", {"department_name": label}, "name")
+        finally:
+            frappe.set_user(session)
 
     def make_person(self, customer, full_name="Someone", department=None):
         if department:

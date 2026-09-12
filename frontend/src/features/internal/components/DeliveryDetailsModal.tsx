@@ -12,12 +12,17 @@ type Props = {
 };
 
 
+const keyOf = (want: Want) => `${want.idx}:${want.field}`;
+
 const DeliveryDetailsModal: React.FC<Props> = ({ request, onClose, onComplete }) => {
   const wants = outstanding(request);
   const save = useSetDeliveryDetail();
-  const [values, setValues] = useState<Record<string, string>>({});
-
-  const keyOf = (want: Want) => `${want.idx}:${want.field}`;
+  // whatever the customer already told us is there to be confirmed, not retyped
+  const [values, setValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      wants.filter((want) => want.suggested).map((want) => [keyOf(want), want.suggested as string])
+    )
+  );
   const filled = wants.every((want) => (values[keyOf(want)] ?? '').trim());
 
   const submit = async () => {
@@ -79,6 +84,11 @@ const DeliveryDetailsModal: React.FC<Props> = ({ request, onClose, onComplete })
               <p className="mt-0.5 text-xs text-slate-400">
                 Line {want.idx} · {want.service}
               </p>
+              {want.suggested && (
+                <p className="mt-0.5 text-xs font-medium text-blue-700">
+                  Supplied by the customer — confirm or correct it.
+                </p>
+              )}
               <input
                 type="text"
                 autoFocus={want === wants[0]}

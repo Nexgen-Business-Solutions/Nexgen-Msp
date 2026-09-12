@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { CalendarDays, MessageSquarePlus, Trash2 } from 'lucide-react';
+import { CalendarDays, MessageSquarePlus, Trash2, Wrench } from 'lucide-react';
 import FieldLabel from '@/shared/components/FieldLabel';
+import Select from '@/shared/components/Select';
+import { usePortalFilterOptions } from '../hooks/usePortal';
 import type { useRequestBuilder } from '../hooks/useRequestBuilder';
 
 type Builder = ReturnType<typeof useRequestBuilder>;
@@ -18,6 +20,7 @@ const PRIORITIES = [
 /** When it should happen, and anything worth saying about one particular item. */
 const RequestScheduleStep: React.FC<{ builder: Builder }> = ({ builder }) => {
   const [detailing, setDetailing] = useState<string | null>(null);
+  const options = usePortalFilterOptions();
 
   return (
     <div className="space-y-4">
@@ -122,6 +125,49 @@ const RequestScheduleStep: React.FC<{ builder: Builder }> = ({ builder }) => {
                   placeholder="Anything the technician should know."
                   className="mt-2 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-500"
                 />
+              )}
+
+              {/* the machine is the technician's to identify — but a customer who already
+                  knows which one it is, or has it in front of them, may say so */}
+              {intent.isNewDevice && (
+                <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+                  <p className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600">
+                    <Wrench size={13} className="text-slate-400" />
+                    A technician will prepare or identify the device. If you already know it,
+                    you can say so — none of this is required.
+                  </p>
+
+                  <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                    <input
+                      className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm outline-none focus:border-blue-500"
+                      value={intent.deviceHostname ?? ''}
+                      onChange={(event) =>
+                        builder.updateIntent(intent.key, { deviceHostname: event.target.value })
+                      }
+                      placeholder="Hostname (optional)"
+                      aria-label="Hostname (optional)"
+                    />
+                    <input
+                      className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm outline-none focus:border-blue-500"
+                      value={intent.deviceSerial ?? ''}
+                      onChange={(event) =>
+                        builder.updateIntent(intent.key, { deviceSerial: event.target.value })
+                      }
+                      placeholder="Serial number (optional)"
+                      aria-label="Serial number (optional)"
+                    />
+                    <Select
+                      className="w-full"
+                      value={intent.deviceType ?? ''}
+                      onChange={(value) => builder.updateIntent(intent.key, { deviceType: value })}
+                      placeholder="Device type (optional)"
+                      options={(options.data?.device_types ?? []).map((type) => ({
+                        value: type,
+                        label: type,
+                      }))}
+                    />
+                  </div>
+                </div>
               )}
             </div>
           );

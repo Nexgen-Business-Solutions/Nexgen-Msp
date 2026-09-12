@@ -349,16 +349,18 @@ describe('sending what was asked for', () => {
 });
 
 describe('a person who does not exist yet', () => {
-  it('asks only for a name, a department and an email', async () => {
+  it('requires only a name and a department, and offers the account name as optional', async () => {
     await renderPage();
 
     fireEvent.click(screen.getByRole('button', { name: /new user/i }));
 
     expect(await screen.findByPlaceholderText('Marie Dupont')).toBeInTheDocument();
     expect(screen.getByText('Department')).toBeInTheDocument();
-    expect(screen.queryByText(/username/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/hostname/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/serial/i)).not.toBeInTheDocument();
+    // offered, never demanded: the customer who knows it may say so
+    expect(screen.getByText('Account name (optional)')).toBeInTheDocument();
+    expect(
+      screen.getByPlaceholderText(/leave empty if you do not know it/i)
+    ).toBeInTheDocument();
   });
 
   it('says a technician will settle the machine for a device service', async () => {
@@ -534,5 +536,85 @@ describe('what the screen must never hide', () => {
     expect(
       await screen.findByText(/No device currently assigned to John Doe/i)
     ).toBeInTheDocument();
+  });
+});
+
+describe('technical details are offered, never demanded', () => {
+  const reachSchedule = async () => {
+    await renderPage({ ...subjectContext, devices: [] });
+    await goToChanges();
+    fireEvent.click(screen.getByRole('button', { name: /Adobe Acrobat/ }));
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+    await screen.findByText(/what you are asking for/i);
+  };
+
+  it('lets a request through with none of them filled in', async () => {
+    await reachSchedule();
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+    await screen.findByText(/after submission/i);
+
+    fireEvent.click(screen.getByRole('button', { name: /submit request/i }));
+
+    await waitFor(() => expect(portal.createRequest).toHaveBeenCalledTimes(1));
+
+    const line = vi.mocked(portal.createRequest).mock.calls[0][0].lines[0];
+    expect(line.new_user_username).toBeUndefined();
+    expect(line.new_device_serial).toBeUndefined();
+    expect(line.new_device_label).toBeUndefined();
+  });
+
+  it('carries the account name a customer did know', async () => {
+    await renderPage({ ...subjectContext, devices: [] });
+
+    fireEvent.click(screen.getByRole('button', { name: /new user/i }));
+    fireEvent.change(await screen.findByPlaceholderText('Marie Dupont'), {
+      target: { value: 'Marie Dupont' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/leave empty if you do not know it/i), {
+      target: { value: 'm.dupont' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /Microsoft 365/ }));
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+    await screen.findByText(/what you are asking for/i);
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+    await screen.findByText(/after submission/i);
+    fireEvent.click(screen.getByRole('button', { name: /submit request/i }));
+
+    await waitFor(() => expect(portal.createRequest).toHaveBeenCalledTimes(1));
+
+    const line = vi.mocked(portal.createRequest).mock.calls[0][0].lines[0];
+    expect(line.new_user_username).toBe('m.dupont');
+  });
+
+  it('carries the hostname and serial a customer did know about a machine', async () => {
+    await renderPage({ ...subjectContext, devices: [] });
+
+    fireEvent.click(screen.getByRole('button', { name: /new user/i }));
+    fireEvent.change(await screen.findByPlaceholderText('Marie Dupont'), {
+      target: { value: 'Marie Dupont' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /Sophos Endpoint/ }));
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+
+    fireEvent.change(await screen.findByLabelText(/hostname \(optional\)/i), {
+      target: { value: 'LAPTOP-MDUPONT' },
+    });
+    fireEvent.change(screen.getByLabelText(/serial number \(optional\)/i), {
+      target: { value: 'SN-9912' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+    await screen.findByText(/after submission/i);
+    fireEvent.click(screen.getByRole('button', { name: /submit request/i }));
+
+    await waitFor(() => expect(portal.createRequest).toHaveBeenCalledTimes(1));
+
+    const line = vi.mocked(portal.createRequest).mock.calls[0][0].lines[0];
+    expect(line.is_new_device).toBe(1);
+    expect(line.new_device_label).toBe('LAPTOP-MDUPONT');
+    expect(line.new_device_serial).toBe('SN-9912');
   });
 });

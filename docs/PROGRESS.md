@@ -46,6 +46,10 @@ cd apps/nexgen_msp/frontend && yarn build && yarn lint && yarn test
   deux méthodes concurrentes se marchent dessus). Ils portent le préfixe : après une suite
   complète, balayer les `MSP Department` contenant `ZZTEST` pour ne pas les laisser dans le
   catalogue que voient les clients.
+- Une session portail porte une User Permission sur son `Customer` : Frappe la recopie
+  automatiquement dans tout champ Link `customer` d'un document créé par cette session.
+  `make_department()` insère donc en tant qu'`Administrator`, sinon le département partagé
+  ressort marqué comme appartenant à une entreprise.
 
 ---
 
@@ -118,6 +122,20 @@ Référentiel **global MSP**, sans lien avec un client.
   cette entreprise. Sans client renseigné (le cas normal), il reste offert à tout le monde.
   Les noms restent uniques sur l'ensemble du catalogue, le libellé servant d'identifiant.
 
+### Données techniques : proposées, jamais exigées
+
+Le client n'est obligé de fournir ni nom de compte, ni nom d'hôte, ni numéro de série : un
+technicien s'en charge. Mais s'il les connaît, il peut les saisir, et elles suivent la demande
+de bout en bout.
+
+- Saisie facultative : nom de compte sur la carte « nouvelle personne », nom d'hôte / numéro
+  de série / type d'appareil sur chaque intention qui demande une machine à préparer.
+- Restituées partout où la demande est lisible : détail portail, détail interne, et le tableau
+  par personne partagé entre les deux.
+- Côté technicien, elles pré-remplissent le travail au lieu d'être à recopier : formulaires
+  « Enregistrer l'appareil » et « Créer l'utilisateur », et le formulaire de clôture
+  (`DeliveryDetailsModal`), qui affiche « Supplied by the customer — confirm or correct it. »
+
 ### Phase 3 — Workflow de demande client ✅
 
 **Invariant de la phase : soumettre une demande ne modifie jamais la réalité opérationnelle.**
@@ -168,5 +186,6 @@ Les 30 scénarios backend de §58 et la liste frontend de §59 sont couverts.
 | 2026-09-12 | agent principal | Phase 3 tâche 1 (`after phase 3 request intents`) puis tâches 2–4 et 6 (`after phase 3 request builder`). |
 | 2026-09-12 | agent principal | Phase 3 terminée : brouillons/corrections et couverture §58–§59 (`after phase 3 done`). |
 | 2026-09-12 | agent principal | Départements : champ `customer` facultatif, options filtrées par entreprise. |
+| 2026-09-12 | agent principal | Données techniques rendues facultatives mais saisissables, visibles partout, pré-remplies côté technicien. |
 
 > Ajoute ta ligne ici quand tu termines quelque chose.
