@@ -182,8 +182,10 @@ class User360Service:
             as_dict=True,
         )
 
+        pending = User360Service._pending_on([row["name"] for row in rows])
+
         for row in rows:
-            User360Service._describe_service(row)
+            User360Service._describe_service(row, pending)
 
         offer = ServiceAvailabilityService.read_user(person.name) if internal else None
 
@@ -215,16 +217,48 @@ class User360Service:
         return rows
 
     @staticmethod
-    def _describe_service(row):
+    def _pending_on(assignments):
+        """Which of these services somebody is already asking for something on.
+
+        One query for the lot. Asked service by service, a person with a dozen of them
+        would cost a dozen round trips to draw one page.
+        """
+        if not assignments:
+            return {}
+
+        rows = frappe.db.sql(
+            """
+            select srl.source_service_assignment as assignment, min(sr.name) as request
+            from `tabMSP Service Request Line` srl
+            join `tabMSP Service Request` sr on sr.name = srl.parent
+            where srl.source_service_assignment in %(assignments)s
+              and sr.status in %(in_flight)s
+            group by srl.source_service_assignment
+            """,
+            {
+                "assignments": tuple(assignments),
+                "in_flight": request_intents.IN_FLIGHT_STATUSES,
+            },
+            as_dict=True,
+        )
+
+        return {row.assignment: row.request for row in rows}
+
+    @staticmethod
+    def _describe_service(row, pending=None):
         """What may still be asked of this service, and whether somebody is already asking."""
-        pending = request_intents.in_flight_requests_for(row["name"])
+        asked = (
+            pending.get(row["name"])
+            if pending is not None
+            else (request_intents.in_flight_requests_for(row["name"]) or [None])[0]
+        )
 
         row["allowed_actions"] = list(
             request_intents.ALLOWED_ACTIONS.get(row["operational_status"], ())
         )
-        row["pending_request"] = pending[0] if pending else None
+        row["pending_request"] = asked
 
-        if pending:
+        if asked:
             # somebody is already changing it; offering a second, contradictory ask here is
             # the very thing Phase 3 refuses at the door
             row["allowed_actions"] = []
@@ -285,9 +319,15 @@ class User360Service:
             {"devices": names, "open": OPEN_ASSIGNMENT_STATUSES},
             as_dict=True,
         ):
-            running.setdefault(row.managed_device, []).append(
-                User360Service._describe_service(row)
-            )
+            running.setdefault(row.managed_device, []).append(row)
+
+        pending = User360Service._pending_on(
+            [row["name"] for rows in running.values() for row in rows]
+        )
+
+        for rows in running.values():
+            for row in rows:
+                User360Service._describe_service(row, pending)
 
         # The page is used by the MSP team and customer administrators, not by the
         # individual holder. Keep the machine's closed service history visible after a

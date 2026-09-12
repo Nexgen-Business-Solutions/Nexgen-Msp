@@ -1259,8 +1259,32 @@ def get_customer_details(customer=None):
 
 @frappe.whitelist()
 @handle_errors
-def save_customer_details(customer=None, details=None, address=None):
-    return _customers().save_customer(customer=customer, details=details, address=address)
+def save_customer_details(customer=None, details=None, address=None, contact=None):
+    return _customers().save_customer(
+        customer=customer, details=details, address=address, contact=contact
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def list_customers(search=None):
+    return _customers().list_customers(search=search)
+
+
+@frappe.whitelist()
+@handle_errors
+def create_customer(customer_name=None, details=None, address=None):
+    return _customers().create_customer(
+        customer_name=customer_name, details=details, address=address
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def my_capabilities():
+    from nexgen_msp.utils import access
+
+    return access.capabilities()
 
 
 @frappe.whitelist()

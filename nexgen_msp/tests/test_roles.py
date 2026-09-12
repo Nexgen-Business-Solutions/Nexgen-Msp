@@ -341,15 +341,24 @@ class TestARoleAddedByHand(MSPTestCase):
             frappe.set_user("Administrator")
 
     def test_the_deployment_sweep_puts_permissions_back_in_line(self):
-        permissions.add_customer_permission(self.contact, self.make_customer("B"))
+        elsewhere = self.make_customer("B")
+        permissions.add_customer_permission(self.contact, elsewhere)
         frappe.db.commit()
 
-        self.assertEqual(len(permissions.get_allowed_customers(self.contact)), 2)
+        # a permission with no contact behind it opened nothing in the first place
+        self.assertEqual(permissions.get_allowed_customers(self.contact), [self.customer])
 
         permissions.reconcile_customer_permissions(self.contact)
         frappe.db.commit()
 
         self.assertEqual(permissions.get_allowed_customers(self.contact), [self.customer])
+        self.assertFalse(
+            frappe.db.exists(
+                "User Permission",
+                {"user": self.contact, "allow": "Customer", "for_value": elsewhere},
+            ),
+            "and the sweep takes the leftover row away",
+        )
 
 
 class TestADeviceWithNoSession(MSPTestCase):

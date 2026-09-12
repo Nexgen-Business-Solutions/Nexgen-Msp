@@ -292,6 +292,48 @@ class BillingService:
         ]
 
     @staticmethod
+    def _holder_contexts(devices, period_start, period_end):
+        """Who was holding each of these machines over the period, in one query.
+
+        A run of a thousand lines used to ask this a thousand times.
+        """
+        if not devices:
+            return {}
+
+        rows = frappe.db.sql(
+            """
+            select holder.parent as device,
+                   coalesce(person.full_name, holder.client_user) as who,
+                   holder.from_date, holder.to_date
+            from `tabMSP Device Holder` holder
+            left join `tabMSP Client User` person on person.name = holder.client_user
+            where holder.parenttype = 'MSP Managed Device'
+              and holder.parent in %(devices)s
+              and holder.from_date <= %(period_end)s
+              and (holder.to_date is null or holder.to_date >= %(period_start)s)
+            order by holder.parent asc, holder.from_date asc
+            """,
+            {
+                "devices": tuple(devices),
+                "period_start": period_start,
+                "period_end": period_end,
+            },
+            as_dict=True,
+        )
+
+        held = {}
+
+        for row in rows:
+            spell = (
+                f"{row.who}: {max(getdate(row.from_date), getdate(period_start))}"
+                f" \u2192 "
+                f"{min(getdate(row.to_date), getdate(period_end)) if row.to_date else getdate(period_end)}"
+            )
+            held.setdefault(row.device, []).append(spell)
+
+        return {device: "\n".join(spells) for device, spells in held.items()}
+
+    @staticmethod
     def _holder_context(managed_device, period_start, period_end):
         """Who was holding the machine while it was being billed, read from the history.
 
@@ -542,13 +584,29 @@ class BillingService:
         the rest later — and the only thing that must never happen is the same person
         landing on two runs for the same stretch.
         """
-        found = frappe.db.sql(
+        found = BillingService._invoiced_in(
+            [assignment_name], period_start, period_end, exclude_run
+        )
+
+        return found.get(assignment_name)
+
+    @staticmethod
+    def _invoiced_in(assignment_names, period_start, period_end, exclude_run=None):
+        """The same question for a whole run at once, keyed by assignment.
+
+        A preview prices every assignment the contract covers, and asking one at a time cost
+        a query per line — thousands of them on a company of any size.
+        """
+        if not assignment_names:
+            return {}
+
+        rows = frappe.db.sql(
             """
-            select br.name
+            select brl.service_assignment, min(br.name) as run
             from `tabMSP Billing Run Line` brl
             join `tabMSP Billing Run` br on br.name = brl.parent
             join `tabMSP Service Assignment` sa on sa.name = brl.service_assignment
-            where brl.service_assignment = %(assignment)s
+            where brl.service_assignment in %(assignments)s
               -- a run of another company can never have billed this: an assignment belongs
               -- to one customer, and only their runs can double-charge it
               and br.customer = sa.customer
@@ -558,16 +616,18 @@ class BillingService:
               and br.billing_period_start <= %(period_end)s
               and br.billing_period_end >= %(period_start)s
               and br.name != %(exclude)s
-            limit 1
+            group by brl.service_assignment
             """,
             {
-                "assignment": assignment_name,
+                "assignments": tuple(assignment_names),
                 "period_start": period_start,
                 "period_end": period_end,
                 "exclude": exclude_run or "",
             },
+            as_dict=True,
         )
-        return found[0][0] if found else None
+
+        return {row.service_assignment: row.run for row in rows}
 
     @staticmethod
     def period_status(contract=None, period_start=None, period_end=None):
@@ -705,6 +765,14 @@ class BillingService:
 
         method = terms["proration_method"]
         period_days = BillingService._period_days(period_start, period_end)
+        holder_contexts = BillingService._holder_contexts(
+            sorted({row.managed_device for row in assignments if row.managed_device}),
+            period_start,
+            period_end,
+        )
+        invoiced_by_assignment = BillingService._invoiced_in(
+            [row.name for row in assignments], period_start, period_end, exclude_run
+        )
         lines = []
 
         for assignment in assignments:
@@ -716,9 +784,7 @@ class BillingService:
                 < getdate(assignment.effective_start_date)
             )
             quantity = flt(assignment.quantity or 0)
-            invoiced_in = BillingService._already_invoiced(
-                assignment.name, period_start, period_end, exclude_run
-            )
+            invoiced_in = invoiced_by_assignment.get(assignment.name)
 
             # what the machine and the person were on the day this was priced: read back in
             # five years, the run must say the same thing it says today
@@ -730,9 +796,7 @@ class BillingService:
                 "hostname_snapshot": assignment.hostname,
                 "serial_snapshot": assignment.serial_number,
                 "device_type_snapshot": assignment.device_type,
-                "holder_context_snapshot": BillingService._holder_context(
-                    assignment.managed_device, period_start, period_end
-                ),
+                "holder_context_snapshot": holder_contexts.get(assignment.managed_device),
             }
 
             stretches = BillingService._rate_periods(
@@ -1018,6 +1082,72 @@ class BillingService:
         }
 
     @staticmethod
+    def _billing_identity(customer):
+        """Who the run is billed to, as the records read on the day it was drawn.
+
+        A company that moves office in September must not rewrite the August invoice, so
+        the name, the tax number, the address and the person to call are copied onto the
+        run rather than looked up again every time it is opened.
+        """
+        details = (
+            frappe.db.get_value(
+                "Customer", customer, ["customer_name", "tax_id"], as_dict=True
+            )
+            or frappe._dict()
+        )
+
+        address = frappe.db.get_value(
+            "Dynamic Link",
+            {"link_doctype": "Customer", "link_name": customer, "parenttype": "Address"},
+            "parent",
+        )
+        contact = frappe.db.get_value(
+            "Dynamic Link",
+            {"link_doctype": "Customer", "link_name": customer, "parenttype": "Contact"},
+            "parent",
+        )
+
+        return {
+            "customer_name_snapshot": details.get("customer_name") or customer,
+            "tax_id_snapshot": details.get("tax_id"),
+            "billing_address_snapshot": BillingService._address_lines(address),
+            "billing_contact_snapshot": BillingService._contact_lines(contact),
+        }
+
+    @staticmethod
+    def _address_lines(address):
+        if not address:
+            return None
+
+        row = frappe.db.get_value(
+            "Address",
+            address,
+            ["address_line1", "address_line2", "city", "state", "pincode", "country"],
+            as_dict=True,
+        )
+
+        if not row:
+            return None
+
+        return "\n".join(part for part in row.values() if part) or None
+
+    @staticmethod
+    def _contact_lines(contact):
+        if not contact:
+            return None
+
+        row = frappe.db.get_value(
+            "Contact", contact, ["first_name", "last_name", "email_id", "phone"], as_dict=True
+        )
+
+        if not row:
+            return None
+
+        named = " ".join(part for part in (row.first_name, row.last_name) if part)
+
+        return "\n".join(part for part in (named, row.email_id, row.phone) if part) or None
+
+    @staticmethod
     def generate(
         contract=None,
         period_start=None,
@@ -1069,6 +1199,7 @@ class BillingService:
                 "adjustment_of": adjustment_of or None,
                 "generation_version": "1",
                 "prepared_by": frappe.session.user,
+                **BillingService._billing_identity(terms["customer"]),
                 "lines": [
                     {k: v for k, v in line.items() if k not in DISPLAY_ONLY} for line in lines
                 ],
@@ -2037,9 +2168,25 @@ class BillingService:
             else False
         )
 
+        # a run drawn before the identity was frozen has nothing to read back, and the
+        # records as they stand are the closest thing to what it was billed to
+        identity = {
+            field: doc.get(field)
+            for field in (
+                "customer_name_snapshot",
+                "tax_id_snapshot",
+                "billing_address_snapshot",
+                "billing_contact_snapshot",
+            )
+        }
+
+        if not any(identity.values()):
+            identity = BillingService._billing_identity(doc.customer)
+
         return {
             "name": doc.name,
             "customer": doc.customer,
+            "billing_identity": identity,
             "contract": doc.contract,
             "contract_title": frappe.db.get_value("MSP Contract", doc.contract, "title")
             if doc.contract
@@ -2575,6 +2722,17 @@ class BillingService:
                 "credit_note_reason": reason,
                 "generation_version": "1",
                 "prepared_by": frappe.session.user,
+                # a credit note stands against one invoice, and is billed to whoever that
+                # invoice was billed to, not to whoever the company has since become
+                **{
+                    field: run.get(field)
+                    for field in (
+                        "customer_name_snapshot",
+                        "tax_id_snapshot",
+                        "billing_address_snapshot",
+                        "billing_contact_snapshot",
+                    )
+                },
                 "lines": [
                     {
                         "service_assignment": line["service_assignment"],

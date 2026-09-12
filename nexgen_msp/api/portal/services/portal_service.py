@@ -1656,33 +1656,15 @@ class PortalService:
 
     @staticmethod
     def _resolve_customer(customer=None):
-        allowed = permissions.get_allowed_customers()
+        """Which company this call is acting for, decided by the access policy.
 
-        if not allowed:
-            raise ValidationError(
-                "No customer is linked to your account.", "PERMISSION_DENIED", 403
-            )
+        Left unsaid, it is filled in only when the account can reach exactly one. Somebody
+        who is a contact at two companies has to say which: choosing whichever sorts first
+        would quietly act on the wrong one.
+        """
+        from nexgen_msp.utils import access
 
-        if not customer:
-            # a contact has exactly one; staff serve them all, so picking the first would
-            # silently act on whoever sorts first
-            if permissions.is_internal():
-                raise ValidationError(
-                    "Say which customer you are acting for.", "VALIDATION_ERROR"
-                )
-
-            # the company on their own record, so the portal and the profile menu never
-            # disagree about who the caller is working for
-            profile = permissions.contact_profile(frappe.session.user, allowed)
-
-            return profile.customer if profile and profile.customer in allowed else allowed[0]
-
-        if customer not in allowed:
-            raise ValidationError(
-                f"You are not allowed to access customer {customer}.", "PERMISSION_DENIED", 403
-            )
-
-        return customer
+        return access.resolve_customer(customer)
 
     @staticmethod
     def _base_filters(customer=None):

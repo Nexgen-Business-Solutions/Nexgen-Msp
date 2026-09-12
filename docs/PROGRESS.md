@@ -28,6 +28,8 @@ cd /home/admindev1/frappe-bench
 /home/admindev1/.local/bin/bench --site msp.localhost run-tests --app nexgen_msp --module nexgen_msp.tests.<module>
 /home/admindev1/.local/bin/bench --site msp.localhost migrate
 /home/admindev1/frappe-bench/env/bin/python -m pyflakes apps/nexgen_msp/nexgen_msp
+/home/admindev1/.local/bin/bench --site msp.localhost execute nexgen_msp.utils.data_audit.print_report
+/home/admindev1/.local/bin/bench --site msp.localhost execute nexgen_msp.utils.load_bench.run
 cd apps/nexgen_msp/frontend && yarn build && yarn lint && yarn test
 ```
 
@@ -77,17 +79,10 @@ cd apps/nexgen_msp/frontend && yarn build && yarn lint && yarn test
 | 6 | Settings & Managed References | ✅ terminée |
 | 7 | Billing Workbench & Flexible Billing Workflow | ✅ terminée |
 | 8 | Cross-System Audit, Migration & E2E Acceptance | ✅ terminée |
+| — | Addon Hassan — Customer Management & Security | ✅ terminée |
 
-Les huit phases des specs sont faites. Reste hors de ce découpage :
-**Addon Integration Spec — Hassan Customer Management & Security** (accès client fondé sur
-Contact + User Permission, Customer 360), référencé par la Phase 8 §41-43 et §77 items 7-8.
-| 5 | User 360° Operational View | ⬜ |
-| 6 | Settings & Managed References | ⬜ |
-| 7 | Billing Workbench & Flexible Billing | ⬜ |
-| 8 | Cross-System Audit, Migration & E2E | ⬜ |
-| — | Addon Hassan — Customer Management & Security | ⬜ |
-
-Repères actuels : **485 tests backend**, **76 tests frontend**, `pyflakes` et `yarn lint` propres.
+Les huit phases des specs sont faites, et l'addon avec elles. Rien n'est en attente : la
+suite complète est verte et les specs sont closes.
 
 ---
 
@@ -454,9 +449,107 @@ toujours eu (§21 : « conserver les anciennes données »).
 
 ---
 
+### Addon Hassan — Gestion des entreprises et sécurité ✅
+
+L'addon ne rajoute pas un module : il déplace la frontière d'accès. Jusque-là un compte
+atteignait une entreprise parce qu'une User Permission le disait. Désormais il faut **deux
+preuves qui concordent** — un Contact qui nomme le compte et lie l'entreprise, *et* la
+permission. Une permission oubliée derrière quelqu'un qui a changé d'entreprise n'ouvre plus
+rien, ce qui est la façon la plus banale dont un accès survit à sa raison d'être.
+
+| # | Travail | État |
+|---|---|---|
+| ADDON-1 | Politique d'accès centrale (`utils/access.py`) | ✅ 27 tests |
+| ADDON-2 | `CustomerService` : lecture, écriture, annuaire, création | ✅ 27 tests |
+| ADDON-3 | Customer 360 : une page, des sections selon la capacité | ✅ 9 tests Vitest |
+| ADDON-4A | Phase 3 préservée, rien du parcours addon repris | ✅ 6 tests |
+| ADDON-4B | Identité de facturation figée sur la Run | ✅ 5 tests |
+| ADDON-4C | Timeout de session : refresh live conservé | ✅ 12 tests |
+| ADDON-5 | Suite de non-régression inter-phases | ✅ `test_addon_regression` 18 |
+
+**`utils/access.py` est la seule autorité.** Neuf capacités y sont déclarées ; demander une
+capacité inconnue lève une erreur au lieu de répondre oui. Les rôles échouent fermés : un rôle
+interne collé par erreur sur un compte client n'élargit rien, et `Administrator` est
+l'exception écrite noir sur blanc plutôt qu'un rôle parmi d'autres.
+
+**Un trou de sécurité réel a été trouvé et bouché.** Le contrôleur Contact de Frappe relie
+automatiquement le champ `user` dès qu'une adresse e-mail correspond à un compte existant, et
+notre hook accordait ensuite la permission entreprise correspondante. Taper l'e-mail d'un
+collègue dans « qui appeler » lui donnait donc l'accès à l'entreprise. Le lien est désormais
+rétabli après sauvegarde et `revoke_undeclared_customer_permissions` nettoie ce que Frappe a
+cru bien faire.
+
+**Ce qui a été explicitement refusé de l'addon**, comme la spec le demande : le sélecteur
+global d'appareils, la transformation d'une ligne Device non résolue en ligne User, la
+suppression du rafraîchissement des sessions vivantes, et `allowedHosts` dans Vite.
+
+**Identité de facturation (§51-52).** Quatre champs figés sur la Run au moment où elle est
+tirée : nom, numéro fiscal, adresse et contact de facturation. Une entreprise qui déménage en
+septembre ne réécrit pas la facture d'août. Une Run tirée avant l'existence de ces champs
+retombe sur les enregistrements courants plutôt que d'afficher un en-tête vide, et un avoir
+reprend l'identité de la Run qu'il crédite, pas celle du jour.
+
+---
+
+### Performance (§51-56) ✅ mesurée
+
+Le jeu de données n'existait pas, donc il est fabriqué, mesuré, puis supprimé :
+
+```
+bench --site msp.localhost execute nexgen_msp.utils.load_bench.run
+```
+
+`nexgen_msp/utils/load_bench.py` construit une entreprise de **5 000 personnes, 3 000 machines,
+10 000 services et 1 000 demandes** — les volumes exacts du §51 — prend chaque mesure deux fois
+en gardant la seconde, puis efface tout ce qu'il a écrit, y compris si une mesure échoue. Tout
+porte le préfixe `ZZBENCH`.
+
+Deux chiffres par écran : le temps, et le **nombre de requêtes**, qui est le seul des deux à
+prédire ce qui se passera sur une base plus grosse.
+
+| Écran | ms | requêtes |
+|---|---|---|
+| Registre utilisateurs, première page | 303 | 2 |
+| Registre utilisateurs, recherche | 31 | 2 |
+| Une personne, lecture complète | 14 | 31 |
+| Historique de cette personne | 2 | 7 |
+| Request Builder, recherche | 9 | 2 |
+| File des demandes, première page | 2 | 2 |
+| Candidats de facturation du mois | 489 | 7 |
+
+**Le nombre de requêtes ne bouge pas** entre 150 personnes et 5 000 : aucun écran ne pose une
+requête par ligne affichée.
+
+**N+1 corrigés (§55).** Quatre, trouvés en comptant :
+
+- `request_execution_service._orders` — libellés d'articles, noms de techniciens et
+  checklists, trois requêtes au lieu de trois par ligne.
+- `user_360_service` — les demandes en cours sur les services d'une personne et de ses
+  machines, une requête groupée au lieu d'une par service.
+- `billing_service._holder_contexts` — qui détenait la machine pendant la période, en lot.
+- `billing_service._invoiced_in` — « cette ligne est-elle déjà facturée ». C'était **une
+  requête par candidat** : 406 requêtes pour 400 services, et 10 000 pour 10 000. Désormais
+  une seule. La preview est passée de 123 ms à 26 ms sur 400 lignes.
+
+**Index (§56).** Profilés avant d'être posés, jamais à l'aveugle : `EXPLAIN` montrait
+`type: ALL` sur la table des services, sur les lignes de demande et sur le registre.
+`nexgen_msp/patches/index_hot_lookups.py` en pose **17**. Après : `type: ref`, `rows: 1`.
+Le registre est passé de 518 ms à 303 ms, la lecture d'une personne de 36 ms à 14 ms.
+
+Les quatre derniers viennent du registre : ses compteurs interrogent une personne seule, donc
+un index qui commence par l'entreprise ne peut pas les servir.
+
+**Sélection de facturation (§54).** Filtres serveur déjà en place. Le tableau ne dessinait
+en revanche **aucune limite** : dix mille lignes de DOM d'un coup. Il en dessine maintenant
+200 avec un « Show more ». Les décisions de décochage sont tenues par nom d'affectation, donc
+ce qui est hors écran garde ce qu'on a décidé pour lui — six tests le vérifient.
+
+---
+
 ### Rapport de recette (§76)
 
-Lancé le 2026-09-12 sur `msp.localhost`, 685 tests backend et 129 Vitest, tous verts.
+Lancé le 2026-09-12 sur `msp.localhost`, **758 tests backend et 144 Vitest, tous verts**,
+`pyflakes` et `yarn lint` propres, `yarn build` passant, zéro résidu `ZZTEST` sur la base.
 
 | Domaine | Verdict | Preuve |
 |---|---|---|
@@ -471,21 +564,17 @@ Lancé le 2026-09-12 sur `msp.localhost`, 685 tests backend et 129 Vitest, tous 
 | Security | PASS | `test_cross_customer`, `test_roles`, `test_accounts_and_roles` |
 | Migrations | PASS | `data_audit` : aucun bloqueur sur la base réelle |
 | E2E métier | PASS | `test_e2e_acceptance` 11 parcours |
-| Performance | **NON MESURÉ** | voir ci-dessous |
+| Accès entreprise | PASS | `test_customer_access` 27, `test_customer_profile` 27 |
+| Non-régression addon | PASS | `test_addon_regression` 18 |
+| Sessions | PASS | `test_session_timeout` 12 |
+| Performance | PASS | `load_bench` aux volumes du §51 |
 
-**Ce qui n'a pas été fait, et pourquoi.**
+**Ce qui restait ouvert au moment du premier rapport est fermé.**
 
-- **Performance (§51-56).** La spec demande de tester avec 5 000 personnes, 3 000 machines et
-  10 000 services. Le site réel en compte 270 et 689 : le jeu de données n'existe pas et le
-  fabriquer sur la base de production n'est pas envisageable. Les mesures structurelles
-  demandées sont en place (recherche serveur du Request Builder, chargement paresseux de
-  l'historique en User 360, pagination Billing), mais **aucun chiffre n'a été relevé**. À faire
-  sur une copie de préproduction.
-- **Scénarios §41-43 (accès client via Contact + User Permission) et §77 items 7-8
-  (Customer Access Foundation, Customer 360).** Ils appartiennent à l'addon Hassan, qui n'est
-  pas encore implémenté : l'accès repose aujourd'hui sur la seule User Permission.
-  `test_cross_customer` teste ce qui existe, y compris qu'un rôle interne collé par erreur sur
-  un compte client n'élargit rien (§42).
+- **Performance (§51-56).** Mesurée, chiffres relevés, quatre N+1 corrigés et dix-sept index
+  posés après profilage. Le détail est dans la section Performance ci-dessus.
+- **Scénarios §41-43 et §77 items 7-8 (accès entreprise, Customer 360).** Livrés par l'addon :
+  l'accès demande désormais un Contact *et* une User Permission qui concordent.
 
 **Bloqueurs de release (§74) : aucun.** Vérifiés un par un — pas de fuite inter-clients, pas de
 double détenteur, pas de double période ouverte, une demande ne modifie rien avant exécution,
@@ -514,5 +603,7 @@ champs commerciaux, aucun département en texte libre, le workbench n'exige aucu
 | 2026-09-12 | agent principal | Phase 6 terminée : import sans préfixe, une offre par acte, ordre d'affichage, Settings réorganisé. |
 | 2026-09-12 | agent principal | Phase 7 terminée : instantanés historiques, tarif de la période, sélection persistante, stepper Billing. |
 | 2026-09-12 | agent principal | Phase 8 terminée : audits, `data_audit`, isolation inter-clients, recette de bout en bout. Les huit phases sont faites. |
+| 2026-09-12 | agent principal | Addon Hassan terminé : politique d'accès à deux preuves, Customer 360, escalade par e-mail de contact bouchée. |
+| 2026-09-12 | agent principal | Performance mesurée (`load_bench`), quatre N+1 corrigés, dix-sept index, sélection Billing fenêtrée. Specs closes. |
 
 > Ajoute ta ligne ici quand tu termines quelque chose.

@@ -29,6 +29,12 @@
   "column_break_approval",
   "approved_by",
   "approved_at",
+  "section_billed_to",
+  "customer_name_snapshot",
+  "tax_id_snapshot",
+  "column_break_billed_to",
+  "billing_address_snapshot",
+  "billing_contact_snapshot",
   "section_output",
   "sales_order",
   "sales_invoice",
@@ -70,6 +76,7 @@
    "options": "MSP Contract"
   },
   {
+   "allow_on_submit": 1,
    "default": "Draft",
    "fieldname": "status",
    "fieldtype": "Select",
@@ -78,8 +85,7 @@
    "label": "Status",
    "no_copy": 1,
    "options": "Draft\nValidating\nException\nReady for Approval\nApproved\nInvoice Drafted\nInvoiced\nCancelled",
-   "reqd": 1,
-   "allow_on_submit": 1
+   "reqd": 1
   },
   {
    "fieldname": "column_break_run",
@@ -193,13 +199,13 @@
    "label": "Output"
   },
   {
+   "allow_on_submit": 1,
    "fieldname": "sales_invoice",
    "fieldtype": "Link",
    "label": "Sales Invoice",
    "no_copy": 1,
    "options": "Sales Invoice",
-   "read_only": 1,
-   "allow_on_submit": 1
+   "read_only": 1
   },
   {
    "fieldname": "generation_version",
@@ -262,8 +268,8 @@
    "fieldname": "disputed_by",
    "fieldtype": "Link",
    "label": "Disputed By",
-   "read_only": 1,
-   "options": "User"
+   "options": "User",
+   "read_only": 1
   },
   {
    "fieldname": "dispute_reason",
@@ -282,13 +288,50 @@
    "fieldname": "discount_percent",
    "fieldtype": "Percent",
    "label": "Run Discount %"
+  },
+  {
+   "fieldname": "section_billed_to",
+   "fieldtype": "Section Break",
+   "label": "Billed To"
+  },
+  {
+   "fieldname": "customer_name_snapshot",
+   "fieldtype": "Data",
+   "label": "Customer Name",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "tax_id_snapshot",
+   "fieldtype": "Data",
+   "label": "Tax ID",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_billed_to",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "billing_address_snapshot",
+   "fieldtype": "Small Text",
+   "label": "Billing Address",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "billing_contact_snapshot",
+   "fieldtype": "Small Text",
+   "label": "Billing Contact",
+   "no_copy": 1,
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-08-13 18:39:20.071560",
+ "modified": "2026-09-12 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nexgen MSP",
  "name": "MSP Billing Run",

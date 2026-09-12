@@ -258,21 +258,46 @@ class RequestExecutionService:
 			order_by="request_line_idx asc, creation asc",
 		)
 
+		if not orders:
+			return orders
+
+		# one query for all of them: a plan of thirty work orders is not thirty round trips
+		labels = {
+			row.name: row.item_name
+			for row in frappe.get_all(
+				"Item",
+				filters={"name": ("in", [order.service_item for order in orders if order.service_item] or [""])},
+				fields=["name", "item_name"],
+			)
+		}
+		people = {
+			row.name: row.full_name
+			for row in frappe.get_all(
+				"User",
+				filters={
+					"name": (
+						"in",
+						[order.assigned_technician for order in orders if order.assigned_technician]
+						or [""],
+					)
+				},
+				fields=["name", "full_name"],
+			)
+		}
+		checklists = {}
+
+		for row in frappe.get_all(
+			"MSP Work Order Checklist Item",
+			filters={"parent": ("in", [order.name for order in orders])},
+			fields=["name", "parent", "idx", "step", "is_done", "note"],
+			order_by="parent asc, idx asc",
+		):
+			checklists.setdefault(row.parent, []).append(row)
+
 		for order in orders:
-			order["service_name"] = (
-				frappe.db.get_value("Item", order.service_item, "item_name") or order.service_item
-			)
-			order["assigned_technician_name"] = (
-				frappe.db.get_value("User", order.assigned_technician, "full_name")
-				if order.assigned_technician
-				else None
-			)
-			order["checklist"] = frappe.get_all(
-				"MSP Work Order Checklist Item",
-				filters={"parent": order.name},
-				fields=["name", "idx", "step", "is_done", "note"],
-				order_by="idx asc",
-			)
+			order["service_name"] = labels.get(order.service_item) or order.service_item
+			order["assigned_technician_name"] = people.get(order.assigned_technician)
+			order["checklist"] = checklists.get(order.name, [])
 
 		return orders
 

@@ -223,6 +223,30 @@ export default function BillingRunDetail() {
           </div>
         </div>
 
+        {/* who the run was billed to on the day it was drawn: a company that moves office
+            later does not rewrite what was invoiced */}
+        <div className="mt-5 border-t border-slate-100 pt-4">
+          <p className="text-xs font-medium text-slate-400">Billed to</p>
+          <p className="mt-1 text-sm font-medium text-slate-800">
+            {data.billing_identity?.customer_name_snapshot || data.customer}
+            {data.billing_identity?.tax_id_snapshot && (
+              <span className="ml-2 font-normal text-slate-500">
+                {data.billing_identity.tax_id_snapshot}
+              </span>
+            )}
+          </p>
+          {data.billing_identity?.billing_address_snapshot && (
+            <p className="mt-0.5 whitespace-pre-line text-xs text-slate-500">
+              {data.billing_identity.billing_address_snapshot}
+            </p>
+          )}
+          {data.billing_identity?.billing_contact_snapshot && (
+            <p className="mt-0.5 whitespace-pre-line text-xs text-slate-400">
+              {data.billing_identity.billing_contact_snapshot}
+            </p>
+          )}
+        </div>
+
         <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-4 border-t border-slate-100 pt-4 sm:grid-cols-3 lg:grid-cols-6">
           <Stat label="Billed lines" value={stats.billable} hint={`of ${data.lines.length}`} />
           <Stat label="People" value={stats.people} hint="distinct users" />

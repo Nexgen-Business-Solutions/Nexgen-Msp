@@ -34,3 +34,5 @@ nexgen_msp.patches.build_department_catalogue
 nexgen_msp.patches.repair_department_catalogue
 nexgen_msp.patches.order_request_actions
 nexgen_msp.patches.stamp_request_line_keys
+nexgen_msp.patches.index_hot_lookups
+nexgen_msp.patches.index_hot_lookups #register

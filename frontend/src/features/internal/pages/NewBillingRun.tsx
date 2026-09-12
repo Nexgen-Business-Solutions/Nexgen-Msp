@@ -28,6 +28,8 @@ import {
 const inputClass =
   'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
 
+const ROWS_AT_ONCE = 200;
+
 
 
 const iso = (date: Date) =>
@@ -124,6 +126,7 @@ export default function NewBillingRun() {
   const [discount, setDiscount] = useState('');
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
+  const [shown, setShown] = useState(ROWS_AT_ONCE);
   const [groupBy, setGroupBy] = useState<'none' | 'service' | 'user' | 'device' | 'department'>(
     'none'
   );
@@ -219,9 +222,19 @@ export default function NewBillingRun() {
     return [...tally.values()].sort((a, b) => b.amount - a.amount);
   }, [keptBillable]);
 
+  // a company of any size produces thousands of candidates, and drawing them all at once
+  // is what makes the page crawl. Only a window of them is rendered; ticks are held by
+  // assignment name, so the ones out of sight keep whatever was decided about them
+  const visible = candidates.slice(0, shown);
+  const searched = search.trim();
+
+  useEffect(() => {
+    setShown(ROWS_AT_ONCE);
+  }, [searched, groupBy, result]);
+
   // grouping never changes what is billed: it is a way of finding what to untick
   const grouped = useMemo(() => {
-    const key = (line: (typeof candidates)[number]) => {
+    const key = (line: (typeof visible)[number]) => {
       if (groupBy === 'service') return line.service_name || line.service_item;
       if (groupBy === 'user') return line.user_name || 'Not a person';
       if (groupBy === 'device') return line.hostname || 'Not a machine';
@@ -229,11 +242,11 @@ export default function NewBillingRun() {
       return '';
     };
 
-    if (groupBy === 'none') return [{ label: '', lines: candidates }];
+    if (groupBy === 'none') return [{ label: '', lines: visible }];
 
-    const buckets = new Map<string, typeof candidates>();
+    const buckets = new Map<string, typeof visible>();
 
-    for (const line of candidates) {
+    for (const line of visible) {
       const label = key(line);
       buckets.set(label, [...(buckets.get(label) ?? []), line]);
     }
@@ -241,7 +254,7 @@ export default function NewBillingRun() {
     return [...buckets.entries()]
       .map(([label, rows]) => ({ label, lines: rows }))
       .sort((a, b) => a.label.localeCompare(b.label));
-  }, [candidates, groupBy]);
+  }, [visible, groupBy]);
 
   const set = (patch: Partial<BillingFilters>) =>
     setFilters((current) => ({ ...current, ...patch }));
@@ -975,6 +988,23 @@ export default function NewBillingRun() {
                         className="px-3 py-10 text-center text-sm text-slate-500"
                       >
                         Nothing matches these filters.
+                      </td>
+                    </tr>
+                  )}
+                  {candidates.length > visible.length && (
+                    <tr>
+                      <td colSpan={resultColumns.length} className="px-3 py-4 text-center">
+                        <button
+                          type="button"
+                          onClick={() => setShown((current) => current + ROWS_AT_ONCE)}
+                          className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                        >
+                          Show more
+                        </button>
+                        <p className="mt-1.5 text-xs text-slate-400">
+                          Showing {visible.length} of {candidates.length}. The rest are still
+                          on the run.
+                        </p>
                       </td>
                     </tr>
                   )}

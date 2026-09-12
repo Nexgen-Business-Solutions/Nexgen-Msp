@@ -934,9 +934,17 @@ export type BillingRunLine = {
   segments?: { from: string; to: string }[];
 };
 
+export type BillingIdentity = {
+  customer_name_snapshot: string | null;
+  tax_id_snapshot: string | null;
+  billing_address_snapshot: string | null;
+  billing_contact_snapshot: string | null;
+};
+
 export type BillingRunDetail = {
   name: string;
   customer: string;
+  billing_identity: BillingIdentity;
   contract: string | null;
   contract_title: string | null;
   period_label: string;
@@ -1802,7 +1810,46 @@ export type CustomerDetails = {
   msp_free_of_charge: number;
   last_billed_on: string | null;
   address: CustomerAddress | null;
+  contact: CustomerContact | null;
   counts: { users: number; devices: number; contracts: number };
+  /** what this reader may do here, so the page never works it out from roles */
+  can: {
+    edit_commercial: boolean;
+    edit_profile: boolean;
+    manage_contracts: boolean;
+    manage_pricing: boolean;
+  };
+  shared: { address: boolean };
+};
+
+export type CustomerContact = {
+  name: string;
+  first_name: string | null;
+  last_name: string | null;
+  email_id: string | null;
+  phone: string | null;
+  shared: boolean;
+};
+
+export type CustomerRow = {
+  name: string;
+  customer_name: string | null;
+  customer_group: string | null;
+  territory: string | null;
+  website: string | null;
+  users: number;
+  devices: number;
+  active_contracts: number;
+};
+
+export type Capabilities = {
+  view_all_customers: boolean;
+  create_customer: boolean;
+  edit_customer_commercial: boolean;
+  manage_contracts: boolean;
+  manage_pricing: boolean;
+  execute_requests: boolean;
+  manage_settings: boolean;
 };
 
 export type CustomerOptions = {
@@ -1825,12 +1872,31 @@ export const saveCustomerDetails = (payload: {
   customer: string;
   details: Partial<CustomerDetails>;
   address?: Partial<CustomerAddress>;
+  contact?: Partial<CustomerContact>;
 }) =>
   post<CustomerDetails>(`${BASE}.save_customer_details`, {
     customer: payload.customer,
     details: JSON.stringify(payload.details),
     address: payload.address ? JSON.stringify(payload.address) : undefined,
+    contact: payload.contact ? JSON.stringify(payload.contact) : undefined,
   });
+
+export const listCustomers = (search?: string, signal?: AbortSignal) =>
+  get<CustomerRow[]>(`${BASE}.list_customers`, { search }, signal);
+
+export const createCustomer = (payload: {
+  customer_name: string;
+  details?: Partial<CustomerDetails>;
+  address?: Partial<CustomerAddress>;
+}) =>
+  post<CustomerDetails>(`${BASE}.create_customer`, {
+    customer_name: payload.customer_name,
+    details: payload.details ? JSON.stringify(payload.details) : undefined,
+    address: payload.address ? JSON.stringify(payload.address) : undefined,
+  });
+
+export const getMyCapabilities = (signal?: AbortSignal) =>
+  get<Capabilities>(`${BASE}.my_capabilities`, undefined, signal);
 
 export const salesInvoiceDeskUrl = (invoice: string) =>
   `/app/sales-invoice/${encodeURIComponent(invoice)}`;
