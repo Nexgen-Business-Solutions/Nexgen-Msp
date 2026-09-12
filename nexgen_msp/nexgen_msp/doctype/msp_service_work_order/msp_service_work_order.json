@@ -9,6 +9,8 @@
  "field_order": [
   "naming_series",
   "service_request",
+  "work_type",
+  "plan_key",
   "customer",
   "column_break_wo",
   "action",
@@ -18,8 +20,13 @@
   "client_user",
   "managed_device",
   "customer_site",
+  "subject_key",
+  "device_requirement_key",
+  "request_line_name",
+  "request_line_idx",
   "column_break_target",
   "service_item",
+  "source_service_assignment",
   "effective_date",
   "section_scheduling",
   "assigned_technician",
@@ -38,7 +45,9 @@
   "completed_by",
   "completed_at",
   "column_break_completion",
-  "resulting_assignment"
+  "resulting_assignment",
+  "resulting_client_user",
+  "resulting_device"
  ],
  "fields": [
   {
@@ -76,8 +85,8 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Action",
-   "options": "Add\nChange\nSuspend\nResume\nRemove",
-   "reqd": 1
+   "options": "Add\nChange\nSuspend\nResume\nRemove\nCreate User\nAssign Device\nRegister Device\nTransfer Device",
+   "reqd": 0
   },
   {
    "default": "Open",
@@ -99,7 +108,7 @@
    "fieldtype": "Select",
    "label": "Target Scope",
    "options": "User\nDevice\nCustomer\nSite\nPooled",
-   "reqd": 1
+   "reqd": 0
   },
   {
    "depends_on": "eval:doc.target_scope==\"User\"",
@@ -134,7 +143,7 @@
    "fieldtype": "Link",
    "label": "Service",
    "options": "Item",
-   "reqd": 1
+   "reqd": 0
   },
   {
    "fieldname": "effective_date",
@@ -236,6 +245,66 @@
    "fieldtype": "Link",
    "label": "Resulting Assignment",
    "options": "MSP Service Assignment",
+   "read_only": 1
+  },
+  {
+   "fieldname": "work_type",
+   "fieldtype": "Select",
+   "label": "Work Type",
+   "options": "Service Action\nUser Setup\nDevice Provisioning",
+   "default": "Service Action",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "plan_key",
+   "fieldtype": "Data",
+   "label": "Plan Key",
+   "read_only": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "subject_key",
+   "fieldtype": "Data",
+   "label": "Subject Key",
+   "read_only": 1
+  },
+  {
+   "fieldname": "device_requirement_key",
+   "fieldtype": "Data",
+   "label": "Device Requirement Key",
+   "read_only": 1
+  },
+  {
+   "fieldname": "request_line_name",
+   "fieldtype": "Data",
+   "label": "Request Line",
+   "read_only": 1
+  },
+  {
+   "fieldname": "request_line_idx",
+   "fieldtype": "Int",
+   "label": "Request Line No",
+   "read_only": 1
+  },
+  {
+   "fieldname": "source_service_assignment",
+   "fieldtype": "Link",
+   "label": "Service Assignment",
+   "options": "MSP Service Assignment"
+  },
+  {
+   "fieldname": "resulting_client_user",
+   "fieldtype": "Link",
+   "label": "Resulting Client User",
+   "options": "MSP Client User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "resulting_device",
+   "fieldtype": "Link",
+   "label": "Resulting Device",
+   "options": "MSP Managed Device",
    "read_only": 1
   }
  ],

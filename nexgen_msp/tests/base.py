@@ -44,6 +44,7 @@ class MSPTestCase(IntegrationTestCase):
                 # anything the record sent must go with it: a queued mail outlives the
                 # document it refers to and would sit in the site's outbox for ever
                 self._purge_mail(doctype, name)
+                self._purge_work(doctype, name)
 
                 if doctype == "User":
                     self._purge_account(name)
@@ -63,6 +64,23 @@ class MSPTestCase(IntegrationTestCase):
     def track(self, doctype, name):
         self._trash.append((doctype, name))
         return name
+
+    def _purge_work(self, doctype, name):
+        """The work an approved request turned into goes with the request.
+
+        A work order is committed as soon as the plan is built, so a test that fails after
+        that point would otherwise leave it behind pointing at a request that no longer
+        exists.
+        """
+        if doctype != "MSP Service Request":
+            return
+
+        for order in frappe.get_all(
+            "MSP Service Work Order", filters={"service_request": name}, pluck="name"
+        ):
+            frappe.delete_doc(
+                "MSP Service Work Order", order, force=True, ignore_permissions=True
+            )
 
     def _purge_mail(self, doctype, name):
         queued = frappe.get_all(

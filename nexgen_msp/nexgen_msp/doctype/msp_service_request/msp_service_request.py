@@ -63,6 +63,11 @@ class MSPServiceRequest(Document):
 	def validate_lines(self):
 		from nexgen_msp.utils import request_intents
 
+		# an intention is checked against the world when it is written, not every time the
+		# document is touched afterwards. A machine can change hands between the day a
+		# request is raised and the day it is worked: that is the technician's transfer to
+		# make, and it must not turn the request itself into something nobody can save.
+		fresh = self.intentions_were_rewritten()
 		seen = set()
 
 		for row in self.lines:
@@ -70,9 +75,10 @@ class MSPServiceRequest(Document):
 			self.validate_line_ownership(row)
 
 			# an intention is only worth sending if the service could actually receive it
-			request_intents.validate_subject(self, row)
-			request_intents.validate_action_against_state(self, row)
-			request_intents.validate_no_open_conflict(self, row)
+			if fresh:
+				request_intents.validate_subject(self, row)
+				request_intents.validate_action_against_state(self, row)
+				request_intents.validate_no_open_conflict(self, row)
 
 			if row.requested_quantity is not None and row.requested_quantity <= 0:
 				frappe.throw(_("Row {0}: quantity must be greater than zero.").format(row.idx))
@@ -87,7 +93,51 @@ class MSPServiceRequest(Document):
 				)
 			seen.add(key)
 
-		request_intents.validate_one_intent_per_service(self)
+		if fresh:
+			request_intents.validate_one_intent_per_service(self)
+
+	INTENTION = (
+		"target_scope",
+		"action",
+		"client_user",
+		"requested_for_user",
+		"managed_device",
+		"requested_service",
+		"source_service_assignment",
+		"is_new_user",
+		"new_user_full_name",
+		"is_new_device",
+		"requested_quantity",
+	)
+
+	# while a request is still the customer's own, it has reached nobody
+	UNSENT_STATUSES = ("Draft", "Awaiting Customer Approval")
+
+	def intentions_were_rewritten(self):
+		"""Whether the ask is being written, rather than what became of it recorded.
+
+		Two moments count: the lines themselves changing, and the request moving on while it
+		is still the customer's own — sent from a draft, or agreed to after waiting. A draft
+		saved on Monday and sent on Friday is read against the world of Friday, even though
+		not a word of it changed.
+
+		Ruling on a line, or moving the request along afterwards, is neither.
+		"""
+		if self.is_new():
+			return True
+
+		previous = self.get_doc_before_save()
+
+		if not previous:
+			return True
+
+		if previous.status in self.UNSENT_STATUSES and self.status != previous.status:
+			return True
+
+		def asked(doc):
+			return [tuple(row.get(field) for field in self.INTENTION) for row in doc.lines]
+
+		return asked(self) != asked(previous)
 
 	def validate_line_scope(self, row):
 		if row.get("is_new_user"):

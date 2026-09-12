@@ -81,6 +81,26 @@ def set_request_line_status(name=None, idx=None, line_status=None, reason=None):
     )
 
 
+def _execution():
+    from nexgen_msp.api.internal.services.request_execution_service import (
+        RequestExecutionService,
+    )
+
+    return RequestExecutionService
+
+
+@frappe.whitelist()
+@handle_errors
+def get_request_execution_plan(name=None):
+    return _execution().get_execution_plan(request=name)
+
+
+@frappe.whitelist()
+@handle_errors
+def build_request_execution_plan(name=None):
+    return _execution().build_execution_plan(request=name)
+
+
 @frappe.whitelist()
 @handle_errors
 def get_dashboard():

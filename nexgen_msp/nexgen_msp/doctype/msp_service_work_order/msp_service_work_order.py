@@ -12,13 +12,67 @@ SCOPE_FIELD = {
 	"Site": "customer_site",
 }
 
+SERVICE_ACTION = "Service Action"
+USER_SETUP = "User Setup"
+DEVICE_PROVISIONING = "Device Provisioning"
+
+# what each kind of work is allowed to be an act of
+WORK_ACTIONS = {
+	SERVICE_ACTION: ("Add", "Change", "Suspend", "Resume", "Remove"),
+	USER_SETUP: ("Create User",),
+	DEVICE_PROVISIONING: ("Assign Device", "Register Device", "Transfer Device"),
+}
+
+# work that has been picked up: by then it must know what it is acting on
+STARTED_STATUSES = ("In Progress", "Awaiting Verification", "Completed")
+
 
 class MSPServiceWorkOrder(Document):
 	def validate(self):
+		self.validate_work_type()
 		self.validate_target_scope()
 		self.validate_target_ownership()
 		self.validate_request_customer()
 		self.validate_completion()
+
+	def validate_work_type(self):
+		"""Preparing a person or a machine is work, but it is not a service being sold.
+
+		Only a Service Action names a service item and acts on it. The two preparation
+		kinds name the group of lines they stand for instead, which is what lets one
+		account be created for somebody a request asked three things for.
+		"""
+		if not self.work_type:
+			self.work_type = SERVICE_ACTION
+
+		allowed = WORK_ACTIONS[self.work_type]
+
+		if self.action and self.action not in allowed:
+			frappe.throw(
+				_("{0} is not something a {1} work order can do.").format(
+					frappe.bold(self.action), self.work_type
+				)
+			)
+
+		if self.work_type == SERVICE_ACTION:
+			if not self.service_item:
+				frappe.throw(_("A service action work order must name the service it acts on."))
+			if not self.action:
+				frappe.throw(_("A service action work order must say which act it carries out."))
+			return
+
+		if self.service_item:
+			frappe.throw(
+				_("A {0} work order prepares a person or a machine, not a service.").format(
+					self.work_type
+				)
+			)
+
+		if self.work_type == USER_SETUP and not self.subject_key:
+			frappe.throw(_("A user setup work order must say which person it creates."))
+
+		if self.work_type == DEVICE_PROVISIONING and not self.device_requirement_key:
+			frappe.throw(_("A device provisioning work order must say which machine it settles."))
 
 	def validate_target_scope(self):
 		required = SCOPE_FIELD.get(self.target_scope)
@@ -30,6 +84,12 @@ class MSPServiceWorkOrder(Document):
 						_(self.meta.get_label(fieldname)), self.target_scope
 					)
 				)
+
+		# work is planned before its target exists: the person is still to be created, the
+		# machine still to be found, and the service that lands on them waits for both. The
+		# target is owed by the time the work is picked up, not by the time it is written down
+		if self.status not in STARTED_STATUSES:
+			return
 
 		if required and not self.get(required):
 			frappe.throw(
@@ -69,7 +129,7 @@ class MSPServiceWorkOrder(Document):
 		if self.status != "Completed":
 			return
 
-		if not self.effective_date:
+		if self.work_type == SERVICE_ACTION and not self.effective_date:
 			frappe.throw(_("Effective Date is required to complete a work order."))
 
 		pending = [row.step for row in self.checklist if not row.is_done]

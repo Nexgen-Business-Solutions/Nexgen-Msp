@@ -49,6 +49,7 @@ ACTIONS = {
         "roles": TECHNICIAN_ROLES,
         "stamp": "review",
         "requires_decided_lines": True,
+        "builds_plan": True,
     },
     "start_work": {
         "label": "Start work",
@@ -462,7 +463,8 @@ class RequestService:
             "rejection_reason": doc.rejection_reason,
             "lines": lines,
             "available_actions": RequestService._allowed_actions(doc.status),
-            "can_decide_lines": doc.status == "Under Review" and RequestService._can("approve"),
+            "can_decide_lines": doc.status in ("Submitted", "Under Review")
+            and RequestService._can("approve"),
             "review": RequestService._review_checks(doc),
         }
 
@@ -530,6 +532,15 @@ class RequestService:
         doc.add_comment("Comment", f"{spec['label']}{': ' + reason if reason else ''}")
         frappe.db.commit()
 
+        # approving is not a paper decision: the work it calls for exists from that moment,
+        # and the technician finds it waiting rather than having to ask for it
+        if spec.get("builds_plan"):
+            from nexgen_msp.api.internal.services.request_execution_service import (
+                RequestExecutionService,
+            )
+
+            RequestExecutionService.build_execution_plan(doc.name)
+
         RequestService._notify_requester(doc, action, reason)
 
         return RequestService.get_request(name)
@@ -574,6 +585,10 @@ class RequestService:
 
         row.line_status = line_status
         row.rejection_reason = reason or None
+
+        # ruling on a line is the review: nobody has to announce they are starting one
+        if doc.status == "Submitted":
+            doc.status = "Under Review"
 
         doc.save()
         frappe.db.commit()
