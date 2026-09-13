@@ -398,7 +398,6 @@ class RequestService:
                 coalesce(cu.department, holder.department) as client_user_department,
                 srl.new_user_full_name, srl.new_user_department, srl.new_user_email,
                 srl.new_user_username,
-                srl.needs_portal_access,
                 srl.is_new_device, srl.new_device_label, srl.new_device_type,
                 srl.new_device_serial,
                 srl.managed_device, device.hostname as device_hostname,

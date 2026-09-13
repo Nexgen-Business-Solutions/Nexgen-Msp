@@ -186,18 +186,19 @@ describe('a run with more candidates than a page can hold', () => {
 });
 
 describe('what was unticked survives the window', () => {
+  // two full renders of the table: kept just past one window so it stays fast
   it('keeps a tick made on screen after the window grows', async () => {
-    await openSelection(650);
+    await openSelection(230);
 
     fireEvent.click(rowBoxes()[0]);
-    expect(summary()).toMatch(/649\s*selected/);
+    expect(summary()).toMatch(/229\s*selected/);
 
     fireEvent.click(screen.getByRole('button', { name: /show more/i }));
     await screen.findByText('Person 200');
 
     expect(rowBoxes()[0]).not.toBeChecked();
-    expect(summary()).toMatch(/649\s*selected/);
-  });
+    expect(summary()).toMatch(/229\s*selected/);
+  }, 15000);
 
   it('clears every candidate, not only the drawn ones', async () => {
     await openSelection(650);

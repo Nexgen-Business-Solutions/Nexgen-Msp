@@ -31,10 +31,6 @@ const UserSetupWorkCard: React.FC<{ card: WorkCard; person: SubjectWorkGroup['pe
         </>
       }
     >
-      {person?.needs_portal_access && (
-        <p className="mt-2 text-xs font-medium text-blue-700">Portal access was requested.</p>
-      )}
-
       {person?.department_retired && (
         <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
           {person.department} is no longer offered for new people. It was agreed when this

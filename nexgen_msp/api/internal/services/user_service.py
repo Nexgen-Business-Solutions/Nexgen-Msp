@@ -679,7 +679,6 @@ class UserService:
                 "username": (username or "").strip() or None,
                 "lifecycle_status": "Active",
                 "start_date": start_date or frappe.utils.today(),
-                "portal_visible": 1,
                 "remarks": remarks or None,
             }
         )

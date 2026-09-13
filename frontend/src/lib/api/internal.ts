@@ -61,7 +61,6 @@ export type RequestDetailLine = {
   new_user_department: string | null;
   new_user_email: string | null;
   new_user_username: string | null;
-  needs_portal_access: number;
   is_new_device: number;
   new_device_label: string | null;
   new_device_type: string | null;
@@ -175,7 +174,6 @@ export type WorkPersonCard = {
   username: string | null;
   lifecycle_status: string | null;
   is_new: boolean;
-  needs_portal_access?: boolean;
 };
 
 export type WorkCard = {
@@ -590,7 +588,6 @@ export type UserDetail = {
     lifecycle_status: string;
     start_date: string | null;
     disabled_date: string | null;
-    portal_access?: boolean;
   };
   summary: {
     current_devices: number;

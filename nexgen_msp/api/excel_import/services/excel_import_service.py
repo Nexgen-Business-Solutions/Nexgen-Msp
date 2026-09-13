@@ -380,7 +380,6 @@ class ExcelImportService:
                 ),
                 "disabled_date": disabled_date,
                 "ad_status": "Active" if record["ad_marked_active"] else "Not Managed",
-                "portal_visible": 1,
                 "remark_log": (
                     [{"note": record["remarks"].strip(), "noted_on": frappe.utils.now(),
                       "noted_by": frappe.session.user}]

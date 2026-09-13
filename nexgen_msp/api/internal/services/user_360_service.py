@@ -129,7 +129,6 @@ class User360Service:
                 "lifecycle_status",
                 "start_date",
                 "disabled_date",
-                "portal_visible",
                 "covered_until",
                 "last_billed_on",
             ],
@@ -143,7 +142,7 @@ class User360Service:
 
     @staticmethod
     def _identity(person, internal):
-        card = {
+        return {
             "name": person.name,
             "full_name": person.full_name,
             "department": person.department,
@@ -154,13 +153,6 @@ class User360Service:
             "start_date": person.start_date,
             "disabled_date": person.disabled_date,
         }
-
-        # whether somebody can sign in is the team's business, not the reading a colleague
-        # of theirs opens on the portal
-        if internal:
-            card["portal_access"] = bool(person.portal_visible)
-
-        return card
 
     # ------------------------------------------------------------------ what is theirs
     @staticmethod

@@ -66,12 +66,6 @@ const UserIdentityCard: React.FC<Props> = ({
               requests
             </span>
           </p>
-
-          {user.portal_access !== undefined && (
-            <p className="mt-2 text-xs text-slate-400">
-              Portal access {user.portal_access ? 'enabled' : 'not enabled'}
-            </p>
-          )}
         </div>
 
         <div className="flex flex-wrap items-start gap-2">

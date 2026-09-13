@@ -162,8 +162,6 @@ class MSPServiceRequest(Document):
 				frappe.throw(_("Row {0}: full name is required for a new user.").format(row.idx))
 			if row.get("client_user"):
 				frappe.throw(_("Row {0}: cannot select an existing user for a new user line.").format(row.idx))
-			if row.get("needs_portal_access") and not row.get("new_user_email"):
-				frappe.throw(_("Row {0}: an email is required to grant portal access.").format(row.idx))
 			return
 
 		required = SCOPE_FIELD.get(row.target_scope)

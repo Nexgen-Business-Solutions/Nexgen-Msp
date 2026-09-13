@@ -21,7 +21,6 @@ const asPersonLine = (line: PortalRequestLine): PersonLine => {
     username: isNewUser ? line.new_user_username : line.username,
     department: line.department,
     email: line.new_user_email,
-    needsPortalAccess: Boolean(line.needs_portal_access),
     action: line.action,
     actionLabel: line.action_label,
     service: line.service_name,

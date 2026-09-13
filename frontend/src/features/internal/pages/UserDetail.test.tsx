@@ -68,7 +68,6 @@ const detail = (overrides: Partial<UserDetailData> = {}): UserDetailData => ({
     lifecycle_status: 'Active',
     start_date: '2025-01-10',
     disabled_date: null,
-    portal_access: true,
   },
   summary: {
     current_devices: 1,
@@ -173,6 +172,14 @@ describe('the page says who this is before anything else', () => {
 
     expect(within(header).queryByText(/billed/i)).not.toBeInTheDocument();
     expect(screen.getByText(/billing & coverage/i)).toBeInTheDocument();
+  });
+
+  it('says nothing about signing in: a person here is not an account', async () => {
+    await renderPage(detail());
+
+    expect(screen.queryByText(/portal access/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/portal account/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /grant access|invite/i })).not.toBeInTheDocument();
   });
 });
 

@@ -80,9 +80,44 @@ cd apps/nexgen_msp/frontend && yarn build && yarn lint && yarn test
 | 7 | Billing Workbench & Flexible Billing Workflow | ✅ terminée |
 | 8 | Cross-System Audit, Migration & E2E Acceptance | ✅ terminée |
 | — | Addon Hassan — Customer Management & Security | ✅ terminée |
+| P0 | Separate Client Users from Portal Accounts | ✅ terminée, périmètre réduit par Idriss |
 
 Les huit phases des specs sont faites, et l'addon avec elles. Rien n'est en attente : la
 suite complète est verte et les specs sont closes.
+
+### P0 — Décision d'Idriss du 2026-09-13 (prime sur la spec)
+
+**Un `MSP Client User` n'est qu'une donnée de notre système.** Il n'a aucune prétention à
+devenir un User ni à avoir un accès. Un compte pour gérer une entreprise se crée directement
+dans `/accounts`, et nulle part ailleurs.
+
+**Annulé dans la spec P0, à ne pas construire :**
+
+- le champ `MSP Client User.portal_user` et tout lien explicite Client User ↔ User ;
+- `PortalAccountService.grant_access` / `revoke_access`, et toute invitation depuis la fiche
+  utilisateur ;
+- le panneau « PORTAL ACCESS » de User 360, le bouton « Grant access » et la mention
+  « No portal account ».
+
+**Fait :**
+
+- `MSP Client User.portal_visible` supprimé du DocType, plus écrit ni à la création, ni à
+  l'import Excel, ni par `load_bench`.
+- User 360 ne renvoie plus `portal_access`, la carte d'identité n'affiche plus
+  « Portal access enabled ».
+- `MSP Service Request Line.needs_portal_access` supprimé (choix d'Idriss : option 1). Plus
+  accepté par l'API, plus affiché — ni étiquette « Portal access », ni « Portal access was
+  requested. » dans l'étape de création. L'e-mail d'un nouvel arrivant est facultatif.
+- `test_client_users_are_not_accounts` (7) : créer une personne, lui mettre un e-mail, en
+  importer 500 ou demander un nouvel arrivant ne crée aucun User, Contact, permission ni mail.
+
+Les colonnes `portal_visible` et `needs_portal_access` restent en base : Frappe ne supprime
+pas une colonne quand un champ disparaît, et elles ne sont plus lues nulle part.
+
+**Échec préexistant, hors P0 :** `test_access_guards.test_generic_lists_return_no_msp_rows_to_a_customer_contact`,
+ajouté par le commit `review code`, échoue aussi sans les changements P0 (vérifié en les
+retirant). Le test attend une liste vide ; Frappe lève `PermissionError` pour un compte sans
+droit de lecture sur le DocType. À trancher par l'auteur du test.
 
 ---
 
@@ -605,5 +640,6 @@ champs commerciaux, aucun département en texte libre, le workbench n'exige aucu
 | 2026-09-12 | agent principal | Phase 8 terminée : audits, `data_audit`, isolation inter-clients, recette de bout en bout. Les huit phases sont faites. |
 | 2026-09-12 | agent principal | Addon Hassan terminé : politique d'accès à deux preuves, Customer 360, escalade par e-mail de contact bouchée. |
 | 2026-09-12 | agent principal | Performance mesurée (`load_bench`), quatre N+1 corrigés, dix-sept index, sélection Billing fenêtrée. Specs closes. |
+| 2026-09-13 | agent principal | P0 réduit par Idriss : aucune relation Client User ↔ User, `portal_visible`, `portal_access` et `needs_portal_access` retirés. |
 
 > Ajoute ta ligne ici quand tu termines quelque chose.

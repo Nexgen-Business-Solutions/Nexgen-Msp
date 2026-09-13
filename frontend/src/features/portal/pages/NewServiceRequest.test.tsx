@@ -429,7 +429,6 @@ describe('picking up what was put aside', () => {
         new_user_username: null,
         new_device_type: null,
         new_device_serial: null,
-        needs_portal_access: 0,
       },
     ],
   };

@@ -436,7 +436,6 @@ class RequestExecutionService:
 			"username": row.new_user_username,
 			"lifecycle_status": None,
 			"is_new": True,
-			"needs_portal_access": bool(row.needs_portal_access),
 		}
 
 	@staticmethod

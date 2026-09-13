@@ -179,9 +179,9 @@ def _build(people, devices, services_per_person, requests, tag=None):
             """
             insert into `tabMSP Client User`
                 (name, creation, modified, owner, modified_by, customer, full_name,
-                 lifecycle_status, start_date, portal_visible)
+                 lifecycle_status, start_date)
             values (%s, now(), now(), 'Administrator', 'Administrator', %s, %s,
-                    'Active', %s, 1)
+                    'Active', %s)
             """,
             (f"{PREFIX}-U-{tag}-{index}", customer.name, f"{PREFIX} Person {index}", today),
         )

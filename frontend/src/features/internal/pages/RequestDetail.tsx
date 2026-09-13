@@ -36,7 +36,6 @@ const asPersonLine = (line: RequestDetailLine, extra?: React.ReactNode): PersonL
     username: isNewUser ? line.new_user_username : line.client_username,
     department: isNewUser ? line.new_user_department : line.client_user_department,
     email: line.new_user_email,
-    needsPortalAccess: Boolean(line.needs_portal_access),
     action: line.action,
     actionLabel: line.action_label,
     service: line.requested_service_name || line.requested_service,

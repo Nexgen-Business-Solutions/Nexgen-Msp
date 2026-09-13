@@ -318,7 +318,6 @@ export type PortalRequestLine = {
   new_user_username: string | null;
   new_device_type: string | null;
   new_device_serial: string | null;
-  needs_portal_access: number;
 };
 
 export type PortalRequestDetail = {

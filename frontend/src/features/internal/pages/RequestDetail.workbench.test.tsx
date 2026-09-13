@@ -300,7 +300,6 @@ describe('preparing the person and the machine, in the request', () => {
               username: null,
               lifecycle_status: null,
               is_new: true,
-              needs_portal_access: true,
             },
             user_setup: card({
               name: 'WO-USER',
@@ -315,7 +314,7 @@ describe('preparing the person and the machine, in the request', () => {
       })
     );
 
-    expect(screen.getByText(/portal access was requested/i)).toBeInTheDocument();
+    expect(screen.queryByText(/portal access/i)).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByPlaceholderText(/licence is issued against/i), {
       target: { value: 'm.dupont' },

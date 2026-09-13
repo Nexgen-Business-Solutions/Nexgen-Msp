@@ -716,7 +716,6 @@ class TestTheTechnicianSeesWhatWasSupplied(MSPTestCase):
                 "new_user_department": department,
                 "new_user_email": "fresh@example.invalid",
                 "new_user_username": "f.face",
-                "needs_portal_access": 1,
                 "requested_service": self.service,
             }
         )
@@ -727,7 +726,7 @@ class TestTheTechnicianSeesWhatWasSupplied(MSPTestCase):
         self.assertEqual(line["new_user_department"], department)
         self.assertEqual(line["new_user_email"], "fresh@example.invalid")
         self.assertEqual(line["new_user_username"], "f.face")
-        self.assertEqual(line["needs_portal_access"], 1)
+        self.assertNotIn("needs_portal_access", line)
 
     def test_what_the_customer_typed_for_a_new_machine_reaches_the_technician(self):
         name = self.raise_with(

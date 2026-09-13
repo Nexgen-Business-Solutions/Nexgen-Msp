@@ -71,7 +71,6 @@ REQUEST_LINE_FIELDS = [
     "client_user",
     "new_user_full_name",
     "new_user_department",
-    "needs_portal_access",
     "new_user_email",
     "new_user_username",
     "new_device_type",
@@ -736,7 +735,7 @@ class PortalService:
                 srl.request_action, srl.target_scope, srl.subject_key,
                 srl.client_user, srl.managed_device,
                 srl.source_service_assignment, srl.requested_for_user,
-                srl.requested_service, srl.needs_portal_access,
+                srl.requested_service,
                 srl.is_new_user, srl.new_user_full_name, srl.new_user_department,
                 srl.new_user_email, srl.new_user_username,
                 srl.is_new_device, srl.new_device_label, srl.new_device_type,
@@ -1032,7 +1031,6 @@ class PortalService:
                 "source_service_assignment": line.get("source_service_assignment"),
                 "new_user_full_name": line.get("new_user_full_name"),
                 "new_user_department": line.get("new_user_department"),
-                "needs_portal_access": 1 if line.get("needs_portal_access") else 0,
                 "new_user_email": line.get("new_user_email"),
                 # neither is asked of the customer, but both save the technician a
                 # phone call when they happen to know them
