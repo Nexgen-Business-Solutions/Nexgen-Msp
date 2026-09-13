@@ -558,7 +558,7 @@ class User360Service:
                     "severity": "warning",
                     "entity_type": "User",
                     "entity": person.name,
-                    "message": "No account name is recorded for the licences issued to them.",
+                    "message": "No username is recorded for the services issued to them.",
                 }
             )
 

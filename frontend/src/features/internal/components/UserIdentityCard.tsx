@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pencil, Plus, Trash2, UserCheck, UserX } from 'lucide-react';
+import { Pencil, Trash2, UserCheck, UserX } from 'lucide-react';
 import StatusBadge from '@/shared/components/StatusBadge';
 import type { UserDetail } from '@/lib/api/internal';
 
@@ -10,7 +10,6 @@ type Props = {
   isAdmin: boolean;
   onEdit: () => void;
   onDelete: () => void;
-  onNewRequest: () => void;
   onStatus: () => void;
 };
 
@@ -20,7 +19,6 @@ const UserIdentityCard: React.FC<Props> = ({
   isAdmin,
   onEdit,
   onDelete,
-  onNewRequest,
   onStatus,
 }) => {
   const { user, summary } = detail;
@@ -73,16 +71,6 @@ const UserIdentityCard: React.FC<Props> = ({
         </div>
 
         <div className="flex flex-wrap items-start gap-2">
-          {!archived && (
-            <button
-              type="button"
-              onClick={onNewRequest}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
-            >
-              <Plus size={15} />
-              New request
-            </button>
-          )}
           <button
             type="button"
             onClick={onEdit}

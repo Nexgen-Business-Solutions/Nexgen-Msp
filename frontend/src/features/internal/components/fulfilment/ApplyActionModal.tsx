@@ -18,14 +18,12 @@ type Props = {
 const ApplyActionModal: React.FC<Props> = ({ card, person, onClose }) => {
   const run = useExecuteServiceAction();
   const [date, setDate] = useState('');
-  const [quantity, setQuantity] = useState('1');
   const [identifier, setIdentifier] = useState('');
   const [billedWarning, setBilledWarning] = useState<string | null>(null);
 
   useEffect(() => {
     if (!card) return;
     setDate(card.effective_date ?? new Date().toISOString().slice(0, 10));
-    setQuantity(String(card.requested_quantity ?? 1));
     setIdentifier('');
     setBilledWarning(null);
     run.reset();
@@ -43,7 +41,6 @@ const ApplyActionModal: React.FC<Props> = ({ card, person, onClose }) => {
         confirm_billed: confirmBilled ? 1 : undefined,
         work_order: card.name,
         effective_date: date || undefined,
-        quantity: card.action === 'Change' ? Number(quantity) : undefined,
         username: !onDevice && identifier.trim() ? identifier.trim() : undefined,
         serial_number: onDevice && identifier.trim() ? identifier.trim() : undefined,
       });
@@ -99,19 +96,6 @@ const ApplyActionModal: React.FC<Props> = ({ card, person, onClose }) => {
             aria-label="Effective date"
           />
         </div>
-        {card.action === 'Change' && (
-          <div>
-            <FieldLabel>Quantity</FieldLabel>
-            <input
-              type="number"
-              min={1}
-              className={inputClass}
-              value={quantity}
-              onChange={(event) => setQuantity(event.target.value)}
-              aria-label="Quantity"
-            />
-          </div>
-        )}
         {missing && (
           <div>
             <FieldLabel required>{onDevice ? 'Serial Number' : 'Username'}</FieldLabel>

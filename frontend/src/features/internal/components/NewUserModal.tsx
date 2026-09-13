@@ -142,7 +142,7 @@ const NewUserModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
               className={inputClass}
             />
             <p className="mt-1 text-xs text-slate-400">
-              The account name a licence is issued against. It can be filled in later, when the
+              The username the person uses on their services. It can be filled in later, when the
               service is delivered.
             </p>
           </div>

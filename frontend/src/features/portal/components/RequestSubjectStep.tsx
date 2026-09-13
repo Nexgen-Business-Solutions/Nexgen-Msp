@@ -127,7 +127,7 @@ const NewPersonCard: React.FC<{ subject: RequestSubject; builder: Builder }> = (
       {/* nobody is asked for an account name, but a customer who already knows it saves
           the technician a phone call */}
       <div className="mt-3 border-t border-slate-100 pt-3">
-        <FieldLabel>Account name (optional)</FieldLabel>
+        <FieldLabel>Username (optional)</FieldLabel>
         <input
           className={`${inputClass} max-w-sm`}
           value={subject.username ?? ''}

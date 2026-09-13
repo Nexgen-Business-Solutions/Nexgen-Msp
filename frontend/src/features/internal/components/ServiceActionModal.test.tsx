@@ -8,7 +8,7 @@ import ServiceActionModal from './ServiceActionModal';
 
 vi.mock('@/lib/api/internal', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api/internal')>();
-  return { ...actual, changeUserService: vi.fn() };
+  return { ...actual, changeUserService: vi.fn(), userServiceAvailability: vi.fn() };
 });
 
 const row = (overrides: Partial<UserServiceRow> = {}): UserServiceRow => ({
@@ -27,7 +27,7 @@ const row = (overrides: Partial<UserServiceRow> = {}): UserServiceRow => ({
   ...overrides,
 });
 
-const open = (action: 'End' | 'Suspend', overrides: Partial<UserServiceRow> = {}) => {
+const open = (action: 'End' | 'Suspend' | 'Change', overrides: Partial<UserServiceRow> = {}) => {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -118,5 +118,36 @@ describe('a period already invoiced is a warning, not a wall', () => {
       action: 'Suspend',
       confirm_billed: 1,
     });
+  });
+});
+
+describe('changing a service directly', () => {
+  it('moves it onto another available service, with nothing about quantity', async () => {
+    vi.mocked(internal.userServiceAvailability).mockResolvedValue({
+      target: { scope: 'User', name: 'CU-1', label: 'John', customer: 'ACME' },
+      is_admin: true,
+      target_reason: null,
+      current: [],
+      available: [{ service_item: 'M365-E5', item_name: 'Microsoft 365 E5', service_scope: 'User' }],
+      blocked: [],
+    } as never);
+    vi.mocked(internal.changeUserService).mockResolvedValue({} as never);
+    const dialog = open('Change');
+
+    expect(within(dialog).queryByText(/quantity/i)).not.toBeInTheDocument();
+    const confirm = within(dialog).getByRole('button', { name: /change service/i });
+    expect(confirm).toBeDisabled();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /select the service that replaces it/i }));
+    fireEvent.click(await screen.findByRole('option', { name: /microsoft 365 e5/i }));
+    fireEvent.click(confirm);
+
+    await waitFor(() =>
+      expect(vi.mocked(internal.changeUserService).mock.calls[0][0]).toMatchObject({
+        assignment: 'SA-1',
+        action: 'Change',
+        service_item: 'M365-E5',
+      })
+    );
   });
 });

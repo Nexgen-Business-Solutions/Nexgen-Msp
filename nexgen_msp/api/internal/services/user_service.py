@@ -589,8 +589,10 @@ class UserService:
         notes=None,
         source_request=None,
         confirm_billed=0,
+        quantity=None,
+        service_item=None,
     ):
-        """Suspend, resume or end a running service, from the user's screen.
+        """Suspend, resume, change or end a running service, directly from its page.
 
         The act itself belongs to the lifecycle service: the days a pause covers, the day a
         service really stopped, and the note left beside it rather than over the assignment's
@@ -609,6 +611,7 @@ class UserService:
             "Suspend": ServiceLifecycleService.suspend,
             "Resume": ServiceLifecycleService.resume,
             "End": ServiceLifecycleService.end,
+            "Change": ServiceLifecycleService.change,
         }
 
         if action not in acts:
@@ -618,6 +621,9 @@ class UserService:
             raise NotFoundError(f"Service Assignment {assignment} not found.", "NOT_FOUND")
 
         extra = {"confirm_billed": confirm_billed} if action in ("Suspend", "Resume") else {}
+
+        if action == "Change":
+            extra = {"quantity": quantity, "service_item": service_item or None}
 
         acts[action](
             assignment=assignment,

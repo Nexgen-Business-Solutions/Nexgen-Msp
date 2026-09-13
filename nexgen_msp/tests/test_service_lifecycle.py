@@ -421,6 +421,26 @@ class TestServiceLifecycle(MSPTestCase):
         )
         self.assertEqual(self.reload(opened["name"]).operational_status, "Active")
 
+    def test_a_service_is_changed_directly_onto_another_one(self):
+        from nexgen_msp.api.internal.services.user_service import UserService
+
+        old = self.offering("LIFECHGA")
+        new = self.offering("LIFECHGB")
+        opened = self.open_service(old, effective_date=self.days_ago(30))
+
+        UserService.change_service(
+            assignment=opened["name"], action="Change", effective_date=self.days_ago(5), service_item=new
+        )
+
+        self.assertEqual(self.reload(opened["name"]).operational_status, "Ended")
+        replacement = frappe.db.get_value(
+            "MSP Service Assignment",
+            {"service_item": new, "client_user": self.reload(opened["name"]).client_user, "operational_status": "Active"},
+            "name",
+        )
+        self.assertTrue(replacement)
+        self.track("MSP Service Assignment", replacement)
+
     def test_a_pause_after_the_invoiced_period_asks_nothing(self):
         service = self.offering("LIFEBILLAF")
         opened = self.open_service(service, effective_date=self.days_ago(60))

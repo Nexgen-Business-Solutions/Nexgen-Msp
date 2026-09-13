@@ -384,7 +384,7 @@ describe('a person who does not exist yet', () => {
     expect(await screen.findByPlaceholderText('Marie Dupont')).toBeInTheDocument();
     expect(screen.getByText('Department')).toBeInTheDocument();
     // offered, never demanded: the customer who knows it may say so
-    expect(screen.getByText('Account name (optional)')).toBeInTheDocument();
+    expect(screen.getByText('Username (optional)')).toBeInTheDocument();
     expect(
       screen.getByPlaceholderText(/leave empty if you do not know it/i)
     ).toBeInTheDocument();

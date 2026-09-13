@@ -598,6 +598,7 @@ export type UserServiceRow = {
   device_serial_number?: string | null;
   device_user_name?: string | null;
   last_billed_on?: string | null;
+  quantity?: number | null;
 };
 
 export type CustomerRequestRef = {
@@ -857,11 +858,13 @@ export const assignUserService = (payload: {
 
 export const changeUserService = (payload: {
   assignment: string;
-  action: 'Suspend' | 'Resume' | 'End';
+  action: 'Suspend' | 'Resume' | 'End' | 'Change';
   effective_date?: string;
   notes?: string;
   source_request?: string;
   confirm_billed?: number;
+  quantity?: number;
+  service_item?: string;
 }) => post<UserDetail>(`${BASE}.change_user_service`, payload);
 
 export type ServiceAvailabilityTarget = {

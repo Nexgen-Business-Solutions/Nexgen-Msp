@@ -507,6 +507,8 @@ def change_user_service(
     notes=None,
     source_request=None,
     confirm_billed=0,
+    quantity=None,
+    service_item=None,
 ):
     from nexgen_msp.api.internal.services.user_service import UserService
 
@@ -517,6 +519,8 @@ def change_user_service(
         notes=notes,
         source_request=source_request,
         confirm_billed=confirm_billed,
+        quantity=quantity,
+        service_item=service_item,
     )
 
 

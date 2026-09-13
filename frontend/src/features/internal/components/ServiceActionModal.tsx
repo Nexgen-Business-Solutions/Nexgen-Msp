@@ -1,14 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { AlertCircle, CircleX, PauseCircle, PlayCircle } from 'lucide-react';
+import { AlertCircle, CircleX, PauseCircle, PencilLine, PlayCircle } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
 import ConfirmModal from '@/shared/components/ConfirmModal';
 import { isBilledPeriod } from '@/shared/lib/billedPeriod';
 import FieldLabel from '@/shared/components/FieldLabel';
+import Select from '@/shared/components/Select';
 import type { CustomerRequestRef, UserServiceRow } from '@/lib/api/internal';
 import RequestReferenceField from './RequestReferenceField';
-import { useChangeService } from '../hooks/useUsers';
+import { useChangeService, useUserServiceAvailability } from '../hooks/useUsers';
+import { useDeviceServiceAvailability } from '../hooks/useDevices';
 
-export type ServiceAction = 'Suspend' | 'Resume' | 'End';
+export type ServiceAction = 'Suspend' | 'Resume' | 'End' | 'Change';
 
 type Props = {
   clientUser: string;
@@ -51,6 +53,16 @@ const COPY: Record<
     modalTone: 'blue',
     dateLabel: 'Resume on',
   },
+  Change: {
+    title: 'Change this service',
+    subtitle: 'The current period closes the day before, and the new terms start on the date you choose.',
+    hint: 'Move the person or the machine onto another service.',
+    confirm: 'Change service',
+    tone: 'bg-blue-600 hover:bg-blue-700',
+    icon: PencilLine,
+    modalTone: 'blue',
+    dateLabel: 'New terms from',
+  },
   End: {
     title: 'Close this service',
     subtitle: 'The assignment is closed on the date you choose. History is kept.',
@@ -81,6 +93,13 @@ const ServiceActionModal: React.FC<Props> = ({
   const [notes, setNotes] = useState('');
   const [sourceRequest, setSourceRequest] = useState('');
   const [billedWarning, setBilledWarning] = useState<string | null>(null);
+  const [replacement, setReplacement] = useState('');
+
+  const changing = target?.action === 'Change';
+  const onDevice = target?.row.assignment_scope === 'Device';
+  const userOffers = useUserServiceAvailability(changing && !onDevice ? clientUser : undefined);
+  const deviceOffers = useDeviceServiceAvailability(changing && onDevice ? target?.row.managed_device : null);
+  const offers = (onDevice ? deviceOffers.data : userOffers.data)?.available ?? [];
 
   useEffect(() => {
     if (!target) return;
@@ -88,6 +107,7 @@ const ServiceActionModal: React.FC<Props> = ({
     setNotes('');
     setSourceRequest(defaultRequest ?? '');
     setBilledWarning(null);
+    setReplacement('');
     change.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target]);
@@ -108,6 +128,7 @@ const ServiceActionModal: React.FC<Props> = ({
         notes: notes.trim() || undefined,
         source_request: sourceRequest || undefined,
         confirm_billed: confirmBilled ? 1 : undefined,
+        service_item: changing && replacement ? replacement : undefined,
       });
       setBilledWarning(null);
       onClose();
@@ -141,7 +162,7 @@ const ServiceActionModal: React.FC<Props> = ({
           <button
             type="button"
             onClick={() => submit()}
-            disabled={change.isLoading}
+            disabled={change.isLoading || (changing && !replacement)}
             className={`flex min-w-[7rem] items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${copy.tone}`}
           >
             {change.isLoading ? (
@@ -197,6 +218,19 @@ const ServiceActionModal: React.FC<Props> = ({
             ) : (
               <p className="mt-1">Nothing after {billedTo} has been invoiced yet.</p>
             )}
+          </div>
+        )}
+
+        {changing && (
+          <div>
+            <FieldLabel required>New service</FieldLabel>
+            <Select
+              className="w-full"
+              value={replacement}
+              onChange={setReplacement}
+              placeholder="Select the service that replaces it"
+              options={offers.map((offer) => ({ value: offer.service_item, label: offer.item_name }))}
+            />
           </div>
         )}
 

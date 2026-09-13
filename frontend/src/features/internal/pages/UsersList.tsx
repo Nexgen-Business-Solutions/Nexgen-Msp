@@ -35,7 +35,7 @@ const COVERAGE_OPTIONS = [
   {
     value: 'needs_attention',
     label: 'Needs attention',
-    description: 'A missing serial, a missing account name, or an unfinished offboarding',
+    description: 'A missing serial, a missing username, or an unfinished offboarding',
   },
 ];
 

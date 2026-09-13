@@ -192,35 +192,41 @@ describe('what is theirs and what the machine carries', () => {
     expect(screen.getByText('Microsoft 365')).toBeInTheDocument();
   });
 
-  it('reads a device service inside the machine that runs it', async () => {
+  it('lists a device service in the same table, with the machine that runs it', async () => {
     await renderPage(detail());
 
-    const card = screen.getByText('LAPTOP-JDOE').closest('section') as HTMLElement;
+    const row = screen.getByText('Sophos Endpoint').closest('tr') as HTMLElement;
 
-    expect(within(card).getByText('Sophos Endpoint')).toBeInTheDocument();
-    expect(within(card).getByText(/DELL-93821/)).toBeInTheDocument();
-    expect(within(card).getByText(/Held since 2026-09-11/)).toBeInTheDocument();
+    expect(within(row).getByText('LAPTOP-JDOE')).toBeInTheDocument();
   });
 
-  it('offers what is still available on that one machine, inside it', async () => {
+  it('lists the machines they hold as a table, with serial and holding date', async () => {
     await renderPage(detail());
 
-    const card = screen.getByText('LAPTOP-JDOE').closest('section') as HTMLElement;
+    const row = screen.getAllByText('LAPTOP-JDOE').map((cell) => cell.closest('tr') as HTMLElement).find((tr) => within(tr).queryByText(/DELL-93821/));
 
-    expect(within(card).getByRole('button', { name: /RMM/ })).toBeInTheDocument();
+    expect(row).toBeTruthy();
+    expect(within(row as HTMLElement).getByText('2026-09-11')).toBeInTheDocument();
   });
 
-  it('says plainly when they hold nothing', async () => {
+  it('says plainly when they hold nothing, and offers no request', async () => {
     await renderPage(
       detail({ devices: [], summary: { ...detail().summary, current_devices: 0 } })
     );
 
     expect(screen.getByText(/currently holds no device/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /request a device/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /request a device/i })).not.toBeInTheDocument();
+  });
+
+  it('shows when each service was last billed rather than its quantity', async () => {
+    await renderPage(detail());
+
+    expect(screen.getByText('Last billed')).toBeInTheDocument();
+    expect(screen.queryByText('Quantity')).not.toBeInTheDocument();
   });
 });
 
-describe('the actions this page has always offered are still here', () => {
+describe('Nexgen acts directly from here', () => {
   it('adds a service directly', async () => {
     await renderPage(detail());
 
@@ -233,20 +239,35 @@ describe('the actions this page has always offered are still here', () => {
     expect(screen.getByRole('button', { name: /assign a device/i })).toBeInTheDocument();
   });
 
-  it('suspends and closes a running service from the row', async () => {
+  it('offers suspend, change and close in the row menu of a running service', async () => {
     await renderPage(detail());
 
-    expect(screen.getAllByRole('button', { name: /^suspend$/i }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole('button', { name: /^close$/i }).length).toBeGreaterThan(0);
+    const row = screen.getByText('Microsoft 365').closest('tr') as HTMLElement;
+    fireEvent.click(within(row).getByTitle('More options'));
+
+    expect(await screen.findByRole('button', { name: 'Suspend' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Change' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
   });
 
-  it('starts a request for the person too', async () => {
+  it('offers transfer and repossess in the row menu of a machine', async () => {
     await renderPage(detail());
 
-    expect(screen.getByRole('button', { name: /new request/i })).toBeInTheDocument();
+    const row = screen.getAllByText('LAPTOP-JDOE').map((cell) => cell.closest('tr') as HTMLElement).find((tr) => within(tr).queryByText(/DELL-93821/)) as HTMLElement;
+    fireEvent.click(within(row).getByTitle('More options'));
+
+    expect(await screen.findByRole('button', { name: /transfer to someone else/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /repossess/i })).toBeInTheDocument();
   });
 
-  it('offers nothing on a service somebody is already changing', async () => {
+  it('opens no request from Nexgen\'s side', async () => {
+    await renderPage(detail());
+
+    expect(screen.queryByRole('button', { name: /new request/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/request a (change|suspension|closure)/i)).not.toBeInTheDocument();
+  });
+
+  it('still acts on a service a request is about, and says which request', async () => {
     await renderPage(
       detail({
         personal_services: {
@@ -258,12 +279,10 @@ describe('the actions this page has always offered are still here', () => {
       })
     );
 
-    const row = screen
-      .getByText(/change in progress · SR-0125/i)
-      .closest('div')?.parentElement as HTMLElement;
+    const row = screen.getByText(/in request SR-0125/i).closest('tr') as HTMLElement;
+    fireEvent.click(within(row).getByTitle('More options'));
 
-    expect(within(row).queryByRole('button', { name: /^suspend$/i })).not.toBeInTheDocument();
-    expect(within(row).queryByRole('button', { name: /^close$/i })).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Suspend' })).toBeInTheDocument();
   });
 });
 

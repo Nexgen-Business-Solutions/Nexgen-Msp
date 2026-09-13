@@ -223,7 +223,7 @@ class TestIdentifiersKeepTheirRules(MSPTestCase):
                 lambda: RequestExecutionService.execute_service_action(work_order=work),
             )
 
-        self.assertIn("account name", str(caught.exception))
+        self.assertIn("username", str(caught.exception))
 
     def test_delivery_from_the_profile_asks_the_same_rules(self):
         with self.assertRaises(ValidationError):

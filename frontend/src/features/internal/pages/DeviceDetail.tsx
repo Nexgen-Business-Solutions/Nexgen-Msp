@@ -6,6 +6,7 @@ import {
   CircleX,
   PauseCircle,
   Pencil,
+  PencilLine,
   PlayCircle,
   Plus,
   PowerOff,
@@ -396,6 +397,19 @@ export default function DeviceDetail() {
                                 action: 'Resume',
                               }),
                               disabled: row.operational_status !== 'Suspended',
+                            },
+                            {
+                              label: 'Change service',
+                              icon: PencilLine,
+                              onClick: () => setTarget({
+                                row: {
+                                  ...row,
+                                  device_serial_number: device.serial_number,
+                                  device_user_name: device.user_name,
+                                },
+                                action: 'Change',
+                              }),
+                              disabled: !['Active', 'Suspended'].includes(row.operational_status),
                             },
                             {
                               label: 'Close service',

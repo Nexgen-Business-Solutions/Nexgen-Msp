@@ -1209,7 +1209,7 @@ class RequestExecutionService:
 
 			if not held and not given:
 				raise ValidationError(
-					"This service is licensed to an account name, and this person has none yet.",
+					"This service needs the username the person uses on it, and none is recorded yet.",
 					"VALIDATION_ERROR",
 				)
 
@@ -1453,7 +1453,7 @@ class RequestExecutionService:
 			checks.append(("Department recorded", bool(card.department)))
 
 			if card.username:
-				checks.append(("Account name recorded", True))
+				checks.append(("Username recorded", True))
 
 		return checks
 
