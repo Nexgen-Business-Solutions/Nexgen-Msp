@@ -377,7 +377,7 @@ class TestActingOnTheService(ExecutionCase):
         self.assertEqual(card.client_user, self.john)
         self.assertEqual(card.source_request, name)
 
-    def test_it_waits_for_verification_rather_than_calling_itself_done(self):
+    def test_it_is_done_the_moment_the_record_proves_it_ran(self):
         name = self.approved(self.line(self.offering("SA2")))
         job = self.work(name, "Service Action")
 
@@ -386,7 +386,7 @@ class TestActingOnTheService(ExecutionCase):
         )
         self.sweep(name)
 
-        self.assertEqual(self.state(job.name), "Awaiting Verification")
+        self.assertEqual(self.state(job.name), "Completed")
 
     def test_the_first_real_act_puts_the_request_to_work(self):
         name = self.approved(self.line(self.offering("SA3")))
@@ -556,7 +556,7 @@ class TestWhenSomethingGetsInTheWay(ExecutionCase):
         self.sweep(name)
 
         self.assertEqual(self.state(second.name), "Blocked")
-        self.assertEqual(self.state(first.name), "Awaiting Verification")
+        self.assertEqual(self.state(first.name), "Completed")
         self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "In Progress")
 
     def test_blocking_without_saying_why_is_refused(self):
@@ -589,7 +589,7 @@ class TestWhenSomethingGetsInTheWay(ExecutionCase):
         )
         self.sweep(name)
 
-        self.assertEqual(self.state(job.name), "Awaiting Verification")
+        self.assertEqual(self.state(job.name), "Completed")
 
     def test_work_that_failed_can_be_tried_again(self):
         name = self.approved(self.line(self.offering("BL5")))
@@ -608,7 +608,7 @@ class TestWhenSomethingGetsInTheWay(ExecutionCase):
         )
         self.sweep(name)
 
-        self.assertEqual(self.state(job.name), "Awaiting Verification")
+        self.assertEqual(self.state(job.name), "Completed")
 
     def test_work_given_up_on_needs_a_reason_and_stops_holding_the_request(self):
         name = self.approved(self.line(self.offering("BL6")), self.line(self.offering("BL7")))
@@ -628,17 +628,14 @@ class TestWhenSomethingGetsInTheWay(ExecutionCase):
             lambda: RequestExecutionService.execute_service_action(work_order=first.name)
         )
         self.sweep(name)
-        self.tech_does(
-            lambda: RequestExecutionService.verify_work_item(
-                work_order=first.name, checklist={"Confirmed working for the customer": 1}
-            )
-        )
         self.tech_does(lambda: RequestExecutionService.complete_request(request=name))
 
         self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Completed")
 
 
-class TestSigningTheWorkOff(ExecutionCase):
+class TestTheRecordProvesTheWork(ExecutionCase):
+    """Verify reads back what was performed. Nobody ticks a list before the file can close."""
+
     def test_what_the_record_proves_is_ticked_without_anyone_being_asked(self):
         name = self.approved(self.line(self.offering("VF1")))
         job = self.work(name, "Service Action")
@@ -653,12 +650,11 @@ class TestSigningTheWorkOff(ExecutionCase):
             filters={"parent": job.name},
             fields=["step", "is_done"],
         )
-        automatic = [row for row in checks if row.step != "Confirmed working for the customer"]
 
-        self.assertTrue(automatic)
-        self.assertTrue(all(row.is_done for row in automatic))
+        self.assertTrue(checks)
+        self.assertTrue(all(row.is_done for row in checks))
 
-    def test_a_check_only_a_person_can_make_is_left_open(self):
+    def test_nothing_is_left_for_a_person_to_tick(self):
         name = self.approved(self.line(self.offering("VF2")))
         job = self.work(name, "Service Action")
 
@@ -667,12 +663,13 @@ class TestSigningTheWorkOff(ExecutionCase):
         )
         self.sweep(name)
 
-        with self.assertRaises(ServiceRefused) as caught:
-            self.tech_does(lambda: RequestExecutionService.verify_work_item(work_order=job.name))
+        self.assertFalse(
+            frappe.db.exists(
+                "MSP Work Order Checklist Item", {"parent": job.name, "is_done": 0}
+            )
+        )
 
-        self.assertIn("Still to check", str(caught.exception))
-
-    def test_verifying_closes_the_item_and_records_who_did_it(self):
+    def test_carrying_it_out_records_who_did_it_and_when(self):
         name = self.approved(self.line(self.offering("VF3")))
         job = self.work(name, "Service Action")
 
@@ -680,21 +677,14 @@ class TestSigningTheWorkOff(ExecutionCase):
             lambda: RequestExecutionService.execute_service_action(work_order=job.name)
         )
         self.sweep(name)
-        self.tech_does(
-            lambda: RequestExecutionService.verify_work_item(
-                work_order=job.name,
-                checklist={"Confirmed working for the customer": 1},
-                customer_note="Activated and confirmed with the user.",
-            )
-        )
 
         card = frappe.db.get_value(
-            WORK_ORDER, job.name, ["status", "completed_by", "customer_visible_note"], as_dict=True
+            WORK_ORDER, job.name, ["status", "completed_by", "completed_at"], as_dict=True
         )
 
         self.assertEqual(card.status, "Completed")
         self.assertEqual(card.completed_by, self.tech)
-        self.assertIn("confirmed", card.customer_visible_note.lower())
+        self.assertTrue(card.completed_at)
 
 
 class TestClosingTheFile(ExecutionCase):
@@ -706,7 +696,7 @@ class TestClosingTheFile(ExecutionCase):
 
         self.assertIn("has not been carried out", str(caught.exception))
 
-    def test_work_that_ran_but_was_never_verified_is_not_closed(self):
+    def test_work_that_ran_is_enough_to_close_the_file(self):
         name = self.approved(self.line(self.offering("CL2")))
         job = self.work(name, "Service Action")
 
@@ -714,11 +704,9 @@ class TestClosingTheFile(ExecutionCase):
             lambda: RequestExecutionService.execute_service_action(work_order=job.name)
         )
         self.sweep(name)
+        self.tech_does(lambda: RequestExecutionService.complete_request(request=name))
 
-        with self.assertRaises(ServiceRefused) as caught:
-            self.tech_does(lambda: RequestExecutionService.complete_request(request=name))
-
-        self.assertIn("not been verified", str(caught.exception))
+        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Completed")
 
     def test_blocked_work_holds_the_file_open_and_says_what_for(self):
         name = self.approved(self.line(self.offering("CL3")))
@@ -773,11 +761,6 @@ class TestClosingTheFile(ExecutionCase):
                 )
             )
             self.sweep(name)
-            self.tech_does(
-                lambda order=service.name: RequestExecutionService.verify_work_item(
-                    work_order=order, checklist={"Confirmed working for the customer": 1}
-                )
-            )
 
         plan = self.tech_does(lambda: RequestExecutionService.complete_request(request=name))
 
@@ -812,11 +795,6 @@ class TestClosingTheFile(ExecutionCase):
                 )
             )
             self.sweep(name)
-            self.tech_does(
-                lambda order=job.name: RequestExecutionService.verify_work_item(
-                    work_order=order, checklist={"Confirmed working for the customer": 1}
-                )
-            )
 
         self.tech_does(lambda: RequestExecutionService.complete_request(request=name))
 

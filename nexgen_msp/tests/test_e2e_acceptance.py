@@ -158,19 +158,11 @@ class AcceptanceCase(MSPTestCase):
         )[index]
 
     def carry_out(self, request, work_order, checklist=True):
-        """Run one service action and sign it off, the way the workbench does."""
+        """Run one service action, the way the workbench does. It is done once it has run."""
         self.technician_does(
             lambda: RequestExecutionService.execute_service_action(work_order=work_order)
         )
         self.sweep(request)
-
-        if checklist:
-            self.technician_does(
-                lambda: RequestExecutionService.verify_work_item(
-                    work_order=work_order,
-                    checklist={"Confirmed working for the customer": 1},
-                )
-            )
 
     def status_of(self, assignment):
         return frappe.db.get_value("MSP Service Assignment", assignment, "operational_status")
@@ -240,7 +232,7 @@ class TestJourneyOfAnExistingPerson(AcceptanceCase):
         )
         stages = {row["key"]: row["state"] for row in plan["stages"]["stages"]}
 
-        self.assertEqual(stages["prepare"], "skipped")
+        self.assertEqual(stages["execute"], "current")
 
         for order in frappe.get_all(
             WORK_ORDER, filters={"service_request": request}, pluck="name"

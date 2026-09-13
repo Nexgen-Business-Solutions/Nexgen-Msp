@@ -262,13 +262,6 @@ class TestWhoSeesWhatAndMayDoWhat(MSPTestCase):
             "MSP Service Assignment",
             frappe.db.get_value("MSP Service Work Order", work, "resulting_assignment"),
         )
-        self.as_user(
-            self.tech,
-            lambda: RequestExecutionService.verify_work_item(
-                work_order=work, checklist={"Confirmed working for the customer": 1}
-            ),
-        )
-
         self.act(self.tech, name, "complete")
         self.assertEqual(self.status(name), "Completed")
 

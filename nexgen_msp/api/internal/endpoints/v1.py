@@ -79,6 +79,14 @@ def set_request_line_status(name=None, idx=None, line_status=None, reason=None):
     )
 
 
+@frappe.whitelist()
+@handle_errors
+def set_request_line_statuses(name=None, idxs=None, line_status=None, reason=None):
+    return RequestService.set_line_statuses(
+        name=name, idxs=idxs, line_status=line_status, reason=reason
+    )
+
+
 def _execution():
     from nexgen_msp.api.internal.services.request_execution_service import (
         RequestExecutionService,
@@ -179,6 +187,28 @@ def fail_work_item(work_order=None, reason=None):
 @handle_errors
 def cancel_work_item(work_order=None, reason=None):
     return _execution().cancel_work_item(work_order=work_order, reason=reason)
+
+
+@frappe.whitelist()
+@handle_errors
+def execute_service_actions(work_orders=None, effective_date=None):
+    return _execution().execute_service_actions(
+        work_orders=work_orders, effective_date=effective_date
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def get_technician_options(name=None, subject_key=None):
+    return _execution().technician_options(request=name, subject_key=subject_key)
+
+
+@frappe.whitelist()
+@handle_errors
+def add_technician_action(name=None, subject_key=None, option=None, reason=None):
+    return _execution().add_technician_action(
+        request=name, subject_key=subject_key, option=option, reason=reason
+    )
 
 
 @frappe.whitelist()

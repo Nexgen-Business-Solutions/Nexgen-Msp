@@ -10,6 +10,8 @@
   "naming_series",
   "service_request",
   "work_type",
+  "origin",
+  "technician_reason",
   "plan_key",
   "customer",
   "column_break_wo",
@@ -248,13 +250,13 @@
    "read_only": 1
   },
   {
+   "default": "Service Action",
    "fieldname": "work_type",
    "fieldtype": "Select",
+   "in_list_view": 1,
    "label": "Work Type",
    "options": "Service Action\nUser Setup\nDevice Provisioning",
-   "default": "Service Action",
-   "reqd": 1,
-   "in_list_view": 1
+   "reqd": 1
   },
   {
    "fieldname": "plan_key",
@@ -306,12 +308,26 @@
    "label": "Resulting Device",
    "options": "MSP Managed Device",
    "read_only": 1
+  },
+  {
+   "default": "Request",
+   "fieldname": "origin",
+   "fieldtype": "Select",
+   "label": "Origin",
+   "options": "Request\nTechnician",
+   "read_only": 1
+  },
+  {
+   "fieldname": "technician_reason",
+   "fieldtype": "Small Text",
+   "label": "Technician Reason",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-08-13 18:39:19.945900",
+ "modified": "2026-09-13 13:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nexgen MSP",
  "name": "MSP Service Work Order",

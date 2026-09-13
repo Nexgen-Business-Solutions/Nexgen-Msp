@@ -405,18 +405,21 @@ class TestThePlanReadsAsAJob(ExecutionPlanCase):
         self.assertFalse(person["is_new"])
         self.assertEqual(person["name"], self.john)
 
-    def test_a_preparation_nobody_needs_is_marked_as_skipped_not_pending(self):
+    def test_the_technician_walks_four_steps(self):
         name = self.approve(self.raise_request(self.line(self.offering("GR4"))))
 
-        stages = {stage["key"]: stage["state"] for stage in self.plan(name)["stages"]["stages"]}
+        stages = self.plan(name)["stages"]["stages"]
 
-        self.assertEqual(stages["prepare"], "skipped")
-        self.assertEqual(stages["execute"], "current")
+        self.assertEqual(
+            [stage["label"] for stage in stages],
+            ["Review lines", "Execute", "Verify", "Final validation"],
+        )
+        self.assertEqual([stage["state"] for stage in stages], ["done", "current", "todo", "todo"])
 
-    def test_the_stepper_stands_on_prepare_while_a_person_is_owed(self):
+    def test_creating_the_person_is_part_of_execute_not_a_step_of_its_own(self):
         name = self.approve(self.raise_request(self.new_person_line(self.offering("GR5"))))
 
-        self.assertEqual(self.plan(name)["stages"]["current"], "prepare")
+        self.assertEqual(self.plan(name)["stages"]["current"], "execute")
 
     def test_the_summary_counts_the_work_and_not_the_lines(self):
         name = self.approve(

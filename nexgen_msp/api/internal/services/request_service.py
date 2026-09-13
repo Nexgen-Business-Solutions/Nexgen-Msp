@@ -600,6 +600,41 @@ class RequestService:
         return RequestService.get_request(name)
 
     @staticmethod
+    def set_line_statuses(name=None, idxs=None, line_status=None, reason=None):
+        """The same decision for several lines, still written line by line.
+
+        Each line is decided on its own and can be refused on its own, so the answer says,
+        line by line, which ones took the decision and why any did not.
+        """
+        RequestService._guard_internal()
+
+        idxs = frappe.parse_json(idxs) if isinstance(idxs, str) else (idxs or [])
+
+        if not idxs:
+            raise ValidationError("Name the lines to decide.", "VALIDATION_ERROR")
+
+        results = []
+
+        for idx in idxs:
+            try:
+                RequestService.set_line_status(
+                    name=name, idx=idx, line_status=line_status, reason=reason
+                )
+                results.append({"idx": frappe.utils.cint(idx), "ok": True, "message": None})
+            except (ValidationError, NotFoundError) as error:
+                frappe.db.rollback()
+                results.append(
+                    {"idx": frappe.utils.cint(idx), "ok": False, "message": error.message}
+                )
+
+        return {
+            "results": results,
+            "decided": len([row for row in results if row["ok"]]),
+            "failed": len([row for row in results if not row["ok"]]),
+            "request": RequestService.get_request(name),
+        }
+
+    @staticmethod
     def list_customer_requests(customer=None, limit=30):
         """The recent requests of one company, for a form that wants to cite one.
 

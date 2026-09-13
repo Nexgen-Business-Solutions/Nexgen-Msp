@@ -222,16 +222,11 @@ class TestTheRequestProcess(MSPTestCase):
         )
         self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "In Progress")
 
-        # verified before it is closed, never closed on the strength of having been run
-        with self.assertRaises(ValidationError):
-            self.as_user(self.tech, lambda: RequestExecutionService.complete_request(name))
+        # what ran is read back as a recap; the file closes on it
+        plan = self.as_user(self.tech, lambda: RequestExecutionService.get_execution_plan(name))
+        self.assertEqual(plan["stages"]["current"], "verify")
+        self.assertEqual([row["kind"] for row in plan["recap"]], ["requested"])
 
-        self.as_user(
-            self.tech,
-            lambda: RequestExecutionService.verify_work_item(
-                work_order=work, checklist={"Confirmed working for the customer": 1}
-            ),
-        )
         self.as_user(self.tech, lambda: RequestExecutionService.complete_request(name))
 
         self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Completed")

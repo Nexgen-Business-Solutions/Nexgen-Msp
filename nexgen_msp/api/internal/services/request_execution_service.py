@@ -208,8 +208,11 @@ class RequestExecutionService:
 			"request": doc.name,
 			"customer": doc.customer,
 			"status": doc.status,
+			"context": RequestExecutionService._context(doc, orders),
 			"stages": RequestExecutionService._stages(doc, orders),
 			"groups": groups,
+			"recap": RequestExecutionService._recap(doc, orders, groups),
+			"outcome": RequestExecutionService._outcome(doc, orders),
 			"rejected": [
 				{
 					"idx": row.idx,
@@ -233,6 +236,8 @@ class RequestExecutionService:
 				"name",
 				"plan_key",
 				"work_type",
+				"origin",
+				"technician_reason",
 				"action",
 				"status",
 				"target_scope",
@@ -387,6 +392,133 @@ class RequestExecutionService:
 		return groups
 
 	@staticmethod
+	def _context(doc, orders):
+		"""What the technician keeps in view at every step: who asked, for when, and what they said."""
+		dates = sorted(
+			str(row.requested_effective_date) for row in doc.lines if row.requested_effective_date
+		)
+		technicians = sorted(
+			{order.assigned_technician_name for order in orders if order.assigned_technician_name}
+		)
+
+		return {
+			"customer": doc.customer,
+			"requester": doc.requester,
+			"requester_name": frappe.db.get_value("User", doc.requester, "full_name")
+			if doc.requester
+			else None,
+			"raised_at": doc.creation,
+			"requested_date": dates[0] if dates else None,
+			"priority": doc.priority,
+			"people": len({row.subject_key for row in doc.lines if row.subject_key}),
+			"lines": len(doc.lines),
+			"details": doc.details,
+			"customer_approved": bool(doc.customer_approved_by) or doc.source == "Internal",
+			"technicians": technicians,
+		}
+
+	@staticmethod
+	def _recap(doc, orders, groups):
+		"""What was actually performed, read from the work orders that performed it.
+
+		Nothing here is remembered by the screen: reload the page and the same recap comes
+		back, because it is the record of the work and not a summary of the session.
+		"""
+		names = {
+			group["subject_key"]: (group["person"] or {}).get("full_name") for group in groups
+		}
+		departments = {
+			group["subject_key"]: (group["person"] or {}).get("department") for group in groups
+		}
+		action_labels = RequestExecutionService._action_labels()
+		who = {}
+
+		entries = []
+
+		for order in orders:
+			if order.status not in ("Completed", "Awaiting Verification"):
+				continue
+
+			if order.completed_by and order.completed_by not in who:
+				who[order.completed_by] = (
+					frappe.db.get_value("User", order.completed_by, "full_name") or order.completed_by
+				)
+
+			if order.work_type == USER_SETUP:
+				kind = "object"
+				title = "Client User created"
+				detail = order.resulting_client_user or ""
+			elif order.work_type == DEVICE_PROVISIONING:
+				kind = "object"
+				device = RequestExecutionService._device_card(order.resulting_device) or {}
+				title = "Device prepared"
+				detail = " · ".join(
+					part for part in (device.get("hostname"), device.get("serial_number")) if part
+				)
+			else:
+				kind = "technician" if order.origin == "Technician" else "requested"
+				title = f"{order.service_name} · {action_labels.get(order.action, order.action)}"
+				target = (
+					(RequestExecutionService._device_card(order.managed_device) or {}).get("hostname")
+					if order.target_scope == "Device"
+					else order.client_user
+				)
+				detail = f"{order.target_scope} scope" + (f" · {target}" if target else "")
+
+			entries.append(
+				{
+					"work_order": order.name,
+					"subject_key": order.subject_key,
+					"subject": names.get(order.subject_key),
+					"department": departments.get(order.subject_key),
+					"kind": kind,
+					"title": title,
+					"detail": detail,
+					"reason": order.technician_reason,
+					"at": order.completed_at,
+					"by": who.get(order.completed_by),
+				}
+			)
+
+		return entries
+
+	@staticmethod
+	def _outcome(doc, orders):
+		"""The figures the final validation reads: what was decided, and what was done."""
+		services = [order for order in orders if order.work_type == SERVICE_ACTION]
+		done = ("Completed", "Awaiting Verification")
+
+		return {
+			"accepted": len([row for row in doc.lines if row.line_status == "Approved"]),
+			"rejected": len([row for row in doc.lines if row.line_status == "Rejected"]),
+			"requested_done": len(
+				[o for o in services if o.origin != "Technician" and o.status in done]
+			),
+			"technician_added": len([o for o in services if o.origin == "Technician"]),
+			"technician_done": len(
+				[o for o in services if o.origin == "Technician" and o.status in done]
+			),
+			"prepared": len(
+				[o for o in orders if o.work_type != SERVICE_ACTION and o.status in done]
+			),
+		}
+
+	@staticmethod
+	def _action_labels():
+		"""The name an administrator gave each kind of act, so the screen invents none."""
+		labels = {}
+
+		for row in frappe.get_all(
+			"MSP Request Action",
+			filters={"enabled": 1},
+			fields=["title", "action_type"],
+			order_by="sort_order asc, title asc",
+		):
+			labels.setdefault(row.action_type, row.title)
+
+		return labels
+
+	@staticmethod
 	def _subject_order(doc):
 		"""Each person once, in the order the request first speaks of them."""
 		seen = []
@@ -485,6 +617,9 @@ class RequestExecutionService:
 			order.resulting_device or order.managed_device
 		)
 		card["current"] = RequestExecutionService._current_service(order)
+		card["action_label"] = RequestExecutionService._action_labels().get(
+			order.action, order.action
+		)
 
 		return card
 
@@ -510,61 +645,38 @@ class RequestExecutionService:
 	# ------------------------------------------------------------------ the stepper
 	@staticmethod
 	def _stages(doc, orders):
-		"""The five phases of the job, and which one the request is actually in.
+		"""The four steps of the job, and which one the request is actually in.
 
-		A phase with nothing in it is not walked through; it is marked as not needed and the
-		technician goes straight past it.
+		Review lines decides what enters the work. Execute is all of it — creating the person
+		and preparing the machine included, since they are what the requested acts wait on.
+		Verify reads back what was performed. Final validation closes the file.
 		"""
-		preparation = [
-			order for order in orders if order.work_type in (USER_SETUP, DEVICE_PROVISIONING)
-		]
-		services = [order for order in orders if order.work_type == SERVICE_ACTION]
-
 		reviewed = doc.status not in ("Submitted", "Under Review")
-		prepared = all(order.status in FINISHED_STATUSES for order in preparation)
-		executed = all(
-			order.status in FINISHED_STATUSES + ("Awaiting Verification",) for order in services
+		executed = reviewed and all(
+			order.status in FINISHED_STATUSES + ("Awaiting Verification",) for order in orders
 		)
-		verified = bool(services) and all(order.status in FINISHED_STATUSES for order in services)
 		completed = doc.status == "Completed"
 
 		stages = [
-			{"key": "review", "label": "Review", "done": reviewed, "needed": True},
-			{
-				"key": "prepare",
-				"label": "Prepare",
-				"done": reviewed and prepared,
-				"needed": bool(preparation),
-			},
-			{
-				"key": "execute",
-				"label": "Execute",
-				"done": reviewed and prepared and executed,
-				"needed": bool(services),
-			},
-			{
-				"key": "verify",
-				"label": "Verify",
-				"done": reviewed and verified,
-				"needed": bool(services),
-			},
-			{"key": "complete", "label": "Complete", "done": completed, "needed": True},
+			{"key": "review", "label": "Review lines", "done": reviewed, "needed": True},
+			{"key": "execute", "label": "Execute", "done": executed, "needed": True},
+			{"key": "verify", "label": "Verify", "done": completed, "needed": True},
+			{"key": "complete", "label": "Final validation", "done": completed, "needed": True},
 		]
 
-		current = next(
-			(stage["key"] for stage in stages if stage["needed"] and not stage["done"]),
-			"complete",
+		current = (
+			"complete"
+			if completed
+			else "verify"
+			if executed
+			else "execute"
+			if reviewed
+			else "review"
 		)
 
 		for stage in stages:
 			stage["state"] = (
-				"skipped"
-				if not stage["needed"]
-				else "done"
-				if stage["done"]
-				else "current"
-				if stage["key"] == current
-				else "todo"
+				"done" if stage["done"] else "current" if stage["key"] == current else "todo"
 			)
 
 		return {"stages": stages, "current": current}
@@ -869,6 +981,205 @@ class RequestExecutionService:
 			frappe.db.rollback(save_point=savepoint)
 			raise
 
+		frappe.db.commit()
+
+		return RequestExecutionService.get_execution_plan(doc.name)
+
+	@staticmethod
+	def execute_service_actions(work_orders=None, effective_date=None):
+		"""The same ready act for several people, carried out one person at a time.
+
+		Grouping is a convenience of the screen. Every work order still goes through the
+		service domain on its own, is refused on its own, and is reported on its own, so a
+		batch of eighteen can come back as seventeen done and one refused, named.
+		"""
+		RequestService._guard_internal()
+
+		work_orders = frappe.parse_json(work_orders) if isinstance(work_orders, str) else work_orders
+
+		if not work_orders:
+			raise ValidationError("Name the work to carry out.", "VALIDATION_ERROR")
+
+		requests = {
+			frappe.db.get_value(WORK_ORDER, name, "service_request") for name in work_orders
+		}
+		requests.discard(None)
+
+		if len(requests) != 1:
+			raise ValidationError(
+				"Work from several requests cannot be carried out together.", "VALIDATION_ERROR"
+			)
+
+		results = []
+
+		for name in work_orders:
+			try:
+				RequestExecutionService.execute_service_action(
+					work_order=name, effective_date=effective_date
+				)
+				results.append({"work_order": name, "ok": True, "message": None})
+			except Exception as error:
+				frappe.db.rollback()
+				results.append(
+					{
+						"work_order": name,
+						"ok": False,
+						"message": getattr(error, "message", None) or str(error),
+					}
+				)
+
+		return {
+			"results": results,
+			"completed": len([row for row in results if row["ok"]]),
+			"failed": len([row for row in results if not row["ok"]]),
+			"plan": RequestExecutionService.get_execution_plan(requests.pop()),
+		}
+
+	@staticmethod
+	def technician_options(request=None, subject_key=None):
+		"""What else a technician may do for this person while the request is open.
+
+		Read from what the person and their machines hold today, never from a list kept on
+		the screen: a service already running offers the acts its state allows, a service
+		that may be sold offers to be added, and anything already in this request's work is
+		left out so the same thing is not planned twice.
+		"""
+		from nexgen_msp.api.internal.services.service_availability_service import (
+			ServiceAvailabilityService,
+		)
+		from nexgen_msp.utils import request_intents
+
+		RequestService._guard_internal()
+		doc = RequestExecutionService._request(request)
+		person = RequestExecutionService._resolved_person(doc, subject_key)
+
+		if not person:
+			return {
+				"subject_key": subject_key,
+				"options": [],
+				"reason": "Create the Client User first.",
+			}
+
+		labels = RequestExecutionService._action_labels()
+		planned = {
+			(o.service_item, o.action, o.client_user or "", o.managed_device or "", o.source_service_assignment or "")
+			for o in RequestExecutionService._orders(doc.name)
+			if o.work_type == SERVICE_ACTION and o.status not in FINISHED_STATUSES
+		}
+		options = []
+
+		def offer(service_item, service_name, action, scope, device=None, device_label=None, assignment=None, state=None):
+			key = (
+				service_item,
+				action,
+				person if scope == "User" else "",
+				device or "",
+				assignment or "",
+			)
+
+			if key in planned:
+				return
+
+			options.append(
+				{
+					"key": "|".join(key),
+					"service_item": service_item,
+					"service_name": service_name,
+					"action": action,
+					"action_label": labels.get(action, action),
+					"target_scope": scope,
+					"managed_device": device,
+					"device_label": device_label,
+					"source_service_assignment": assignment,
+					"current_state": state or "Not assigned",
+				}
+			)
+
+		reading = ServiceAvailabilityService.read_user(person)
+
+		for row in reading["current"]:
+			for action in request_intents.ALLOWED_ACTIONS.get(row["operational_status"], ()):
+				offer(row["service_item"], row["item_name"], action, "User", assignment=row["name"], state=row["operational_status"])
+
+		for row in reading["available"]:
+			offer(row["service_item"], row["item_name"], "Add", "User")
+
+		for device in frappe.get_all(
+			"MSP Device Holder",
+			filters={"client_user": person, "is_current": 1, "parenttype": "MSP Managed Device"},
+			pluck="parent",
+		):
+			machine = ServiceAvailabilityService.read_device(device)
+			label = machine["target"]["label"]
+
+			for row in machine["current"]:
+				for action in request_intents.ALLOWED_ACTIONS.get(row["operational_status"], ()):
+					offer(row["service_item"], row["item_name"], action, "Device", device, label, row["name"], row["operational_status"])
+
+			for row in machine["available"]:
+				offer(row["service_item"], row["item_name"], "Add", "Device", device, label)
+
+		return {"subject_key": subject_key, "options": options, "reason": None}
+
+	@staticmethod
+	def add_technician_action(request=None, subject_key=None, option=None, reason=None):
+		"""Add work the request did not ask for, because the job on the ground needs it.
+
+		It never becomes a line of the customer's request. It is a work order of its own,
+		marked as the technician's, carrying who added it and why, and it is carried out
+		through exactly the same door as the work that was asked for.
+		"""
+		RequestService._guard_internal()
+		doc = RequestExecutionService._request(request)
+
+		if doc.status not in ("Approved", "In Progress"):
+			raise ValidationError(
+				f"Work can only be added to a request being carried out; this one is {doc.status.lower()}.",
+				"INVALID_TRANSITION",
+			)
+
+		reason = (reason or "").strip()
+
+		if not reason:
+			raise ValidationError("Say why this action is needed.", "VALIDATION_ERROR")
+
+		option = frappe.parse_json(option) if isinstance(option, str) else (option or {})
+		offered = {
+			row["key"]: row
+			for row in RequestExecutionService.technician_options(doc.name, subject_key)["options"]
+		}
+		chosen = offered.get(option.get("key"))
+
+		if not chosen:
+			raise ValidationError(
+				"That action is no longer available for this person. The list has been refreshed.",
+				"STALE_STATE",
+			)
+
+		person = RequestExecutionService._resolved_person(doc, subject_key)
+		on_device = chosen["target_scope"] == "Device"
+
+		name = RequestExecutionService._work_order(
+			doc,
+			plan_key=f"{doc.name}:technician:{frappe.generate_hash(length=12)}",
+			work_type=SERVICE_ACTION,
+			origin="Technician",
+			technician_reason=reason,
+			action=chosen["action"],
+			target_scope=chosen["target_scope"],
+			subject_key=subject_key,
+			device_requirement_key=f"device:{chosen['managed_device']}" if on_device else None,
+			client_user=None if on_device else person,
+			managed_device=chosen["managed_device"] if on_device else None,
+			service_item=chosen["service_item"],
+			source_service_assignment=chosen["source_service_assignment"],
+			effective_date=frappe.utils.today(),
+			assigned_technician=frappe.session.user,
+		)
+
+		frappe.get_doc(WORK_ORDER, name).add_comment(
+			"Comment", f"Added by the technician: {reason}"
+		)
 		frappe.db.commit()
 
 		return RequestExecutionService.get_execution_plan(doc.name)
@@ -1232,11 +1543,13 @@ class RequestExecutionService:
 
 	@staticmethod
 	def _executed(order):
-		"""A service act has run; whoever ran it still has to sign the result off."""
+		"""A service act has run, and the record proves it did: it is done.
+
+		What was performed is read back afterwards as a recap, not ticked off one item at a
+		time before the request may close.
+		"""
 		checks = RequestExecutionService._prove_service_action(order)
-		RequestExecutionService._write_checklist(
-			order, checks, manual=RequestExecutionService.MANUAL_CHECK.get(order.action)
-		)
+		RequestExecutionService._write_checklist(order, checks, manual=None)
 
 		failed = [step for step, done in checks if not done]
 
@@ -1246,7 +1559,7 @@ class RequestExecutionService:
 				"VALIDATION_ERROR",
 			)
 
-		order.status = "Awaiting Verification"
+		order.status = "Completed"
 		order.completed_by = frappe.session.user
 		order.completed_at = frappe.utils.now_datetime()
 		order.save(ignore_permissions=True)
@@ -1437,7 +1750,8 @@ class RequestExecutionService:
 			elif order.status == "Cancelled":
 				continue
 			elif order.status == "Awaiting Verification":
-				waiting.append(f"{label} has not been verified")
+				# carried out before the recap replaced the sign-off: it ran, it is done
+				continue
 			else:
 				waiting.append(f"{label} has not been carried out")
 
