@@ -119,6 +119,18 @@ ajouté par le commit `review code`, échoue aussi sans les changements P0 (vér
 retirant). Le test attend une liste vide ; Frappe lève `PermissionError` pour un compte sans
 droit de lecture sur le DocType. À trancher par l'auteur du test.
 
+### Correction Specification v2 — NE PAS APPLIQUER telle quelle (Idriss, 2026-09-13)
+
+Idriss a jugé cette spec incorrecte sur plusieurs points. Il teste lui-même l'application et
+décidera au cas par cas de ce qu'on garde ou change. **Aucun agent ne l'implémente d'office.**
+
+Déjà tranché, à l'encontre de la spec :
+
+- **Départements par entreprise conservés** (contre §73 / P0-07) : le champ `customer` et le
+  sélecteur « Customer » de Settings restent.
+- **Données techniques client facultatives conservées** (contre §51 / P0-06) : le client peut
+  toujours saisir nom de compte, nom d'hôte, numéro de série et type d'appareil s'il les connaît.
+
 ---
 
 ## 3. Ce qui a été construit
@@ -642,5 +654,6 @@ champs commerciaux, aucun département en texte libre, le workbench n'exige aucu
 | 2026-09-12 | agent principal | Performance mesurée (`load_bench`), quatre N+1 corrigés, dix-sept index, sélection Billing fenêtrée. Specs closes. |
 | 2026-09-13 | agent principal | P0 réduit par Idriss : aucune relation Client User ↔ User, `portal_visible`, `portal_access` et `needs_portal_access` retirés. |
 | 2026-09-13 | agent principal | Réglages → Départements : sélecteur « Customer » (All customers par défaut), refusé si des personnes d'une autre entreprise portent déjà ce département. |
+| 2026-09-13 | agent principal | Correction Spec v2 lue, mise en attente : Idriss teste et décide point par point. Rien implémenté. |
 
 > Ajoute ta ligne ici quand tu termines quelque chose.
