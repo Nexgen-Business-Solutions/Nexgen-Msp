@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { NewRequestLine, PortalRequestDetail, RequestAction } from '@/lib/api/portal';
 import {
   useCreateServiceRequest,
@@ -65,7 +65,17 @@ export const fromSavedRequest = (saved: PortalRequestDetail) => {
   const subjectFor = (line: PortalRequestDetail['lines'][number]) => {
     if (line.is_new_user) {
       // each new person written into the request is their own subject
-      const identity = `new:${line.new_user_full_name ?? ''}`;
+      // A name is not an identity: two future colleagues can have the same name. Lines
+      // belonging to one person repeat the same supplied details, so that complete tuple
+      // preserves continuity without folding distinct people together.
+      const identity = line.subject_key
+        ? `saved:${line.subject_key}`
+        : `legacy:${JSON.stringify([
+            line.new_user_full_name ?? '',
+            line.new_user_department ?? '',
+            line.new_user_email ?? '',
+            line.new_user_username ?? '',
+          ])}`;
       const existing = keyOfPerson.get(identity);
 
       if (existing) return existing;
@@ -142,6 +152,7 @@ export const useRequestBuilder = (
   const [defaultDate, setDefaultDate] = useState(today());
   const [draft, setDraft] = useState<string | null>(reopen ?? null);
   const [loaded, setLoaded] = useState(false);
+  const [staleIntentKeys, setStaleIntentKeys] = useState<Set<string>>(() => new Set());
 
   const create = useCreateServiceRequest();
   const saveDraft = useSaveRequestDraft();
@@ -239,6 +250,15 @@ export const useRequestBuilder = (
   const removeIntent = (key: string) =>
     setIntents((current) => current.filter((intent) => intent.key !== key));
 
+  const reportStaleIntents = useCallback((subjectIntentKeys: string[], staleKeys: string[]) => {
+    setStaleIntentKeys((current) => {
+      const next = new Set(current);
+      subjectIntentKeys.forEach((key) => next.delete(key));
+      staleKeys.forEach((key) => next.add(key));
+      return next;
+    });
+  }, []);
+
   const intentsOf = (subjectKey: string) =>
     intents.filter((intent) => intent.subjectKey === subjectKey);
 
@@ -282,6 +302,7 @@ export const useRequestBuilder = (
 
       if (subject?.kind === 'new') {
         line.is_new_user = 1;
+        line.subject_key = `new-user:request:${subject.key}`;
         line.new_user_full_name = subject.fullName;
         line.new_user_department = subject.department;
         line.new_user_email = subject.email;
@@ -316,7 +337,8 @@ export const useRequestBuilder = (
 
   const payload = () => ({ priority, lines });
 
-  const canSend = subjects.length > 0 && intents.length > 0;
+  const hasStaleIntents = intents.some((intent) => staleIntentKeys.has(intent.key));
+  const canSend = subjects.length > 0 && intents.length > 0 && !hasStaleIntents;
 
   const send = async () => {
     if (!canSend) return null;
@@ -369,16 +391,18 @@ export const useRequestBuilder = (
     intentsOf,
     isAsked,
     askedOn,
+    reportStaleIntents,
     lines,
     canSend,
+    hasStaleIntents,
     send,
     putAside,
     giveUp,
     sending: create.isLoading,
     saving: saveDraft.isLoading,
-    reopening: Boolean(source) && !loaded,
+    reopening: Boolean(source) && !loaded && !saved.error,
     correcting: Boolean(correct),
-    error: (create.error || saveDraft.error) as Error | null,
+    error: (create.error || saveDraft.error || saved.error) as Error | null,
   };
 };
 

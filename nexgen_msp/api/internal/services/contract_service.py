@@ -1,6 +1,6 @@
 import frappe
 
-from nexgen_msp.api.internal.services.request_service import ADMIN_ROLES
+from nexgen_msp.utils import access
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 from nexgen_msp.utils.assignments import OPEN_ASSIGNMENT_STATUSES
 
@@ -291,12 +291,7 @@ class ContractService:
     @staticmethod
     def _guard_admin():
         """Billing is the administrator's job end to end — technicians never see it."""
-        if not set(frappe.get_roles()).intersection(ADMIN_ROLES):
-            raise ValidationError(
-                "Only an MSP administrator can manage contracts and pricing.",
-                "PERMISSION_DENIED",
-                403,
-            )
+        access.require("manage_contracts")
 
     @staticmethod
     def _select_options(doctype, fieldname):

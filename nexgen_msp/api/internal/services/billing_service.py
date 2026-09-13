@@ -1164,16 +1164,22 @@ class BillingService:
                 "contract, period_start and period_end are required.", "VALIDATION_ERROR"
             )
 
-        lines, terms = BillingService.build_lines(
-            contract, period_start, period_end, run_discount=discount_percent
-        )
-
         include = frappe.parse_json(include) if isinstance(include, str) else include
 
-        if include:
-            wanted = set(include)
-            lines = [line for line in lines if line["service_assignment"] in wanted]
+        def selected_lines():
+            built, current_terms = BillingService.build_lines(
+                contract, period_start, period_end, run_discount=discount_percent
+            )
 
+            if include:
+                wanted = set(include)
+                built = [line for line in built if line["service_assignment"] in wanted]
+
+            return built, current_terms
+
+        lines, terms = selected_lines()
+
+        if include:
             if not lines:
                 raise ValidationError(
                     "None of the selected assignments falls inside this period.",
@@ -1184,6 +1190,27 @@ class BillingService:
             raise ValidationError(
                 "No assignment falls inside this period — nothing to bill.", "VALIDATION_ERROR"
             )
+
+        # A run line has no row to lock until it is inserted. Lock the assignments in a
+        # stable order, then rebuild under those locks so another concurrent run that just
+        # committed is seen by _invoiced_in instead of charging the same period twice.
+        assignment_names = [line["service_assignment"] for line in lines]
+        conflicts_before_lock = BillingService._invoiced_in(
+            assignment_names, period_start, period_end
+        )
+        BillingService._lock_assignments(assignment_names)
+        conflicts_after_lock = BillingService._invoiced_in(
+            assignment_names, period_start, period_end
+        )
+        concurrent_conflicts = set(conflicts_after_lock) - set(conflicts_before_lock)
+
+        if concurrent_conflicts:
+            raise ValidationError(
+                "Another billing run was created for these assignments while this one was being prepared.",
+                "VALIDATION_ERROR",
+            )
+
+        lines, terms = selected_lines()
 
         doc = frappe.get_doc(
             {
@@ -1211,6 +1238,22 @@ class BillingService:
         frappe.db.commit()
 
         return BillingService.get_run(doc.name)
+
+    @staticmethod
+    def _lock_assignments(assignments):
+        if not assignments:
+            return
+
+        frappe.db.sql(
+            """
+            select name
+            from `tabMSP Service Assignment`
+            where name in %(assignments)s
+            order by name
+            for update
+            """,
+            {"assignments": tuple(sorted(set(assignments)))},
+        )
 
     @staticmethod
     def revalidate(name=None):

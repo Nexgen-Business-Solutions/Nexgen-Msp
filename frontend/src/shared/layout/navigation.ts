@@ -31,7 +31,7 @@ export const CUSTOMER_OPERATOR_ROLE = 'MSP Customer Operator';
 
 /** The customer side, mirroring permissions.CUSTOMER_ROLES on the server. */
 export const CUSTOMER_ROLES = [CUSTOMER_MANAGER_ROLE, CUSTOMER_OPERATOR_ROLE];
-export const ADMIN_ROLES = ['MSP System Admin', 'System Manager', 'Administrator'];
+export const ADMIN_ROLES = ['MSP System Admin', 'Administrator'];
 export const INTERNAL_ROLES = [
   'MSP System Admin',
   'MSP Technician',

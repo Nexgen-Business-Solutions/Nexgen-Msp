@@ -64,11 +64,20 @@ def _restate_billing_status(report):
 	The save does the work: billing is derived on every save now, so the record only has to
 	pass through the door once to come out agreeing with itself.
 	"""
-	for row in frappe.get_all(DOCTYPE, fields=["name", "operational_status", "billing_status"]):
+	for index, row in enumerate(
+		frappe.get_all(
+			DOCTYPE,
+			fields=["name", "operational_status", "billing_status"],
+			order_by="creation asc",
+		),
+	):
 		derived = OPERATIONAL_TO_BILLING.get(row.operational_status)
 
 		if not derived or row.billing_status == derived:
 			continue
+
+		savepoint = f"normalize_assignment_billing_{index}"
+		frappe.db.savepoint(savepoint)
 
 		try:
 			doc = frappe.get_doc(DOCTYPE, row.name)
@@ -76,7 +85,7 @@ def _restate_billing_status(report):
 			doc.save(ignore_permissions=True)
 			report["billing_restated"] += 1
 		except Exception:
-			frappe.db.rollback()
+			frappe.db.rollback(save_point=savepoint)
 			report["billing_flagged"] += 1
 			frappe.log_error(
 				title="Billing status could not be restated",
@@ -94,7 +103,7 @@ def _rebuild_suspension_history(report):
 	ambiguity. Anything else is flagged: a suspension dated on a guess would take days off
 	an invoice that were really provided.
 	"""
-	for name in _suspended_without_a_log():
+	for index, name in enumerate(_suspended_without_a_log()):
 		suspended_on = _suspended_on_from_versions(name)
 
 		if not suspended_on:
@@ -109,6 +118,9 @@ def _rebuild_suspension_history(report):
 			)
 			continue
 
+		savepoint = f"normalize_assignment_suspension_{index}"
+		frappe.db.savepoint(savepoint)
+
 		try:
 			doc = frappe.get_doc(DOCTYPE, name)
 			doc.flags.via_service_lifecycle = True
@@ -122,7 +134,7 @@ def _rebuild_suspension_history(report):
 			doc.save(ignore_permissions=True)
 			report["suspensions_rebuilt"] += 1
 		except Exception:
-			frappe.db.rollback()
+			frappe.db.rollback(save_point=savepoint)
 			report["suspensions_flagged"] += 1
 			frappe.log_error(
 				title="Suspension could not be recorded",

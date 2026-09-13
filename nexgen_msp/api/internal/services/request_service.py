@@ -6,7 +6,7 @@ from nexgen_msp.utils import permissions
 from nexgen_msp.utils.assignments import OPEN_ASSIGNMENT_STATUSES
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
-ADMIN_ROLES = ("MSP System Admin", "System Manager", "Administrator")
+ADMIN_ROLES = ("MSP System Admin", "Administrator")
 
 DISPUTE_TYPE = "Billing Dispute"
 # everyone who works the floor: everything but the money

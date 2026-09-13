@@ -132,6 +132,23 @@ class TestWhoALineIsAbout(ExecutionKeyCase):
 
         self.assertEqual(len({row.subject_key for row in self.keys_of(name)}), 2)
 
+    def test_two_new_people_with_the_same_name_keep_their_builder_groups(self):
+        service = self.offering("SAME")
+
+        name = self.raise_request(
+            self.new_person_line(
+                service, full_name="Alex Martin", subject_key="new-user:request:person_one"
+            ),
+            self.new_person_line(
+                service, full_name="Alex Martin", subject_key="new-user:request:person_two"
+            ),
+        )
+
+        self.assertEqual(
+            {row.subject_key for row in self.keys_of(name)},
+            {"new-user:request:person_one", "new-user:request:person_two"},
+        )
+
     def test_a_device_line_is_still_about_the_person_it_was_raised_for(self):
         device = self.make_device(self.customer, hostname="LAPTOP-JD", holder=self.john)
         service = self.offering("SKG", scope="Device")

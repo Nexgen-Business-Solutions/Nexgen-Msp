@@ -9,6 +9,8 @@ has, or asking two contradictory things of the same service in one breath.
 The state a service is in is the Phase 2 record's own; this module only reads it.
 """
 
+import re
+
 import frappe
 from frappe import _
 
@@ -350,6 +352,17 @@ def subject_key(row):
 	their record, a person still to be created is the name the customer wrote.
 	"""
 	if row.get("is_new_user"):
+		provided = (row.get("subject_key") or "").strip()
+
+		# The builder is the only place that can know whether two otherwise identical future
+		# colleagues are one person with several services or two different people. Accept
+		# that grouping hint only in a narrow opaque form; existing users are always derived
+		# from their record below and can never be forged through this field.
+		if provided.startswith("new-user:request:") and re.fullmatch(
+			r"new-user:request:[a-z0-9_-]{4,64}", provided
+		):
+			return provided
+
 		name = _slug(row.get("new_user_full_name"))
 
 		return f"new-user:{name}" if name else None

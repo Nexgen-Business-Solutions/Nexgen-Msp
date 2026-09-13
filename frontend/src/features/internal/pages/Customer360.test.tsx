@@ -109,6 +109,7 @@ describe('one page, whichever side is reading it', () => {
 
     expect(screen.getByText(/commercial terms/i)).toBeInTheDocument();
     expect(screen.getByDisplayValue('TX-1')).toBeEnabled();
+    expect(screen.getByRole('button', { name: /contract and pricing/i })).toBeInTheDocument();
   });
 
   it('shows a customer their terms without letting them type', async () => {
@@ -126,6 +127,7 @@ describe('one page, whichever side is reading it', () => {
     expect(screen.getByText(/set by your service provider/i)).toBeInTheDocument();
     expect(screen.queryByDisplayValue('TX-1')).not.toBeInTheDocument();
     expect(screen.getByText('TX-1')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /contract and pricing/i })).not.toBeInTheDocument();
   });
 
   it('lets a customer correct where they are and who to call', async () => {

@@ -65,7 +65,10 @@ fixtures = [
 
 override_doctype_class = {"User": "nexgen_msp.overrides.user.MSPUser"}
 
-before_request = ["nexgen_msp.utils.gatekeeper.guard"]
+before_request = [
+	"nexgen_msp.utils.gatekeeper.require_two_factor",
+	"nexgen_msp.utils.gatekeeper.guard",
+]
 on_session_creation = ["nexgen_msp.utils.session_timeout.on_session_creation"]
 
 # Frappe's own username-and-password endpoint opens a session without ever
@@ -221,13 +224,19 @@ website_redirects = [
 # -----------
 # Permissions evaluated in scripted ways
 
-# permission_query_conditions = {
-# 	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
-# }
-#
-# has_permission = {
-# 	"Event": "frappe.desk.doctype.event.event.has_permission",
-# }
+permission_query_conditions = {
+	"MSP Client User": "nexgen_msp.utils.access.raw_msp_query_condition",
+	"MSP Managed Device": "nexgen_msp.utils.access.raw_msp_query_condition",
+	"MSP Service Request": "nexgen_msp.utils.access.raw_msp_query_condition",
+	"MSP Service Assignment": "nexgen_msp.utils.access.raw_msp_query_condition",
+}
+
+has_permission = {
+	"MSP Client User": "nexgen_msp.utils.access.has_raw_msp_permission",
+	"MSP Managed Device": "nexgen_msp.utils.access.has_raw_msp_permission",
+	"MSP Service Request": "nexgen_msp.utils.access.has_raw_msp_permission",
+	"MSP Service Assignment": "nexgen_msp.utils.access.has_raw_msp_permission",
+}
 
 # Document Events
 # ---------------
@@ -349,4 +358,3 @@ doc_events = {
 # ------------
 # List of apps whose translatable strings should be excluded from this app's translations.
 # ignore_translatable_strings_from = []
-

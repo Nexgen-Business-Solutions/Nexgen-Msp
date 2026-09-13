@@ -189,6 +189,9 @@ def resolve_customer(customer=None, user=None):
 
 # ------------------------------------------------------------------ what they may do
 def _commercial(user=None):
+    if is_customer_account(user):
+        return False
+
     return is_administrator(user) or COMMERCIAL_ROLE in roles(user)
 
 
@@ -294,3 +297,24 @@ def capabilities(user=None):
         "execute_requests": can_execute_requests(user),
         "manage_settings": can_manage_settings(user),
     }
+
+
+# --------------------------------------------------------- raw document access
+def has_raw_msp_permission(doc, ptype=None, user=None, debug=False):
+    """Keep MSP records behind the application's scoped service endpoints.
+
+    Customer accounts must not fall through to Frappe's generic document API. That API
+    exposes fields and mutations which the portal deliberately does not. A role added to a
+    customer account by mistake must not widen this answer; ``is_staff`` already applies
+    that rule. The builtin Administrator remains the explicit exception.
+
+    This hook may only deny a permission already granted by the DocType. Returning true for
+    staff therefore preserves the ordinary role checks rather than granting anything new.
+    """
+    user = _who(user)
+    return is_administrator(user) or is_staff(user)
+
+
+def raw_msp_query_condition(user=None):
+    """Hide every MSP row from generic list/report APIs for non-staff accounts."""
+    return None if has_raw_msp_permission(None, user=user) else "1 = 0"

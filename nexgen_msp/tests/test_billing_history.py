@@ -9,6 +9,7 @@ invoice, never the party billed, and a transfer in September rewrites nothing ab
 """
 
 import zlib
+from unittest.mock import patch
 
 import frappe
 from frappe.utils import add_days, flt, getdate
@@ -437,6 +438,33 @@ class TestSelectionIsADecision(BillingHistoryCase):
 
         self.assertEqual(
             frappe.db.get_value("MSP Billing Run", run, "prepared_by"), frappe.session.user
+        )
+
+    def test_a_concurrent_run_cannot_claim_the_same_assignment(self):
+        start, end = self.month()
+        lines_before = frappe.db.count(
+            "MSP Billing Run Line", {"service_assignment": self.mine}
+        )
+
+        # build_lines asks first; the explicit before/after checks then model another
+        # transaction becoming visible while this generator waits for the row lock.
+        with patch.object(
+            BillingService,
+            "_invoiced_in",
+            side_effect=[{}, {}, {self.mine: "BR-CONCURRENT"}],
+        ), patch.object(BillingService, "_lock_assignments"):
+            with self.assertRaises(ServiceRefused) as caught:
+                BillingService.generate(
+                    contract=self.contract,
+                    period_start=start,
+                    period_end=end,
+                    include=[self.mine],
+                )
+
+        self.assertIn("Another billing run", str(caught.exception))
+        self.assertEqual(
+            frappe.db.count("MSP Billing Run Line", {"service_assignment": self.mine}),
+            lines_before,
         )
 
 

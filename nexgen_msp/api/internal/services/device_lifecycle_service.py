@@ -24,7 +24,7 @@ from nexgen_msp.utils.errors import NotFoundError, ValidationError
 class DeviceLifecycleService:
     # ------------------------------------------------------------------ the acts
     @staticmethod
-    def assign(device=None, client_user=None, effective_date=None, note=None):
+    def assign(device=None, client_user=None, effective_date=None, note=None, _commit=True):
         """Give a machine on the shelf to somebody, from a stated day.
 
         Somebody who had it before may have it again: that is a new spell, not a mistake.
@@ -66,12 +66,13 @@ class DeviceLifecycleService:
             "Assigned",
             f"Given to {holder.full_name or client_user} on {frappe.utils.formatdate(on_date)}",
             note,
+            commit=_commit,
         )
 
         return DeviceLifecycleService._outcome(doc)
 
     @staticmethod
-    def transfer(device=None, client_user=None, effective_date=None, note=None):
+    def transfer(device=None, client_user=None, effective_date=None, note=None, _commit=True):
         """Pass a machine from the person who has it to somebody else, the same day.
 
         What the machine is billed for stays with the machine: a service follows the box,
@@ -108,6 +109,7 @@ class DeviceLifecycleService:
             f"Passed from {current.full_name or current.client_user} to "
             f"{holder.full_name or client_user} on {frappe.utils.formatdate(on_date)}",
             note,
+            commit=_commit,
         )
 
         return DeviceLifecycleService._outcome(doc)
@@ -343,11 +345,12 @@ class DeviceLifecycleService:
         return closed
 
     @staticmethod
-    def _write(doc, action, line, note):
+    def _write(doc, action, line, note, *, commit=True):
         remarks_util.add(doc, line + (f" — {note}" if (note or "").strip() else ""))
         doc.save()
         doc.add_comment("Comment", f"{action} by {frappe.session.user}.")
-        frappe.db.commit()
+        if commit:
+            frappe.db.commit()
 
     @staticmethod
     def _outcome(doc):

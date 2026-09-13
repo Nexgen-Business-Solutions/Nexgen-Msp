@@ -5,6 +5,7 @@ import FieldLabel from '@/shared/components/FieldLabel';
 import Select from '@/shared/components/Select';
 import type { CustomerAddress, CustomerDetails } from '@/lib/api/internal';
 import { useCustomerOptions, useSaveCustomerDetails } from '../hooks/useCustomerDetails';
+import { editableCustomerDetails } from './customerFields';
 
 type Props = {
   open: boolean;
@@ -38,7 +39,7 @@ const CustomerModal: React.FC<Props> = ({ open, customer, details, onClose }) =>
 
   useEffect(() => {
     if (!open) return;
-    setForm({ ...(details ?? {}) });
+    setForm(editableCustomerDetails(details ?? {}));
     setAddress({ ...EMPTY_ADDRESS, ...(details?.address ?? {}) });
     save.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -57,7 +58,7 @@ const CustomerModal: React.FC<Props> = ({ open, customer, details, onClose }) =>
     try {
       await save.mutateAsync({
         customer,
-        details: form,
+        details: editableCustomerDetails(form),
         address: wantsAddress ? address : undefined,
       });
       onClose();

@@ -46,6 +46,7 @@ describe('what the sidebar offers each role', () => {
 
   it('reserves the commercial screens for the administrator', () => {
     expect(isAdmin([ADMIN])).toBe(true);
+    expect(isAdmin(['System Manager'])).toBe(false);
     expect(isAdmin([TECH])).toBe(false);
     expect(isAdmin([MANAGER])).toBe(false);
     expect(isAdmin([OPERATOR])).toBe(false);

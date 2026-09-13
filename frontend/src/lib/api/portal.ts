@@ -157,6 +157,8 @@ export type NewRequestLine = {
   action?: string;
   target_scope: string;
   is_new_user?: number;
+  /** opaque builder group: keeps two future colleagues with the same name distinct */
+  subject_key?: string;
   client_user?: string;
   new_user_full_name?: string;
   new_user_department?: string;
@@ -283,6 +285,7 @@ export type PortalRequestLine = {
   line_status: string;
   rejection_reason: string | null;
   is_new_user: number;
+  subject_key?: string | null;
   new_user_full_name: string | null;
   new_user_department: string | null;
   is_new_device: number;
@@ -360,6 +363,8 @@ export type PortalUserService = {
   pending_request: string | null;
 };
 
+export type PortalServiceHistory = Omit<PortalUserService, 'allowed_actions' | 'pending_request'>;
+
 export type PortalUserDetail = {
   user: {
     name: string;
@@ -391,7 +396,7 @@ export type PortalUserDetail = {
     };
     holder_since: string | null;
     interfaces: { interface_type: string; mac_address: string }[];
-    services: { current: PortalUserService[]; available: [] };
+    services: { current: PortalUserService[]; history?: PortalServiceHistory[]; available: [] };
   }[];
   open_requests: {
     name: string;

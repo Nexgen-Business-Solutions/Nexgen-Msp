@@ -83,7 +83,7 @@ class MSPServiceRequest(Document):
 			if row.requested_quantity is not None and row.requested_quantity <= 0:
 				frappe.throw(_("Row {0}: quantity must be greater than zero.").format(row.idx))
 
-			target = row.get("new_user_full_name") if row.get("is_new_user") else row.get(
+			target = request_intents.subject_key(row) if row.get("is_new_user") else row.get(
 				SCOPE_FIELD.get(row.target_scope) or ""
 			)
 			key = (row.target_scope, target, row.requested_service, row.get("action"))
@@ -105,6 +105,7 @@ class MSPServiceRequest(Document):
 		"requested_service",
 		"source_service_assignment",
 		"is_new_user",
+		"subject_key",
 		"new_user_full_name",
 		"is_new_device",
 		"requested_quantity",

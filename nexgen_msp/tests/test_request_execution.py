@@ -7,6 +7,8 @@ orchestrates and records; it decides nothing of its own.
 The two things that must never happen are a job done twice and a job done out of turn.
 """
 
+from unittest.mock import patch
+
 import frappe
 
 from nexgen_msp.api.internal.services.request_execution_service import RequestExecutionService
@@ -467,6 +469,76 @@ class TestActingOnTheService(ExecutionCase):
 
 
 class TestWhenSomethingGetsInTheWay(ExecutionCase):
+    def test_failed_user_setup_rolls_back_the_person_and_request_links(self):
+        name = self.approved(self.new_person_line(self.offering("TX1")))
+        job = self.work(name, "User Setup")
+
+        with patch.object(
+            RequestExecutionService, "_prove_user_setup", side_effect=RuntimeError("proof failed")
+        ):
+            with self.assertRaises(RuntimeError):
+                self.tech_does(
+                    lambda: RequestExecutionService.execute_user_setup(
+                        work_order=job.name, username=f"tx1.{self.tag}"
+                    )
+                )
+
+        self.assertFalse(
+            frappe.db.exists(
+                "MSP Client User", {"customer": self.customer, "username": f"tx1.{self.tag}"}
+            )
+        )
+        self.assertEqual(
+            frappe.db.get_value(WORK_ORDER, job.name, "resulting_client_user"), None
+        )
+        self.assertEqual(
+            frappe.db.get_value("MSP Service Request Line", {"parent": name}, "is_new_user"), 1
+        )
+
+    def test_failed_device_provisioning_rolls_back_the_device_and_handover(self):
+        serial = f"TX2-{self.tag}"
+        name = self.approved(
+            self.line(self.offering("TX2", scope="Device"), is_new_device=1)
+        )
+        job = self.work(name, "Device Provisioning")
+
+        with patch.object(
+            RequestExecutionService, "_prove_device", side_effect=RuntimeError("proof failed")
+        ):
+            with self.assertRaises(RuntimeError):
+                self.tech_does(
+                    lambda: RequestExecutionService.execute_device_provisioning(
+                        work_order=job.name,
+                        mode="new",
+                        hostname="ROLLBACK-TX2",
+                        serial_number=serial,
+                    )
+                )
+
+        self.assertFalse(frappe.db.exists("MSP Managed Device", {"serial_number": serial}))
+        self.assertEqual(frappe.db.get_value(WORK_ORDER, job.name, "resulting_device"), None)
+        self.assertEqual(
+            frappe.db.get_value("MSP Service Request Line", {"parent": name}, "is_new_device"),
+            1,
+        )
+
+    def test_failed_service_orchestration_rolls_back_the_open_assignment(self):
+        name = self.approved(self.line(self.offering("TX3")))
+        job = self.work(name, "Service Action")
+
+        with patch.object(
+            RequestExecutionService, "_executed", side_effect=RuntimeError("follow-up failed")
+        ):
+            with self.assertRaises(RuntimeError):
+                self.tech_does(
+                    lambda: RequestExecutionService.execute_service_action(work_order=job.name)
+                )
+
+        self.assertFalse(
+            frappe.db.exists("MSP Service Assignment", {"source_request": name})
+        )
+        self.assertEqual(frappe.db.get_value(WORK_ORDER, job.name, "resulting_assignment"), None)
+
     def test_blocked_work_says_why_and_leaves_the_rest_alone(self):
         keep = self.offering("BL1")
         stuck = self.offering("BL2")

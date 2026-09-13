@@ -658,6 +658,7 @@ class RequestExecutionService:
 				source_request=doc.name,
 				# what the request agreed to stands, even if the catalogue has moved on
 				department_already_agreed=not department,
+				_commit=False,
 			)
 
 			RequestExecutionService._propagate_person(doc, order.subject_key, created["name"])
@@ -739,12 +740,18 @@ class RequestExecutionService:
 						)
 
 					DeviceLifecycleService.transfer(
-						device=device, client_user=person, effective_date=effective_date
+						device=device,
+						client_user=person,
+						effective_date=effective_date,
+						_commit=False,
 					)
 					action = "Transfer Device"
 				elif not holder:
 					DeviceLifecycleService.assign(
-						device=device, client_user=person, effective_date=effective_date
+						device=device,
+						client_user=person,
+						effective_date=effective_date,
+						_commit=False,
 					)
 
 			RequestExecutionService._propagate_device(doc, order.device_requirement_key, device)
@@ -809,6 +816,7 @@ class RequestExecutionService:
 					quantity=quantity or RequestExecutionService._asked_quantity(doc, order),
 					source_request=doc.name,
 					notes=notes,
+					_commit=False,
 				)
 			else:
 				assignment = order.source_service_assignment
@@ -824,6 +832,7 @@ class RequestExecutionService:
 						effective_date=on_date,
 						source_request=doc.name,
 						notes=notes,
+						_commit=False,
 					)
 				elif order.action == "Resume":
 					outcome = ServiceLifecycleService.resume(
@@ -831,6 +840,7 @@ class RequestExecutionService:
 						effective_date=on_date,
 						source_request=doc.name,
 						notes=notes,
+						_commit=False,
 					)
 				elif order.action == "Remove":
 					outcome = ServiceLifecycleService.end(
@@ -838,6 +848,7 @@ class RequestExecutionService:
 						effective_date=on_date,
 						source_request=doc.name,
 						notes=notes,
+						_commit=False,
 					)
 				else:
 					outcome = ServiceLifecycleService.change(
@@ -846,6 +857,7 @@ class RequestExecutionService:
 						quantity=quantity,
 						source_request=doc.name,
 						notes=notes,
+						_commit=False,
 					)
 
 			order.resulting_assignment = outcome.get("name")

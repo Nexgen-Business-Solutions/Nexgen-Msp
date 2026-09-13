@@ -649,6 +649,7 @@ class UserService:
         source_request=None,
         request_line=None,
         department_already_agreed=False,
+        _commit=True,
     ):
         """Create the person a request asked for, and tie the line back to them."""
         RequestService._guard_internal()
@@ -698,7 +699,7 @@ class UserService:
                 # the customer wrote this person once and asked for several things: every
                 # line describing them is now about the record just created, or the next
                 # line would offer to create them a second time
-                same_person = (row.new_user_full_name or "").strip().lower()
+                same_subject = row.subject_key
                 was_new = bool(row.is_new_user)
 
                 for line in request.lines:
@@ -707,7 +708,7 @@ class UserService:
                     if line.idx == row.idx or (
                         was_new
                         and line.is_new_user
-                        and (line.new_user_full_name or "").strip().lower() == same_person
+                        and line.subject_key == same_subject
                     ):
                         # no longer "new": the request must still save once they exist,
                         # and a line on an existing machine names it, not them
@@ -717,7 +718,8 @@ class UserService:
 
         reference = f" for {source_request}" if source_request else ""
         doc.add_comment("Comment", f"Created by {frappe.session.user}{reference}.")
-        frappe.db.commit()
+        if _commit:
+            frappe.db.commit()
 
         return {"name": doc.name, "full_name": doc.full_name, "customer": doc.customer}
 

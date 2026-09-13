@@ -46,21 +46,52 @@ class CustomerService:
 
     @staticmethod
     def options():
-        CustomerService._guard_admin()
+        commercial = access.can_edit_customer_commercial()
+
+        if not commercial:
+            # Customer 360 uses the same form for our team and for a company manager.
+            # A manager only needs the country list to maintain their own address; the
+            # commercial catalogues remain ours and are deliberately not disclosed here.
+            allowed = access.allowed_customers()
+            if not any(
+                access.can_edit_customer_profile(customer=customer) for customer in allowed
+            ):
+                access.require("edit_customer_profile")
 
         return {
-            "customer_types": select_options("Customer", "customer_type"),
-            "customer_groups": frappe.get_all("Customer Group", pluck="name", order_by="name"),
-            "territories": frappe.get_all("Territory", pluck="name", order_by="name"),
+            "customer_types": select_options("Customer", "customer_type") if commercial else [],
+            "customer_groups": (
+                frappe.get_all("Customer Group", pluck="name", order_by="name")
+                if commercial
+                else []
+            ),
+            "territories": (
+                frappe.get_all("Territory", pluck="name", order_by="name")
+                if commercial
+                else []
+            ),
             "countries": frappe.get_all("Country", pluck="name", order_by="name"),
-            "currencies": frappe.get_all(
-                "Currency", filters={"enabled": 1}, pluck="name", order_by="name"
+            "currencies": (
+                frappe.get_all(
+                    "Currency", filters={"enabled": 1}, pluck="name", order_by="name"
+                )
+                if commercial
+                else []
             ),
-            "price_lists": frappe.get_all(
-                "Price List", filters={"selling": 1, "enabled": 1}, pluck="name", order_by="name"
+            "price_lists": (
+                frappe.get_all(
+                    "Price List",
+                    filters={"selling": 1, "enabled": 1},
+                    pluck="name",
+                    order_by="name",
+                )
+                if commercial
+                else []
             ),
-            "payment_terms": frappe.get_all(
-                "Payment Terms Template", pluck="name", order_by="name"
+            "payment_terms": (
+                frappe.get_all("Payment Terms Template", pluck="name", order_by="name")
+                if commercial
+                else []
             ),
         }
 
@@ -446,14 +477,5 @@ class CustomerService:
                 doc.set(field, values[field] or None)
 
         doc.save(ignore_permissions=True)
-
-        # the invoice reads the address off the document, so refresh what is still editable
-        for invoice in frappe.get_all(
-            "Sales Invoice", filters={"customer": customer, "docstatus": 0}, pluck="name"
-        ):
-            invoice_doc = frappe.get_doc("Sales Invoice", invoice)
-            invoice_doc.customer_address = doc.name
-            invoice_doc.set_posting_time = 1
-            invoice_doc.save(ignore_permissions=True)
 
         return doc.name

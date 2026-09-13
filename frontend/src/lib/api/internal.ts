@@ -517,6 +517,8 @@ export type UserServiceEntry = {
   pending_request: string | null;
 };
 
+export type ServiceHistoryEntry = Omit<UserServiceEntry, 'allowed_actions' | 'pending_request'>;
+
 export type ServiceOffer = {
   service_item: string;
   item_name: string;
@@ -535,7 +537,11 @@ export type HeldDevice = {
   };
   holder_since: string | null;
   interfaces: DeviceInterface[];
-  services: { current: UserServiceEntry[]; available: ServiceOffer[] };
+  services: {
+    current: UserServiceEntry[];
+    history?: ServiceHistoryEntry[];
+    available: ServiceOffer[];
+  };
 };
 
 export type AttentionSignal = {

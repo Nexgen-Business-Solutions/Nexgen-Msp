@@ -57,7 +57,11 @@ const detail = (overrides: Partial<PortalUserDetailData> = {}): PortalUserDetail
       },
       holder_since: '2026-09-11',
       interfaces: [],
-      services: { current: [service({ name: 'SA-DEV', service_name: 'Sophos' })], available: [] },
+      services: {
+        current: [service({ name: 'SA-DEV', service_name: 'Sophos' })],
+        history: [],
+        available: [],
+      },
     },
   ],
   open_requests: [],
@@ -106,6 +110,29 @@ describe('the customer reads their own person the same way we do', () => {
 
     expect(screen.getByText(/Serial ABC123/)).toBeInTheDocument();
     expect(screen.getByText(/Held since 2026-09-11/)).toBeInTheDocument();
+  });
+
+  it('keeps the machine service history visible to its new holder', async () => {
+    const data = detail();
+    data.devices[0].services.history = [
+      {
+        name: 'SA-OLD',
+        service_item: 'LEGACY-AV',
+        service_name: 'Legacy antivirus',
+        operational_status: 'Ended',
+        quantity: 1,
+        effective_start_date: '2025-01-10',
+        effective_end_date: '2026-01-10',
+        source_request: 'REQ-OLD',
+      },
+    ];
+
+    await renderPage(data);
+
+    const machine = screen.getByText('LAPTOP-JDOE').closest('.rounded-xl') as HTMLElement;
+    expect(within(machine).getByText('Service history')).toBeInTheDocument();
+    expect(within(machine).getByText('Legacy antivirus')).toBeInTheDocument();
+    expect(within(machine).getByText('2025-01-10 to 2026-01-10')).toBeInTheDocument();
   });
 
   it('offers only to ask, never to administer the asset', async () => {

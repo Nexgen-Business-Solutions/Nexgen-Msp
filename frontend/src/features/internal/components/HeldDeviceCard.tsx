@@ -110,6 +110,29 @@ const HeldDeviceCard: React.FC<Props> = ({
         onApply={onApply}
         onOpenRequest={onOpenRequest}
       />
+      {(slot.services.history?.length ?? 0) > 0 && (
+        <div className="mt-3 border-t border-slate-100 pt-3">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+            Service history
+          </p>
+          <ul className="space-y-2">
+            {slot.services.history?.map((service) => (
+              <li
+                key={service.name}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2"
+              >
+                <div>
+                  <p className="text-sm font-medium text-slate-700">{service.service_name}</p>
+                  <p className="text-xs text-slate-500">
+                    {fmtDate(service.effective_start_date)} to {fmtDate(service.effective_end_date)}
+                  </p>
+                </div>
+                <StatusBadge value={service.operational_status} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   </section>
 );

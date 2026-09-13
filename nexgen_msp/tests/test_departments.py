@@ -32,6 +32,35 @@ class TestDepartmentCatalogue(MSPTestCase):
         self.track("MSP Department", created.name)
         return created.name
 
+    def request_line(self, customer, service, department, status="Draft"):
+        doc = frappe.get_doc(
+            {
+                "doctype": "MSP Service Request",
+                "customer": customer,
+                "request_type": "Add",
+                "priority": "Medium",
+                "status": "Draft",
+                "source": "Internal",
+                "requester": frappe.session.user,
+                "lines": [
+                    {
+                        "request_action": self.action(),
+                        "action": "Add",
+                        "target_scope": "User",
+                        "is_new_user": 1,
+                        "new_user_full_name": "Future colleague",
+                        "new_user_department": department,
+                        "requested_service": service,
+                    }
+                ],
+            }
+        ).insert(ignore_permissions=True)
+        if status != "Draft":
+            frappe.db.set_value("MSP Service Request", doc.name, "status", status)
+        frappe.db.commit()
+        self.track("MSP Service Request", doc.name)
+        return doc.lines[0].name
+
     # ------------------------------------------------------------------ uniqueness
     def test_case_and_whitespace_variants_collide_on_create(self):
         name = self.make_dept("Accounting")
@@ -85,6 +114,48 @@ class TestDepartmentCatalogue(MSPTestCase):
         self.assertEqual(frappe.db.get_value("MSP Client User", person, "department"), renamed)
         self.assertEqual(frappe.db.get_value("MSP Approver", {"user": decider}, "department"), renamed)
         self.assertFalse(frappe.db.exists("MSP Department", name))
+
+    def test_rename_updates_open_requests_but_preserves_completed_history(self):
+        name = self.make_dept("Delivery")
+        customer = self.make_customer(self.tag)
+        service = self.make_service(f"DEPR{self.tag}", scope="User")
+        open_line = self.request_line(customer, service, name)
+        completed_line = self.request_line(customer, service, name, status="Completed")
+        renamed = f"{name} Renamed"
+
+        DepartmentService.update_department(name=name, department_name=renamed)
+        self.track("MSP Department", renamed)
+
+        self.assertEqual(
+            frappe.db.get_value(
+                "MSP Service Request Line", open_line, "new_user_department"
+            ),
+            renamed,
+        )
+        self.assertEqual(
+            frappe.db.get_value(
+                "MSP Service Request Line", completed_line, "new_user_department"
+            ),
+            name,
+        )
+
+    def test_delete_ignores_completed_request_history(self):
+        name = self.make_dept("Former Division")
+        customer = self.make_customer(self.tag)
+        service = self.make_service(f"DEPDEL{self.tag}", scope="User")
+        completed_line = self.request_line(
+            customer, service, name, status="Completed"
+        )
+
+        DepartmentService.delete_department(name=name)
+
+        self.assertFalse(frappe.db.exists("MSP Department", name))
+        self.assertEqual(
+            frappe.db.get_value(
+                "MSP Service Request Line", completed_line, "new_user_department"
+            ),
+            name,
+        )
 
     def test_standard_delete_is_refused_when_department_is_used(self):
         name = self.make_dept("Protected")
@@ -264,6 +335,63 @@ class TestDepartmentMigration(MSPTestCase):
         if case == "lower":
             return base.lower()
         return base
+
+    def request_line(self, department, status="Draft"):
+        service = self.make_service(f"DEPMIG{self.tag}", scope="User")
+        doc = frappe.get_doc(
+            {
+                "doctype": "MSP Service Request",
+                "customer": self.customer,
+                "request_type": "Add",
+                "priority": "Medium",
+                "status": "Draft",
+                "source": "Internal",
+                "requester": frappe.session.user,
+                "lines": [
+                    {
+                        "request_action": self.action(),
+                        "action": "Add",
+                        "target_scope": "User",
+                        "is_new_user": 1,
+                        "new_user_full_name": "Future colleague",
+                        "new_user_department": department,
+                        "requested_service": service,
+                    }
+                ],
+            }
+        ).insert(ignore_permissions=True)
+        if status != "Draft":
+            frappe.db.set_value("MSP Service Request", doc.name, "status", status)
+        frappe.db.commit()
+        self.track("MSP Service Request", doc.name)
+        return doc.lines[0].name
+
+    def test_open_request_lines_join_the_catalogue_but_completed_ones_stay_frozen(self):
+        canonical_value = self.variant("Field Services")
+        open_value = self.variant("Field Services", "lower")
+        completed_value = self.variant("Field Services", "upper")
+        # The existing spelling wins deterministically over the single draft variant.
+        for label in ("Field One", "Field Two"):
+            person = self.make_person(self.customer, label)
+            self.stamp("MSP Client User", person, canonical_value)
+        open_line = self.request_line(open_value)
+        completed_line = self.request_line(completed_value, status="Completed")
+
+        report = build_department_catalogue.execute()
+        rewritten = frappe.db.get_value(
+            "MSP Service Request Line", open_line, "new_user_department"
+        )
+
+        self.assertEqual(report["request_lines_rewritten"], 1)
+        self.assertEqual(rewritten, canonical_value)
+        self.assertTrue(frappe.db.exists("MSP Department", rewritten))
+        self.assertEqual(
+            frappe.db.get_value(
+                "MSP Service Request Line", completed_line, "new_user_department"
+            ),
+            completed_value,
+        )
+        self.track("MSP Department", rewritten)
 
     def test_case_variants_collapse_into_one_canonical_department(self):
         alice = self.make_person(self.customer, "Alice")

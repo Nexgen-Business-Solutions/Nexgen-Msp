@@ -93,6 +93,20 @@ class ProfileCase(MSPTestCase):
 
 
 class TestWhatACompanyMayCorrectAboutItself(ProfileCase):
+    def test_the_country_picker_loads_without_disclosing_commercial_catalogues(self):
+        options = self.as_manager(CustomerService.options)
+
+        self.assertTrue(options["countries"])
+        for key in (
+            "customer_types",
+            "customer_groups",
+            "territories",
+            "currencies",
+            "price_lists",
+            "payment_terms",
+        ):
+            self.assertEqual(options[key], [], key)
+
     def test_they_may_set_their_website(self):
         self.as_manager(
             lambda: CustomerService.save_customer(

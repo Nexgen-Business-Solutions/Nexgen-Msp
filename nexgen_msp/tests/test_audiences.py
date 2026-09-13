@@ -65,11 +65,13 @@ class TestWhatEachAudienceReaches(MSPTestCase):
         self.assert_reach(lambda: UserService.list_users(page_length=1), staff, "users")
         self.assert_reach(lambda: DeviceService.list_devices(page_length=1), staff, "devices")
 
-    def test_the_commercial_screens_answer_administrators_only(self):
+    def test_the_commercial_screens_respect_each_capability(self):
         self.assert_reach(
             lambda: TeamService.list_members(), {ADMIN}, "accounts"
         )
-        self.assert_reach(lambda: CustomerService.options(), {ADMIN}, "customers")
+        self.assert_reach(
+            lambda: CustomerService.options(), {ADMIN, MANAGER}, "customer form options"
+        )
         self.assert_reach(
             lambda: BillingService.list_runs(page_length=1), {ADMIN}, "billing runs"
         )

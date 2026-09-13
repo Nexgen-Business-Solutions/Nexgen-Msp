@@ -261,7 +261,9 @@ export default function CustomersList() {
                                 label: 'Contract and pricing',
                                 icon: Eye,
                                 onClick: () =>
-                                  navigate(`/msp/customers/${encodeURIComponent(row.customer)}`),
+                                  navigate(
+                                    `/msp/customers/${encodeURIComponent(row.customer)}/contract`
+                                  ),
                               },
                               {
                                 label: 'Their billing runs',

@@ -481,6 +481,20 @@ describe('picking up what was put aside', () => {
       await screen.findByText(/no longer available because Adobe Acrobat is now active/i)
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /remove it/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+
+    expect(await screen.findByRole('button', { name: /submit request/i })).toBeDisabled();
+  });
+
+  it('shows a load failure instead of spinning forever', async () => {
+    vi.mocked(portal.getRequest).mockRejectedValue(new Error('The saved request could not be read.'));
+
+    await renderPageWithParams('?draft=SR-DRAFT-1');
+
+    expect(await screen.findByText('The saved request could not be read.')).toBeInTheDocument();
+    expect(screen.queryByText(/reading what was put aside/i)).not.toBeInTheDocument();
   });
 });
 

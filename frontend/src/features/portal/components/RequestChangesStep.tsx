@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { AlertCircle, Laptop, Wrench } from 'lucide-react';
 import type { RequestAction } from '@/lib/api/portal';
 import { useNewUserRequestContext, useRequestSubjectContext } from '../hooks/usePortal';
@@ -35,19 +35,37 @@ const ExistingSubjectChanges: React.FC<{ subject: RequestSubject; builder: Build
 }) => {
   const context = useRequestSubjectContext(subject.clientUser);
 
+  const data = context.data;
+  const subjectIntentKeys = builder.intentsOf(subject.key).map((intent) => intent.key);
+  const stale = data
+    ? builder
+        .intentsOf(subject.key)
+        .map((intent) => ({ intent, reason: staleReason(intent, data) }))
+        .filter((row) => row.reason)
+    : [];
+  const subjectIntentSignature = subjectIntentKeys.join('|');
+  const staleKeys = stale.map(({ intent }) => intent.key);
+  const staleSignature = staleKeys.join('|');
+
+  useEffect(() => {
+    if (!data) return;
+    builder.reportStaleIntents(subjectIntentKeys, staleKeys);
+    // The signatures make this effect react to the contents, without re-running because
+    // the arrays were rebuilt while rendering.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [builder.reportStaleIntents, data, subjectIntentSignature, staleSignature]);
+
   if (context.isLoading) {
     return <p className="py-8 text-center text-sm text-slate-500">Loading…</p>;
   }
 
-  if (context.error || !context.data) {
+  if (context.error || !data) {
     return (
       <p className="py-8 text-center text-sm text-red-600">
         {(context.error as Error)?.message || 'This person could not be read.'}
       </p>
     );
   }
-
-  const data = context.data;
 
   const act = (
     action: RequestAction,
@@ -69,11 +87,6 @@ const ExistingSubjectChanges: React.FC<{ subject: RequestSubject; builder: Build
 
   // an intention written earlier may no longer make sense: somebody else may have moved
   // the very service it was about while the draft sat there
-  const stale = builder
-    .intentsOf(subject.key)
-    .map((intent) => ({ intent, reason: staleReason(intent, data) }))
-    .filter((row) => row.reason);
-
   return (
     <div className="space-y-4">
       {data.target_reason && <Note>{data.target_reason}</Note>}

@@ -20,6 +20,8 @@ from collections import defaultdict
 
 import frappe
 
+from nexgen_msp.api.internal.services.request_service import CLOSED_STATUSES
+
 FIELD = "department"
 SOURCES = ("MSP Client User", "MSP Approver")
 
@@ -42,6 +44,7 @@ def _migrate():
 		"reused": 0,
 		"client_users_rewritten": 0,
 		"approvers_rewritten": 0,
+		"request_lines_rewritten": 0,
 		"alias_groups_flagged": 0,
 	}
 
@@ -66,6 +69,7 @@ def _migrate():
 
 	report["client_users_rewritten"] = _rewrite("MSP Client User", canonical_by_key)
 	report["approvers_rewritten"] = _rewrite("MSP Approver", canonical_by_key)
+	report["request_lines_rewritten"] = _rewrite_open_request_lines(canonical_by_key)
 
 	aliases = _flag_potential_aliases(list(canonical_by_key.values()))
 	report["alias_groups_flagged"] = len(aliases)
@@ -75,6 +79,7 @@ def _migrate():
 	print(f"  {report['created']} newly created, {report['reused']} already on file and reused")
 	print(f"  {report['client_users_rewritten']} MSP Client User department value(s) rewritten")
 	print(f"  {report['approvers_rewritten']} MSP Approver department value(s) rewritten")
+	print(f"  {report['request_lines_rewritten']} open request department value(s) rewritten")
 	print(f"  {report['alias_groups_flagged']} potential alias group(s) flagged for manual review")
 
 	return report
@@ -100,6 +105,24 @@ def _collect_raw_values():
 			as_dict=True,
 		):
 			counts[row.value] += row.cnt
+
+	# An open request still describes work to be carried out and must use the same
+	# canonical label as the user it will create. Closed requests are historical
+	# records, so their wording is intentionally left untouched.
+	for row in frappe.db.sql(
+		"""
+		select line.new_user_department as value, count(*) as cnt
+		from `tabMSP Service Request Line` line
+		join `tabMSP Service Request` request on request.name = line.parent
+		where line.new_user_department is not null
+		  and trim(line.new_user_department) != ''
+		  and request.status not in %(closed)s
+		group by line.new_user_department
+		""",
+		{"closed": CLOSED_STATUSES},
+		as_dict=True,
+	):
+		counts[row.value] += row.cnt
 
 	return counts
 
@@ -165,6 +188,38 @@ def _rewrite(doctype, canonical_by_key):
 			continue
 
 		frappe.db.set_value(doctype, row.name, FIELD, canonical, update_modified=False)
+		rewritten += 1
+
+	return rewritten
+
+
+def _rewrite_open_request_lines(canonical_by_key):
+	rewritten = 0
+
+	for row in frappe.db.sql(
+		"""
+		select line.name, line.new_user_department as value
+		from `tabMSP Service Request Line` line
+		join `tabMSP Service Request` request on request.name = line.parent
+		where line.new_user_department is not null
+		  and trim(line.new_user_department) != ''
+		  and request.status not in %(closed)s
+		""",
+		{"closed": CLOSED_STATUSES},
+		as_dict=True,
+	):
+		canonical = canonical_by_key.get(_normalized(row.value))
+
+		if not canonical or canonical == row.value:
+			continue
+
+		frappe.db.set_value(
+			"MSP Service Request Line",
+			row.name,
+			"new_user_department",
+			canonical,
+			update_modified=False,
+		)
 		rewritten += 1
 
 	return rewritten

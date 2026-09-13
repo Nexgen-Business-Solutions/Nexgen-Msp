@@ -129,6 +129,26 @@ class TestServiceAssignmentMigration(MSPTestCase):
         self.assertEqual(report["billing_restated"], 0)
         self.assertEqual(self.state(doc.name), before)
 
+    def test_one_invalid_row_does_not_undo_an_earlier_correction(self):
+        good_service = self.make_service("MIGSAVEGOOD", scope="User")
+        bad_service = self.make_service("MIGSAVEBAD", scope="User")
+        good = self.assignment(good_service, start=self.days_ago(30))
+        bad = self.assignment(bad_service, start=self.days_ago(30))
+        self.write(good.name, billing_status="On Hold")
+        self.write(bad.name, billing_status="On Hold", quantity=0)
+
+        report = normalize_service_assignments.execute()
+
+        self.assertEqual(
+            frappe.db.get_value("MSP Service Assignment", good.name, "billing_status"),
+            "Billable",
+        )
+        self.assertEqual(
+            frappe.db.get_value("MSP Service Assignment", bad.name, "billing_status"),
+            "On Hold",
+        )
+        self.assertGreaterEqual(report["billing_flagged"], 1)
+
     # ------------------------------------------------------------- what it only reports
     def test_the_same_service_open_twice_on_one_target_is_reported_and_not_touched(self):
         service = self.make_service("MIGDUP", scope="User")

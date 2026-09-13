@@ -723,8 +723,6 @@ class PortalService:
             raise NotFoundError(f"Service Request {name} does not exist.", "NOT_FOUND")
 
         doc = frappe.get_doc("MSP Service Request", name)
-        doc.check_permission("read")
-
         PortalService._resolve_customer(doc.customer)
 
         if doc.status == "Draft" and doc.requester != frappe.session.user:
@@ -735,7 +733,8 @@ class PortalService:
             select
                 srl.idx, srl.action, srl.line_status, srl.rejection_reason,
                 -- the raw links as well as their names: a draft is reopened from these
-                srl.request_action, srl.target_scope, srl.client_user, srl.managed_device,
+                srl.request_action, srl.target_scope, srl.subject_key,
+                srl.client_user, srl.managed_device,
                 srl.source_service_assignment, srl.requested_for_user,
                 srl.requested_service, srl.needs_portal_access,
                 srl.is_new_user, srl.new_user_full_name, srl.new_user_department,
@@ -1027,6 +1026,7 @@ class PortalService:
                 "action": line.get("action") or request_type or "Add",
                 "target_scope": line.get("target_scope") or "User",
                 "is_new_user": 1 if line.get("is_new_user") else 0,
+                "subject_key": line.get("subject_key") if line.get("is_new_user") else None,
                 "client_user": line.get("client_user"),
                 "requested_for_user": line.get("requested_for_user"),
                 "source_service_assignment": line.get("source_service_assignment"),
@@ -1152,7 +1152,9 @@ class PortalService:
         if name:
             doc.save(ignore_permissions=True)
         else:
-            doc.insert()
+            # the scoped service above is the permission boundary; generic document access
+            # is deliberately closed to customer accounts
+            doc.insert(ignore_permissions=True)
 
         if approved_by:
             # raised by someone who may approve their own: the accord is theirs, recorded
@@ -1679,7 +1681,10 @@ class PortalService:
         if search:
             or_filters = [[field, "like", f"%{search}%"] for field in search_fields]
 
-        rows = frappe.get_list(
+        # Permission and customer scope were already proved by ``_base_filters`` before
+        # reaching this helper. Customer accounts deliberately have no generic DocType
+        # access, so this service performs its own constrained query explicitly.
+        rows = frappe.get_all(
             doctype,
             filters=filters,
             or_filters=or_filters,
@@ -1689,7 +1694,7 @@ class PortalService:
             order_by="modified desc",
         )
 
-        counted = frappe.get_list(
+        counted = frappe.get_all(
             doctype,
             filters=filters,
             or_filters=or_filters,
@@ -1777,19 +1782,23 @@ class PortalService:
             """
             select
                 brl.service_item,
-                coalesce(item.item_name, brl.service_item) as service_name,
-                coalesce(cu.full_name, dcu.full_name) as user_name,
-                coalesce(cu.department, dcu.department) as department,
-                device.hostname,
-                device.device_type,
+                coalesce(brl.service_name_snapshot, item.item_name, brl.service_item)
+                    as service_name,
+                coalesce(brl.user_name_snapshot, legacy_user.full_name) as user_name,
+                coalesce(brl.department_snapshot, legacy_user.department) as department,
+                coalesce(brl.hostname_snapshot, legacy_device.hostname) as hostname,
+                coalesce(brl.serial_snapshot, legacy_device.serial_number) as serial_number,
+                coalesce(brl.device_type_snapshot, legacy_device.device_type) as device_type,
+                brl.holder_context_snapshot as holder_context,
                 brl.quantity, brl.billable_days, brl.period_days, brl.billable_months,
                 brl.unit_rate, brl.amount, brl.proration_method,
                 sa.effective_start_date, sa.effective_end_date
             from `tabMSP Billing Run Line` brl
             left join `tabItem` item on item.name = brl.service_item
-            left join `tabMSP Client User` cu on cu.name = brl.client_user
-            left join `tabMSP Managed Device` device on device.name = brl.managed_device
-            left join `tabMSP Client User` dcu on dcu.name = device.assigned_client_user
+            -- These joins are only fallbacks for billing lines created before snapshots.
+            left join `tabMSP Client User` legacy_user on legacy_user.name = brl.client_user
+            left join `tabMSP Managed Device` legacy_device
+                on legacy_device.name = brl.managed_device
             left join `tabMSP Service Assignment` sa on sa.name = brl.service_assignment
             where brl.parent = %(parent)s
               and (brl.exception_code is null or brl.exception_code = '')
@@ -1817,7 +1826,9 @@ class PortalService:
                     "user_name": row.user_name,
                     "department": row.department,
                     "hostname": row.hostname,
+                    "serial_number": row.serial_number,
                     "device_type": row.device_type,
+                    "holder_context": row.holder_context,
                     "started_on": row.effective_start_date,
                     "stopped_on": row.effective_end_date,
                     "state": "Ended" if row.effective_end_date else "Active",

@@ -178,6 +178,18 @@ export default function Customer360() {
             <Stat label="Contracts" value={data.counts.contracts} icon={FileText} />
           </div>
         </div>
+        {(data.can.manage_contracts || data.can.manage_pricing) && (
+          <button
+            type="button"
+            onClick={() =>
+              navigate(`/msp/customers/${encodeURIComponent(data.name)}/contract`)
+            }
+            className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+          >
+            <FileText size={15} />
+            Contract and pricing
+          </button>
+        )}
       </section>
 
       <div className="grid gap-4 lg:grid-cols-2">

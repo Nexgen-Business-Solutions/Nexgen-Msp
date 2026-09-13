@@ -347,20 +347,125 @@ class TestARunKeepsSayingWhatItSaid(RegressionCase):
         printed = frappe.db.get_value("Sales Invoice", invoice.name, "address_display")
         stamped = frappe.db.get_value("Sales Invoice", invoice.name, "modified")
 
-        moved = frappe.get_doc("Address", self.address.name)
-        moved.address_line1 = "40 New Street"
-        moved.save(ignore_permissions=True)
         CustomerService.save_customer(
-            customer=self.customer, details={"website": "https://moved.example"}
+            customer=self.customer,
+            details={"website": "https://moved.example"},
+            address={
+                "name": self.address.name,
+                "address_line1": "40 New Street",
+                "city": "Douala",
+                "country": self.address.country,
+            },
         )
         frappe.db.commit()
 
+        self.assertEqual(
+            frappe.db.get_value("Address", self.address.name, "address_line1"),
+            "40 New Street",
+            "the test must exercise CustomerService._save_address",
+        )
         self.assertEqual(
             frappe.db.get_value("Sales Invoice", invoice.name, "address_display"), printed
         )
         self.assertEqual(
             frappe.db.get_value("Sales Invoice", invoice.name, "modified"), stamped
         )
+
+    def test_the_portal_reads_frozen_line_identity_instead_of_current_records(self):
+        name = self.draw_a_run()
+        line = frappe.db.get_value(
+            "MSP Billing Run Line", {"parent": name}, "name"
+        )
+        device = self.make_device(
+            self.customer, "CURRENT", holder=self.john, serial=f"ZZTEST-CURRENT-{self.tag}"
+        )
+
+        frappe.db.set_value(
+            "MSP Billing Run Line",
+            line,
+            {
+                "service_name_snapshot": "Frozen service",
+                "user_name_snapshot": "Frozen user",
+                "department_snapshot": "Frozen department",
+                "managed_device": device,
+                "hostname_snapshot": "FROZEN-HOST",
+                "serial_snapshot": "FROZEN-SERIAL",
+                "device_type_snapshot": "Laptop",
+                "holder_context_snapshot": "Frozen holder context",
+            },
+            update_modified=False,
+        )
+        frappe.db.set_value(
+            "MSP Client User",
+            self.john,
+            {"full_name": "Current user", "department": None},
+            update_modified=False,
+        )
+        frappe.db.set_value(
+            "MSP Managed Device",
+            device,
+            {"hostname": "CURRENT-HOST", "serial_number": f"ZZTEST-CHANGED-{self.tag}"},
+            update_modified=False,
+        )
+        frappe.db.set_value("Item", self.service, "item_name", "Current service")
+        frappe.db.set_value("MSP Billing Run", name, "status", "Invoiced")
+        frappe.db.commit()
+
+        detail = self.as_manager(lambda: PortalService.get_billing_detail(name))
+        service = detail["services"][0]
+        portal_line = service["lines"][0]
+
+        self.assertEqual(service["service_name"], "Frozen service")
+        self.assertEqual(portal_line["user_name"], "Frozen user")
+        self.assertEqual(portal_line["department"], "Frozen department")
+        self.assertEqual(portal_line["hostname"], "FROZEN-HOST")
+        self.assertEqual(portal_line["serial_number"], "FROZEN-SERIAL")
+        self.assertEqual(portal_line["device_type"], "Laptop")
+        self.assertEqual(portal_line["holder_context"], "Frozen holder context")
+
+    def test_the_portal_falls_back_to_live_records_for_legacy_lines(self):
+        name = self.draw_a_run()
+        line = frappe.db.get_value(
+            "MSP Billing Run Line", {"parent": name}, "name"
+        )
+        device = self.make_device(
+            self.customer, "LEGACY", holder=self.john, serial=f"ZZTEST-LEGACY-{self.tag}"
+        )
+
+        frappe.db.set_value(
+            "MSP Billing Run Line",
+            line,
+            {
+                "service_name_snapshot": None,
+                "user_name_snapshot": None,
+                "department_snapshot": None,
+                "managed_device": device,
+                "hostname_snapshot": None,
+                "serial_snapshot": None,
+                "device_type_snapshot": None,
+            },
+            update_modified=False,
+        )
+        frappe.db.set_value(
+            "MSP Client User",
+            self.john,
+            {"full_name": "Legacy user", "department": "Legacy department"},
+            update_modified=False,
+        )
+        frappe.db.set_value("Item", self.service, "item_name", "Legacy service")
+        frappe.db.set_value("MSP Billing Run", name, "status", "Invoiced")
+        frappe.db.commit()
+
+        detail = self.as_manager(lambda: PortalService.get_billing_detail(name))
+        service = detail["services"][0]
+        portal_line = service["lines"][0]
+
+        self.assertEqual(service["service_name"], "Legacy service")
+        self.assertEqual(portal_line["user_name"], "Legacy user")
+        self.assertEqual(portal_line["department"], "Legacy department")
+        self.assertEqual(portal_line["hostname"], "ZZTEST-LEGACY")
+        self.assertEqual(portal_line["serial_number"], f"ZZTEST-LEGACY-{self.tag}")
+        self.assertEqual(portal_line["device_type"], "PC")
 
     def test_a_run_drawn_before_the_freeze_reads_the_records_as_they_stand(self):
         """Nothing was recorded for it, and a blank invoice header helps nobody."""

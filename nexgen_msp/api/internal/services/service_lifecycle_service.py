@@ -147,7 +147,9 @@ class ServiceLifecycleService:
         return ServiceLifecycleService._outcome(doc)
 
     @staticmethod
-    def suspend(assignment=None, effective_date=None, source_request=None, notes=None):
+    def suspend(
+        assignment=None, effective_date=None, source_request=None, notes=None, _commit=True
+    ):
         """Pause a running service from a stated day, and write the days down.
 
         The pause is the only record of what was not provided, so it is kept beside the
@@ -186,12 +188,15 @@ class ServiceLifecycleService:
             f"Paused from {frappe.utils.formatdate(on_date)}"
             + (f" in reference to {request}" if request else ""),
             notes,
+            commit=_commit,
         )
 
         return ServiceLifecycleService._outcome(doc)
 
     @staticmethod
-    def resume(assignment=None, effective_date=None, source_request=None, notes=None):
+    def resume(
+        assignment=None, effective_date=None, source_request=None, notes=None, _commit=True
+    ):
         """Start a paused service again, closing the pause on the day it becomes billable."""
         RequestService._guard_internal()
 
@@ -234,6 +239,7 @@ class ServiceLifecycleService:
             f"Billable again from {frappe.utils.formatdate(on_date)}"
             + (f" in reference to {request}" if request else ""),
             notes,
+            commit=_commit,
         )
 
         return ServiceLifecycleService._outcome(doc)
@@ -351,6 +357,7 @@ class ServiceLifecycleService:
         service_item=None,
         notes=None,
         source_request=None,
+        _commit=True,
     ):
         """Move a service onto new terms from a stated day, without touching the old period.
 
@@ -412,7 +419,8 @@ class ServiceLifecycleService:
             frappe.db.rollback(save_point=savepoint)
             raise
 
-        frappe.db.commit()
+        if _commit:
+            frappe.db.commit()
 
         outcome["replaced"] = doc.name
 
@@ -453,6 +461,11 @@ class ServiceLifecycleService:
             customer, item.name, on_date, agreed_rate, rate_override_reason
         )
 
+        # The duplicate check and insert must be one serial operation. Without this lock,
+        # two technicians can both observe no open assignment and create the same service
+        # for the same target. Locking the owning target also works before the first
+        # assignment row exists, when there is nothing in the assignment table to lock.
+        ServiceLifecycleService._lock_target(scope, target.name)
         running = ServiceLifecycleService._open_assignment(customer, item.name, scope, target.name)
 
         if running:
@@ -492,6 +505,11 @@ class ServiceLifecycleService:
         )
 
         return ServiceLifecycleService._outcome(doc)
+
+    @staticmethod
+    def _lock_target(scope, target):
+        doctype = "MSP Client User" if scope == "User" else "MSP Managed Device"
+        frappe.db.sql(f"select name from `tab{doctype}` where name = %s for update", target)
 
     @staticmethod
     def _assignment(assignment):
