@@ -245,18 +245,7 @@ export default function UsersList() {
                       {row.department || 'N/A'}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <StatusBadge value={row.lifecycle_status} />
-                        {Boolean(row.needs_attention) && (
-                          <span
-                            title="Something on this person needs looking at"
-                            className="inline-flex items-center gap-1 rounded-lg bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700"
-                          >
-                            <ShieldAlert size={12} />
-                            Attention
-                          </span>
-                        )}
-                      </div>
+                      <StatusBadge value={row.lifecycle_status} />
                     </td>
                     <td className="max-w-[14rem] px-4 py-3">
                       {row.hostnames ? (

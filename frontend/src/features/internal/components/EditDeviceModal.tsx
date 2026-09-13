@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, ArrowUpRight, Pencil, Plus, Trash2 } from 'lucide-react';
+import { AlertCircle, ArrowUpRight, Pencil } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
+import InterfaceEditor from '@/shared/components/InterfaceEditor';
 import FieldLabel from '@/shared/components/FieldLabel';
 import Select from '@/shared/components/Select';
 import type { DeviceInterface, DeviceRow } from '@/lib/api/internal';
@@ -17,7 +18,6 @@ type Props = {
   interfaceTypes?: string[];
   onClose: () => void;
 };
-
 
 const INTERFACE_TYPES = ['Wi-Fi', 'LAN', 'Extra', 'Other'];
 
@@ -48,16 +48,10 @@ const EditDeviceModal: React.FC<Props> = ({ device, onClose }) => {
 
   // renaming into a name another machine already carries fails at save, so it is said here
   const clash = useHostnameMatch(device?.customer, hostname.trim());
-  const taken =
-    clash.data?.name && clash.data.name !== device?.name ? clash.data : null;
+  const taken = clash.data?.name && clash.data.name !== device?.name ? clash.data : null;
 
   const serialClash = useSerialMatch(serial.trim(), device?.name);
   const serialTaken = serialClash.data?.name ? serialClash.data : null;
-
-  const change = (position: number, patch: Partial<DeviceInterface>) =>
-    setInterfaces((current) =>
-      current.map((item, index) => (index === position ? { ...item, ...patch } : item))
-    );
 
   const submit = async () => {
     if (!device) return;
@@ -124,9 +118,8 @@ const EditDeviceModal: React.FC<Props> = ({ device, onClose }) => {
               <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5">
                 <p className="text-xs text-amber-800">
                   <span className="font-semibold">{taken.hostname}</span> is already taken by{' '}
-                  {taken.same_customer ? taken.name : `${taken.customer} (${taken.name})`}.
-{' '}
-                  Names may be shared — the serial number is what has to be unique.
+                  {taken.same_customer ? taken.name : `${taken.customer} (${taken.name})`}. Names
+                  may be shared — the serial number is what has to be unique.
                 </p>
                 <button
                   type="button"
@@ -181,67 +174,11 @@ const EditDeviceModal: React.FC<Props> = ({ device, onClose }) => {
           </div>
         </div>
 
-        <div>
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-700">Network interfaces</span>
-            <button
-              type="button"
-              onClick={() =>
-                setInterfaces((current) => [...current, { interface_type: 'Wi-Fi', mac_address: '' }])
-              }
-              className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 transition-colors hover:text-blue-700"
-            >
-              <Plus size={13} />
-              Add MAC
-            </button>
-          </div>
-
-          {interfaces.length === 0 ? (
-            <p className="rounded-lg border border-dashed border-slate-300 px-3 py-3 text-center text-xs text-slate-400">
-              No MAC recorded.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              <datalist id="interface-labels">
-                {INTERFACE_TYPES.map((type) => (
-                  <option key={type} value={type} />
-                ))}
-              </datalist>
-              {interfaces.map((item, position) => (
-                <div key={position} className="flex items-center gap-2">
-                  {/* whatever the technician needs to write down: they name it themselves */}
-                  <input
-                    type="text"
-                    list="interface-labels"
-                    value={item.interface_type}
-                    onChange={(event) => change(position, { interface_type: event.target.value })}
-                    placeholder="Wi-Fi"
-                    aria-label="Interface"
-                    className={`${inputClass} w-36 shrink-0`}
-                  />
-                  <input
-                    type="text"
-                    value={item.mac_address}
-                    onChange={(event) => change(position, { mac_address: event.target.value })}
-                    placeholder="AA-BB-CC-DD-EE-FF"
-                    aria-label="Value"
-                    className={`${inputClass} font-mono uppercase`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setInterfaces((current) => current.filter((_, index) => index !== position))
-                    }
-                    aria-label="Remove interface"
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <InterfaceEditor
+          value={interfaces}
+          onChange={setInterfaces}
+          suggestions={INTERFACE_TYPES}
+        />
 
         {update.error instanceof Error && (
           <div className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">

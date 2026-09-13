@@ -466,7 +466,87 @@ class RequestService:
             "can_decide_lines": doc.status in ("Submitted", "Under Review")
             and RequestService._can("approve"),
             "review": RequestService._review_checks(doc),
+            "people": RequestService._people_facts(
+                doc.name,
+                {line.get("client_user") or line.get("device_holder") for line in lines} - {None},
+            ),
         }
+
+    @staticmethod
+    def _people_facts(request, people):
+        """What is worth knowing about each person a request speaks of, read once for all of them.
+
+        Their record, the machines in their hands, the services they already hold and any other
+        request still open about them — so a decision on a line is taken knowing who it is for.
+        """
+        if not people:
+            return {}
+
+        people = tuple(people)
+        facts = {
+            row.name: {**row, "devices": [], "services": [], "open_requests": []}
+            for row in frappe.get_all(
+                "MSP Client User",
+                filters={"name": ("in", people)},
+                fields=[
+                    "name", "full_name", "department", "email", "username",
+                    "lifecycle_status", "start_date", "disabled_date",
+                ],
+            )
+        }
+
+        for row in frappe.db.sql(
+            """
+            select holder.client_user, device.name, device.hostname, device.serial_number,
+                   device.device_type, holder.from_date
+            from `tabMSP Device Holder` holder
+            join `tabMSP Managed Device` device on device.name = holder.parent
+            where holder.parenttype = 'MSP Managed Device' and holder.is_current = 1
+              and holder.client_user in %(people)s
+            order by device.hostname
+            """,
+            {"people": people},
+            as_dict=True,
+        ):
+            if row.client_user in facts:
+                facts[row.client_user]["devices"].append(
+                    {k: row[k] for k in ("name", "hostname", "serial_number", "device_type", "from_date")}
+                )
+
+        for row in frappe.db.sql(
+            """
+            select sa.client_user, sa.name, sa.operational_status,
+                   coalesce(item.item_name, sa.service_item) as service_name
+            from `tabMSP Service Assignment` sa
+            left join `tabItem` item on item.name = sa.service_item
+            where sa.client_user in %(people)s and sa.assignment_scope = 'User'
+              and sa.operational_status in ('Active', 'Suspended', 'Pending Removal', 'Pending Setup')
+            order by service_name
+            """,
+            {"people": people},
+            as_dict=True,
+        ):
+            if row.client_user in facts:
+                facts[row.client_user]["services"].append(
+                    {"name": row.name, "service_name": row.service_name, "status": row.operational_status}
+                )
+
+        for row in frappe.db.sql(
+            """
+            select distinct coalesce(srl.client_user, srl.requested_for_user) as person, sr.name, sr.status
+            from `tabMSP Service Request Line` srl
+            join `tabMSP Service Request` sr on sr.name = srl.parent
+            where coalesce(srl.client_user, srl.requested_for_user) in %(people)s
+              and sr.name != %(request)s
+              and sr.status in ('Submitted', 'Under Review', 'Approved', 'In Progress')
+            """,
+            {"people": people, "request": request},
+            as_dict=True,
+        ):
+            if row.person in facts:
+                facts[row.person]["open_requests"].append({"name": row.name, "status": row.status})
+
+        return facts
 
     @staticmethod
     def run_action(name=None, action=None, reason=None):

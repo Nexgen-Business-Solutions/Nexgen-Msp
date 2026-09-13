@@ -102,6 +102,21 @@ export type RequestDetail = {
   available_actions: RequestAction[];
   can_decide_lines: boolean;
   review: RequestReview | null;
+  people?: Record<string, PersonFacts>;
+};
+
+export type PersonFacts = {
+  name: string;
+  full_name: string;
+  department: string | null;
+  email: string | null;
+  username: string | null;
+  lifecycle_status: string;
+  start_date: string | null;
+  disabled_date: string | null;
+  devices: { name: string; hostname: string | null; serial_number: string | null; device_type: string | null; from_date: string | null }[];
+  services: { name: string; service_name: string; status: string }[];
+  open_requests: { name: string; status: string }[];
 };
 
 export type RequestReview = {

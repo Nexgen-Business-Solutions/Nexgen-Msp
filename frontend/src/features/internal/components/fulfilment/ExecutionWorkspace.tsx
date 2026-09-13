@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Check, Clock, Laptop, Play, Plus, Settings2, UserPlus, UserRound } from 'lucide-react';
-import type { ExecutionPlan, SubjectWorkGroup, WorkCard } from '@/lib/api/internal';
+import type { ExecutionPlan, PersonFacts, SubjectWorkGroup, WorkCard } from '@/lib/api/internal';
 import { useExecuteServiceActions } from '../../hooks/useRequests';
 import {
   banner,
@@ -13,17 +13,18 @@ import {
   nextBar,
   pill,
   subjectCard,
-  subjectHead,
   warnBar,
 } from '../../lib/fulfilmentStyles';
 import ApplyActionModal from './ApplyActionModal';
 import ClientUserModal from './ClientUserModal';
 import DeviceModal from './DeviceModal';
 import MoreActionsModal from './MoreActionsModal';
+import PersonHeader from './PersonHeader';
 import WorkItemMenu from './WorkItemMenu';
 
 type Props = {
   plan: ExecutionPlan;
+  people?: Record<string, PersonFacts>;
   onContinue: () => void;
 };
 
@@ -55,7 +56,7 @@ const LineIcon: React.FC<{ tone: 'done' | 'wait' | 'extra' | 'plain'; children: 
  * Creating the person and preparing the machine sit on the lines that wait for them, so the
  * technician never has to go looking for why a line cannot run yet.
  */
-const ExecutionWorkspace: React.FC<Props> = ({ plan, onContinue }) => {
+const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
   const groupRun = useExecuteServiceActions();
   const [creating, setCreating] = useState<{ card: WorkCard; person: SubjectWorkGroup['person'] } | null>(null);
   const [preparing, setPreparing] = useState<{ card: WorkCard; group: SubjectWorkGroup } | null>(null);
@@ -166,16 +167,12 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, onContinue }) => {
 
         return (
           <div key={group.subject_key} className={subjectCard}>
-            <div className={subjectHead}>
-              <div className="min-w-0">
-                <p className="text-sm font-bold uppercase tracking-wide text-slate-900">
-                  {person?.full_name ?? 'Unnamed person'}
-                </p>
-                <p className="text-xs text-slate-500">
-                  {[person?.department, person?.email, person?.name].filter(Boolean).join(' · ')}
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-1.5">
+            <PersonHeader
+              fullName={person?.full_name ?? 'Unnamed person'}
+              isNew={!person?.name}
+              facts={person?.name ? people?.[person.name] : null}
+              asked={person}
+            >
                 <span className={pill(userReady ? 'ready' : 'pending')}>
                   {userReady ? 'Client user ready' : 'Client user required'}
                 </span>
@@ -194,8 +191,7 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, onContinue }) => {
                     More actions
                   </button>
                 )}
-              </div>
-            </div>
+            </PersonHeader>
 
             {group.user_setup && (
               <div className={lineRow}>

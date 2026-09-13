@@ -276,7 +276,7 @@ export default function RequestDetail() {
               {plan.error ? (plan.error as Error).message : 'Loading the work…'}
             </p>
           ) : step === 'execute' ? (
-            <ExecutionWorkspace plan={plan.data} onContinue={() => setViewing('verify')} />
+            <ExecutionWorkspace plan={plan.data} people={data.people} onContinue={() => setViewing('verify')} />
           ) : step === 'verify' ? (
             <ExecutionRecap
               plan={plan.data}

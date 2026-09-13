@@ -12,6 +12,7 @@ import frappe
 
 from nexgen_msp.api.internal.services.request_execution_service import RequestExecutionService
 from nexgen_msp.api.internal.services.request_service import RequestService
+from nexgen_msp.api.internal.services.service_lifecycle_service import ServiceLifecycleService
 from nexgen_msp.api.portal.services.portal_service import PortalService
 from nexgen_msp.utils.errors import ValidationError as Refused
 
@@ -249,3 +250,25 @@ class TestWhatStaysInViewThroughout(FulfilmentCase):
 
         self.assertEqual(self.plan(name)["recap"], self.plan(name)["recap"])
         self.assertEqual(len(self.plan(name)["recap"]), 1)
+
+
+class TestWhatIsKnownAboutEachPerson(FulfilmentCase):
+    def test_the_request_carries_their_record_machines_services_and_other_requests(self):
+        laptop = self.make_device(self.customer, f"PF-{self.tag}", holder=self.john, serial=f"ZZTEST-PF-{self.tag}")
+        held = self.offering("PF1")
+        opened = self.tech_does(
+            lambda: ServiceLifecycleService.activate(
+                customer=self.customer, service_item=held, target_scope="User", client_user=self.john
+            )
+        )
+        self.track("MSP Service Assignment", opened["name"])
+        other = self.raised(self.line(self.offering("PF2")))
+        name = self.raised(self.line(self.offering("PF3")))
+
+        facts = self.tech_does(lambda: RequestService.get_request(name))["people"][self.john]
+
+        self.assertEqual(facts["username"], f"j.{self.tag}")
+        self.assertIn(laptop, [row["name"] for row in facts["devices"]])
+        self.assertIn(opened["name"], [row["name"] for row in facts["services"]])
+        self.assertIn(other, [row["name"] for row in facts["open_requests"]])
+        self.assertNotIn(name, [row["name"] for row in facts["open_requests"]])

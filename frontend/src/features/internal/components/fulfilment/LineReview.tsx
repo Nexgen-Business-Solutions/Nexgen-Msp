@@ -3,8 +3,8 @@ import { AlertCircle, Check, CircleAlert, Laptop, TriangleAlert, UserRound, X } 
 import Modal from '@/shared/components/Modal';
 import type { RequestDetail, RequestDetailLine } from '@/lib/api/internal';
 import { useSetLineStatus, useSetLineStatuses } from '../../hooks/useRequests';
+import PersonHeader from './PersonHeader';
 import {
-  banner,
   btnAccept,
   btnPrimary,
   btnReject,
@@ -13,7 +13,6 @@ import {
   nextBar,
   pill,
   subjectCard,
-  subjectHead,
   warnBar,
 } from '../../lib/fulfilmentStyles';
 
@@ -56,13 +55,15 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
   const check = (idx: number) => request.review?.lines.find((row) => row.idx === idx);
 
   const people = useMemo(() => {
-    const groups = new Map<string, { name: string; department: string | null; lines: RequestDetailLine[] }>();
+    const groups = new Map<string, { key: string; name: string; isNew: boolean; first: RequestDetailLine; lines: RequestDetailLine[] }>();
 
     for (const line of lines) {
       const key = personKey(line);
       const group = groups.get(key) ?? {
+        key,
         name: personName(line),
-        department: line.client_user_department || line.new_user_department,
+        isNew: key.startsWith('new:'),
+        first: line,
         lines: [],
       };
       group.lines.push(line);
@@ -126,13 +127,13 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
 
   return (
     <div className="space-y-4">
-      <div className={banner}>
+      {/* <div className={banner}>
         <p className="font-semibold">Technician decision</p>
         <p className="mt-0.5">
           Nothing is executed at this stage. You are deciding which requested lines enter the
           work plan.
         </p>
-      </div>
+      </div> */}
 
       {decidable && pending.length > 0 && (
         <div className={bulkBar}>
@@ -196,13 +197,17 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
       )}
 
       {people.map((person) => (
-        <div key={person.name + person.lines[0].idx} className={subjectCard}>
-          <div className={subjectHead}>
-            <div>
-              <p className="text-sm font-bold uppercase tracking-wide text-slate-900">{person.name}</p>
-              {person.department && <p className="text-xs text-slate-500">{person.department}</p>}
-            </div>
-          </div>
+        <div key={person.key} className={subjectCard}>
+          <PersonHeader
+            fullName={person.name}
+            isNew={person.isNew}
+            facts={person.isNew ? null : request.people?.[person.key]}
+            asked={{
+              department: person.first.new_user_department,
+              email: person.first.new_user_email,
+              username: person.first.new_user_username,
+            }}
+          />
 
           {person.lines.map((line) => {
             const onDevice = Boolean(line.managed_device || line.is_new_device);

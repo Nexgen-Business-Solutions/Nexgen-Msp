@@ -3,7 +3,8 @@ import { Laptop, Search } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
 import FieldLabel from '@/shared/components/FieldLabel';
 import Select from '@/shared/components/Select';
-import type { SubjectWorkGroup, WorkCard } from '@/lib/api/internal';
+import InterfaceEditor from '@/shared/components/InterfaceEditor';
+import type { DeviceInterface, SubjectWorkGroup, WorkCard } from '@/lib/api/internal';
 import { useCustomerDevices, useDeviceFilterOptions } from '../../hooks/useDevices';
 import { useExecuteDeviceProvisioning } from '../../hooks/useRequests';
 import { inputClass } from '../../lib/fulfilmentStyles';
@@ -24,6 +25,7 @@ const DeviceModal: React.FC<Props> = ({ card, customer, person, needs, onClose }
   const [hostname, setHostname] = useState('');
   const [serial, setSerial] = useState('');
   const [deviceType, setDeviceType] = useState('');
+  const [interfaces, setInterfaces] = useState<DeviceInterface[]>([]);
 
   const options = useDeviceFilterOptions();
   const devices = useCustomerDevices(card ? customer : null);
@@ -37,6 +39,10 @@ const DeviceModal: React.FC<Props> = ({ card, customer, person, needs, onClose }
     setHostname(card.asked_hostname ?? '');
     setSerial(card.asked_serial ?? '');
     setDeviceType(card.asked_device_type ?? '');
+    setInterfaces([
+      { interface_type: 'Wi-Fi', mac_address: '' },
+      { interface_type: 'LAN', mac_address: '' },
+    ]);
     provision.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [card]);
@@ -81,6 +87,7 @@ const DeviceModal: React.FC<Props> = ({ card, customer, person, needs, onClose }
               hostname: hostname.trim(),
               serial_number: serial.trim(),
               device_type: deviceType || undefined,
+              interfaces: interfaces.filter((item) => item.mac_address.trim()),
             }
       );
       onClose();
@@ -221,6 +228,13 @@ const DeviceModal: React.FC<Props> = ({ card, customer, person, needs, onClose }
           <div>
             <FieldLabel>Holder</FieldLabel>
             <input className={`${inputClass} bg-slate-50`} readOnly value={person?.full_name ?? ''} />
+          </div>
+          <div className="sm:col-span-2">
+            <InterfaceEditor
+              value={interfaces}
+              onChange={setInterfaces}
+              suggestions={options.data?.interface_types ?? ['Wi-Fi', 'LAN']}
+            />
           </div>
         </div>
       )}

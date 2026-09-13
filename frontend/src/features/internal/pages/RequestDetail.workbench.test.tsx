@@ -324,8 +324,7 @@ describe('step 1 — review lines', () => {
   it('executes nothing and asks for a decision on every line', async () => {
     await renderPage(reviewing());
 
-    expect(await screen.findByText(/nothing is executed at this stage/i)).toBeInTheDocument();
-    expect(screen.getAllByText('Decision required')).toHaveLength(2);
+    expect(await screen.findAllByText('Decision required')).toHaveLength(2);
     expect(screen.getByText(/every request line needs a decision/i)).toBeInTheDocument();
     expect(internal.getRequestExecutionPlan).not.toHaveBeenCalled();
   });
@@ -585,6 +584,61 @@ describe('step 4 — final validation', () => {
     fireEvent.click(screen.getByRole('button', { name: /validate & complete request/i }));
 
     await waitFor(() => expect(internal.completeRequest).toHaveBeenCalledWith({ name: 'SR-0001' }));
+  });
+});
+
+describe('who each line is for', () => {
+  it('shows what is on file about a person: devices, services, other open requests', async () => {
+    await renderPage(
+      request({
+        status: 'Under Review',
+        can_decide_lines: true,
+        lines: [line(1)],
+        people: {
+          'CU-1': {
+            name: 'CU-1',
+            full_name: 'Person 1',
+            department: 'Commercial',
+            email: 'p1@acme.com',
+            username: 'p.one',
+            lifecycle_status: 'Active',
+            start_date: '2025-01-01',
+            disabled_date: null,
+            devices: [{ name: 'DEV-1', hostname: 'KV-P1', serial_number: 'SN-1', device_type: 'PC', from_date: null }],
+            services: [{ name: 'SA-1', service_name: 'Parallels', status: 'Active' }],
+            open_requests: [{ name: 'SR-0099', status: 'Submitted' }],
+          },
+        },
+      } as never)
+    );
+
+    expect(await screen.findByText(/commercial · p1@acme.com · account p.one · cu-1/i)).toBeInTheDocument();
+    expect(screen.getByText('KV-P1 · SN-1')).toBeInTheDocument();
+    expect(screen.getByText('Parallels')).toBeInTheDocument();
+    expect(screen.getByText(/also in sr-0099/i)).toBeInTheDocument();
+  });
+
+  it('shows what the request says about somebody not on file yet', async () => {
+    await renderPage(
+      request({
+        status: 'Under Review',
+        can_decide_lines: true,
+        lines: [
+          line(1, {
+            is_new_user: 1,
+            client_user: null,
+            client_user_name: null,
+            new_user_full_name: 'Chloe Mbarga',
+            new_user_department: 'Finance',
+            new_user_email: 'chloe@acme.com',
+          }),
+        ],
+      } as never)
+    );
+
+    expect(await screen.findByText('New person')).toBeInTheDocument();
+    expect(screen.getByText(/finance · chloe@acme.com/i)).toBeInTheDocument();
+    expect(screen.getByText(/created during execution/i)).toBeInTheDocument();
   });
 });
 
