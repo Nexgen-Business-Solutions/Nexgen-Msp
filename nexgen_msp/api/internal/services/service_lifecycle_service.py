@@ -5,9 +5,9 @@ never both, and never the person who happens to hold the machine today. Every ac
 writes a period rather than editing one, because a period that has been provided has often
 already been billed, and a bill is not rewritten by changing a record behind it.
 
-Opening a service is the only place the commercial questions are asked — is it in the
-catalogue, is it sold at this scope, does the customer hold a live contract for it, is there
-a rate — and they are asked before anything is written, so a refusal costs nothing.
+Opening a service validates the service and its target. Contract coverage, pricing and past
+invoices are billing information: they are recorded or surfaced as warnings, but never stop
+the operational record from matching what happened in reality.
 """
 
 import frappe
@@ -35,12 +35,6 @@ ACTIVATABLE_USER_LIFECYCLE = ("Pending", "Active")
 ENDABLE_STATUSES = ("Active", "Suspended", "Pending Removal")
 
 CHANGEABLE_STATUSES = ("Active", "Suspended")
-
-BILLED_PERIOD_WARNING = (
-    "This period has already been invoiced. Confirm to go ahead anyway: the invoice already "
-    "issued stays as it is."
-)
-
 
 class ServiceLifecycleService:
     # ------------------------------------------------------------------ the acts
@@ -454,7 +448,7 @@ class ServiceLifecycleService:
         rate_override_reason=None,
         _commit=True,
     ):
-        """Everything a new period has to survive before it exists."""
+        """Validate the operational facts and record the new service period."""
         if not customer:
             raise ValidationError("customer is required.", "VALIDATION_ERROR")
 
@@ -710,14 +704,10 @@ class ServiceLifecycleService:
 
     @staticmethod
     def _contract(customer, service_item, on_date=None):
-        """The active contract that puts this service on offer to this customer on that day.
+        """The active contract covering this service on that day, when one exists.
 
-        A contract is what the customer signed for, so a service nobody wrote into one is not
-        sold by mistake. It covers a stretch of time, and the same service may sit on another
-        contract before or after it: the one that counts is the one whose dates hold the day
-        the service opens. A suspended contract still reads its history and its rates, but it
-        opens nothing new. Customers who predate contracts carry the same answer on their
-        profile, which is the only reason the profile is read at all.
+        Coverage informs billing but never decides whether an operational service period may
+        be recorded. ``None`` therefore means "review billing", not "refuse the action".
         """
         on_date = frappe.utils.getdate(on_date or frappe.utils.today())
 
@@ -743,34 +733,12 @@ class ServiceLifecycleService:
         if live:
             return live.title or live.name
 
-        elsewhere = next((row for row in rows if row.status == "Active"), None)
-
-        if elsewhere:
-            raise ValidationError(
-                f"{service_item} is on contract {elsewhere.title or elsewhere.name}, which runs "
-                f"from {elsewhere.start_date} to {elsewhere.end_date or 'no end date'} and does "
-                f"not cover {on_date}.",
-                "VALIDATION_ERROR",
-            )
-
         legacy = ServiceLifecycleService._profile_offer(customer, service_item)
 
         if legacy:
             return legacy
 
-        if rows:
-            raise ValidationError(
-                f"The contract covering {service_item} for {customer} is "
-                f"{rows[0].status.lower()}. A new service can only be opened under an active "
-                "contract.",
-                "VALIDATION_ERROR",
-            )
-
-        raise ValidationError(
-            f"No active contract of {customer} covers {service_item}. Add the service to the "
-            "contract before opening it.",
-            "VALIDATION_ERROR",
-        )
+        return None
 
     @staticmethod
     def _profile_offer(customer, service_item):
@@ -834,11 +802,9 @@ class ServiceLifecycleService:
         if ServiceLifecycleService._customer_price(customer, service_item, on_date):
             return {"price_source": "Item Price"}
 
-        raise ValidationError(
-            f"No rate is on file for {service_item} at {customer}. Set one before opening the "
-            "service.",
-            "VALIDATION_ERROR",
-        )
+        # Operations must reflect reality even before the commercial setup is complete.
+        # Billing will flag this assignment as missing a rate when somebody prepares a run.
+        return {"price_source": "Unpriced"}
 
     @staticmethod
     def _negotiated_rate(customer, service_item, on_date):
@@ -928,23 +894,15 @@ class ServiceLifecycleService:
 
     @staticmethod
     def _after_invoices(doc, on_date, confirm_billed=0, notes=None):
-        """A day already invoiced is a warning, never a wall.
+        """Record that an act crossed an invoice boundary without stopping the act.
 
-        The act is refused once, with a code the screen recognises, so whoever is doing it is
-        told the period was billed. Confirmed, it goes through: the invoice already issued is
-        not touched, and the history says the act was recorded behind it.
+        ``confirm_billed`` remains accepted for older API callers but is deliberately ignored:
+        an issued invoice is never rewritten, and an operational change is never refused.
         """
         billed_to = UserService._billed_to(doc.name)
 
         if not billed_to or on_date > frappe.utils.getdate(billed_to):
             return notes
-
-        if not frappe.utils.cint(confirm_billed):
-            raise ValidationError(
-                f"This service is invoiced up to {frappe.utils.formatdate(billed_to)}. "
-                + BILLED_PERIOD_WARNING,
-                "BILLED_PERIOD",
-            )
 
         remark = f"Recorded behind an invoice covering up to {frappe.utils.formatdate(billed_to)}."
 

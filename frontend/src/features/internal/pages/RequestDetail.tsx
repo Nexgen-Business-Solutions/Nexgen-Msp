@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { AlertCircle, HandHelping, TriangleAlert } from 'lucide-react';
+import { AlertCircle, TriangleAlert } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
 import StatusBadge from '@/shared/components/StatusBadge';
 import WorkflowHeader from '@/shared/components/WorkflowHeader';
@@ -11,13 +11,12 @@ import ExecutionWorkspace from '../components/fulfilment/ExecutionWorkspace';
 import ExecutionRecap from '../components/fulfilment/ExecutionRecap';
 import FinalValidation from '../components/fulfilment/FinalValidation';
 import {
-  useAssignRequestTechnician,
   useRequestDetail,
   useRequestExecutionPlan,
   useRunRequestAction,
 } from '../hooks/useRequests';
 import type { ExecutionPlan, RequestDetail as Detail } from '@/lib/api/internal';
-import { initials, pill } from '../lib/fulfilmentStyles';
+import { pill } from '../lib/fulfilmentStyles';
 
 const STEPS = [
   { key: 'review', label: 'Review lines' },
@@ -61,7 +60,6 @@ const contextFrom = (data: Detail) => ({
   lines: data.lines.length,
   details: data.details ?? null,
   customer_approved: true,
-  technicians: [],
 });
 
 const counterFor = (step: StepKey, data: Detail, plan?: ExecutionPlan) => {
@@ -83,7 +81,6 @@ export default function RequestDetail() {
   const navigate = useNavigate();
   const detail = useRequestDetail(name);
   const runAction = useRunRequestAction();
-  const claim = useAssignRequestTechnician();
 
   const [prompt, setPrompt] = useState<{ action: string; label: string } | null>(null);
   const [reason, setReason] = useState('');
@@ -133,14 +130,6 @@ export default function RequestDetail() {
   }));
 
   const headerActions = data.available_actions.filter((action) => ['reject', 'cancel'].includes(action.action));
-  const unclaimed = (plan.data?.groups ?? [])
-    .flatMap((group) => [
-      ...(group.user_setup ? [group.user_setup] : []),
-      ...group.devices.map((slot) => slot.work),
-      ...group.services,
-    ])
-    .some((card) => !card.assigned_technician && !['Completed', 'Cancelled'].includes(card.status));
-  const technicians = plan.data?.context.technicians ?? [];
   const actionError = runAction.error as Error | undefined;
 
   const confirmPrompt = async () => {
@@ -159,7 +148,7 @@ export default function RequestDetail() {
         title={data.name}
         subtitle={
           planned
-            ? 'Customer-approved request · technician fulfilment'
+            ? 'Customer-approved request · fulfilment'
             : `${data.customer} · raised via ${data.source}`
         }
         onBack={() => navigate('/msp/requests')}
@@ -168,31 +157,6 @@ export default function RequestDetail() {
           <>
             <StatusBadge value={data.status} />
             {planned && <span className={pill('emerald')}>Customer approved</span>}
-            {technicians.length > 0 && (
-              <span className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5">
-                <span
-                  aria-hidden
-                  className="flex h-7 w-7 items-center justify-center rounded-md bg-blue-50 text-[11px] font-bold text-blue-700"
-                >
-                  {initials(technicians[0])}
-                </span>
-                <span>
-                  <span className="block text-xs font-semibold text-slate-900">{technicians.join(', ')}</span>
-                  <span className="block text-[11px] text-slate-400">Assigned technician</span>
-                </span>
-              </span>
-            )}
-            {unclaimed && !completed && (
-              <button
-                type="button"
-                disabled={claim.isLoading}
-                onClick={() => claim.mutate({ name })}
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-              >
-                <HandHelping size={14} />
-                Take the work
-              </button>
-            )}
             {headerActions.map((action) => (
               <button
                 key={action.action}
@@ -208,9 +172,20 @@ export default function RequestDetail() {
             ))}
           </>
         }
+        context={
+          <RequestContextHeader
+            embedded
+            context={plan.data?.context ?? contextFrom(data)}
+          />
+        }
+        stepper={
+          <WorkflowStepper
+            steps={steps}
+            canGo={(key) => indexOf(key as StepKey) <= furthest}
+            onGo={(key) => setViewing(key as StepKey)}
+          />
+        }
       />
-
-      <RequestContextHeader context={plan.data?.context ?? contextFrom(data)} />
 
       {data.review && !data.review.contract_active && (
         <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
@@ -228,14 +203,6 @@ export default function RequestDetail() {
           {data.rejection_reason}
         </p>
       )}
-
-      <div className="rounded-xl border border-slate-200 bg-white px-6 py-3 shadow-sm">
-        <WorkflowStepper
-          steps={steps}
-          canGo={(key) => indexOf(key as StepKey) <= furthest}
-          onGo={(key) => setViewing(key as StepKey)}
-        />
-      </div>
 
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
@@ -283,7 +250,11 @@ export default function RequestDetail() {
               onContinue={completed ? undefined : () => setViewing('complete')}
             />
           ) : (
-            <FinalValidation plan={plan.data} />
+            <FinalValidation
+              plan={plan.data}
+              requestCompleted={completed}
+              onCompleted={() => navigate('/msp/requests', { replace: true })}
+            />
           )}
         </div>
       </section>

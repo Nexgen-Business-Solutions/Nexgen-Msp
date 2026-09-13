@@ -166,10 +166,9 @@ export default function RequestsList() {
               { value: 'all', label: 'Everything' },
               { value: 'open', label: 'Open only', description: 'Still awaiting a decision' },
               { value: 'closed', label: 'Closed only', description: 'Already decided' },
-              { value: 'mine', label: 'Assigned to me', description: 'Open and mine' },
               { value: 'attention', label: 'Urgent or high', description: 'Open, needing attention first' },
               { value: 'ageing', label: 'Ageing over 48h', description: 'Open for more than two days' },
-              { value: 'to_execute', label: 'To execute', description: 'Approved work with no assignment yet' },
+              { value: 'to_execute', label: 'To execute', description: 'Approved work still to complete' },
             ],
           },
         ]}

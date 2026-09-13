@@ -173,7 +173,7 @@ export default function NewBillingRun() {
   const billable = lines.filter((line) => !line.exception_code);
   const candidates = search.trim()
     ? lines.filter((line) =>
-        [line.user_name, line.email, line.hostname, line.service_name, line.department]
+        [line.user_name, line.email, line.hostname, line.serial_number, line.service_name, line.department]
           .filter(Boolean)
           .some((value) => String(value).toLowerCase().includes(search.trim().toLowerCase()))
       )
@@ -785,7 +785,7 @@ export default function NewBillingRun() {
                   className={`${inputClass} pl-9`}
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search a person, email, hostname or service"
+                  placeholder="Search a person, email, hostname, serial or service"
                   aria-label="Search the candidates"
                 />
               </div>

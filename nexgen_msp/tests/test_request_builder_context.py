@@ -233,7 +233,7 @@ class TestSomethingAlreadyAskedForIsSaidSo(RequestBuilderCase):
 
 
 class TestTheFormForSomebodyWhoDoesNotExistYet(RequestBuilderCase):
-    def test_it_offers_departments_and_what_the_contract_covers(self):
+    def test_it_offers_departments_and_compatible_services(self):
         personal = self.offering("NEWU")
         machine = self.offering("NEWD", scope="Device")
         self.make_department("Human Resources")
@@ -246,12 +246,15 @@ class TestTheFormForSomebodyWhoDoesNotExistYet(RequestBuilderCase):
         self.assertIn(personal, [row["service_item"] for row in out["available_user_services"]])
         self.assertIn(machine, [row["service_item"] for row in out["available_device_services"]])
 
-    def test_a_service_outside_the_contract_is_not_offered(self):
+    def test_a_service_outside_the_contract_is_offered_with_a_warning(self):
         uncovered = self.make_service(f"NOCON{self.tag[:3]}", scope="User")
 
         out = self.as_asker(lambda: RequestBuilderService.new_user_context(self.customer))
 
-        self.assertNotIn(uncovered, [row["service_item"] for row in out["available_user_services"]])
+        offer = next(
+            row for row in out["available_user_services"] if row["service_item"] == uncovered
+        )
+        self.assertIn("contract", offer["warning"].lower())
 
 
 class TestWhatHappensWhenItIsSent(RequestBuilderCase):

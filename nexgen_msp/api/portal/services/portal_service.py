@@ -1607,8 +1607,8 @@ class PortalService:
             conditions.append(
                 "(cu.full_name like %(search)s or dcu.full_name like %(search)s"
                 " or cu.username like %(search)s or dcu.username like %(search)s"
-                " or d.hostname like %(search)s"
-                " or own.hostname like %(search)s)"
+                " or d.hostname like %(search)s or d.serial_number like %(search)s"
+                " or own.hostname like %(search)s or own.serial_number like %(search)s)"
             )
             values["search"] = f"%{search}%"
 

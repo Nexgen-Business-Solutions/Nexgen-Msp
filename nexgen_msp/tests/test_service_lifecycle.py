@@ -241,32 +241,29 @@ class TestServiceLifecycle(MSPTestCase):
         frappe.db.set_value("Item", service, "disabled", 0)
         frappe.db.commit()
 
-    def test_a_service_no_contract_covers_is_refused(self):
+    def test_a_service_no_contract_covers_is_still_recorded(self):
         service = self.make_service("LIFENOCON", scope="User")
 
-        with self.assertRaises(ValidationError) as refused:
-            self.open_service(service)
+        opened = self.open_service(service)
 
-        self.assertIn("contract", str(refused.exception).lower())
+        self.assertEqual(self.reload(opened["name"]).price_source, "Unpriced")
 
-    def test_a_suspended_contract_opens_nothing_new(self):
+    def test_a_suspended_contract_does_not_stop_a_real_service(self):
         service = self.offering("LIFESUSPCON")
         contract = frappe.db.get_value("MSP Contract", {"customer": self.customer}, "name")
         frappe.db.set_value("MSP Contract", contract, "status", "Suspended")
         frappe.db.commit()
 
-        with self.assertRaises(ValidationError) as refused:
-            self.open_service(service)
+        opened = self.open_service(service)
 
-        self.assertIn("suspended", str(refused.exception).lower())
+        self.assertEqual(self.reload(opened["name"]).operational_status, "Active")
 
-    def test_a_service_without_a_rate_is_refused(self):
+    def test_a_service_without_a_rate_is_recorded_as_unpriced(self):
         service = self.offering("LIFENORATE", rate=None)
 
-        with self.assertRaises(ValidationError) as refused:
-            self.open_service(service)
+        opened = self.open_service(service)
 
-        self.assertIn("rate", str(refused.exception).lower())
+        self.assertEqual(self.reload(opened["name"]).price_source, "Unpriced")
 
     def test_a_manual_rate_carries_its_reason_onto_the_assignment(self):
         service = self.offering("LIFEMANUAL", rate=None)
@@ -377,19 +374,18 @@ class TestServiceLifecycle(MSPTestCase):
         with self.assertRaises(ValidationError):
             ServiceLifecycleService.resume(assignment=opened["name"], effective_date=self.days_ago(10))
 
-    def test_a_pause_behind_an_invoiced_period_asks_to_be_confirmed(self):
+    def test_a_pause_behind_an_invoiced_period_goes_through_and_is_noted(self):
         service = self.offering("LIFEBILLED")
         opened = self.open_service(service, effective_date=self.days_ago(60))
         self.invoice(opened["name"], self.days_ago(60), self.days_ago(31))
 
-        with self.assertRaises(ValidationError) as warned:
-            ServiceLifecycleService.suspend(
-                assignment=opened["name"], effective_date=self.days_ago(40)
-            )
+        ServiceLifecycleService.suspend(
+            assignment=opened["name"], effective_date=self.days_ago(40)
+        )
 
-        self.assertEqual(warned.exception.code, "BILLED_PERIOD")
-        self.assertIn("invoiced", str(warned.exception).lower())
-        self.assertEqual(self.reload(opened["name"]).operational_status, "Active")
+        doc = self.reload(opened["name"])
+        self.assertEqual(doc.operational_status, "Suspended")
+        self.assertIn("invoice", (doc.suspension_log[0].note or "").lower())
 
     def test_confirmed_it_goes_through_and_says_so_in_the_history(self):
         service = self.offering("LIFEBILLOK")
@@ -406,19 +402,13 @@ class TestServiceLifecycle(MSPTestCase):
         self.assertIn("invoice", (doc.suspension_log[0].note or "").lower())
         self.assertEqual(frappe.db.get_value("MSP Billing Run Line", {"parent": run}, "amount"), amount)
 
-    def test_a_resume_behind_an_invoiced_period_is_confirmed_the_same_way(self):
+    def test_a_resume_behind_an_invoiced_period_goes_through_the_same_way(self):
         service = self.offering("LIFEBILLRS")
         opened = self.open_service(service, effective_date=self.days_ago(60))
         ServiceLifecycleService.suspend(assignment=opened["name"], effective_date=self.days_ago(50))
         self.invoice(opened["name"], self.days_ago(60), self.days_ago(31))
 
-        with self.assertRaises(ValidationError) as warned:
-            ServiceLifecycleService.resume(assignment=opened["name"], effective_date=self.days_ago(40))
-        self.assertEqual(warned.exception.code, "BILLED_PERIOD")
-
-        ServiceLifecycleService.resume(
-            assignment=opened["name"], effective_date=self.days_ago(40), confirm_billed=1
-        )
+        ServiceLifecycleService.resume(assignment=opened["name"], effective_date=self.days_ago(40))
         self.assertEqual(self.reload(opened["name"]).operational_status, "Active")
 
     def test_a_service_is_changed_directly_onto_another_one(self):
@@ -612,9 +602,9 @@ class TestServiceLifecycle(MSPTestCase):
         self.assertEqual(self.reload(replacement["name"]).service_item, premium)
         self.assertEqual(self.reload(replacement["name"]).quantity, 1)
 
-    def test_a_rejected_replacement_keeps_the_original_service_active(self):
+    def test_an_invalid_replacement_keeps_the_original_service_active(self):
         current = self.offering("LIFEATOMIC")
-        unavailable = self.make_service("LIFEUNAVAILABLE", scope="User")
+        unavailable = self.make_service("LIFEWRONGSCOPE", scope="Device")
         opened = self.open_service(current, effective_date=self.days_ago(20))
 
         with self.assertRaises(ValidationError):

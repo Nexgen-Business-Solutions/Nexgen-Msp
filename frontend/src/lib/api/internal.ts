@@ -115,7 +115,14 @@ export type PersonFacts = {
   start_date: string | null;
   disabled_date: string | null;
   devices: { name: string; hostname: string | null; serial_number: string | null; device_type: string | null; from_date: string | null }[];
-  services: { name: string; service_name: string; status: string }[];
+  services: {
+    name: string;
+    service_name: string;
+    status: string;
+    assignment_scope?: string;
+    managed_device?: string | null;
+    hostname?: string | null;
+  }[];
   open_requests: { name: string; status: string }[];
 };
 
@@ -213,6 +220,7 @@ export type WorkCard = {
   plan_key: string;
   work_type: 'Service Action' | 'User Setup' | 'Device Provisioning';
   action: string;
+  request_action?: string | null;
   status: string;
   target_scope: string | null;
   subject_key: string | null;
@@ -225,8 +233,6 @@ export type WorkCard = {
   service_name: string | null;
   source_service_assignment: string | null;
   effective_date: string | null;
-  assigned_technician: string | null;
-  assigned_technician_name: string | null;
   execution_notes: string | null;
   customer_visible_note: string | null;
   failure_reason: string | null;
@@ -287,7 +293,6 @@ export type RequestContext = {
   lines: number;
   details: string | null;
   customer_approved: boolean;
-  technicians: string[];
 };
 
 export type RecapEntry = {
@@ -310,6 +315,7 @@ export type FulfilmentOutcome = {
   technician_added: number;
   technician_done: number;
   prepared: number;
+  context_done?: number;
 };
 
 export type TechnicianOption = {
@@ -317,7 +323,9 @@ export type TechnicianOption = {
   service_item: string;
   service_name: string;
   action: string;
+  request_action: string;
   action_label: string;
+  description?: string | null;
   target_scope: 'User' | 'Device';
   managed_device: string | null;
   device_label: string | null;
@@ -379,6 +387,8 @@ export const executeServiceAction = (payload: {
   notes?: string;
   customer_note?: string;
   confirm_billed?: number;
+  action?: string;
+  service_item?: string;
 }) => post<ExecutionPlan>(`${BASE}.execute_service_action`, payload);
 
 export const executeServiceActions = (payload: {
@@ -409,17 +419,12 @@ export const addTechnicianAction = (payload: {
     option: JSON.stringify(payload.option),
   });
 
-export const blockWorkItem = (payload: { work_order: string; reason: string }) =>
-  post<ExecutionPlan>(`${BASE}.block_work_item`, payload);
-
-export const resumeWorkItem = (payload: { work_order: string }) =>
-  post<ExecutionPlan>(`${BASE}.resume_work_item`, payload);
-
-export const failWorkItem = (payload: { work_order: string; reason: string }) =>
-  post<ExecutionPlan>(`${BASE}.fail_work_item`, payload);
-
-export const cancelWorkItem = (payload: { work_order: string; reason: string }) =>
-  post<ExecutionPlan>(`${BASE}.cancel_work_item`, payload);
+export const recordRequestActivity = (payload: {
+  name: string;
+  subject_key: string;
+  label: string;
+  detail?: string;
+}) => post<ExecutionPlan>(`${BASE}.record_request_activity`, payload);
 
 export const verifyWorkItem = (payload: {
   work_order: string;
@@ -430,12 +435,6 @@ export const verifyWorkItem = (payload: {
 
 export const completeRequest = (payload: { name: string }) =>
   post<ExecutionPlan>(`${BASE}.complete_request`, payload);
-
-export const assignRequestTechnician = (payload: {
-  name?: string;
-  work_order?: string;
-  technician?: string;
-}) => post<ExecutionPlan>(`${BASE}.assign_request_technician`, payload);
 
 export type DeviceInterface = {
   interface_type: string;
@@ -644,6 +643,7 @@ export type ServiceOffer = {
   item_name: string;
   service_scope: string;
   reason?: string;
+  warning?: string;
 };
 
 export type HeldDevice = {
@@ -688,7 +688,6 @@ export type UserOpenRequest = {
   }[];
   work_total: number;
   work_done: number;
-  technician: string | null;
 };
 
 export type UserActivityEvent = {
@@ -889,6 +888,7 @@ export type ServiceAvailabilityOffer = {
   service_item: string;
   item_name: string;
   service_scope: string;
+  warning?: string;
 };
 
 export type ServiceAvailabilityBlocked = ServiceAvailabilityOffer & { reason: string };
@@ -1526,6 +1526,7 @@ export const changeDeviceStatus = (payload: {
   effective_date?: string;
   assigned_client_user?: string;
   notes?: string;
+  end_services?: number;
 }) =>
   post<{ name: string; hostname: string; status: string; closed_assignments: string[] }>(
     `${BASE}.change_device_status`,
@@ -1557,7 +1558,12 @@ export const transferDevice = (payload: {
 export const repossessDevice = (payload: { device: string; effective_date?: string; note?: string }) =>
   post<DeviceLifecycleOutcome>(`${BASE}.repossess_device`, payload);
 
-export const retireDevice = (payload: { device: string; effective_date?: string; note?: string }) =>
+export const retireDevice = (payload: {
+  device: string;
+  effective_date?: string;
+  note?: string;
+  end_services?: number;
+}) =>
   post<DeviceLifecycleOutcome>(`${BASE}.retire_device`, payload);
 
 export const reinstateDevice = (payload: {
@@ -2401,7 +2407,15 @@ export const disableClientUser = (payload: {
   name: string;
   effective_date?: string;
   reason?: string;
+  end_services?: number;
 }) => post<UserDetail>(`${BASE}.disable_client_user`, payload);
+
+export const stopAllClientUserServices = (payload: {
+  name: string;
+  effective_date?: string;
+  notes?: string;
+  source_request?: string;
+}) => post<UserDetail>(`${BASE}.stop_all_client_user_services`, payload);
 
 export const reactivateClientUser = (name: string) =>
   post<UserDetail>(`${BASE}.reactivate_client_user`, { name });

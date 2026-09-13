@@ -384,6 +384,15 @@ class BillingService:
                 return None, source, "Missing Rate", "Manual override with no agreed rate.", 0.0
             return flt(assignment.agreed_rate), source, None, None, 0.0
 
+        if source == "Unpriced":
+            return (
+                None,
+                source,
+                "Missing Rate",
+                f"No rate is on file for {assignment.service_item}.",
+                0.0,
+            )
+
         if source == "Contract":
             # the price that was in force over the days being billed, never the one in force
             # today: an invoice for August must not be drawn at a September rate
@@ -954,7 +963,7 @@ class BillingService:
         if search:
             haystack = " ".join(
                 str(line.get(field) or "")
-                for field in ("user_name", "service_name", "hostname", "department")
+                for field in ("user_name", "service_name", "hostname", "serial_number", "department")
             ).lower()
             if search not in haystack:
                 return False

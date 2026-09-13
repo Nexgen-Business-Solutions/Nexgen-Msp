@@ -252,7 +252,7 @@ const ExistingSubjectChanges: React.FC<{ subject: RequestSubject; builder: Build
   );
 };
 
-/** For somebody who does not exist yet, everything the contract covers is on offer. */
+/** For somebody who does not exist yet, every compatible catalogue service is on offer. */
 const NewSubjectChanges: React.FC<{ subject: RequestSubject; builder: Builder }> = ({
   subject,
   builder,

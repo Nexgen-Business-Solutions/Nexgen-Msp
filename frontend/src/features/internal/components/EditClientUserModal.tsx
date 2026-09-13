@@ -11,12 +11,13 @@ type Props = {
   open: boolean;
   user: UserDetail['user'] | null;
   onClose: () => void;
+  onDone?: () => void;
 };
 
 const inputClass =
   'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
 
-const EditClientUserModal: React.FC<Props> = ({ open, user, onClose }) => {
+const EditClientUserModal: React.FC<Props> = ({ open, user, onClose, onDone }) => {
   const save = useUpdateClientUser();
   const departmentOptions = useDepartmentOptions();
 
@@ -59,6 +60,7 @@ const EditClientUserModal: React.FC<Props> = ({ open, user, onClose }) => {
         remarks,
       });
       onClose();
+      onDone?.();
     } catch {
       // surfaced below
     }

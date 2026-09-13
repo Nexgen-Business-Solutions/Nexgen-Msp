@@ -213,13 +213,10 @@ export const useExecuteUserSetup = () => usePlanMutation(internal.executeUserSet
 export const useExecuteDeviceProvisioning = () =>
   usePlanMutation(internal.executeDeviceProvisioning);
 export const useExecuteServiceAction = () => usePlanMutation(internal.executeServiceAction);
-export const useBlockWorkItem = () => usePlanMutation(internal.blockWorkItem);
-export const useResumeWorkItem = () => usePlanMutation(internal.resumeWorkItem);
-export const useFailWorkItem = () => usePlanMutation(internal.failWorkItem);
-export const useCancelWorkItem = () => usePlanMutation(internal.cancelWorkItem);
 export const useVerifyWorkItem = () => usePlanMutation(internal.verifyWorkItem);
 export const useCompleteRequest = () => usePlanMutation(internal.completeRequest);
 export const useAddTechnicianAction = () => usePlanMutation(internal.addTechnicianAction);
+export const useRecordRequestActivity = () => usePlanMutation(internal.recordRequestActivity);
 
 /** The same act for several people, run one by one; the outcome names each of them. */
 export const useExecuteServiceActions = () => {
@@ -243,7 +240,6 @@ export const useTechnicianOptions = (name: string, subjectKey: string | null) =>
     enabled: Boolean(name && subjectKey),
     staleTime: 0,
   });
-export const useAssignRequestTechnician = () => usePlanMutation(internal.assignRequestTechnician);
 
 
 

@@ -37,11 +37,13 @@ const RetireDeviceModal: React.FC<Props> = ({
 
   const [effectiveDate, setEffectiveDate] = useState(today());
   const [note, setNote] = useState('');
+  const [endServices, setEndServices] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setEffectiveDate(today());
     setNote('');
+    setEndServices(false);
     retire.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -54,6 +56,7 @@ const RetireDeviceModal: React.FC<Props> = ({
         device,
         effective_date: effectiveDate,
         note: note.trim() || undefined,
+        end_services: endServices ? 1 : 0,
       });
       onClose();
       onDone?.();
@@ -104,11 +107,24 @@ const RetireDeviceModal: React.FC<Props> = ({
           </p>
         </div>
 
-        <p className="text-sm font-medium text-slate-700">
-          {openServiceCount > 0
-            ? `${openServiceCount} open device service(s) will be ended.`
-            : 'No open device services.'}
-        </p>
+        {openServiceCount > 0 ? (
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+            <input
+              type="checkbox"
+              checked={endServices}
+              onChange={(event) => setEndServices(event.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-red-300 text-red-600"
+            />
+            <span>
+              <span className="block font-semibold">Also end this device's open services</span>
+              <span className="mt-0.5 block text-xs text-red-700">
+                {openServiceCount} open service{openServiceCount === 1 ? '' : 's'} will be ended.
+              </span>
+            </span>
+          </label>
+        ) : (
+          <p className="text-sm font-medium text-slate-700">No open device services.</p>
+        )}
 
         <div>
           <FieldLabel required>Effective date</FieldLabel>

@@ -1,4 +1,4 @@
-"""Somebody leaves the company: we record it, and nothing else moves on its own.
+"""Somebody leaves the company: we record it and follow the explicit service choice.
 
 Leaving does not hand a laptop back, does not cancel a licence and does not rewrite what was
 billed. Those are separate decisions, taken when somebody takes them. The person's page says
@@ -72,6 +72,27 @@ class TestDisabling(StatusCase):
         )
         self.assertEqual(row.operational_status, "Active")
         self.assertIsNone(row.effective_end_date)
+
+    def test_their_services_can_be_ended_explicitly(self):
+        device_service = self.make_service(f"STD{self.tag[:3]}", scope="Device")
+        self.cover_service(self.customer, device_service)
+        device_assignment = ServiceLifecycleService.activate(
+            customer=self.customer,
+            service_item=device_service,
+            target_scope="Device",
+            managed_device=self.laptop,
+            effective_date=frappe.utils.add_days(frappe.utils.today(), -10),
+        )["name"]
+        self.track("MSP Service Assignment", device_assignment)
+
+        out = UserService.disable_client_user(name=self.john, end_services=1)
+
+        self.assertCountEqual(out["closed_assignments"], [self.assignment, device_assignment])
+        for assignment in (self.assignment, device_assignment):
+            self.assertEqual(
+                frappe.db.get_value("MSP Service Assignment", assignment, "operational_status"),
+                "Ended",
+            )
 
     def test_the_laptop_stays_in_their_hands(self):
         UserService.disable_client_user(name=self.john)

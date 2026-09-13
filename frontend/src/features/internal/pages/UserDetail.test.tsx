@@ -327,7 +327,6 @@ describe('what needs looking at, and what is being done', () => {
             ],
             work_total: 5,
             work_done: 3,
-            technician: 'Peter',
           },
         ],
       })
@@ -358,7 +357,7 @@ describe('the past is asked for, not carried', () => {
 });
 
 describe('somebody leaving, and coming back', () => {
-  it('disables them from a day and for a reason, and says nothing else moves', async () => {
+  it('disables them while keeping service closure an explicit choice', async () => {
     const data = detail();
     await renderPage(data);
     vi.mocked(internal.disableClientUser).mockResolvedValue(data);
@@ -366,8 +365,8 @@ describe('somebody leaving, and coming back', () => {
     fireEvent.click(screen.getByRole('button', { name: /^disable$/i }));
 
     const dialog = await screen.findByRole('dialog');
-    expect(within(dialog).getByText(/nothing else changes on its own/i)).toBeInTheDocument();
-    expect(within(dialog).getByText(/stay open until you end them/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(/also end their open services/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(/services will stay open/i)).toBeInTheDocument();
 
     fireEvent.change(within(dialog).getByDisplayValue(/^\d{4}-\d{2}-\d{2}$/), {
       target: { value: '2026-09-01' },
@@ -379,6 +378,7 @@ describe('somebody leaving, and coming back', () => {
         name: data.user.name,
         effective_date: '2026-09-01',
         reason: 'Departure',
+        end_services: 0,
       })
     );
   });

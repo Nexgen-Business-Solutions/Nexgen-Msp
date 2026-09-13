@@ -48,6 +48,7 @@ const AddUserServiceModal: React.FC<Props> = ({
   const data = availability.data;
   const refusal = data?.target_reason ?? null;
   const available = data?.available ?? [];
+  const selectedOffer = available.find((item) => item.service_item === service);
   const nothingLeft = Boolean(data) && !refusal && available.length === 0;
 
   const submit = async () => {
@@ -72,7 +73,7 @@ const AddUserServiceModal: React.FC<Props> = ({
       icon={Layers}
       tone="blue"
       title="Add service"
-      subtitle="A personal service, opened on this person. The rate comes from the contract."
+      subtitle="Record the personal service now. Contract and pricing gaps can be resolved later."
       widthClass="max-w-lg"
       footer={
         <div className="flex items-center justify-end gap-2">
@@ -143,10 +144,21 @@ const AddUserServiceModal: React.FC<Props> = ({
                   value: item.service_item,
                   label: item.item_name,
                   description:
-                    item.service_scope === 'Both' ? 'User or device' : 'Billed per user',
+                    item.warning ??
+                    (item.service_scope === 'Both' ? 'User or device' : 'Billed per user'),
                 }))}
               />
             </div>
+
+            {selectedOffer?.warning && (
+              <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                <AlertCircle size={16} className="mt-0.5 shrink-0 text-amber-600" />
+                <div className="text-sm text-amber-900">
+                  <p className="font-semibold">Billing setup needs attention</p>
+                  <p className="mt-0.5">{selectedOffer.warning} The service will still be added.</p>
+                </div>
+              </div>
+            )}
 
             <div>
               <FieldLabel>Effective date</FieldLabel>

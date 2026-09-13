@@ -198,7 +198,7 @@
    "fieldname": "price_source",
    "fieldtype": "Select",
    "label": "Price Source",
-   "options": "Contract\nItem Price\nManual Override",
+   "options": "Contract\nItem Price\nManual Override\nUnpriced",
    "reqd": 1
   },
   {

@@ -10,6 +10,7 @@ type Props = {
   open: boolean;
   detail: UserDetail;
   onClose: () => void;
+  onDone?: (activity: { label: string; detail: string }) => void;
 };
 
 const REASONS = ['Departure', 'Role Change', 'Duplicate', 'Contract Ended', 'Other'];
@@ -20,7 +21,7 @@ const inputClass =
 const today = () => new Date().toISOString().slice(0, 10);
 
 /** Leaving, or coming back. Either way the person's status is the only thing that moves. */
-const UserStatusModal: React.FC<Props> = ({ open, detail, onClose }) => {
+const UserStatusModal: React.FC<Props> = ({ open, detail, onClose, onDone }) => {
   const disable = useDisableClientUser();
   const reactivate = useReactivateClientUser();
   const { user, summary } = detail;
@@ -28,11 +29,13 @@ const UserStatusModal: React.FC<Props> = ({ open, detail, onClose }) => {
 
   const [effectiveDate, setEffectiveDate] = useState(today());
   const [reason, setReason] = useState('Departure');
+  const [endServices, setEndServices] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setEffectiveDate(today());
     setReason('Departure');
+    setEndServices(false);
     disable.reset();
     reactivate.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -43,17 +46,30 @@ const UserStatusModal: React.FC<Props> = ({ open, detail, onClose }) => {
   const submit = async () => {
     try {
       if (leaving) {
-        await disable.mutateAsync({ name: user.name, effective_date: effectiveDate, reason });
+        await disable.mutateAsync({
+          name: user.name,
+          effective_date: effectiveDate,
+          reason,
+          end_services: endServices ? 1 : 0,
+        });
       } else {
         await reactivate.mutateAsync(user.name);
       }
       onClose();
+      onDone?.({
+        label: leaving ? 'User disabled' : 'User reactivated',
+        detail: leaving
+          ? endServices
+            ? 'The user was disabled and their open services were ended.'
+            : 'The user was disabled; their services were kept open.'
+          : 'The user was reactivated.',
+      });
     } catch {
       // surfaced below
     }
   };
 
-  const services = summary.active_personal_services;
+  const services = summary.active_personal_services + summary.active_device_services;
   const devices = summary.current_devices;
 
   return (
@@ -121,12 +137,28 @@ const UserStatusModal: React.FC<Props> = ({ open, detail, onClose }) => {
               </div>
             </div>
 
+            {services > 0 && (
+              <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+                <input
+                  type="checkbox"
+                  checked={endServices}
+                  onChange={(event) => setEndServices(event.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-red-300 text-red-600"
+                />
+                <span>
+                  <span className="block font-semibold">Also end their open services</span>
+                  <span className="mt-0.5 block text-xs text-red-700">
+                    This includes personal services and services on devices they currently hold.
+                  </span>
+                </span>
+              </label>
+            )}
+
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
-              <p className="font-medium text-slate-800">Nothing else changes on its own.</p>
+              <p className="font-medium text-slate-800">
+                {endServices ? 'Selected services will be ended.' : 'Services will stay open.'}
+              </p>
               <p className="mt-1">
-                {services > 0
-                  ? `${services} personal service(s) stay open until you end them.`
-                  : 'They have no open personal service.'}{' '}
                 {devices > 0
                   ? `${devices} device(s) stay in their hands until you take them back.`
                   : 'They hold no device.'}

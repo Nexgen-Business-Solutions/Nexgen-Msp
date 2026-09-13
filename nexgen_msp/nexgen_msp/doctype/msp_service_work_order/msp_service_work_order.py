@@ -15,12 +15,14 @@ SCOPE_FIELD = {
 SERVICE_ACTION = "Service Action"
 USER_SETUP = "User Setup"
 DEVICE_PROVISIONING = "Device Provisioning"
+CONTEXT_ACTION = "Context Action"
 
 # what each kind of work is allowed to be an act of
 WORK_ACTIONS = {
 	SERVICE_ACTION: ("Add", "Change", "Suspend", "Resume", "Remove"),
 	USER_SETUP: ("Create User",),
 	DEVICE_PROVISIONING: ("Assign Device", "Register Device", "Transfer Device"),
+	CONTEXT_ACTION: (),
 }
 
 # work that has been picked up: by then it must know what it is acting on
@@ -74,7 +76,16 @@ class MSPServiceWorkOrder(Document):
 		if self.work_type == DEVICE_PROVISIONING and not self.device_requirement_key:
 			frappe.throw(_("A device provisioning work order must say which machine it settles."))
 
+		if self.work_type == CONTEXT_ACTION and not self.activity_label:
+			frappe.throw(_("A context action must say what was changed."))
+
 	def validate_target_scope(self):
+		# Context actions only document something already performed from the request
+		# header.  ``subject_key`` keeps the recap grouped with the right person; it
+		# is not a service target and therefore does not need a duplicated link field.
+		if self.work_type == CONTEXT_ACTION:
+			return
+
 		required = SCOPE_FIELD.get(self.target_scope)
 
 		for fieldname in SCOPE_FIELD.values():

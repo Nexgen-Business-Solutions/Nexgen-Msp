@@ -1,8 +1,8 @@
 """The older doors onto a service, now that the domain stands behind them.
 
 Opening a service from a user's page, from a machine's page, or pausing one, no longer
-builds a record by hand: each asks the lifecycle service, and so inherits every commercial
-question it asks — the contract, the rate, the duplicate on that exact target. What is
+builds a record by hand: each asks the lifecycle service, and so inherits its structural
+checks and commercial annotations. What is
 checked here is that the doors really lead there, and that the two ownership mistakes they
 used to make are gone: a device service is never found as its holder's own, and a service
 the catalogue lets us sell either way asks only for what its real target needs.
@@ -13,8 +13,6 @@ import frappe
 from nexgen_msp.api.internal.services.device_service import DeviceService
 from nexgen_msp.api.internal.services.request_service import RequestService
 from nexgen_msp.api.internal.services.user_service import UserService
-from nexgen_msp.utils.errors import ValidationError
-
 from .base import MSPTestCase
 
 
@@ -70,31 +68,24 @@ class TestServiceCallers(MSPTestCase):
         self.assertEqual(frappe.utils.getdate(doc.effective_start_date), frappe.utils.getdate(self.today))
         self.assertIn(doc.price_source, ("Contract", "Item Price"))
 
-    def test_a_service_no_contract_covers_is_refused_at_the_door(self):
+    def test_a_service_no_contract_covers_is_still_opened(self):
         service = self.make_service("CX", scope="User")
 
-        with self.assertRaises(ValidationError) as caught:
-            UserService.assign_service(client_user=self.john, service_item=service)
+        UserService.assign_service(client_user=self.john, service_item=service)
 
-        self.assertIn("contract", caught.exception.message.lower())
-        self.assertEqual(
-            frappe.get_all(
-                "MSP Service Assignment",
-                filters={"customer": self.customer, "service_item": service},
-                pluck="name",
-            ),
-            [],
-            "nothing was opened for a service nobody signed for",
-        )
+        opened = self.opened(service, client_user=self.john)
+        self.assertEqual(opened.operational_status, "Active")
+        self.assertEqual(opened.price_source, "Unpriced")
 
-    def test_a_service_with_no_rate_on_file_is_refused_at_the_door(self):
+    def test_a_service_with_no_rate_on_file_is_opened_as_unpriced(self):
         service = self.make_service("CR", scope="User")
         self.cover_service(self.customer, service, rate=None)
 
-        with self.assertRaises(ValidationError) as caught:
-            UserService.assign_service(client_user=self.john, service_item=service)
+        UserService.assign_service(client_user=self.john, service_item=service)
 
-        self.assertIn("rate", caught.exception.message.lower())
+        opened = self.opened(service, client_user=self.john)
+        self.assertEqual(opened.operational_status, "Active")
+        self.assertEqual(opened.price_source, "Unpriced")
 
     # ----------------------------------------------------- opening from the machine
     def test_a_machine_on_the_shelf_takes_a_new_device_service(self):

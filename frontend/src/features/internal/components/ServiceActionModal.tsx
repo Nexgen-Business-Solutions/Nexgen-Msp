@@ -1,8 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { AlertCircle, CircleX, PauseCircle, PencilLine, PlayCircle } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
-import ConfirmModal from '@/shared/components/ConfirmModal';
-import { isBilledPeriod } from '@/shared/lib/billedPeriod';
 import FieldLabel from '@/shared/components/FieldLabel';
 import Select from '@/shared/components/Select';
 import type { CustomerRequestRef, UserServiceRow } from '@/lib/api/internal';
@@ -92,7 +90,6 @@ const ServiceActionModal: React.FC<Props> = ({
   const [actionDate, setActionDate] = useState(today());
   const [notes, setNotes] = useState('');
   const [sourceRequest, setSourceRequest] = useState('');
-  const [billedWarning, setBilledWarning] = useState<string | null>(null);
   const [replacement, setReplacement] = useState('');
 
   const changing = target?.action === 'Change';
@@ -106,7 +103,6 @@ const ServiceActionModal: React.FC<Props> = ({
     setActionDate(today());
     setNotes('');
     setSourceRequest(defaultRequest ?? '');
-    setBilledWarning(null);
     setReplacement('');
     change.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -119,7 +115,7 @@ const ServiceActionModal: React.FC<Props> = ({
   // closing behind what was already invoiced is allowed; the invoice itself stays as it is
   const closesBilledDays = target.action === 'End' && Boolean(billedTo) && actionDate <= (billedTo ?? '');
 
-  const submit = async (confirmBilled = false) => {
+  const submit = async () => {
     try {
       await change.mutateAsync({
         assignment: target.row.name,
@@ -127,17 +123,11 @@ const ServiceActionModal: React.FC<Props> = ({
         effective_date: actionDate,
         notes: notes.trim() || undefined,
         source_request: sourceRequest || undefined,
-        confirm_billed: confirmBilled ? 1 : undefined,
         service_item: changing && replacement ? replacement : undefined,
       });
-      setBilledWarning(null);
       onClose();
-    } catch (error) {
-      // an invoiced period is a warning to confirm, not a refusal
-      if (isBilledPeriod(error)) {
-        setBilledWarning(error.message);
-        change.reset();
-      }
+    } catch {
+      // surfaced by the error banner below
     }
   };
 
@@ -258,16 +248,6 @@ const ServiceActionModal: React.FC<Props> = ({
           </div>
         )}
       </div>
-      <ConfirmModal
-        open={Boolean(billedWarning)}
-        tone="warning"
-        title="This period is already invoiced"
-        description={billedWarning ?? ''}
-        confirmLabel="Go ahead"
-        loading={change.isLoading}
-        onCancel={() => setBilledWarning(null)}
-        onConfirm={() => submit(true)}
-      />
     </Modal>
   );
 };

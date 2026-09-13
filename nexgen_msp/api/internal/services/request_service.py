@@ -214,13 +214,6 @@ class RequestService:
                    )"""
             )
 
-        if scope == "mine":
-            conditions.append(
-                "sr.status in %(open_statuses)s and %(user)s in (sr.technical_approved_by, sr.owner)"
-            )
-            params["open_statuses"] = OPEN_STATUSES
-            params["user"] = frappe.session.user
-
         if priority:
             conditions.append("sr.priority = %(priority)s")
             params["priority"] = priority
@@ -515,11 +508,18 @@ class RequestService:
 
         for row in frappe.db.sql(
             """
-            select sa.client_user, sa.name, sa.operational_status,
+            select coalesce(sa.client_user, holder.client_user) as client_user,
+                   sa.name, sa.assignment_scope, sa.managed_device, device.hostname,
+                   sa.operational_status,
                    coalesce(item.item_name, sa.service_item) as service_name
             from `tabMSP Service Assignment` sa
             left join `tabItem` item on item.name = sa.service_item
-            where sa.client_user in %(people)s and sa.assignment_scope = 'User'
+            left join `tabMSP Managed Device` device on device.name = sa.managed_device
+            left join `tabMSP Device Holder` holder
+              on holder.parent = sa.managed_device
+             and holder.parenttype = 'MSP Managed Device'
+             and holder.is_current = 1
+            where coalesce(sa.client_user, holder.client_user) in %(people)s
               and sa.operational_status in ('Active', 'Suspended', 'Pending Removal', 'Pending Setup')
             order by service_name
             """,
@@ -528,7 +528,14 @@ class RequestService:
         ):
             if row.client_user in facts:
                 facts[row.client_user]["services"].append(
-                    {"name": row.name, "service_name": row.service_name, "status": row.operational_status}
+                    {
+                        "name": row.name,
+                        "service_name": row.service_name,
+                        "status": row.operational_status,
+                        "assignment_scope": row.assignment_scope,
+                        "managed_device": row.managed_device,
+                        "hostname": row.hostname,
+                    }
                 )
 
         for row in frappe.db.sql(

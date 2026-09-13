@@ -12,10 +12,12 @@
   "work_type",
   "origin",
   "technician_reason",
+  "activity_label",
   "plan_key",
   "customer",
   "column_break_wo",
   "action",
+  "request_action",
   "status",
   "section_target",
   "target_scope",
@@ -31,7 +33,6 @@
   "source_service_assignment",
   "effective_date",
   "section_scheduling",
-  "assigned_technician",
   "scheduled_date",
   "column_break_scheduling",
   "sla_due_date",
@@ -91,13 +92,20 @@
    "reqd": 0
   },
   {
+   "fieldname": "request_action",
+   "fieldtype": "Link",
+   "label": "Requested Action",
+   "options": "MSP Request Action",
+   "read_only": 1
+  },
+  {
    "default": "Open",
    "fieldname": "status",
    "fieldtype": "Select",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Open\nAssigned\nScheduled\nIn Progress\nAwaiting Verification\nCompleted\nBlocked\nFailed\nCancelled",
+   "options": "Open\nScheduled\nIn Progress\nAwaiting Verification\nCompleted\nBlocked\nFailed\nCancelled",
    "reqd": 1
   },
   {
@@ -156,13 +164,6 @@
    "fieldname": "section_scheduling",
    "fieldtype": "Section Break",
    "label": "Scheduling"
-  },
-  {
-   "fieldname": "assigned_technician",
-   "fieldtype": "Link",
-   "in_standard_filter": 1,
-   "label": "Assigned Technician",
-   "options": "User"
   },
   {
    "fieldname": "scheduled_date",
@@ -255,7 +256,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Work Type",
-   "options": "Service Action\nUser Setup\nDevice Provisioning",
+   "options": "Service Action\nUser Setup\nDevice Provisioning\nContext Action",
    "reqd": 1
   },
   {
@@ -321,6 +322,12 @@
    "fieldname": "technician_reason",
    "fieldtype": "Small Text",
    "label": "Technician Reason",
+   "read_only": 1
+  },
+  {
+   "fieldname": "activity_label",
+   "fieldtype": "Data",
+   "label": "Activity",
    "read_only": 1
   }
  ],

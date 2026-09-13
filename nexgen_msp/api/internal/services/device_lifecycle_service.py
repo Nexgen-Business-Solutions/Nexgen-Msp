@@ -146,8 +146,8 @@ class DeviceLifecycleService:
         return DeviceLifecycleService._outcome(doc)
 
     @staticmethod
-    def retire(device=None, effective_date=None, note=None):
-        """Take a machine out of service, and stop what it was still being billed for."""
+    def retire(device=None, effective_date=None, note=None, end_services=0):
+        """Take a machine out of service, optionally ending its open services."""
         RequestService._guard_internal()
 
         doc = DeviceLifecycleService._device(device)
@@ -167,7 +167,11 @@ class DeviceLifecycleService:
         if current:
             DeviceLifecycleService._after_history(doc, on_date)
 
-        closed = DeviceLifecycleService._end_device_services(doc, on_date)
+        closed = (
+            DeviceLifecycleService._end_device_services(doc, on_date)
+            if frappe.utils.cint(end_services)
+            else []
+        )
 
         # Ending a service can append a remark to the device and therefore update its
         # modification timestamp. Reload before writing the retirement itself while
@@ -194,8 +198,7 @@ class DeviceLifecycleService:
     def reinstate(device=None, effective_date=None, client_user=None, note=None):
         """Bring a machine back into service, onto the shelf or straight into somebody's hands.
 
-        What it used to be billed for is not brought back with it: those services were
-        ended, and starting them again is a decision somebody makes on purpose.
+        Services are left exactly as retirement recorded them. Nothing is restarted here.
         """
         RequestService._guard_internal()
 

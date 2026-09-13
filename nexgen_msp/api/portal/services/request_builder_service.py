@@ -133,8 +133,8 @@ class RequestBuilderService:
     def new_user_context(customer=None):
         """What can be asked for somebody who does not exist yet.
 
-        Nothing is held, so everything the contract covers is on offer — for the person and
-        for a machine a technician will identify later.
+        Nothing is held, so every compatible catalogue service is on offer — for the person
+        and for a machine a technician will identify later.
         """
         from nexgen_msp.api.internal.services.department_service import DepartmentService
         from nexgen_msp.api.portal.services.portal_service import PortalService
@@ -153,17 +153,12 @@ class RequestBuilderService:
 
     @staticmethod
     def _offered(customer, scope):
-        """Everything the contract lets this customer be sold at a given scope.
+        """Every compatible catalogue service at a given scope.
 
         Read against the customer rather than a target, because there is no target yet: a
         person who does not exist holds nothing, so nothing can be filtered out as already
         had.
         """
-        from nexgen_msp.api.internal.services.service_lifecycle_service import (
-            ServiceLifecycleService,
-        )
-        from nexgen_msp.utils.errors import NexgenError
-
         sellable = ("User", "Both") if scope == "User" else ("Device", "Both")
         offered = []
 
@@ -173,19 +168,16 @@ class RequestBuilderService:
             fields=["name", "item_name", "msp_service_scope"],
             order_by="item_name asc",
         ):
-            try:
-                ServiceLifecycleService._contract(customer, item.name)
-                ServiceLifecycleService._rate(
-                    customer, item.name, frappe.utils.getdate(frappe.utils.today())
-                )
-            except NexgenError:
-                continue
+            warning = ServiceAvailabilityService._commercial_warning(
+                customer, item.name, frappe.utils.getdate(frappe.utils.today())
+            )
 
             offered.append(
                 {
                     "service_item": item.name,
                     "item_name": item.item_name or item.name,
                     "service_scope": item.msp_service_scope,
+                    "warning": warning,
                     "allowed_request_actions": RequestBuilderService._actions_for(("Add",)),
                 }
             )
@@ -251,6 +243,7 @@ class RequestBuilderService:
             "service_item": row["service_item"],
             "item_name": row.get("item_name") or row["service_item"],
             "service_scope": row.get("service_scope"),
+            "warning": row.get("warning"),
             "allowed_request_actions": RequestBuilderService._actions_for(("Add",)),
         }
 

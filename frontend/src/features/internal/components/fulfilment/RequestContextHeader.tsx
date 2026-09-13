@@ -10,8 +10,11 @@ const Cell: React.FC<{ label: string; value: React.ReactNode }> = ({ label, valu
 );
 
 /** The request, kept in view at every step: who asked, for when, and what they wrote. */
-const RequestContextHeader: React.FC<{ context: RequestContext }> = ({ context }) => (
-  <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+const RequestContextHeader: React.FC<{ context: RequestContext; embedded?: boolean }> = ({
+  context,
+  embedded = false,
+}) => (
+  <section className={embedded ? '' : 'rounded-xl border border-slate-200 bg-white p-4 shadow-sm'}>
     <div>
       <p className="text-sm font-semibold text-slate-900">Request information</p>
       <p className="text-xs text-slate-500">Available throughout the fulfilment workflow</p>

@@ -468,6 +468,78 @@ class TestActingOnTheService(ExecutionCase):
         )
 
 
+class TestActionsAddedWhileWorking(ExecutionCase):
+    def test_configured_actions_keep_their_own_names_into_the_recap(self):
+        from nexgen_msp.api.internal.services.service_lifecycle_service import (
+            ServiceLifecycleService,
+        )
+
+        service = self.offering("DYN")
+        opened = ServiceLifecycleService.activate(
+            customer=self.customer,
+            service_item=service,
+            target_scope="User",
+            client_user=self.john,
+        )
+        self.track("MSP Service Assignment", opened["name"])
+        action_name = self.action("Suspend")
+
+        name = self.approved(self.line(self.offering("BASE")))
+        subject_key = frappe.db.get_value(
+            "MSP Service Request Line", {"parent": name}, "subject_key"
+        )
+        options = self.tech_does(
+            lambda: RequestExecutionService.technician_options(name, subject_key)["options"]
+        )
+        chosen = next(
+            row
+            for row in options
+            if row["request_action"] == action_name
+            and row["source_service_assignment"] == opened["name"]
+        )
+
+        plan = self.tech_does(
+            lambda: RequestExecutionService.add_technician_action(
+                request=name,
+                subject_key=subject_key,
+                option=chosen,
+                reason="Confirmed during fulfilment",
+            )
+        )
+        self.sweep(name)
+        extra = frappe.db.get_value(
+            WORK_ORDER,
+            {"service_request": name, "origin": "Technician", "request_action": action_name},
+            "name",
+        )
+        self.assertTrue(extra)
+
+        plan = self.tech_does(
+            lambda: RequestExecutionService.execute_service_action(work_order=extra)
+        )
+        self.assertTrue(any(action_name in row["title"] for row in plan["recap"]))
+
+    def test_a_profile_change_recorded_in_the_workflow_appears_in_the_recap(self):
+        name = self.approved(self.line(self.offering("PROFILE")))
+        subject_key = frappe.db.get_value(
+            "MSP Service Request Line", {"parent": name}, "subject_key"
+        )
+
+        plan = self.tech_does(
+            lambda: RequestExecutionService.record_context_action(
+                request=name,
+                subject_key=subject_key,
+                label="User information updated",
+                detail="John's department and email were updated.",
+            )
+        )
+        self.sweep(name)
+
+        entry = next(row for row in plan["recap"] if row["title"] == "User information updated")
+        self.assertIn("department", entry["detail"])
+        self.assertEqual(plan["outcome"]["context_done"], 1)
+
+
 class TestWhenSomethingGetsInTheWay(ExecutionCase):
     def test_failed_user_setup_rolls_back_the_person_and_request_links(self):
         name = self.approved(self.new_person_line(self.offering("TX1")))
@@ -799,37 +871,6 @@ class TestClosingTheFile(ExecutionCase):
         self.tech_does(lambda: RequestExecutionService.complete_request(request=name))
 
         self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Completed")
-
-
-class TestWhoIsDoingTheWork(ExecutionCase):
-    def test_taking_the_request_takes_everything_nobody_has_claimed(self):
-        name = self.approved(
-            self.new_person_line(self.offering("TC1")), self.new_person_line(self.offering("TC2"))
-        )
-
-        self.tech_does(lambda: RequestExecutionService.assign_technician(request=name))
-
-        assigned = frappe.get_all(
-            WORK_ORDER, filters={"service_request": name}, pluck="assigned_technician"
-        )
-
-        self.assertEqual(set(assigned), {self.tech})
-
-    def test_one_item_can_be_handed_to_somebody_else(self):
-        other = self.make_account("internal", "MSP Technician", suffix=f"eo{self.tag[:3]}")
-        name = self.approved(self.line(self.offering("TC3")))
-        job = self.work(name, "Service Action")
-
-        self.tech_does(lambda: RequestExecutionService.assign_technician(request=name))
-        self.tech_does(
-            lambda: RequestExecutionService.assign_technician(
-                work_order=job.name, technician=other
-            )
-        )
-
-        self.assertEqual(
-            frappe.db.get_value(WORK_ORDER, job.name, "assigned_technician"), other
-        )
 
 
 class TestTwoTechniciansOnTheSameJob(ExecutionCase):

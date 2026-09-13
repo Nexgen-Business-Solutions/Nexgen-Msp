@@ -37,12 +37,11 @@ const UserOpenRequests: React.FC<{
                   </li>
                 ))}
               </ul>
-              <p className="mt-1 text-xs text-slate-400">
-                {request.technician ? `Technician: ${request.technician}` : 'Nobody assigned yet'}
-                {request.work_total
-                  ? ` · ${request.work_done} of ${request.work_total} work items done`
-                  : ''}
-              </p>
+              {!!request.work_total && (
+                <p className="mt-1 text-xs text-slate-400">
+                  {request.work_done} of {request.work_total} work items done
+                </p>
+              )}
             </div>
             <StatusBadge value={request.status} />
           </button>

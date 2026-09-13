@@ -154,6 +154,8 @@ def execute_service_action(
     notes=None,
     customer_note=None,
     confirm_billed=0,
+    action=None,
+    service_item=None,
 ):
     return _execution().execute_service_action(
         work_order=work_order,
@@ -164,31 +166,9 @@ def execute_service_action(
         notes=notes,
         customer_note=customer_note,
         confirm_billed=confirm_billed,
+        action=action,
+        service_item=service_item,
     )
-
-
-@frappe.whitelist()
-@handle_errors
-def block_work_item(work_order=None, reason=None):
-    return _execution().block_work_item(work_order=work_order, reason=reason)
-
-
-@frappe.whitelist()
-@handle_errors
-def resume_work_item(work_order=None):
-    return _execution().resume_work_item(work_order=work_order)
-
-
-@frappe.whitelist()
-@handle_errors
-def fail_work_item(work_order=None, reason=None):
-    return _execution().fail_work_item(work_order=work_order, reason=reason)
-
-
-@frappe.whitelist()
-@handle_errors
-def cancel_work_item(work_order=None, reason=None):
-    return _execution().cancel_work_item(work_order=work_order, reason=reason)
 
 
 @frappe.whitelist()
@@ -215,6 +195,17 @@ def add_technician_action(name=None, subject_key=None, option=None, reason=None)
 
 @frappe.whitelist()
 @handle_errors
+def record_request_activity(name=None, subject_key=None, label=None, detail=None):
+    return _execution().record_context_action(
+        request=name,
+        subject_key=subject_key,
+        label=label,
+        detail=detail,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
 def verify_work_item(work_order=None, checklist=None, customer_note=None, notes=None):
     return _execution().verify_work_item(
         work_order=work_order, checklist=checklist, customer_note=customer_note, notes=notes
@@ -225,14 +216,6 @@ def verify_work_item(work_order=None, checklist=None, customer_note=None, notes=
 @handle_errors
 def complete_request(name=None):
     return _execution().complete_request(request=name)
-
-
-@frappe.whitelist()
-@handle_errors
-def assign_request_technician(name=None, work_order=None, technician=None):
-    return _execution().assign_technician(
-        request=name, work_order=work_order, technician=technician
-    )
 
 
 @frappe.whitelist()
@@ -939,7 +922,13 @@ def hand_over_device(device=None, client_user=None, on_date=None, note=None):
 @frappe.whitelist()
 @handle_errors
 def change_device_status(
-    device=None, action=None, status=None, effective_date=None, assigned_client_user=None, notes=None
+    device=None,
+    action=None,
+    status=None,
+    effective_date=None,
+    assigned_client_user=None,
+    notes=None,
+    end_services=0,
 ):
     return _devices().change_device_status(
         device=device,
@@ -948,6 +937,7 @@ def change_device_status(
         effective_date=effective_date,
         assigned_client_user=assigned_client_user,
         notes=notes,
+        end_services=end_services,
     )
 
 
@@ -1013,8 +1003,13 @@ def repossess_device(device=None, effective_date=None, note=None):
 
 @frappe.whitelist()
 @handle_errors
-def retire_device(device=None, effective_date=None, note=None):
-    return _device_lifecycle().retire(device=device, effective_date=effective_date, note=note)
+def retire_device(device=None, effective_date=None, note=None, end_services=0):
+    return _device_lifecycle().retire(
+        device=device,
+        effective_date=effective_date,
+        note=note,
+        end_services=end_services,
+    )
 
 
 @frappe.whitelist()
@@ -1576,10 +1571,25 @@ def update_client_user(
 
 @frappe.whitelist()
 @handle_errors
-def disable_client_user(name=None, effective_date=None, reason=None):
+def disable_client_user(name=None, effective_date=None, reason=None, end_services=0):
     from nexgen_msp.api.internal.services.user_service import UserService
 
-    return UserService.disable_client_user(name=name, effective_date=effective_date, reason=reason)
+    return UserService.disable_client_user(
+        name=name,
+        effective_date=effective_date,
+        reason=reason,
+        end_services=end_services,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def stop_all_client_user_services(name=None, effective_date=None, notes=None, source_request=None):
+    from nexgen_msp.api.internal.services.user_service import UserService
+
+    return UserService.stop_all_services(
+        name=name, effective_date=effective_date, notes=notes, source_request=source_request
+    )
 
 
 @frappe.whitelist()

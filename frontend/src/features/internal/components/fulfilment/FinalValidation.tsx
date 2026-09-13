@@ -1,13 +1,30 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { CheckCircle2 } from 'lucide-react';
 import type { ExecutionPlan } from '@/lib/api/internal';
 import { useCompleteRequest } from '../../hooks/useRequests';
 
 /** Step 4: say what the job came to, and close it. The request itself is never rewritten. */
-const FinalValidation: React.FC<{ plan: ExecutionPlan }> = ({ plan }) => {
+const FinalValidation: React.FC<{
+  plan: ExecutionPlan;
+  requestCompleted?: boolean;
+  onCompleted?: () => void;
+}> = ({ plan, requestCompleted = false, onCompleted }) => {
   const complete = useCompleteRequest();
+  const completionStarted = useRef(false);
   const outcome = plan.outcome;
-  const done = plan.status === 'Completed';
+  const done = requestCompleted || plan.status === 'Completed';
+
+  const completeRequest = async () => {
+    if (done || completionStarted.current) return;
+    completionStarted.current = true;
+
+    try {
+      await complete.mutateAsync({ name: plan.request });
+      onCompleted?.();
+    } catch {
+      completionStarted.current = false;
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -19,7 +36,11 @@ const FinalValidation: React.FC<{ plan: ExecutionPlan }> = ({ plan }) => {
         <p className="mt-1 text-sm">
           {outcome.requested_done} accepted request line{outcome.requested_done === 1 ? '' : 's'} completed ·{' '}
           {outcome.rejected} rejected · {outcome.technician_done} additional action
-          {outcome.technician_done === 1 ? '' : 's'} completed · {outcome.prepared} created or prepared.
+          {outcome.technician_done === 1 ? '' : 's'} completed · {outcome.prepared} created or prepared
+          {outcome.context_done
+            ? ` · ${outcome.context_done} profile change${outcome.context_done === 1 ? '' : 's'}`
+            : ''}
+          .
         </p>
       </div>
 
@@ -40,7 +61,7 @@ const FinalValidation: React.FC<{ plan: ExecutionPlan }> = ({ plan }) => {
             <button
               type="button"
               disabled={complete.isLoading}
-              onClick={() => complete.mutate({ name: plan.request })}
+              onClick={completeRequest}
               className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-emerald-600 px-5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-60"
             >
               <CheckCircle2 size={16} />

@@ -214,13 +214,14 @@ const AddDeviceModal: React.FC<Props> = ({
                 onChange={setExisting}
                 placeholder={
                   (fleet.data ?? []).length
-                    ? 'Search a hostname'
+                    ? 'Search a hostname or a serial'
                     : 'This customer has no other device'
                 }
                 options={(fleet.data ?? []).map((item) => ({
                   value: item.name,
                   label: item.hostname,
                   description: [
+                    item.serial_number,
                     item.holder_name ? `held by ${item.holder_name}` : 'held by nobody',
                     item.status !== 'Active' ? item.status.toLowerCase() : null,
                   ]

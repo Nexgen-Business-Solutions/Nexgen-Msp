@@ -64,9 +64,9 @@ const PersonHeader: React.FC<Props> = ({ fullName, facts, asked, isNew, children
             {facts.services.length
               ? facts.services
                   .map((service) =>
-                    service.status === 'Active'
-                      ? service.service_name
-                      : `${service.service_name} (${service.status})`
+                    `${service.service_name}${service.hostname ? ` · ${service.hostname}` : ''}${
+                      service.status === 'Active' ? '' : ` (${service.status})`
+                    }`
                   )
                   .join(', ')
               : '—'}

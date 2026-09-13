@@ -714,6 +714,7 @@ export type RequestServiceOffer = {
   service_item: string;
   item_name: string;
   service_scope: string | null;
+  warning?: string | null;
   allowed_request_actions: RequestAction[];
 };
 

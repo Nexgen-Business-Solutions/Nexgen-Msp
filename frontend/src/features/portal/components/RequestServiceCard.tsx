@@ -74,6 +74,7 @@ export const AvailableServiceRow: React.FC<{
   return (
     <button
       type="button"
+      title={offer.warning ?? undefined}
       onClick={() => (asked ? onUndo() : add && onAdd(add))}
       disabled={!add}
       className={`${chip} ${

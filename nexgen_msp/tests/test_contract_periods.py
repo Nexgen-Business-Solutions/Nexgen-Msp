@@ -11,7 +11,6 @@ import frappe
 from nexgen_msp.api.internal.services.contract_service import ContractService
 from nexgen_msp.api.internal.services.service_lifecycle_service import ServiceLifecycleService
 from nexgen_msp.api.portal.services.portal_service import PortalService
-from nexgen_msp.utils.errors import ValidationError
 
 from .base import MSPTestCase
 
@@ -121,13 +120,10 @@ class TestWhichContractHoldsOnADay(ContractCase):
 
         self.assertEqual(ServiceLifecycleService._contract(self.customer, self.m365, later), title)
 
-    def test_a_day_no_contract_covers_is_refused_and_says_so(self):
+    def test_a_day_no_contract_covers_returns_no_contract(self):
         before = frappe.utils.add_days(self.today, -200)
 
-        with self.assertRaises(ValidationError) as caught:
-            ServiceLifecycleService._contract(self.customer, self.m365, before)
-
-        self.assertIn("does not cover", str(caught.exception))
+        self.assertIsNone(ServiceLifecycleService._contract(self.customer, self.m365, before))
 
     def test_the_price_list_is_the_one_of_the_contract_holding_that_day(self):
         other = frappe.get_doc(

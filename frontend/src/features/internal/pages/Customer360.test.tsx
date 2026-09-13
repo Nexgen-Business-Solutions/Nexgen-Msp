@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as internal from '@/lib/api/internal';
@@ -130,7 +130,7 @@ describe('one page, whichever side is reading it', () => {
     expect(screen.queryByRole('button', { name: /contract and pricing/i })).not.toBeInTheDocument();
   });
 
-  it('lets a customer correct where they are and who to call', async () => {
+  it('lets a customer correct where they are', async () => {
     await renderPage(
       detail({
         can: {
@@ -177,24 +177,6 @@ describe('a record two companies share', () => {
     expect(screen.getByDisplayValue('1 High Street')).toBeDisabled();
   });
 
-  it('says so on the contact, and locks it', async () => {
-    await renderPage(
-      detail({
-        contact: {
-          name: 'CONT-1',
-          first_name: 'Marie',
-          last_name: null,
-          email_id: null,
-          phone: null,
-          shared: true,
-        },
-      })
-    );
-
-    expect(screen.getByText(/read-only here/i)).toBeInTheDocument();
-    expect(screen.getByDisplayValue('Marie')).toBeDisabled();
-  });
-
   it('never sends a shared record back to be saved', async () => {
     await renderPage(detail({ shared: { address: true } }));
 
@@ -205,12 +187,10 @@ describe('a record two companies share', () => {
   });
 });
 
-describe('a contact is not a doorway', () => {
-  it('says plainly that an email here grants nobody an account', async () => {
+describe('what the page leaves out', () => {
+  it('has no contact section', async () => {
     await renderPage(detail());
 
-    const panel = screen.getByText(/who to call/i).closest('section') as HTMLElement;
-
-    expect(within(panel).getByText(/grants nobody an account/i)).toBeInTheDocument();
+    expect(screen.queryByText(/who to call/i)).not.toBeInTheDocument();
   });
 });

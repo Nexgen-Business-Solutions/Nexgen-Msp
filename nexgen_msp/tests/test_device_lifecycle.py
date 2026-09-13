@@ -159,7 +159,7 @@ class TestDeviceLifecycle(MSPTestCase):
         DeviceLifecycleService.assign(device=self.device, client_user=self.alice)
         _, assignment = self.device_service_on(self.device)
 
-        out = DeviceLifecycleService.retire(device=self.device)
+        out = DeviceLifecycleService.retire(device=self.device, end_services=1)
         doc = self.reload()
 
         self.assertEqual(doc.status, "Retired")
@@ -178,6 +178,18 @@ class TestDeviceLifecycle(MSPTestCase):
         self.assertEqual(service.billing_status, "Ended")
         self.assertEqual(
             frappe.utils.getdate(service.effective_end_date), frappe.utils.getdate(self.today)
+        )
+
+    def test_retiring_can_leave_its_services_open(self):
+        DeviceLifecycleService.assign(device=self.device, client_user=self.alice)
+        _, assignment = self.device_service_on(self.device)
+
+        out = DeviceLifecycleService.retire(device=self.device)
+
+        self.assertEqual(out["closed_assignments"], [])
+        self.assertEqual(
+            frappe.db.get_value("MSP Service Assignment", assignment, "operational_status"),
+            "Active",
         )
 
     def test_retiring_a_machine_nobody_holds_is_fine(self):
@@ -212,7 +224,7 @@ class TestDeviceLifecycle(MSPTestCase):
     def test_reinstating_never_starts_the_services_that_were_ended_again(self):
         DeviceLifecycleService.assign(device=self.device, client_user=self.alice)
         service, assignment = self.device_service_on(self.device)
-        DeviceLifecycleService.retire(device=self.device)
+        DeviceLifecycleService.retire(device=self.device, end_services=1)
 
         DeviceLifecycleService.reinstate(device=self.device, client_user=self.alice)
 

@@ -272,3 +272,121 @@ class TestWhatIsKnownAboutEachPerson(FulfilmentCase):
         self.assertIn(opened["name"], [row["name"] for row in facts["services"]])
         self.assertIn(other, [row["name"] for row in facts["open_requests"]])
         self.assertNotIn(name, [row["name"] for row in facts["open_requests"]])
+
+
+class TestTheTechnicianDecidesTheAct(FulfilmentCase):
+    """The customer asks; what the service really needs is the technician's call."""
+
+    def running(self, suffix):
+        service = self.offering(suffix)
+        opened = self.tech_does(
+            lambda: ServiceLifecycleService.activate(
+                customer=self.customer,
+                service_item=service,
+                target_scope="User",
+                client_user=self.john,
+                effective_date=frappe.utils.add_days(frappe.utils.today(), -30),
+            )
+        )
+        self.track("MSP Service Assignment", opened["name"])
+
+        return service, opened["name"]
+
+    def test_a_closure_asked_for_can_be_carried_out_as_a_suspension(self):
+        service, assignment = self.running("TD1")
+        name = self.approved(self.line(service, action="Remove", source_service_assignment=assignment))
+        order = self.work(name, "Service Action").name
+
+        self.tech_does(
+            lambda: RequestExecutionService.execute_service_action(work_order=order, action="Suspend")
+        )
+        self.sweep(name)
+
+        self.assertEqual(
+            frappe.db.get_value("MSP Service Assignment", assignment, "operational_status"), "Suspended"
+        )
+        wo = frappe.db.get_value(WORK_ORDER, order, ["action", "status", "execution_notes"], as_dict=True)
+        self.assertEqual((wo.action, wo.status), ("Suspend", "Completed"))
+        self.assertIn("request asked for Remove", wo.execution_notes)
+        self.assertEqual(
+            frappe.db.get_value("MSP Service Request Line", {"parent": name}, "action"), "Remove"
+        )
+
+    def test_a_change_can_move_the_person_onto_another_service(self):
+        service, assignment = self.running("TD2")
+        other = self.offering("TD3")
+        name = self.approved(self.line(service, action="Change", source_service_assignment=assignment))
+        order = self.work(name, "Service Action").name
+
+        # closing the old period the day before is backdating, which is an administrator's call
+        RequestExecutionService.execute_service_action(
+            work_order=order, service_item=other, effective_date=frappe.utils.today()
+        )
+        self.sweep(name)
+
+        self.assertEqual(
+            frappe.db.get_value("MSP Service Assignment", assignment, "operational_status"), "Ended"
+        )
+        self.assertTrue(
+            frappe.db.exists(
+                "MSP Service Assignment",
+                {"client_user": self.john, "service_item": other, "operational_status": "Active"},
+            )
+        )
+
+    def test_something_asked_to_be_added_cannot_be_turned_into_another_act(self):
+        name = self.approved(self.line(self.offering("TD4")))
+        order = self.work(name, "Service Action").name
+
+        with self.assertRaises(Refused):
+            self.tech_does(
+                lambda: RequestExecutionService.execute_service_action(work_order=order, action="Remove")
+            )
+
+    def test_a_direct_act_citing_the_request_shows_in_its_recap(self):
+        service, assignment = self.running("TD5")
+        name = self.approved(self.line(self.offering("TD6")))
+
+        self.tech_does(
+            lambda: ServiceLifecycleService.suspend(assignment=assignment, source_request=name)
+        )
+
+        recap = self.plan(name)["recap"]
+        self.assertIn("technician", [row["kind"] for row in recap])
+        self.assertTrue(any("Suspended" in row["title"] for row in recap))
+
+
+class TestStoppingEveryServiceOfAPerson(FulfilmentCase):
+    def test_every_personal_service_closes_and_their_machine_keeps_its_own(self):
+        from nexgen_msp.api.internal.services.user_service import UserService
+
+        opened = []
+        for suffix in ("SA1", "SA2"):
+            service = self.offering(suffix)
+            out = ServiceLifecycleService.activate(
+                customer=self.customer, service_item=service, target_scope="User", client_user=self.john
+            )
+            opened.append(self.track("MSP Service Assignment", out["name"]))
+
+        laptop = self.make_device(self.customer, f"SA-{self.tag}", holder=self.john, serial=f"ZZTEST-SA-{self.tag}")
+        machine_service = self.offering("SA3", scope="Device")
+        on_machine = ServiceLifecycleService.activate(
+            customer=self.customer, service_item=machine_service, target_scope="Device", managed_device=laptop
+        )
+        self.track("MSP Service Assignment", on_machine["name"])
+
+        UserService.stop_all_services(name=self.john)
+
+        for assignment in opened:
+            self.assertEqual(
+                frappe.db.get_value("MSP Service Assignment", assignment, "operational_status"), "Ended"
+            )
+        self.assertEqual(
+            frappe.db.get_value("MSP Service Assignment", on_machine["name"], "operational_status"), "Active"
+        )
+
+    def test_nobody_with_nothing_to_stop_is_told_so(self):
+        from nexgen_msp.api.internal.services.user_service import UserService
+
+        with self.assertRaises(Refused):
+            UserService.stop_all_services(name=self.john)

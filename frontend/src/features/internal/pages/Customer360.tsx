@@ -7,9 +7,7 @@ import {
   FileText,
   Laptop,
   Lock,
-  Mail,
   MapPin,
-  Phone,
   Users,
 } from 'lucide-react';
 import FieldLabel from '@/shared/components/FieldLabel';
@@ -65,7 +63,6 @@ export default function Customer360() {
   const [website, setWebsite] = useState('');
   const [commercial, setCommercial] = useState<Record<string, string>>({});
   const [address, setAddress] = useState<Record<string, string>>({});
-  const [contact, setContact] = useState<Record<string, string>>({});
 
   const data = detail.data;
 
@@ -91,13 +88,6 @@ export default function Customer360() {
       phone: data.address?.phone ?? '',
       email_id: data.address?.email_id ?? '',
     });
-    setContact({
-      name: data.contact?.name ?? '',
-      first_name: data.contact?.first_name ?? '',
-      last_name: data.contact?.last_name ?? '',
-      email_id: data.contact?.email_id ?? '',
-      phone: data.contact?.phone ?? '',
-    });
   }, [data]);
 
   if (detail.isLoading) {
@@ -121,7 +111,6 @@ export default function Customer360() {
   const canEditProfile = data.can.edit_profile;
   const canEditCommercial = data.can.edit_commercial;
   const sharedAddress = data.shared.address;
-  const sharedContact = Boolean(data.contact?.shared);
 
   const submit = () =>
     save.mutate({
@@ -132,10 +121,6 @@ export default function Customer360() {
           ? { website }
           : {},
       address: canEditProfile && !sharedAddress ? address : undefined,
-      contact:
-        canEditProfile && !sharedContact
-          ? { ...contact, name: contact.name || undefined }
-          : undefined,
     });
 
   return (
@@ -248,41 +233,6 @@ export default function Customer360() {
               )}
             </div>
           </div>
-        </Panel>
-
-        <Panel title="Who to call" subtitle="The person we reach at this company.">
-          {sharedContact && (
-            <p className="mb-3 inline-flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-              <Lock size={13} className="mt-0.5 shrink-0 text-slate-400" />
-              This contact is shared with another company and is read-only here.
-            </p>
-          )}
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            {[
-              ['first_name', 'First name'],
-              ['last_name', 'Last name'],
-              ['email_id', 'Email'],
-              ['phone', 'Phone'],
-            ].map(([field, label]) => (
-              <div key={field}>
-                <FieldLabel>{label}</FieldLabel>
-                <input
-                  className={inputClass}
-                  value={contact[field] ?? ''}
-                  disabled={!canEditProfile || sharedContact}
-                  onChange={(event) =>
-                    setContact((current) => ({ ...current, [field]: event.target.value }))
-                  }
-                />
-              </div>
-            ))}
-          </div>
-
-          <p className="mt-3 text-xs text-slate-400">
-            An email here is how we reach them. It grants nobody an account: portal access is
-            handed out on the accounts screen.
-          </p>
 
           {canEditProfile && (
             <div className="mt-3">
@@ -296,6 +246,7 @@ export default function Customer360() {
             </div>
           )}
         </Panel>
+
       </div>
 
       {canEditCommercial && (
@@ -429,7 +380,7 @@ export default function Customer360() {
 
           <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
             <MapPin size={12} />
-            The address, the contact and the company are saved together or not at all.
+            The address and the company are saved together or not at all.
           </span>
         </div>
       )}
@@ -441,22 +392,6 @@ export default function Customer360() {
         </p>
       )}
 
-      {data.contact && (
-        <p className="flex flex-wrap items-center gap-x-4 text-xs text-slate-400">
-          {data.contact.email_id && (
-            <span className="inline-flex items-center gap-1">
-              <Mail size={11} />
-              {data.contact.email_id}
-            </span>
-          )}
-          {data.contact.phone && (
-            <span className="inline-flex items-center gap-1">
-              <Phone size={11} />
-              {data.contact.phone}
-            </span>
-          )}
-        </p>
-      )}
     </div>
   );
 }

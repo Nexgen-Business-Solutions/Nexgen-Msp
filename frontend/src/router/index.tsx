@@ -32,7 +32,6 @@ import InvoiceGuard from './guards/InvoiceGuard';
 import AdminGuard from './guards/AdminGuard';
 import CustomersList from '@/features/internal/pages/CustomersList';
 import ServicesList from '@/features/internal/pages/ServicesList';
-import Customer360 from '@/features/internal/pages/Customer360';
 import CustomerContract from '@/features/internal/pages/CustomerContract';
 import BillingRuns from '@/features/internal/pages/BillingRuns';
 import NewBillingRun from '@/features/internal/pages/NewBillingRun';
@@ -167,9 +166,12 @@ export const router = createBrowserRouter([
         ),
       },
       {
-        // one page, whichever side of the relationship is reading it
         path: 'customers/:customer',
-        element: <Customer360 />,
+        element: (
+          <AdminGuard>
+            <CustomerContract />
+          </AdminGuard>
+        ),
       },
       {
         path: 'customers/:customer/contract',

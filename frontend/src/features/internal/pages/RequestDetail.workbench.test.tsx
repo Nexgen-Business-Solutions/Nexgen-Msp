@@ -21,10 +21,9 @@ vi.mock('@/lib/api/internal', async (importOriginal) => {
     executeDeviceProvisioning: vi.fn(),
     executeServiceAction: vi.fn(),
     verifyWorkItem: vi.fn(),
-    blockWorkItem: vi.fn(),
-    resumeWorkItem: vi.fn(),
+    changeUserService: vi.fn(),
+    userServiceAvailability: vi.fn(),
     completeRequest: vi.fn(),
-    assignRequestTechnician: vi.fn(),
     setRequestLineStatus: vi.fn(),
     setRequestLineStatuses: vi.fn(),
     executeServiceActions: vi.fn(),
@@ -33,6 +32,8 @@ vi.mock('@/lib/api/internal', async (importOriginal) => {
     runRequestAction: vi.fn(),
     listCustomerDevices: vi.fn(),
     getDeviceFilterOptions: vi.fn(),
+    listCustomerRequests: vi.fn(),
+    stopAllClientUserServices: vi.fn(),
   };
 });
 
@@ -82,8 +83,6 @@ const card = (overrides: Partial<WorkCard>): WorkCard =>
     service_name: 'Microsoft 365',
     source_service_assignment: null,
     effective_date: '2026-09-15',
-    assigned_technician: null,
-    assigned_technician_name: null,
     execution_notes: null,
     customer_visible_note: null,
     failure_reason: null,
@@ -132,7 +131,6 @@ const plan = (overrides: Partial<ExecutionPlan> = {}): ExecutionPlan => ({
     lines: 1,
     details: 'Please prepare everything before Monday.',
     customer_approved: true,
-    technicians: [],
   },
   recap: [],
   outcome: { accepted: 1, rejected: 0, requested_done: 0, technician_added: 0, technician_done: 0, prepared: 0 },
@@ -238,6 +236,7 @@ const reviewing = (lines = [line(1), line(2)]) =>
 const renderPage = async (detail: RequestDetailData, work?: ExecutionPlan) => {
   vi.mocked(internal.getRequest).mockResolvedValue(detail);
   vi.mocked(internal.getRequestExecutionPlan).mockResolvedValue(work ?? plan());
+  vi.mocked(internal.listCustomerRequests).mockResolvedValue([] as never);
   vi.mocked(internal.getDeviceFilterOptions).mockResolvedValue({
     device_types: ['PC', 'Laptop'],
     interface_types: ['Ethernet'],
@@ -286,6 +285,7 @@ const renderPage = async (detail: RequestDetailData, work?: ExecutionPlan) => {
       <MemoryRouter initialEntries={['/msp/requests/SR-0001']}>
         <Routes>
           <Route path="/msp/requests/:name" element={<RequestDetail />} />
+          <Route path="/msp/requests" element={<div>Requests listing</div>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>
@@ -412,6 +412,82 @@ describe('step 1 — review lines', () => {
 });
 
 describe('step 2 — execute', () => {
+  it('lets the operator start the work directly without an assignment step', async () => {
+    await renderPage(request(), plan());
+
+    expect(screen.queryByRole('button', { name: /take the work/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/assigned technician/i)).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Add' })).toBeInTheDocument();
+    // the person's menu only: an Add line has nothing else to choose
+    expect(screen.getAllByTitle('More options')).toHaveLength(1);
+  });
+
+  it('offers the person the same direct actions as their page', async () => {
+    await renderPage(
+      request({
+        people: {
+          'CU-1': {
+            name: 'CU-1',
+            full_name: 'John Doe',
+            department: 'Accounting',
+            email: null,
+            username: 'j.doe',
+            lifecycle_status: 'Active',
+            start_date: '2025-01-01',
+            disabled_date: null,
+            devices: [],
+            services: [{ name: 'SA-1', service_name: 'Microsoft 365', status: 'Active' }],
+            open_requests: [],
+          },
+        },
+      } as never),
+      plan()
+    );
+
+    fireEvent.click((await screen.findAllByTitle('More options'))[0]);
+
+    for (const label of ['Add service', 'Assign device', 'Disable user', 'Stop all services']) {
+      expect(await screen.findByRole('button', { name: label })).toBeInTheDocument();
+    }
+    expect(screen.queryByRole('button', { name: /^actions$/i })).not.toBeInTheDocument();
+  });
+
+  it('lets the technician carry out another act than the one asked on a service line', async () => {
+    await renderPage(
+      request(),
+      plan({
+        groups: [
+          group({
+            services: [
+              card({
+                action: 'Suspend',
+                action_label: 'Suspend',
+                source_service_assignment: 'SA-1',
+                current: {
+                  name: 'SA-1',
+                  operational_status: 'Active',
+                  quantity: 1,
+                  effective_start_date: '2026-01-01',
+                  effective_end_date: null,
+                },
+              }),
+            ],
+          }),
+        ],
+      })
+    );
+
+    const menus = await screen.findAllByTitle('More options');
+    expect(menus).toHaveLength(2);
+    fireEvent.click(menus[1]);
+
+    expect(await screen.findByRole('button', { name: 'Change' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Resume' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^block$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /mark failed/i })).not.toBeInTheDocument();
+  });
+
   it('asks for the Client User first and creates it from a modal', async () => {
     const owed = plan({
       groups: [
@@ -518,46 +594,42 @@ describe('step 2 — execute', () => {
     expect(screen.getByText(/jane roe is disabled/i)).toBeInTheDocument();
   });
 
-  it('offers more actions from the server and marks what the technician adds as additional', async () => {
-    const option = {
-      key: 'VPN|Add|CU-1||',
-      service_item: 'VPN',
-      service_name: 'VPN',
-      action: 'Add',
-      action_label: 'Grant a service',
-      target_scope: 'User' as const,
-      managed_device: null,
-      device_label: null,
-      source_service_assignment: null,
-      current_state: 'Not assigned',
-    };
-    vi.mocked(internal.getTechnicianOptions).mockResolvedValue({ subject_key: 'user:CU-1', options: [option], reason: null });
-    const withExtra = plan({
-      groups: [group({ services: [card({}), card({ name: 'WO-EXTRA', service_item: 'VPN', service_name: 'VPN', origin: 'Technician', technician_reason: 'Remote work', request_line_name: null })] })],
-    });
-    vi.mocked(internal.addTechnicianAction).mockResolvedValue(withExtra);
-    await renderPage(request(), plan());
+  it('records the act the technician chose, not the one written on the line', async () => {
+    const work = plan({
+        groups: [
+          group({
+            services: [
+              card({
+                action: 'Suspend',
+                action_label: 'Suspend',
+                source_service_assignment: 'SA-1',
+                current: {
+                  name: 'SA-1',
+                  operational_status: 'Active',
+                  quantity: 1,
+                  effective_start_date: '2026-01-01',
+                  effective_end_date: null,
+                },
+              }),
+            ],
+          }),
+        ],
+      });
+    vi.mocked(internal.executeServiceAction).mockResolvedValue(work);
+    await renderPage(request(), work);
 
-    fireEvent.click(await screen.findByRole('button', { name: /more actions/i }));
+    fireEvent.click((await screen.findAllByTitle('More options'))[1]);
+    fireEvent.click(await screen.findByRole('button', { name: 'Close' }));
     const dialog = await screen.findByRole('dialog');
-    fireEvent.click(await within(dialog).findByRole('button', { name: /vpn · grant a service/i }));
-
-    const add = within(dialog).getByRole('button', { name: /add to execution/i });
-    expect(add).toBeDisabled();
-
-    fireEvent.change(within(dialog).getByLabelText('Technician note'), { target: { value: 'Remote work' } });
-    fireEvent.click(add);
+    expect(within(dialog).getByText(/it will be recorded as close/i)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByText('Close', { selector: 'button' }));
 
     await waitFor(() =>
-      expect(internal.addTechnicianAction).toHaveBeenCalledWith({
-        name: 'SR-0001',
-        subject_key: 'user:CU-1',
-        option,
-        reason: 'Remote work',
+      expect(vi.mocked(internal.executeServiceAction).mock.calls[0][0]).toMatchObject({
+        work_order: 'WO-0001',
+        action: 'Remove',
       })
     );
-    expect(await screen.findByText('Additional')).toBeInTheDocument();
-    expect(screen.getByText(/additional technician action · ready/i)).toBeInTheDocument();
   });
 });
 
@@ -584,8 +656,11 @@ describe('step 4 — final validation', () => {
     expect(await screen.findByText(/1 accepted request line completed · 1 rejected · 1 additional action completed/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /validate & complete request/i }));
+    fireEvent.click(screen.getByRole('button', { name: /validate & complete request/i }));
 
     await waitFor(() => expect(internal.completeRequest).toHaveBeenCalledWith({ name: 'SR-0001' }));
+    expect(internal.completeRequest).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText('Requests listing')).toBeInTheDocument();
   });
 });
 

@@ -1,14 +1,8 @@
 """What a person or a machine already has, what it may be given, and what it may not.
 
-The question a detail page asks is never "what is in the catalogue". It is "what can this
-exact target be given today", and the answer is a commercial one: the service has to be sold
-at this scope, a live contract has to cover it, a rate has to exist, and the target must not
-be holding it already. That is the same set of questions an activation asks, so it is asked
-here with the very same checks — this file decides nothing on its own, it only watches
-ServiceLifecycleService answer and writes down what it said.
-
-Nothing here writes. A blocked service stays blocked: knowing why is an administrator's
-reading, never a way to open it anyway.
+The question a detail page asks is never merely "what is in the catalogue". It is what this
+exact target already has and what can be recorded next. Missing commercial setup is shown as
+a warning beside the option; it does not remove the option or prevent the operation.
 """
 
 import frappe
@@ -21,7 +15,7 @@ from nexgen_msp.api.internal.services.service_lifecycle_service import (
     ServiceLifecycleService,
 )
 from nexgen_msp.utils.assignments import OPEN_ASSIGNMENT_STATUSES
-from nexgen_msp.utils.errors import NexgenError, NotFoundError, ValidationError
+from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 # what the catalogue allows to be sold at a given target scope
 SELLABLE_AT = {"User": ("User", "Both"), "Device": ("Device", "Both")}
@@ -130,12 +124,14 @@ class ServiceAvailabilityService:
                 # already had: neither an offer nor a refusal, it is simply in CURRENT
                 continue
 
-            reason = refusal or ServiceAvailabilityService._refusal(customer, item.name, on_date)
+            warning = ServiceAvailabilityService._commercial_warning(
+                customer, item.name, on_date
+            )
 
-            if not reason:
-                available.append(ServiceAvailabilityService._entry(item))
+            if not refusal:
+                available.append(ServiceAvailabilityService._entry(item, warning=warning))
             elif is_admin:
-                blocked.append(ServiceAvailabilityService._entry(item, reason=reason))
+                blocked.append(ServiceAvailabilityService._entry(item, reason=refusal))
 
         if is_admin:
             # the catalogue's other half, named for what it is rather than left unexplained
@@ -161,19 +157,18 @@ class ServiceAvailabilityService:
         }
 
     @staticmethod
-    def _refusal(customer, service_item, on_date):
-        """Why this service cannot be opened here today, in the words of the check itself.
+    def _commercial_warning(customer, service_item, on_date):
+        """Commercial gaps are visible context, never an operational refusal."""
+        warnings = []
 
-        The commercial questions are not re-asked in another voice: the activation checks are
-        run, and whatever they refuse with is what an administrator reads.
-        """
-        try:
-            ServiceLifecycleService._contract(customer, service_item, on_date)
-            ServiceLifecycleService._rate(customer, service_item, on_date)
-        except NexgenError as exc:
-            return exc.message
+        if not ServiceLifecycleService._contract(customer, service_item, on_date):
+            warnings.append("No active contract covers this service on the selected date.")
 
-        return None
+        pricing = ServiceLifecycleService._rate(customer, service_item, on_date)
+        if pricing.get("price_source") == "Unpriced":
+            warnings.append("No billing rate is on file yet.")
+
+        return " ".join(warnings) or None
 
     @staticmethod
     def _catalogue(scopes):
@@ -220,7 +215,7 @@ class ServiceAvailabilityService:
         return rows
 
     @staticmethod
-    def _entry(item, reason=None):
+    def _entry(item, reason=None, warning=None):
         entry = {
             "service_item": item.name,
             "item_name": item.item_name or item.name,
@@ -229,5 +224,7 @@ class ServiceAvailabilityService:
 
         if reason:
             entry["reason"] = reason
+        if warning:
+            entry["warning"] = warning
 
         return entry

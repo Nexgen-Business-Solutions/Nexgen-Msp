@@ -1,7 +1,7 @@
 """What a target may be given today, read the way a detail page reads it.
 
 Availability is a commercial answer, not a catalogue listing: the service has to be sold at
-this scope, covered by a live contract, priced, and not already held by this exact target.
+this scope and not already held by this exact target. Commercial gaps are warnings only.
 These tests ask the same questions from both ends — a person and a machine — and check that
 holding a service on one of them never uses it up on the other.
 """
@@ -110,19 +110,20 @@ class TestServiceAvailability(MSPTestCase):
         self.assertIn(service, self.codes(person_view["available"]))
         self.assertNotIn(service, self.codes(person_view["current"]))
 
-    def test_a_service_no_contract_covers_is_blocked_rather_than_offered(self):
+    def test_a_service_no_contract_covers_is_offered_with_a_billing_warning(self):
         service = self.make_service("NOCONTRACT", scope="Both")
         device = self.make_device(self.customer, "NOCON", holder=self.john, serial="ZZAVAIL4")
 
         person_view = ServiceAvailabilityService.for_user(self.john)
         device_view = ServiceAvailabilityService.for_device(device)
 
-        self.assertNotIn(service, self.codes(person_view["available"]))
-        self.assertNotIn(service, self.codes(device_view["available"]))
+        self.assertIn(service, self.codes(person_view["available"]))
+        self.assertIn(service, self.codes(device_view["available"]))
 
-        self.assertTrue(person_view["is_admin"])
-        self.assertIn("contract", (self.reason_for(person_view["blocked"], service) or "").lower())
-        self.assertIn("contract", (self.reason_for(device_view["blocked"], service) or "").lower())
+        person = next(row for row in person_view["available"] if row["service_item"] == service)
+        device_offer = next(row for row in device_view["available"] if row["service_item"] == service)
+        self.assertIn("contract", person["warning"].lower())
+        self.assertIn("contract", device_offer["warning"].lower())
 
     def test_a_machine_that_cannot_take_a_service_offers_none(self):
         service = self.make_service("RETIRED", scope="Device")
@@ -138,11 +139,13 @@ class TestServiceAvailability(MSPTestCase):
         self.assertIn("retired", (view["target_reason"] or "").lower())
         self.assertIn("retired", (self.reason_for(view["blocked"], service) or "").lower())
 
-    def test_a_covered_service_without_a_rate_is_blocked_rather_than_offered(self):
+    def test_a_covered_service_without_a_rate_is_offered_with_a_warning(self):
         service = self.make_service("NORATE", scope="User")
         self.cover_service(self.customer, service, rate=None)
 
         view = ServiceAvailabilityService.for_user(self.john)
 
-        self.assertNotIn(service, self.codes(view["available"]))
-        self.assertIn("rate", (self.reason_for(view["blocked"], service) or "").lower())
+        self.assertIn(service, self.codes(view["available"]))
+        offer = next(row for row in view["available"] if row["service_item"] == service)
+        self.assertIn("rate", offer["warning"].lower())
+        self.assertNotIn(service, self.codes(view["blocked"]))

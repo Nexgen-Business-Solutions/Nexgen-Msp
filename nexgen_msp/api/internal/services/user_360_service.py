@@ -492,20 +492,15 @@ class User360Service:
         rows = frappe.get_all(
             "MSP Service Work Order",
             filters={"service_request": request},
-            fields=["status", "assigned_technician"],
+            fields=["status"],
         )
 
         if not rows:
-            return {"work_total": 0, "work_done": 0, "technician": None}
-
-        technician = next((row.assigned_technician for row in rows if row.assigned_technician), None)
+            return {"work_total": 0, "work_done": 0}
 
         return {
             "work_total": len(rows),
             "work_done": len([row for row in rows if row.status in ("Completed", "Cancelled")]),
-            "technician": frappe.db.get_value("User", technician, "full_name")
-            if technician
-            else None,
         }
 
     # ------------------------------------------------------------------ what is wrong

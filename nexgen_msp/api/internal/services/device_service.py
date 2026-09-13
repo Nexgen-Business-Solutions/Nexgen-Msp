@@ -660,6 +660,7 @@ class DeviceService:
         effective_date=None,
         assigned_client_user=None,
         notes=None,
+        end_services=0,
     ):
         """Retire a machine or bring it back, through the lifecycle service."""
         RequestService._guard_internal()
@@ -678,7 +679,10 @@ class DeviceService:
                 )
 
             outcome = DeviceLifecycleService.retire(
-                device=device, effective_date=effective_date, note=notes
+                device=device,
+                effective_date=effective_date,
+                note=notes,
+                end_services=end_services,
             )
         else:
             outcome = DeviceLifecycleService.reinstate(

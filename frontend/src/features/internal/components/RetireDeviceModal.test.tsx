@@ -1,6 +1,6 @@
 import type { ComponentProps } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as internal from '@/lib/api/internal';
 import RetireDeviceModal from './RetireDeviceModal';
@@ -55,10 +55,19 @@ describe('RetireDeviceModal', () => {
     expect(screen.getByText(/jane doe/i)).toBeInTheDocument();
   });
 
-  it('states how many open device services will be ended', () => {
+  it('offers to end open services instead of doing it implicitly', async () => {
     renderModal({ openServiceCount: 3 });
 
-    expect(screen.getByText(/3 open device service\(s\) will be ended/i)).toBeInTheDocument();
+    const choice = screen.getByRole('checkbox', { name: /also end this device's open services/i });
+    expect(choice).not.toBeChecked();
+    fireEvent.click(choice);
+    fireEvent.click(screen.getByRole('button', { name: /retire device/i }));
+
+    await waitFor(() =>
+      expect(internal.retireDevice).toHaveBeenCalledWith(
+        expect.objectContaining({ device: 'DEV-001', end_services: 1 })
+      )
+    );
   });
 
   it('says there are no open device services when there are none', () => {

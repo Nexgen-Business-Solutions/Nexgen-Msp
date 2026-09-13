@@ -19,6 +19,8 @@ type Props = {
   actions?: React.ReactNode;
   /** the stepper, drawn under the title in the same panel */
   stepper?: React.ReactNode;
+  /** contextual facts that belong between the title and the steps */
+  context?: React.ReactNode;
 };
 
 /** The top of every workflow: where you are, how to leave, how to move on, and the steps. */
@@ -29,6 +31,7 @@ const WorkflowHeader: React.FC<Props> = ({
   backLabel = 'Back',
   actions,
   stepper,
+  context,
 }) => (
   <div className="overflow-hidden rounded-xl border border-slate-200 shadow-sm">
     <section className="bg-white">
@@ -53,6 +56,7 @@ const WorkflowHeader: React.FC<Props> = ({
         {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </div>
 
+      {context && <div className="border-t border-slate-100 px-6 py-3">{context}</div>}
       {stepper && <div className="px-6 pb-3">{stepper}</div>}
     </section>
   </div>

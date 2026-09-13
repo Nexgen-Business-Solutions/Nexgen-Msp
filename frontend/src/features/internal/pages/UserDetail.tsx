@@ -335,7 +335,7 @@ export default function UserDetail() {
         </div>
       </Panel>
 
-      <UserHistoryPanel name={user.name} recent={data.recent_activity} />
+      
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Panel title="Billing & coverage">
@@ -359,6 +359,7 @@ export default function UserDetail() {
           />
         </Panel>
       </div>
+      <UserHistoryPanel name={user.name} recent={data.recent_activity} />
 
       <AddUserServiceModal
         open={addingService}

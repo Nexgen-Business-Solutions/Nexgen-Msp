@@ -29,6 +29,7 @@ WORK_ORDER = "MSP Service Work Order"
 SERVICE_ACTION = "Service Action"
 USER_SETUP = "User Setup"
 DEVICE_PROVISIONING = "Device Provisioning"
+CONTEXT_ACTION = "Context Action"
 
 # the request has been decided and the work may exist
 PLANNABLE_STATUSES = ("Approved", "In Progress", "Completed")
@@ -146,6 +147,7 @@ class RequestExecutionService:
 			plan_key=f"{doc.name}:service:{row.name}",
 			work_type=SERVICE_ACTION,
 			action=row.action,
+			request_action=row.request_action,
 			target_scope="Device" if on_a_device else row.target_scope,
 			subject_key=row.subject_key,
 			device_requirement_key=row.device_requirement_key,
@@ -238,7 +240,9 @@ class RequestExecutionService:
 				"work_type",
 				"origin",
 				"technician_reason",
+				"activity_label",
 				"action",
+				"request_action",
 				"status",
 				"target_scope",
 				"subject_key",
@@ -250,7 +254,6 @@ class RequestExecutionService:
 				"service_item",
 				"source_service_assignment",
 				"effective_date",
-				"assigned_technician",
 				"execution_notes",
 				"customer_visible_note",
 				"failure_reason",
@@ -275,18 +278,14 @@ class RequestExecutionService:
 				fields=["name", "item_name"],
 			)
 		}
-		people = {
-			row.name: row.full_name
+		action_titles = {
+			row.name: row.title
 			for row in frappe.get_all(
-				"User",
+				"MSP Request Action",
 				filters={
-					"name": (
-						"in",
-						[order.assigned_technician for order in orders if order.assigned_technician]
-						or [""],
-					)
+					"name": ("in", [order.request_action for order in orders if order.request_action] or [""])
 				},
-				fields=["name", "full_name"],
+				fields=["name", "title"],
 			)
 		}
 		checklists = {}
@@ -301,7 +300,7 @@ class RequestExecutionService:
 
 		for order in orders:
 			order["service_name"] = labels.get(order.service_item) or order.service_item
-			order["assigned_technician_name"] = people.get(order.assigned_technician)
+			order["action_label"] = action_titles.get(order.request_action)
 			order["checklist"] = checklists.get(order.name, [])
 
 		return orders
@@ -397,10 +396,6 @@ class RequestExecutionService:
 		dates = sorted(
 			str(row.requested_effective_date) for row in doc.lines if row.requested_effective_date
 		)
-		technicians = sorted(
-			{order.assigned_technician_name for order in orders if order.assigned_technician_name}
-		)
-
 		return {
 			"customer": doc.customer,
 			"requester": doc.requester,
@@ -414,7 +409,6 @@ class RequestExecutionService:
 			"lines": len(doc.lines),
 			"details": doc.details,
 			"customer_approved": bool(doc.customer_approved_by) or doc.source == "Internal",
-			"technicians": technicians,
 		}
 
 	@staticmethod
@@ -455,9 +449,13 @@ class RequestExecutionService:
 				detail = " · ".join(
 					part for part in (device.get("hostname"), device.get("serial_number")) if part
 				)
+			elif order.work_type == CONTEXT_ACTION:
+				kind = "technician"
+				title = order.activity_label or "Record updated"
+				detail = order.execution_notes or ""
 			else:
 				kind = "technician" if order.origin == "Technician" else "requested"
-				title = f"{order.service_name} · {action_labels.get(order.action, order.action)}"
+				title = f"{order.service_name} · {order.action_label or action_labels.get(order.action, order.action)}"
 				target = (
 					(RequestExecutionService._device_card(order.managed_device) or {}).get("hostname")
 					if order.target_scope == "Device"
@@ -480,7 +478,80 @@ class RequestExecutionService:
 				}
 			)
 
-		return entries
+		return entries + RequestExecutionService._direct_acts(doc, orders, names, departments)
+
+	@staticmethod
+	def _direct_acts(doc, orders, names, departments):
+		"""What was done straight from a person's menu while this request was open.
+
+		Those acts go through the same lifecycle doors as everything else and cite the request
+		on the service's own history; that citation is what brings them into the recap. Acts
+		that carried out one of the work orders are already there and are not repeated.
+		"""
+		handled = {
+			name
+			for order in orders
+			for name in (order.resulting_assignment, order.source_service_assignment)
+			if name
+		}
+		subject_of = {}
+
+		for row in doc.lines:
+			if row.subject_key and row.client_user:
+				subject_of[row.client_user] = row.subject_key
+
+		for order in orders:
+			if order.subject_key and order.resulting_client_user:
+				subject_of[order.resulting_client_user] = order.subject_key
+
+		acts = []
+
+		for comment in frappe.get_all(
+			"Comment",
+			filters={
+				"comment_type": "Comment",
+				"reference_doctype": "MSP Service Assignment",
+				"content": ("like", f"%in reference to {doc.name}%"),
+			},
+			fields=["name", "reference_name", "content", "owner", "creation"],
+			order_by="creation asc",
+		):
+			if comment.reference_name in handled:
+				continue
+
+			assignment = frappe.db.get_value(
+				"MSP Service Assignment",
+				comment.reference_name,
+				["service_item", "client_user", "managed_device", "assignment_scope"],
+				as_dict=True,
+			)
+
+			if not assignment:
+				continue
+
+			person = assignment.client_user or frappe.db.get_value(
+				"MSP Managed Device", assignment.managed_device, "assigned_client_user"
+			)
+			subject = subject_of.get(person)
+			verb = (comment.content or "").split(" by ", 1)[0]
+
+			acts.append(
+				{
+					"work_order": comment.name,
+					"subject_key": subject,
+					"subject": names.get(subject)
+					or frappe.db.get_value("MSP Client User", person, "full_name"),
+					"department": departments.get(subject),
+					"kind": "technician",
+					"title": f"{frappe.db.get_value('Item', assignment.service_item, 'item_name') or assignment.service_item} · {verb}",
+					"detail": f"{assignment.assignment_scope} scope",
+					"reason": None,
+					"at": comment.creation,
+					"by": frappe.db.get_value("User", comment.owner, "full_name") or comment.owner,
+				}
+			)
+
+		return acts
 
 	@staticmethod
 	def _outcome(doc, orders):
@@ -499,7 +570,14 @@ class RequestExecutionService:
 				[o for o in services if o.origin == "Technician" and o.status in done]
 			),
 			"prepared": len(
-				[o for o in orders if o.work_type != SERVICE_ACTION and o.status in done]
+				[
+					o
+					for o in orders
+					if o.work_type in (USER_SETUP, DEVICE_PROVISIONING) and o.status in done
+				]
+			),
+			"context_done": len(
+				[o for o in orders if o.work_type == CONTEXT_ACTION and o.status in done]
 			),
 		}
 
@@ -617,7 +695,7 @@ class RequestExecutionService:
 			order.resulting_device or order.managed_device
 		)
 		card["current"] = RequestExecutionService._current_service(order)
-		card["action_label"] = RequestExecutionService._action_labels().get(
+		card["action_label"] = order.action_label or RequestExecutionService._action_labels().get(
 			order.action, order.action
 		)
 
@@ -626,12 +704,14 @@ class RequestExecutionService:
 	@staticmethod
 	def _current_service(order):
 		"""What the service being acted on is doing today, so the act is read in context."""
-		if order.work_type != SERVICE_ACTION or not order.source_service_assignment:
+		assignment = order.resulting_assignment or order.source_service_assignment
+
+		if order.work_type != SERVICE_ACTION or not assignment:
 			return None
 
 		return frappe.db.get_value(
 			"MSP Service Assignment",
-			order.source_service_assignment,
+			assignment,
 			[
 				"name",
 				"operational_status",
@@ -891,8 +971,15 @@ class RequestExecutionService:
 		notes=None,
 		customer_note=None,
 		confirm_billed=0,
+		action=None,
+		service_item=None,
 	):
 		"""Carry out the act one approved line asked for, through the service domain.
+
+		The customer asks; the technician decides what the service really needs. A line that
+		acts on a running service may be carried out as another act than the one written on
+		it — suspended instead of closed, moved onto another service — and the work order says
+		so, while the customer's line stays exactly as they wrote it.
 
 		Nothing about how a service opens, suspends or ends is decided here. The act is
 		named, the target is read from the work order, and the domain does the rest.
@@ -910,6 +997,18 @@ class RequestExecutionService:
 
 		if order.target_scope == "Device" and not order.managed_device:
 			raise ValidationError("The machine is not settled yet.", "VALIDATION_ERROR")
+
+		if action and action != order.action:
+			if action not in ("Suspend", "Resume", "Change", "Remove") or order.action == "Add":
+				raise ValidationError(
+					f"This work cannot be carried out as {action}.", "VALIDATION_ERROR"
+				)
+
+			notes = (
+				f"Carried out as {action}; the request asked for {order.action}."
+				+ (f" {notes}" if notes else "")
+			)
+			order.action = action
 
 		savepoint = "execute_service_action"
 		frappe.db.savepoint(savepoint)
@@ -969,6 +1068,7 @@ class RequestExecutionService:
 						assignment=assignment,
 						effective_date=on_date,
 						quantity=quantity,
+						service_item=service_item or None,
 						source_request=doc.name,
 						notes=notes,
 						_commit=False,
@@ -1064,7 +1164,15 @@ class RequestExecutionService:
 				"reason": "Create the Client User first.",
 			}
 
-		labels = RequestExecutionService._action_labels()
+		configured = {}
+		for action in frappe.get_all(
+			"MSP Request Action",
+			filters={"enabled": 1},
+			fields=["name", "title", "action_type", "description"],
+			order_by="sort_order asc, title asc",
+		):
+			configured.setdefault(action.action_type, []).append(action)
+
 		planned = {
 			(o.service_item, o.action, o.client_user or "", o.managed_device or "", o.source_service_assignment or "")
 			for o in RequestExecutionService._orders(doc.name)
@@ -1073,7 +1181,7 @@ class RequestExecutionService:
 		options = []
 
 		def offer(service_item, service_name, action, scope, device=None, device_label=None, assignment=None, state=None):
-			key = (
+			mechanical_key = (
 				service_item,
 				action,
 				person if scope == "User" else "",
@@ -1081,23 +1189,26 @@ class RequestExecutionService:
 				assignment or "",
 			)
 
-			if key in planned:
+			if mechanical_key in planned:
 				return
 
-			options.append(
-				{
-					"key": "|".join(key),
-					"service_item": service_item,
-					"service_name": service_name,
-					"action": action,
-					"action_label": labels.get(action, action),
-					"target_scope": scope,
-					"managed_device": device,
-					"device_label": device_label,
-					"source_service_assignment": assignment,
-					"current_state": state or "Not assigned",
-				}
-			)
+			for definition in configured.get(action, ()):
+				options.append(
+					{
+						"key": "|".join((*mechanical_key, definition.name)),
+						"service_item": service_item,
+						"service_name": service_name,
+						"action": action,
+						"request_action": definition.name,
+						"action_label": definition.title,
+						"description": definition.description,
+						"target_scope": scope,
+						"managed_device": device,
+						"device_label": device_label,
+						"source_service_assignment": assignment,
+						"current_state": state or "Not assigned",
+					}
+				)
 
 		reading = ServiceAvailabilityService.read_user(person)
 
@@ -1170,6 +1281,7 @@ class RequestExecutionService:
 			origin="Technician",
 			technician_reason=reason,
 			action=chosen["action"],
+			request_action=chosen["request_action"],
 			target_scope=chosen["target_scope"],
 			subject_key=subject_key,
 			device_requirement_key=f"device:{chosen['managed_device']}" if on_device else None,
@@ -1178,12 +1290,45 @@ class RequestExecutionService:
 			service_item=chosen["service_item"],
 			source_service_assignment=chosen["source_service_assignment"],
 			effective_date=frappe.utils.today(),
-			assigned_technician=frappe.session.user,
 		)
 
 		frappe.get_doc(WORK_ORDER, name).add_comment(
 			"Comment", f"Added by the technician: {reason}"
 		)
+		frappe.db.commit()
+
+		return RequestExecutionService.get_execution_plan(doc.name)
+
+	@staticmethod
+	def record_context_action(request=None, subject_key=None, label=None, detail=None):
+		"""Add an already-completed in-context change to this request's recap."""
+		RequestService._guard_internal()
+		doc = RequestExecutionService._request(request)
+
+		if doc.status not in ("Approved", "In Progress"):
+			raise ValidationError(
+				f"Activity can only be recorded while a request is being carried out; this one is {doc.status.lower()}.",
+				"INVALID_TRANSITION",
+			)
+
+		label = (label or "").strip()
+		if not label:
+			raise ValidationError("An activity label is required.", "VALIDATION_ERROR")
+
+		name = RequestExecutionService._work_order(
+			doc,
+			plan_key=f"{doc.name}:context:{frappe.generate_hash(length=12)}",
+			work_type=CONTEXT_ACTION,
+			origin="Technician",
+			action="",
+			subject_key=subject_key,
+			activity_label=label,
+			execution_notes=(detail or "").strip() or None,
+			status="Completed",
+			completed_by=frappe.session.user,
+			completed_at=frappe.utils.now_datetime(),
+		)
+		frappe.get_doc(WORK_ORDER, name).add_comment("Comment", label)
 		frappe.db.commit()
 
 		return RequestExecutionService.get_execution_plan(doc.name)
@@ -1764,41 +1909,6 @@ class RequestExecutionService:
 				"This request cannot be closed yet — " + "; ".join(waiting) + ".",
 				"VALIDATION_ERROR",
 			)
-
-	# ------------------------------------------------------------------ who is doing it
-	@staticmethod
-	def assign_technician(request=None, work_order=None, technician=None):
-		"""Name who is doing the work: one item, or everything nobody has taken."""
-		RequestService._guard_internal()
-
-		technician = technician or frappe.session.user
-
-		if not frappe.db.exists("User", technician):
-			raise NotFoundError(f"User {technician} not found.", "NOT_FOUND")
-
-		if work_order:
-			order = RequestExecutionService._order(work_order)
-			frappe.db.set_value(WORK_ORDER, order.name, "assigned_technician", technician)
-			frappe.db.commit()
-
-			return RequestExecutionService.get_execution_plan(order.service_request)
-
-		doc = RequestExecutionService._request(request)
-
-		for order in frappe.get_all(
-			WORK_ORDER,
-			filters={
-				"service_request": doc.name,
-				"assigned_technician": ("in", (None, "")),
-				"status": ("not in", FINISHED_STATUSES),
-			},
-			pluck="name",
-		):
-			frappe.db.set_value(WORK_ORDER, order, "assigned_technician", technician)
-
-		frappe.db.commit()
-
-		return RequestExecutionService.get_execution_plan(doc.name)
 
 	@staticmethod
 	def _order(work_order):

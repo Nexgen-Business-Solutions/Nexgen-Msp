@@ -773,13 +773,8 @@ class UserService:
         return UserService.get_user(name)
 
     @staticmethod
-    def disable_client_user(name=None, effective_date=None, reason=None):
-        """Record that somebody has left, from a stated day, and nothing else.
-
-        Their services, their machines and what was billed stay exactly as they are: leaving
-        does not return a laptop or cancel a licence by itself. What is still in their hands
-        is shown on their page as something to deal with, not undone behind anyone's back.
-        """
+    def disable_client_user(name=None, effective_date=None, reason=None, end_services=0):
+        """Record that somebody has left, optionally ending the services shown under them."""
         RequestService._guard_internal()
 
         doc = UserService._client_user(name)
@@ -794,13 +789,63 @@ class UserService:
         if reason and reason not in reasons:
             raise ValidationError(f"'{reason}' is not a reason we record.", "VALIDATION_ERROR")
 
+        on_date = frappe.utils.getdate(effective_date or frappe.utils.today())
         doc.lifecycle_status = "Disabled"
-        doc.disabled_date = frappe.utils.getdate(effective_date or frappe.utils.today())
+        doc.disabled_date = on_date
         doc.disabled_reason = reason or None
         doc.save()
+
+        closed = []
+        if frappe.utils.cint(end_services):
+            from nexgen_msp.api.internal.services.service_lifecycle_service import (
+                ServiceLifecycleService,
+            )
+
+            devices = frappe.get_all(
+                "MSP Device Holder",
+                filters={
+                    "client_user": doc.name,
+                    "is_current": 1,
+                    "parenttype": "MSP Managed Device",
+                },
+                pluck="parent",
+            )
+            assignments = set(
+                frappe.get_all(
+                    "MSP Service Assignment",
+                    filters={
+                        "client_user": doc.name,
+                        "operational_status": ("in", ("Active", "Suspended", "Pending Removal")),
+                    },
+                    pluck="name",
+                )
+            )
+            if devices:
+                assignments.update(
+                    frappe.get_all(
+                        "MSP Service Assignment",
+                        filters={
+                            "managed_device": ("in", devices),
+                            "operational_status": ("in", ("Active", "Suspended", "Pending Removal")),
+                        },
+                        pluck="name",
+                    )
+                )
+
+            for assignment in assignments:
+                ServiceLifecycleService.end(
+                    assignment=assignment,
+                    effective_date=on_date,
+                    notes=f"Ended when {doc.full_name} was disabled.",
+                    _commit=False,
+                )
+                closed.append(assignment)
+
         frappe.db.commit()
 
-        return UserService.get_user(name)
+        result = UserService.get_user(name)
+        result["closed_assignments"] = closed
+        return result
 
     @staticmethod
     def reactivate_client_user(name=None):
@@ -821,6 +866,48 @@ class UserService:
         frappe.db.commit()
 
         return UserService.get_user(name)
+
+    @staticmethod
+    def stop_all_services(name=None, effective_date=None, notes=None, source_request=None):
+        """Close every personal service a person still has, from one day, one by one.
+
+        Each one goes through the same door as closing it by hand. What runs on the machines
+        they hold stays with the machines.
+        """
+        from nexgen_msp.api.internal.services.service_lifecycle_service import (
+            ServiceLifecycleService,
+        )
+
+        RequestService._guard_internal()
+        doc = UserService._client_user(name)
+
+        open_services = frappe.get_all(
+            "MSP Service Assignment",
+            filters={
+                "client_user": doc.name,
+                "assignment_scope": "User",
+                "operational_status": ("in", ("Active", "Suspended", "Pending Removal")),
+            },
+            pluck="name",
+        )
+
+        if not open_services:
+            raise ValidationError(
+                f"{doc.full_name} has no personal service to stop.", "VALIDATION_ERROR"
+            )
+
+        for assignment in open_services:
+            ServiceLifecycleService.end(
+                assignment=assignment,
+                effective_date=effective_date,
+                source_request=source_request or None,
+                notes=notes,
+                _commit=False,
+            )
+
+        frappe.db.commit()
+
+        return UserService.get_user(doc.name)
 
     @staticmethod
     def _client_user(name):

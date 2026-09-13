@@ -44,6 +44,7 @@ const DeviceServiceModal: React.FC<Props> = ({ device, onClose }) => {
   // what this machine may be given is a backend reading, never a catalogue filtered here
   const refusal = availability.data?.target_reason ?? null;
   const available = refusal ? [] : (availability.data?.available ?? []);
+  const selectedOffer = available.find((item) => item.service_item === service);
 
   const submit = async () => {
     if (!device) return;
@@ -131,7 +132,8 @@ const DeviceServiceModal: React.FC<Props> = ({ device, onClose }) => {
                   value: item.service_item,
                   label: item.item_name,
                   description:
-                    item.service_scope === 'Both' ? 'User or device' : 'Billed per device',
+                    item.warning ??
+                    (item.service_scope === 'Both' ? 'User or device' : 'Billed per device'),
                 }))}
               />
             </div>
@@ -145,6 +147,16 @@ const DeviceServiceModal: React.FC<Props> = ({ device, onClose }) => {
               />
             </div>
           </div>
+
+          {selectedOffer?.warning && (
+            <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <AlertCircle size={16} className="mt-0.5 shrink-0 text-amber-600" />
+              <div className="text-sm text-amber-900">
+                <p className="font-semibold">Billing setup needs attention</p>
+                <p className="mt-0.5">{selectedOffer.warning} The service will still be added.</p>
+              </div>
+            </div>
+          )}
 
           <RequestReferenceField
             requests={data.customer_requests}

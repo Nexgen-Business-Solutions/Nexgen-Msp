@@ -185,6 +185,8 @@ const useUserMutation = <TVariables>(
       queryClient.invalidateQueries({ queryKey: ['internal', 'dashboard'] });
       // a service change moves the machine's row too, wherever it is being watched from
       queryClient.invalidateQueries({ queryKey: ['internal', 'devices'] });
+      // the same action may have been launched from a request workflow
+      queryClient.invalidateQueries({ queryKey: ['internal', 'requests'] });
     },
   });
 };
@@ -239,6 +241,8 @@ export const useDisableClientUser = () => useStatusChange(internal.disableClient
 
 export const useReactivateClientUser = () => useStatusChange(internal.reactivateClientUser);
 
+export const useStopAllServices = () => useStatusChange(internal.stopAllClientUserServices);
+
 export const useDeleteClientUser = () => {
   const queryClient = useQueryClient();
 
@@ -250,5 +254,4 @@ export const useDeleteClientUser = () => {
     },
   });
 };
-
 
