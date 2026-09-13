@@ -418,9 +418,8 @@ class RequestService:
             line["line_status"] = effective_line_status(line.get("line_status"), doc.status)
 
             # said per line so the technician sees what is still owed before being refused
-            # a closure for it. What is owed follows the target this line really resolved
-            # to, not what the catalogue merely allows: a 'Both' service landing on a
-            # machine never asks for a username.
+            # a closure for it. A personal service is owed a username, a machine service a
+            # serial, and a 'Both' service landing on a machine somebody holds is owed both.
             line["service_scope"] = RequestService._service_scope(line.get("requested_service"))
             target_scope = line.get("target_scope")
             line["needs_serial"] = bool(
@@ -429,9 +428,15 @@ class RequestService:
                 and not (line.get("device_serial") or "").strip()
             )
             line["needs_username"] = bool(
-                target_scope == "User"
-                and line.get("client_user")
-                and not (line.get("client_username") or "").strip()
+                not (line.get("client_username") or "").strip()
+                and (
+                    (target_scope == "User" and line.get("client_user"))
+                    or (
+                        target_scope == "Device"
+                        and line["service_scope"] == "Both"
+                        and line.get("device_holder")
+                    )
+                )
             )
 
         return {
@@ -755,25 +760,11 @@ class RequestService:
 
     @staticmethod
     def _service_scope(service_item):
-        """Declared on the Item; older services fall back to how they are already assigned."""
+        """Declared on the Item; left empty, the service may go to a person or a machine."""
         declared = frappe.db.get_value("Item", service_item, "msp_service_scope")
 
-        if declared:
-            return declared
-
-        row = frappe.db.sql(
-            """
-            select assignment_scope, count(*) as total
-            from `tabMSP Service Assignment`
-            where service_item = %(item)s
-            group by assignment_scope
-            order by total desc
-            limit 1
-            """,
-            {"item": service_item},
-            as_dict=True,
-        )
-        return row[0].assignment_scope if row else "User"
+        # a service that does not say where it is sold is sold to both
+        return declared or "Both"
 
     @staticmethod
     def _find_open_assignment(

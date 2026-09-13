@@ -139,7 +139,8 @@ class TestRequests(MSPTestCase):
 
 
 class TestBothScopeClosing(MSPTestCase):
-    """A service sold against a person or a machine asks for whichever it landed on."""
+    """A service sold to both asks a person for their username, a machine for its serial and
+    the username of whoever holds it."""
 
     def setUp(self):
         super().setUp()
@@ -183,7 +184,15 @@ class TestBothScopeClosing(MSPTestCase):
         self.assertTrue(line["needs_username"])
         self.assertFalse(line["needs_serial"])
 
-    def test_on_a_machine_it_asks_for_the_serial_only(self):
+    def test_on_a_machine_it_asks_for_the_serial_and_the_holder_s_username(self):
+        name = self.open_line("Device")
+        line = RequestService.get_request(name)["lines"][0]
+
+        self.assertTrue(line["needs_serial"])
+        self.assertTrue(line["needs_username"])
+
+    def test_on_a_machine_whose_holder_has_a_username_it_asks_for_the_serial_only(self):
+        frappe.db.set_value("MSP Client User", self.person, "username", f"h.{frappe.generate_hash(length=6)}")
         name = self.open_line("Device")
         line = RequestService.get_request(name)["lines"][0]
 

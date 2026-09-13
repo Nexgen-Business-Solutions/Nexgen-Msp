@@ -11,6 +11,7 @@ import {
   Play,
   PlayCircle,
   Settings2,
+  Undo2,
   UserCheck,
   UserPlus,
   UserRound,
@@ -39,6 +40,8 @@ import DeviceModal from './DeviceModal';
 import PersonHeader from './PersonHeader';
 import AddDeviceModal from '../AddDeviceModal';
 import AddUserServiceModal from '../AddUserServiceModal';
+import DeviceServiceModal from '../DeviceServiceModal';
+import RepossessDeviceModal from '../RepossessDeviceModal';
 import EditClientUserModal from '../EditClientUserModal';
 import StopAllServicesModal from '../StopAllServicesModal';
 import UserStatusModal from '../UserStatusModal';
@@ -131,8 +134,9 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
     action?: string;
   } | null>(null);
   const [acting, setActing] = useState<{
-    kind: 'service' | 'device' | 'edit' | 'status' | 'stop';
+    kind: 'service' | 'device' | 'edit' | 'status' | 'stop' | 'deviceService' | 'repossess';
     key: string;
+    machine?: PersonFacts['devices'][number];
     name: string;
     person: WorkPersonCard;
     facts: PersonFacts | null;
@@ -154,8 +158,8 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
 
   const personActions = (group: SubjectWorkGroup, facts: PersonFacts | null): RowAction[] => {
     const person = group.person as WorkPersonCard;
-    const open = (kind: NonNullable<typeof acting>['kind']) => () =>
-      setActing({ kind, key: group.subject_key, name: person.full_name ?? person.name ?? 'Client User', person, facts });
+    const open = (kind: NonNullable<typeof acting>['kind'], machine?: PersonFacts['devices'][number]) => () =>
+      setActing({ kind, key: group.subject_key, name: person.full_name ?? person.name ?? 'Client User', person, facts, machine });
     const disabled = (person.lifecycle_status ?? facts?.lifecycle_status) === 'Disabled';
     const hasServices = (facts?.services ?? []).some(
       (service) => service.assignment_scope !== 'Device' && OPEN.includes(service.status)
@@ -164,6 +168,13 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
     return [
       { label: 'Add service', icon: Layers, onClick: open('service'), disabled },
       { label: 'Assign device', icon: Laptop, onClick: open('device'), disabled },
+      ...(facts?.devices ?? []).flatMap((machine) => {
+        const label = machine.hostname ?? machine.serial_number ?? machine.name;
+        return [
+          { label: `Add service on ${label}`, icon: Layers, onClick: open('deviceService', machine) },
+          { label: `Repossess ${label}`, icon: Undo2, onClick: open('repossess', machine), danger: true },
+        ];
+      }),
       { label: 'Edit', icon: PencilLine, onClick: open('edit') },
       disabled
         ? { label: 'Reactivate user', icon: UserCheck, onClick: open('status') }
@@ -545,6 +556,20 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
                 detail: activity.detail,
               })
             }
+          />
+          <DeviceServiceModal
+            device={acting.kind === 'deviceService' ? acting.machine?.name ?? null : null}
+            defaultRequest={plan.request}
+            onClose={closeActing}
+          />
+          <RepossessDeviceModal
+            open={acting.kind === 'repossess'}
+            device={acting.machine?.name ?? ''}
+            hostname={acting.machine?.hostname ?? ''}
+            serialNumber={acting.machine?.serial_number}
+            currentHolder={acting.person.name}
+            currentHolderName={acting.name}
+            onClose={closeActing}
           />
           <StopAllServicesModal
             person={acting.kind === 'stop' ? { name: acting.person.name as string, full_name: acting.name } : null}

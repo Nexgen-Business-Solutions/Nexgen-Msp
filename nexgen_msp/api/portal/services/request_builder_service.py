@@ -164,10 +164,15 @@ class RequestBuilderService:
 
         for item in frappe.get_all(
             "Item",
-            filters={"disabled": 0, "is_stock_item": 0, "msp_service_scope": ("in", sellable)},
+            filters={"disabled": 0, "is_stock_item": 0},
             fields=["name", "item_name", "msp_service_scope"],
             order_by="item_name asc",
         ):
+            # a service that does not say where it is sold is sold to both
+            item.msp_service_scope = item.msp_service_scope or "Both"
+            if item.msp_service_scope not in sellable:
+                continue
+
             warning = ServiceAvailabilityService._commercial_warning(
                 customer, item.name, frappe.utils.getdate(frappe.utils.today())
             )

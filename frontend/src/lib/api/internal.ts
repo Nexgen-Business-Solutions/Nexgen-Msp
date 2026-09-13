@@ -244,6 +244,7 @@ export type WorkCard = {
   origin?: 'Request' | 'Technician' | null;
   technician_reason?: string | null;
   action_label?: string | null;
+  service_scope?: string | null;
   checklist: WorkChecklistItem[];
   ready: boolean;
   waiting_on: string | null;
@@ -1403,12 +1404,14 @@ export type DeviceContext = {
   device: {
     name: string;
     hostname: string;
+    serial_number?: string | null;
     device_type: string;
     status: string;
     customer: string;
     assigned_client_user: string | null;
   };
   user_name: string | null;
+  holder_username?: string | null;
   catalogue: { name: string; item_name: string; scope: string; already_open: boolean }[];
   customer_requests: CustomerRequestRef[];
 };
@@ -1441,6 +1444,8 @@ export const assignDeviceService = (payload: {
   effective_date?: string;
   notes?: string;
   source_request?: string;
+  serial_number?: string;
+  username?: string;
 }) => post<DeviceContext>(`${BASE}.assign_device_service`, payload);
 
 export const updateManagedDevice = (payload: {

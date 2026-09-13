@@ -553,6 +553,12 @@ class UserService:
                 "VALIDATION_ERROR",
             )
 
+        # a licence is issued against a username, a machine service against a serial
+        if scope == "User" or declared == "Both":
+            identifiers.require_username(user.name, username)
+        if scope == "Device":
+            identifiers.require_serial(device, serial_number)
+
         ServiceLifecycleService.activate(
             customer=user.customer,
             service_item=service_item,

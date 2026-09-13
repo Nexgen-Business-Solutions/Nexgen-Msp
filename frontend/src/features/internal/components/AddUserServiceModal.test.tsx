@@ -129,4 +129,45 @@ describe('AddUserServiceModal', () => {
       source_request: undefined,
     });
   });
+
+  it('asks for the username when the person has none, and sends it', async () => {
+    await renderModal(
+      availability({
+        available: [
+          { service_item: 'ITEM-M365', item_name: 'Microsoft 365', service_scope: 'User' },
+        ],
+      }),
+      { user: { ...user, username: null } }
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: /select a service/i }));
+    fireEvent.click(await screen.findByRole('option', { name: /microsoft 365/i }));
+    const activate = screen.getByRole('button', { name: /activate service/i });
+    expect(activate).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText('Username'), { target: { value: ' j.doe ' } });
+    fireEvent.click(activate);
+
+    await waitFor(() =>
+      expect(vi.mocked(internal.assignUserService).mock.calls[0][0]).toMatchObject({
+        service_item: 'ITEM-M365',
+        username: 'j.doe',
+      })
+    );
+  });
+
+  it('asks nothing more when the username is on file', async () => {
+    await renderModal(
+      availability({
+        available: [
+          { service_item: 'ITEM-M365', item_name: 'Microsoft 365', service_scope: 'User' },
+        ],
+      })
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: /select a service/i }));
+    fireEvent.click(await screen.findByRole('option', { name: /microsoft 365/i }));
+
+    expect(screen.queryByLabelText('Username')).not.toBeInTheDocument();
+  });
 });

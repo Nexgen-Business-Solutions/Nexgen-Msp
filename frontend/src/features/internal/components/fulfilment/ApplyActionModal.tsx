@@ -7,7 +7,7 @@ import { useUserServiceAvailability } from '../../hooks/useUsers';
 import { useDeviceServiceAvailability } from '../../hooks/useDevices';
 import type { SubjectWorkGroup, WorkCard } from '@/lib/api/internal';
 import { useExecuteServiceAction } from '../../hooks/useRequests';
-import { identifierMissing, inputClass } from '../../lib/fulfilmentStyles';
+import { identifiersMissing, inputClass } from '../../lib/fulfilmentStyles';
 
 type Props = {
   card: WorkCard | null;
@@ -23,7 +23,8 @@ const LABEL: Record<string, string> = { Suspend: 'Suspend', Resume: 'Resume', Ch
 const ApplyActionModal: React.FC<Props> = ({ card, person, action, onClose }) => {
   const run = useExecuteServiceAction();
   const [date, setDate] = useState('');
-  const [identifier, setIdentifier] = useState('');
+  const [username, setUsername] = useState('');
+  const [serial, setSerial] = useState('');
   const [replacement, setReplacement] = useState('');
 
   const act = action || card?.action || '';
@@ -37,7 +38,8 @@ const ApplyActionModal: React.FC<Props> = ({ card, person, action, onClose }) =>
   useEffect(() => {
     if (!card) return;
     setDate(card.effective_date ?? new Date().toISOString().slice(0, 10));
-    setIdentifier('');
+    setUsername('');
+    setSerial('');
     setReplacement('');
     run.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -46,7 +48,7 @@ const ApplyActionModal: React.FC<Props> = ({ card, person, action, onClose }) =>
   if (!card) return null;
 
   const onDevice = card.target_scope === 'Device';
-  const missing = !action && identifierMissing(card, person);
+  const needs = action ? { username: false, serial: false } : identifiersMissing(card, person);
   const label = chosenLabel ?? card.action_label ?? card.action;
 
   const submit = async () => {
@@ -56,8 +58,8 @@ const ApplyActionModal: React.FC<Props> = ({ card, person, action, onClose }) =>
         effective_date: date || undefined,
         action: action && action !== card.action ? action : undefined,
         service_item: changing && replacement ? replacement : undefined,
-        username: !onDevice && identifier.trim() ? identifier.trim() : undefined,
-        serial_number: onDevice && identifier.trim() ? identifier.trim() : undefined,
+        username: needs.username && username.trim() ? username.trim() : undefined,
+        serial_number: needs.serial && serial.trim() ? serial.trim() : undefined,
       });
       onClose();
     } catch {
@@ -88,7 +90,7 @@ const ApplyActionModal: React.FC<Props> = ({ card, person, action, onClose }) =>
           <button
             type="button"
             onClick={() => submit()}
-            disabled={run.isLoading || (missing && !identifier.trim()) || (changing && !!action && !replacement)}
+            disabled={run.isLoading || (needs.username && !username.trim()) || (needs.serial && !serial.trim()) || (changing && !!action && !replacement)}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
           >
             {run.isLoading ? 'Working…' : label}
@@ -119,15 +121,27 @@ const ApplyActionModal: React.FC<Props> = ({ card, person, action, onClose }) =>
             />
           </div>
         )}
-        {missing && (
+        {needs.serial && (
           <div>
-            <FieldLabel required>{onDevice ? 'Serial Number' : 'Username'}</FieldLabel>
+            <FieldLabel required>Serial Number</FieldLabel>
             <input
               className={inputClass}
-              value={identifier}
-              onChange={(event) => setIdentifier(event.target.value)}
-              placeholder={onDevice ? 'Read it off the machine' : 'The name on the licence'}
-              aria-label={onDevice ? 'Serial Number' : 'Username'}
+              value={serial}
+              onChange={(event) => setSerial(event.target.value)}
+              placeholder="Read it off the machine"
+              aria-label="Serial Number"
+            />
+          </div>
+        )}
+        {needs.username && (
+          <div>
+            <FieldLabel required>Username</FieldLabel>
+            <input
+              className={inputClass}
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+              placeholder="The name on the licence"
+              aria-label="Username"
             />
           </div>
         )}

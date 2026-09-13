@@ -34,6 +34,7 @@ const AddUserServiceModal: React.FC<Props> = ({
   const [effectiveDate, setEffectiveDate] = useState(today());
   const [notes, setNotes] = useState('');
   const [sourceRequest, setSourceRequest] = useState('');
+  const [username, setUsername] = useState('');
 
   useEffect(() => {
     if (!open) return;
@@ -41,6 +42,7 @@ const AddUserServiceModal: React.FC<Props> = ({
     setEffectiveDate(today());
     setNotes('');
     setSourceRequest(defaultRequest ?? '');
+    setUsername('');
     assign.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -50,6 +52,8 @@ const AddUserServiceModal: React.FC<Props> = ({
   const available = data?.available ?? [];
   const selectedOffer = available.find((item) => item.service_item === service);
   const nothingLeft = Boolean(data) && !refusal && available.length === 0;
+  // a personal service is issued against the username the person uses on it
+  const usernameMissing = !(user.username ?? '').trim();
 
   const submit = async () => {
     try {
@@ -59,6 +63,7 @@ const AddUserServiceModal: React.FC<Props> = ({
         effective_date: effectiveDate || undefined,
         notes: notes.trim() || undefined,
         source_request: sourceRequest || undefined,
+        username: usernameMissing ? username.trim() : undefined,
       });
       onClose();
     } catch {
@@ -87,7 +92,7 @@ const AddUserServiceModal: React.FC<Props> = ({
           <button
             type="button"
             onClick={submit}
-            disabled={!service || assign.isLoading}
+            disabled={!service || assign.isLoading || (usernameMissing && !username.trim())}
             className="flex min-w-[7rem] items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {assign.isLoading ? (
@@ -157,6 +162,19 @@ const AddUserServiceModal: React.FC<Props> = ({
                   <p className="font-semibold">Billing setup needs attention</p>
                   <p className="mt-0.5">{selectedOffer.warning} The service will still be added.</p>
                 </div>
+              </div>
+            )}
+
+            {usernameMissing && (
+              <div>
+                <FieldLabel required>Username</FieldLabel>
+                <input
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  placeholder="The username they use on this service"
+                  aria-label="Username"
+                  className={inputClass}
+                />
               </div>
             )}
 

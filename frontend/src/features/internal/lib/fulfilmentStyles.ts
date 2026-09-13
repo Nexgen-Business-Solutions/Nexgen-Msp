@@ -81,6 +81,22 @@ export const fmtStamp = (value?: string | null) => {
 };
 
 /** A service act that is issued against an account name or a serial the record does not have. */
-export const identifierMissing = (card: WorkCard, person: SubjectWorkGroup['person']) =>
-  ['Add', 'Change'].includes(card.action) &&
-  (card.target_scope === 'Device' ? !card.device?.serial_number : !person?.username);
+/** What a service is issued against: the username on a personal one, the serial on a machine,
+ * and both when it is sold to both and runs on a machine somebody holds. */
+export const identifiersMissing = (card: WorkCard, person: SubjectWorkGroup['person']) => {
+  const issuing = ['Add', 'Change'].includes(card.action);
+  const onDevice = card.target_scope === 'Device';
+
+  return {
+    serial: issuing && onDevice && !card.device?.serial_number,
+    username:
+      issuing &&
+      (!onDevice || (card.service_scope === 'Both' && Boolean(person?.name))) &&
+      !person?.username,
+  };
+};
+
+export const identifierMissing = (card: WorkCard, person: SubjectWorkGroup['person']) => {
+  const needs = identifiersMissing(card, person);
+  return needs.serial || needs.username;
+};

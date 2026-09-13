@@ -589,6 +589,9 @@ class ServiceLifecycleService:
                 f"{item.item_name or item.name} is stock, not a service.", "VALIDATION_ERROR"
             )
 
+        # a service that does not say where it is sold is sold to both
+        item.msp_service_scope = item.msp_service_scope or "Both"
+
         if item.msp_service_scope not in TARGET_SCOPES + ("Both",):
             raise ValidationError(
                 f"{item.item_name or item.name} does not say where it may be sold. Set its "

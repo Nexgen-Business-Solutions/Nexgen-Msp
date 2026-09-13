@@ -435,7 +435,7 @@ describe('step 2 — execute', () => {
             lifecycle_status: 'Active',
             start_date: '2025-01-01',
             disabled_date: null,
-            devices: [],
+            devices: [{ name: 'DEV-1', hostname: 'KV-JDOE', serial_number: 'SN-1', device_type: 'PC', from_date: null }],
             services: [{ name: 'SA-1', service_name: 'Microsoft 365', status: 'Active' }],
             open_requests: [],
           },
@@ -446,7 +446,14 @@ describe('step 2 — execute', () => {
 
     fireEvent.click((await screen.findAllByTitle('More options'))[0]);
 
-    for (const label of ['Add service', 'Assign device', 'Disable user', 'Stop all services']) {
+    for (const label of [
+      'Add service',
+      'Assign device',
+      'Add service on KV-JDOE',
+      'Repossess KV-JDOE',
+      'Disable user',
+      'Stop all services',
+    ]) {
       expect(await screen.findByRole('button', { name: label })).toBeInTheDocument();
     }
     expect(screen.queryByRole('button', { name: /^actions$/i })).not.toBeInTheDocument();

@@ -12,6 +12,7 @@ import {
 
 type Props = {
   device: string | null;
+  defaultRequest?: string;
   onClose: () => void;
 };
 
@@ -20,7 +21,7 @@ const inputClass =
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-const DeviceServiceModal: React.FC<Props> = ({ device, onClose }) => {
+const DeviceServiceModal: React.FC<Props> = ({ device, defaultRequest, onClose }) => {
   const context = useDeviceContext(device);
   const availability = useDeviceServiceAvailability(device);
   const assign = useAssignDeviceService();
@@ -29,13 +30,17 @@ const DeviceServiceModal: React.FC<Props> = ({ device, onClose }) => {
   const [effectiveDate, setEffectiveDate] = useState(today());
   const [notes, setNotes] = useState('');
   const [sourceRequest, setSourceRequest] = useState('');
+  const [serial, setSerial] = useState('');
+  const [username, setUsername] = useState('');
 
   useEffect(() => {
     if (!device) return;
     setService('');
     setEffectiveDate(today());
     setNotes('');
-    setSourceRequest('');
+    setSourceRequest(defaultRequest ?? '');
+    setSerial('');
+    setUsername('');
     assign.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [device]);
@@ -45,6 +50,13 @@ const DeviceServiceModal: React.FC<Props> = ({ device, onClose }) => {
   const refusal = availability.data?.target_reason ?? null;
   const available = refusal ? [] : (availability.data?.available ?? []);
   const selectedOffer = available.find((item) => item.service_item === service);
+  // a machine service is issued against the serial engraved on the machine
+  const serialMissing = Boolean(data) && !(data?.device.serial_number ?? '').trim();
+  // sold to both, it is also issued against the username of whoever holds the machine
+  const usernameMissing =
+    selectedOffer?.service_scope === 'Both' &&
+    Boolean(data?.device.assigned_client_user) &&
+    !(data?.holder_username ?? '').trim();
 
   const submit = async () => {
     if (!device) return;
@@ -56,6 +68,8 @@ const DeviceServiceModal: React.FC<Props> = ({ device, onClose }) => {
         effective_date: effectiveDate || undefined,
         notes: notes.trim() || undefined,
         source_request: sourceRequest || undefined,
+        serial_number: serialMissing ? serial.trim() : undefined,
+        username: usernameMissing ? username.trim() : undefined,
       });
       onClose();
     } catch {
@@ -88,7 +102,7 @@ const DeviceServiceModal: React.FC<Props> = ({ device, onClose }) => {
           <button
             type="button"
             onClick={submit}
-            disabled={!service || assign.isLoading}
+            disabled={!service || assign.isLoading || (serialMissing && !serial.trim()) || (usernameMissing && !username.trim())}
             className="flex min-w-[7rem] items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {assign.isLoading ? (
@@ -137,6 +151,32 @@ const DeviceServiceModal: React.FC<Props> = ({ device, onClose }) => {
                 }))}
               />
             </div>
+            {usernameMissing && (
+              <div>
+                <FieldLabel required>Username</FieldLabel>
+                <input
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  placeholder="The username they use on this service"
+                  aria-label="Username"
+                  className={inputClass}
+                />
+              </div>
+            )}
+
+            {serialMissing && (
+              <div>
+                <FieldLabel required>Serial Number</FieldLabel>
+                <input
+                  value={serial}
+                  onChange={(event) => setSerial(event.target.value)}
+                  placeholder="Read it off the machine"
+                  aria-label="Serial Number"
+                  className={inputClass}
+                />
+              </div>
+            )}
+
             <div>
               <FieldLabel>Effective date</FieldLabel>
               <input

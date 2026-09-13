@@ -2,6 +2,7 @@ import frappe
 
 from nexgen_msp.api.internal.services.contract_service import ContractService
 from nexgen_msp.utils import device_holders as holders
+from nexgen_msp.utils import identifiers
 from nexgen_msp.utils import remarks as remarks_util
 
 
@@ -234,7 +235,7 @@ class DeviceService:
         doc = frappe.db.get_value(
             "MSP Managed Device",
             device,
-            ["name", "hostname", "device_type", "status", "customer", "assigned_client_user"],
+            ["name", "hostname", "serial_number", "device_type", "status", "customer", "assigned_client_user"],
             as_dict=True,
         )
 
@@ -266,6 +267,11 @@ class DeviceService:
 
         return {
             "device": doc,
+            "holder_username": frappe.db.get_value(
+                "MSP Client User", doc.assigned_client_user, "username"
+            )
+            if doc.assigned_client_user
+            else None,
             "user_name": frappe.db.get_value("MSP Client User", doc.assigned_client_user, "full_name")
             if doc.assigned_client_user
             else None,
@@ -499,7 +505,13 @@ class DeviceService:
 
     @staticmethod
     def assign_device_service(
-        device=None, service_item=None, effective_date=None, notes=None, source_request=None
+        device=None,
+        service_item=None,
+        effective_date=None,
+        notes=None,
+        source_request=None,
+        serial_number=None,
+        username=None,
     ):
         """Open a device-scoped service straight on the machine.
 
@@ -517,7 +529,7 @@ class DeviceService:
             raise ValidationError("device and service_item are required.", "VALIDATION_ERROR")
 
         doc = frappe.db.get_value(
-            "MSP Managed Device", device, ["name", "customer", "status"], as_dict=True
+            "MSP Managed Device", device, ["name", "customer", "status", "assigned_client_user"], as_dict=True
         )
 
         if not doc:
@@ -528,6 +540,12 @@ class DeviceService:
                 f"{service_item} is billed per user — assign it from the user's profile.",
                 "VALIDATION_ERROR",
             )
+
+        identifiers.require_serial(device, serial_number)
+
+        # a service sold to both is issued against the machine and the person holding it
+        if RequestService._service_scope(service_item) == "Both" and doc.assigned_client_user:
+            identifiers.require_username(doc.assigned_client_user, username)
 
         ServiceLifecycleService.activate(
             customer=doc.customer,

@@ -830,7 +830,13 @@ def get_device(device=None):
 @frappe.whitelist()
 @handle_errors
 def assign_device_service(
-    device=None, service_item=None, effective_date=None, notes=None, source_request=None
+    device=None,
+    service_item=None,
+    effective_date=None,
+    notes=None,
+    source_request=None,
+    serial_number=None,
+    username=None,
 ):
     return _devices().assign_device_service(
         device=device,
@@ -838,6 +844,8 @@ def assign_device_service(
         effective_date=effective_date,
         notes=notes,
         source_request=source_request,
+        serial_number=serial_number,
+        username=username,
     )
 
 

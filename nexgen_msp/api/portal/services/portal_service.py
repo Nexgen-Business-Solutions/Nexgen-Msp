@@ -771,7 +771,7 @@ class PortalService:
 
         for line in lines:
             line["service_scope"] = (
-                frappe.db.get_value("Item", line.get("requested_service"), "msp_service_scope") or "User"
+                frappe.db.get_value("Item", line.get("requested_service"), "msp_service_scope") or "Both"
             )
             line["line_status"] = effective_line_status(line.get("line_status"), doc.status)
 
@@ -920,7 +920,7 @@ class PortalService:
         """A device service is requested against a device; a user service against a person."""
         line = dict(line)
         service = line.get("requested_service")
-        scope = frappe.db.get_value("Item", service, "msp_service_scope") or "User"
+        scope = frappe.db.get_value("Item", service, "msp_service_scope") or "Both"
         device = line.get("managed_device")
 
         if line.get("is_new_user"):
@@ -1448,7 +1448,7 @@ class PortalService:
         )
 
         for item in items:
-            item["scope"] = item.pop("msp_service_scope", None) or "User"
+            item["scope"] = item.pop("msp_service_scope", None) or "Both"
 
         return {"items": items, "count": len(items), "has_contract": has_contract}
 

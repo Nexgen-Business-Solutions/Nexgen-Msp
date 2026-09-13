@@ -21,6 +21,10 @@ class TestServiceCallers(MSPTestCase):
         super().setUp()
         self.customer = self.make_customer()
         self.john = self.make_person(self.customer, "John")
+        # a personal service is issued against the username the person uses on it
+        frappe.db.set_value(
+            "MSP Client User", self.john, "username", f"j.{frappe.generate_hash(length=6)}"
+        )
         self.today = frappe.utils.today()
 
     def tearDown(self):
@@ -247,14 +251,14 @@ class TestServiceCallers(MSPTestCase):
 
         return RequestService.get_request(doc.name)["lines"][0]
 
-    def test_a_both_service_landing_on_a_machine_is_never_asked_for_a_username(self):
+    def test_a_both_service_landing_on_a_machine_asks_for_the_holder_s_username(self):
         service = self.offering("CBD", scope="Both")
         device = self.make_device(self.customer, hostname="BOTHD", holder=self.john, serial="ZZTEST-SN-CBD")
-        self.assertFalse(frappe.db.get_value("MSP Client User", self.john, "username"))
+        frappe.db.set_value("MSP Client User", self.john, "username", None)
 
         line = self.owed_on(service, target_scope="Device", managed_device=device)
 
-        self.assertFalse(line["needs_username"])
+        self.assertTrue(line["needs_username"], "sold to both, it is issued against the holder too")
         self.assertFalse(line["needs_serial"], "this machine already carries its serial")
 
     def test_a_both_service_landing_on_a_person_is_never_asked_for_a_serial(self):

@@ -173,16 +173,18 @@ class ServiceAvailabilityService:
     @staticmethod
     def _catalogue(scopes):
         """Every service the catalogue still sells at these scopes."""
-        return frappe.get_all(
+        items = frappe.get_all(
             "Item",
-            filters={
-                "disabled": 0,
-                "is_stock_item": 0,
-                "msp_service_scope": ("in", scopes),
-            },
+            filters={"disabled": 0, "is_stock_item": 0},
             fields=["name", "item_name", "msp_service_scope"],
             order_by="item_name asc",
         )
+
+        # a service that does not say where it is sold is sold to both
+        for item in items:
+            item.msp_service_scope = item.msp_service_scope or "Both"
+
+        return [item for item in items if item.msp_service_scope in scopes]
 
     @staticmethod
     def _current(customer, scope, target):
@@ -208,8 +210,8 @@ class ServiceAvailabilityService:
 
         for row in rows:
             row["item_name"] = ServiceLifecycleService._label(row["service_item"])
-            row["service_scope"] = frappe.db.get_value(
-                "Item", row["service_item"], "msp_service_scope"
+            row["service_scope"] = (
+                frappe.db.get_value("Item", row["service_item"], "msp_service_scope") or "Both"
             )
 
         return rows

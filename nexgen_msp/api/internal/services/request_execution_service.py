@@ -695,6 +695,9 @@ class RequestExecutionService:
 			order.resulting_device or order.managed_device
 		)
 		card["current"] = RequestExecutionService._current_service(order)
+		card["service_scope"] = (
+			RequestService._service_scope(order.service_item) if order.service_item else None
+		)
 		card["action_label"] = order.action_label or RequestExecutionService._action_labels().get(
 			order.action, order.action
 		)
@@ -1348,36 +1351,17 @@ class RequestExecutionService:
 			return
 
 		if order.target_scope == "User":
-			person = order.client_user
-			held = (frappe.db.get_value("MSP Client User", person, "username") or "").strip()
-			given = (username or "").strip()
+			identifiers.require_username(order.client_user, username)
+		elif order.target_scope == "Device":
+			identifiers.require_serial(order.managed_device, serial_number)
 
-			if not held and not given:
-				raise ValidationError(
-					"This service needs the username the person uses on it, and none is recorded yet.",
-					"VALIDATION_ERROR",
+			# a service sold to both is issued against the machine and the person holding it
+			if RequestService._service_scope(order.service_item) == "Both":
+				holder = order.client_user or frappe.db.get_value(
+					"MSP Managed Device", order.managed_device, "assigned_client_user"
 				)
-
-			if given and given != held:
-				identifiers.record_username(person, given, overwrite=True)
-
-			return
-
-		if order.target_scope == "Device":
-			device = order.managed_device
-			held = (
-				frappe.db.get_value("MSP Managed Device", device, "serial_number") or ""
-			).strip()
-			given = (serial_number or "").strip()
-
-			if not held and not given:
-				raise ValidationError(
-					"This service runs on a machine, and this one has no serial number yet.",
-					"VALIDATION_ERROR",
-				)
-
-			if given and given != held:
-				identifiers.record_serial(device, given, overwrite=True)
+				if holder:
+					identifiers.require_username(holder, username)
 
 	# ------------------------------------------------------------------ propagation
 	@staticmethod
