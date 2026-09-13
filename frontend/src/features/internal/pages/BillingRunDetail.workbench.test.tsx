@@ -130,14 +130,14 @@ describe('drawing a run and finishing it is one job', () => {
     await renderPage(detail());
 
     for (const stage of ['Scope', 'Selection', 'Validation', 'Review', 'Invoice', 'Complete']) {
-      expect(screen.getByRole('button', { name: stage })).toBeInTheDocument();
+      expect(screen.getByText(stage)).toBeInTheDocument();
     }
   });
 
   it('stands on review when the lines are clean', async () => {
     await renderPage(detail());
 
-    expect(screen.getByRole('button', { name: 'Review' })).toHaveAttribute(
+    expect(screen.getByText('Review').closest('[aria-current]')).toHaveAttribute(
       'aria-current',
       'step'
     );
@@ -152,7 +152,7 @@ describe('drawing a run and finishing it is one job', () => {
       })
     );
 
-    expect(screen.getByRole('button', { name: 'Validation' })).toHaveAttribute(
+    expect(screen.getByText('Validation').closest('[aria-current]')).toHaveAttribute(
       'aria-current',
       'step'
     );

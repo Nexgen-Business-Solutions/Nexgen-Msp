@@ -673,5 +673,6 @@ champs commerciaux, aucun département en texte libre, le workbench n'exige aucu
 | 2026-09-13 | agent principal | Réglages → Départements : sélecteur « Customer » (All customers par défaut), refusé si des personnes d'une autre entreprise portent déjà ce département. |
 | 2026-09-13 | agent principal | Correction Spec v2 lue, mise en attente : Idriss teste et décide point par point. Rien implémenté. |
 | 2026-09-13 | agent principal | Décisions d'Idriss appliquées : matrice d'autorité stricte, désactivation Client User, contrats par dates, prorata 5 jours sur 30, fin de service déjà facturé acceptée. |
+| 2026-09-13 | agent principal | Steppers unifiés sur le design « Add Item » de trixapos_retail_core : `WorkflowStepper` et `WorkflowHeader` partagés, utilisés par la demande, la Run de facturation, le workbench et la 2FA. |
 
 > Ajoute ta ligne ici quand tu termines quelque chose.

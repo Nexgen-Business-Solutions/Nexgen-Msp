@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import FieldLabel from '@/shared/components/FieldLabel';
 import BillingProgressStepper from '../components/BillingProgressStepper';
+import WorkflowHeader, { primaryBtn, quietBtn, secondaryBtn } from '@/shared/components/WorkflowHeader';
 import Select from '@/shared/components/Select';
 import MultiSelect from '@/shared/components/MultiSelect';
 import StatusBadge from '@/shared/components/StatusBadge';
@@ -319,19 +320,61 @@ export default function NewBillingRun() {
 
   return (
     <div className="space-y-5 px-6 pb-6 pt-4">
-      <button
-        type="button"
-        onClick={() => navigate('/msp/billing')}
-        className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 transition-colors hover:text-slate-800"
-      >
-        <ArrowLeft size={15} />
-        Back to billing runs
-      </button>
-
-      <BillingProgressStepper
-        current={step === 0 ? 'scope' : 'selection'}
-        reachable={canContinue ? ['scope', 'selection'] : ['scope']}
-        onGo={(stage) => setStep(stage === 'scope' ? 0 : 1)}
+      <WorkflowHeader
+        title="New billing run"
+        subtitle="Choose what to bill, then decide who is on the run."
+        onBack={() => navigate('/msp/billing')}
+        backLabel="Back to billing runs"
+        actions={
+          <>
+            <button type="button" onClick={() => navigate('/msp/billing')} className={quietBtn}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={step === 0}
+              onClick={() => setStep((current) => Math.max(current - 1, 0))}
+              className={secondaryBtn}
+            >
+              <ArrowLeft size={15} />
+              Previous
+            </button>
+            {step === 0 ? (
+              <button
+                type="button"
+                disabled={!canContinue}
+                onClick={() => setStep(1)}
+                className={primaryBtn}
+              >
+                Continue
+                <ArrowRight size={15} />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={submit}
+                disabled={keptBillable.length === 0 || generate.isLoading}
+                className={`${primaryBtn} min-w-[11rem]`}
+              >
+                {generate.isLoading ? (
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                ) : (
+                  <>
+                    <Receipt size={15} />
+                    Generate the run
+                  </>
+                )}
+              </button>
+            )}
+          </>
+        }
+        stepper={
+          <BillingProgressStepper
+            current={step === 0 ? 'scope' : 'selection'}
+            reachable={canContinue ? ['scope', 'selection'] : ['scope']}
+            onGo={(stage) => setStep(stage === 'scope' ? 0 : 1)}
+          />
+        }
       />
 
       {step === 0 && (
@@ -1034,45 +1077,6 @@ export default function NewBillingRun() {
         </div>
       )}
 
-      <div className="flex items-center justify-between">
-        <button
-          type="button"
-          disabled={step === 0}
-          onClick={() => setStep((current) => Math.max(current - 1, 0))}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-40"
-        >
-          <ArrowLeft size={15} />
-          Back
-        </button>
-
-        {step === 0 ? (
-          <button
-            type="button"
-            disabled={!canContinue}
-            onClick={() => setStep(1)}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Continue
-            <ArrowRight size={15} />
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={submit}
-            disabled={keptBillable.length === 0 || generate.isLoading}
-            className="inline-flex min-w-[11rem] items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {generate.isLoading ? (
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-            ) : (
-              <>
-                <Receipt size={15} />
-                Generate the run
-              </>
-            )}
-          </button>
-        )}
-      </div>
     </div>
   );
 }

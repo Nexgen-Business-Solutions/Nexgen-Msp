@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { AlertCircle, ArrowLeft, ArrowRight, Check, Info, Save, Trash2 } from 'lucide-react';
+import { AlertCircle, ArrowLeft, ArrowRight, Info, Save, Trash2 } from 'lucide-react';
 import ConfirmModal from '@/shared/components/ConfirmModal';
+import WorkflowHeader, { primaryBtn, quietBtn, secondaryBtn } from '@/shared/components/WorkflowHeader';
+import WorkflowStepper from '@/shared/components/WorkflowStepper';
+import { stepsInOrder } from '@/shared/lib/workflowSteps';
 import Select from '@/shared/components/Select';
 import { useSession } from '@/shared/hooks/useSession';
 import { isPortalOnly } from '@/shared/layout/navigation';
@@ -66,59 +69,97 @@ export default function NewServiceRequest() {
 
   return (
     <div className="space-y-5 px-6 pb-6 pt-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-bold text-slate-900">New request</h1>
-          <p className="mt-0.5 text-sm text-slate-500">
-            Say who it is for and what should change. We work out how to carry it out.
-          </p>
-        </div>
+      <WorkflowHeader
+        title="New request"
+        subtitle="Say who it is for and what should change. We work out how to carry it out."
+        onBack={() => navigate('/msp/requests')}
+        backLabel="Back to requests"
+        actions={
+          <>
+            {builder.draft && (
+              <button
+                type="button"
+                onClick={() => setGivingUp(true)}
+                className={`${secondaryBtn} border-red-200 text-red-600 hover:bg-red-50`}
+              >
+                <Trash2 size={15} />
+                Discard
+              </button>
+            )}
 
-        {onBehalf && (
-          <div className="w-64">
-            <Select
-              searchable
-              className="w-full"
-              value={customer ?? ''}
-              onChange={setCustomer}
-              placeholder="Acting for which customer"
-              options={(options.data?.customers ?? []).map((name) => ({
-                value: name,
-                label: name,
-              }))}
-            />
-          </div>
-        )}
-      </div>
+            {builder.intents.length > 0 && (
+              <button
+                type="button"
+                onClick={() => builder.putAside()}
+                disabled={builder.saving}
+                className={secondaryBtn}
+              >
+                <Save size={15} />
+                Save draft
+              </button>
+            )}
 
-      <ol className="flex flex-wrap items-center gap-2">
-        {STEPS.map((entry, index) => (
-          <li key={entry.key} className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => index < step && setStep(index)}
-              disabled={index > step}
-              className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${
-                index === step
-                  ? 'bg-blue-600 text-white'
-                  : index < step
-                    ? 'bg-blue-50 text-blue-700 hover:bg-blue-100'
-                    : 'bg-slate-100 text-slate-400'
-              }`}
+              onClick={() => (step === 0 ? navigate('/msp/requests') : setStep(step - 1))}
+              className={step === 0 ? quietBtn : secondaryBtn}
             >
-              <span
-                className={`flex h-5 w-5 items-center justify-center rounded-full text-xs ${
-                  index < step ? 'bg-blue-600 text-white' : 'bg-white/20'
-                }`}
-              >
-                {index < step ? <Check size={12} /> : index + 1}
-              </span>
-              {entry.label}
+              {step === 0 ? (
+                'Cancel'
+              ) : (
+                <>
+                  <ArrowLeft size={15} />
+                  Back
+                </>
+              )}
             </button>
-            {index < STEPS.length - 1 && <span className="text-slate-300">/</span>}
-          </li>
-        ))}
-      </ol>
+
+            {step < STEPS.length - 1 ? (
+              <button
+                type="button"
+                onClick={() => setStep(step + 1)}
+                disabled={!canLeaveStep}
+                className={primaryBtn}
+              >
+                Continue
+                <ArrowRight size={15} />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => builder.send()}
+                disabled={!builder.canSend || builder.sending}
+                className={primaryBtn}
+              >
+                {builder.sending ? 'Sending…' : 'Submit request'}
+              </button>
+            )}
+          </>
+        }
+        stepper={
+          <WorkflowStepper
+            steps={stepsInOrder(STEPS, step)}
+            canGo={(key) => STEPS.findIndex((entry) => entry.key === key) < step}
+            onGo={(key) => setStep(STEPS.findIndex((entry) => entry.key === key))}
+          />
+        }
+      />
+
+      {onBehalf && (
+        <div className="w-64">
+          <Select
+            searchable
+            className="w-full"
+            value={customer ?? ''}
+            onChange={setCustomer}
+            placeholder="Acting for which customer"
+            options={(options.data?.customers ?? []).map((name) => ({
+              value: name,
+              label: name,
+            }))}
+          />
+        </div>
+      )}
 
       {builder.correcting && (
         <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
@@ -147,63 +188,6 @@ export default function NewServiceRequest() {
           <span className="text-sm font-medium text-red-700">{builder.error.message}</span>
         </div>
       )}
-
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => (step === 0 ? navigate('/msp/requests') : setStep(step - 1))}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
-          >
-            <ArrowLeft size={15} />
-            {step === 0 ? 'Cancel' : 'Back'}
-          </button>
-
-          {builder.intents.length > 0 && (
-            <button
-              type="button"
-              onClick={() => builder.putAside()}
-              disabled={builder.saving}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60"
-            >
-              <Save size={15} />
-              Save draft
-            </button>
-          )}
-
-          {builder.draft && (
-            <button
-              type="button"
-              onClick={() => setGivingUp(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-4 py-2.5 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50"
-            >
-              <Trash2 size={15} />
-              Discard
-            </button>
-          )}
-        </div>
-
-        {step < STEPS.length - 1 ? (
-          <button
-            type="button"
-            onClick={() => setStep(step + 1)}
-            disabled={!canLeaveStep}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Continue
-            <ArrowRight size={15} />
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => builder.send()}
-            disabled={!builder.canSend || builder.sending}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {builder.sending ? 'Sending…' : 'Submit request'}
-          </button>
-        )}
-      </div>
 
       <ConfirmModal
         open={givingUp}

@@ -160,10 +160,12 @@ export default function BillingRunDetail() {
         Back to billing runs
       </button>
 
-      <BillingProgressStepper
-        current={stageOf(data.status, Boolean(data.sales_invoice))}
-        attention={data.exception_count > 0 ? 'validation' : null}
-      />
+      <div className="rounded-xl border border-slate-200 bg-white px-6 py-3 shadow-sm">
+        <BillingProgressStepper
+          current={stageOf(data.status, Boolean(data.sales_invoice))}
+          attention={data.exception_count > 0 ? 'validation' : null}
+        />
+      </div>
 
       <div className="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
