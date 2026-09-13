@@ -641,5 +641,6 @@ champs commerciaux, aucun département en texte libre, le workbench n'exige aucu
 | 2026-09-12 | agent principal | Addon Hassan terminé : politique d'accès à deux preuves, Customer 360, escalade par e-mail de contact bouchée. |
 | 2026-09-12 | agent principal | Performance mesurée (`load_bench`), quatre N+1 corrigés, dix-sept index, sélection Billing fenêtrée. Specs closes. |
 | 2026-09-13 | agent principal | P0 réduit par Idriss : aucune relation Client User ↔ User, `portal_visible`, `portal_access` et `needs_portal_access` retirés. |
+| 2026-09-13 | agent principal | Réglages → Départements : sélecteur « Customer » (All customers par défaut), refusé si des personnes d'une autre entreprise portent déjà ce département. |
 
 > Ajoute ta ligne ici quand tu termines quelque chose.

@@ -2,8 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { AlertCircle, Building2 } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
 import FieldLabel from '@/shared/components/FieldLabel';
+import Select from '@/shared/components/Select';
 import type { DepartmentRow } from '@/lib/api/internal';
 import { useSaveDepartment } from '../hooks/useSettings';
+import { useCustomerDirectory } from '../hooks/useCustomerDetails';
 
 type Props = {
   open: boolean;
@@ -16,11 +18,13 @@ const inputClass =
 
 const DepartmentModal: React.FC<Props> = ({ open, department, onClose }) => {
   const save = useSaveDepartment();
+  const customers = useCustomerDirectory();
 
   const [departmentName, setDepartmentName] = useState('');
   const [description, setDescription] = useState('');
   const [enabled, setEnabled] = useState(true);
   const [sortOrder, setSortOrder] = useState('');
+  const [customer, setCustomer] = useState('');
 
   useEffect(() => {
     if (!open) return;
@@ -28,6 +32,7 @@ const DepartmentModal: React.FC<Props> = ({ open, department, onClose }) => {
     setDescription(department?.description ?? '');
     setEnabled(department ? Boolean(department.enabled) : true);
     setSortOrder(department?.sort_order == null ? '' : String(department.sort_order));
+    setCustomer(department?.customer ?? '');
     save.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, department]);
@@ -41,6 +46,7 @@ const DepartmentModal: React.FC<Props> = ({ open, department, onClose }) => {
           description,
           enabled: enabled ? 1 : 0,
           sort_order: sortOrder === '' ? null : Number(sortOrder),
+          customer,
         },
       });
       onClose();
@@ -56,7 +62,11 @@ const DepartmentModal: React.FC<Props> = ({ open, department, onClose }) => {
       icon={Building2}
       tone="blue"
       title={department ? 'Edit this department' : 'Add department'}
-      subtitle="A global department, shared by every customer."
+      subtitle={
+        customer
+          ? 'Offered to one customer only.'
+          : 'A global department, shared by every customer.'
+      }
       widthClass="max-w-lg"
       footer={
         <div className="flex items-center justify-end gap-2">
@@ -105,6 +115,33 @@ const DepartmentModal: React.FC<Props> = ({ open, department, onClose }) => {
             placeholder="What this department covers (optional)"
             className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
           />
+        </div>
+
+        <div>
+          <FieldLabel>Customer</FieldLabel>
+          <Select
+            value={customer}
+            onChange={setCustomer}
+            searchable
+            placeholder="All customers"
+            options={[
+              { value: '', label: 'All customers' },
+              ...(customers.data ?? []).map((row) => ({
+                value: row.name,
+                label: row.customer_name || row.name,
+              })),
+              // a customer the directory no longer lists must still read back
+              ...(department?.customer &&
+              !(customers.data ?? []).some((row) => row.name === department.customer)
+                ? [{ value: department.customer, label: department.customer }]
+                : []),
+            ]}
+          />
+          <p className="mt-1.5 text-xs text-slate-500">
+            {customer
+              ? 'Only this customer will see it in their forms. Everyone else will not.'
+              : 'Leave it on all customers unless this department belongs to one company alone.'}
+          </p>
         </div>
 
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">

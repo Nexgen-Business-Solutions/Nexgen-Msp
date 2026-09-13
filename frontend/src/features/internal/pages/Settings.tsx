@@ -30,7 +30,7 @@ const SECTIONS = [
     id: 'departments',
     label: 'Departments',
     icon: Building2,
-    blurb: 'Manage the shared department list used by all customers.',
+    blurb: 'Manage the department list. Most are shared; a few can belong to one customer.',
   },
 {
     id: 'request-actions',
@@ -313,6 +313,9 @@ export default function Settings() {
                   <tr key={row.name} className="transition-colors hover:bg-slate-50">
                     <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
                       {row.department_name}
+                      <p className="text-xs font-normal text-slate-500">
+                        {row.customer ? `Only for ${row.customer}` : 'All customers'}
+                      </p>
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-600">{row.description || '—'}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">

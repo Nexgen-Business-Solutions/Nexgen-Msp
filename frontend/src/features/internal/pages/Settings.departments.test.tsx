@@ -17,6 +17,7 @@ vi.mock('@/lib/api/internal', async (importOriginal) => {
     saveDepartment: vi.fn(),
     disableDepartment: vi.fn(),
     deleteDepartment: vi.fn(),
+    listCustomers: vi.fn(),
   };
 });
 
@@ -54,6 +55,10 @@ const renderSettings = async (rows: DepartmentRow[]) => {
   vi.mocked(internal.listRequestActions).mockResolvedValue([] as RequestActionRow[]);
   vi.mocked(internal.getSettingsOptions).mockResolvedValue(settingsOptions);
   vi.mocked(internal.listDepartments).mockResolvedValue(rows);
+  vi.mocked(internal.listCustomers).mockResolvedValue([
+    { name: 'ACME', customer_name: 'ACME Corporation' },
+    { name: 'BETA', customer_name: 'Beta Industries' },
+  ] as Awaited<ReturnType<typeof internal.listCustomers>>);
 
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -74,19 +79,17 @@ afterEach(() => {
 });
 
 describe('Settings — Departments', () => {
-  it('lists every department with its status, and offers no Customer selector', async () => {
+  it('lists every department with its status and who it is offered to', async () => {
     await renderSettings([
       department({ name: 'Accounting', department_name: 'Accounting', enabled: 1 }),
       department({ name: 'Archive', department_name: 'Archive', enabled: 0 }),
+      department({ name: 'Workshop', department_name: 'Workshop', customer: 'ACME' }),
     ]);
 
     expect(await screen.findByText('Accounting')).toBeInTheDocument();
-    expect(screen.getByText('Active')).toBeInTheDocument();
-    expect(screen.getByText('Archive')).toBeInTheDocument();
     expect(screen.getByText('Disabled')).toBeInTheDocument();
-    // no Customer picker anywhere on this screen: the catalogue is global
-    expect(screen.queryByRole('button', { name: /select a customer/i })).not.toBeInTheDocument();
-    expect(screen.queryByText(/^customer$/i)).not.toBeInTheDocument();
+    expect(screen.getAllByText('All customers')).toHaveLength(2);
+    expect(screen.getByText('Only for ACME')).toBeInTheDocument();
   });
 
   it('adds a department through the modal, never as free text on the table itself', async () => {
@@ -111,7 +114,55 @@ describe('Settings — Departments', () => {
           description: '',
           enabled: 1,
           sort_order: null,
+          customer: '',
         },
+      })
+    );
+  });
+
+  it('can hand a new department to one customer', async () => {
+    await renderSettings([]);
+    vi.mocked(internal.saveDepartment).mockResolvedValue([]);
+
+    fireEvent.click(await screen.findByRole('button', { name: /^add department$/i }));
+
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByPlaceholderText('Research & Development'), {
+      target: { value: 'Workshop' },
+    });
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /all customers/i }));
+    fireEvent.click(await screen.findByRole('option', { name: /acme corporation/i }));
+
+    expect(within(dialog).getByText(/only this customer will see it/i)).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /^add department$/i }));
+
+    await waitFor(() =>
+      expect(vi.mocked(internal.saveDepartment).mock.calls[0][0].department).toMatchObject({
+        department_name: 'Workshop',
+        customer: 'ACME',
+      })
+    );
+  });
+
+  it('reads back the customer of one it edits, and can give it back to everyone', async () => {
+    await renderSettings([department({ name: 'Workshop', department_name: 'Workshop', customer: 'ACME' })]);
+    vi.mocked(internal.saveDepartment).mockResolvedValue([]);
+
+    fireEvent.click(await screen.findByTitle('More options'));
+    fireEvent.click(await screen.findByRole('button', { name: /edit department/i }));
+
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(await within(dialog).findByRole('button', { name: /acme corporation/i }));
+    fireEvent.click(await screen.findByRole('option', { name: /all customers/i }));
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /^save$/i }));
+
+    await waitFor(() =>
+      expect(vi.mocked(internal.saveDepartment).mock.calls[0][0]).toMatchObject({
+        name: 'Workshop',
+        department: { customer: '' },
       })
     );
   });

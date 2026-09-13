@@ -574,3 +574,49 @@ class TestADepartmentMayBelongToOneCompany(MSPTestCase):
 
         self.assertIn(private, offered)
         self.assertNotIn(elsewhere, offered)
+
+    def test_the_settings_screen_can_hand_one_to_a_company(self):
+        label = self.make_owned("Garage")
+
+        DepartmentService.save_department(name=label, department={"customer": self.mine})
+
+        self.assertEqual(frappe.db.get_value("MSP Department", label, "customer"), self.mine)
+        self.assertNotIn(label, self.offered_to(self.theirs))
+
+    def test_and_give_it_back_to_everyone(self):
+        label = self.make_owned("Loft", customer=self.mine)
+
+        DepartmentService.save_department(name=label, department={"customer": ""})
+
+        self.assertFalse(frappe.db.get_value("MSP Department", label, "customer"))
+        self.assertIn(label, self.offered_to(self.theirs))
+
+    def test_editing_something_else_leaves_the_company_alone(self):
+        label = self.make_owned("Studio", customer=self.mine)
+
+        DepartmentService.save_department(name=label, department={"description": "Paint"})
+
+        self.assertEqual(frappe.db.get_value("MSP Department", label, "customer"), self.mine)
+
+    def test_one_worn_at_another_company_cannot_become_one_company_s(self):
+        """Their people would keep a department their own forms no longer offer."""
+        label = self.make_owned("Depot")
+        person = self.make_person(self.theirs, "Wearer")
+        frappe.db.set_value("MSP Client User", person, "department", label)
+        frappe.db.commit()
+
+        with self.assertRaises(ValidationError) as caught:
+            DepartmentService.save_department(name=label, department={"customer": self.mine})
+
+        self.assertIn("other customer", str(caught.exception))
+        self.assertFalse(frappe.db.get_value("MSP Department", label, "customer"))
+
+    def test_one_worn_only_by_that_company_s_people_can(self):
+        label = self.make_owned("Yard")
+        person = self.make_person(self.mine, "Local")
+        frappe.db.set_value("MSP Client User", person, "department", label)
+        frappe.db.commit()
+
+        DepartmentService.save_department(name=label, department={"customer": self.mine})
+
+        self.assertEqual(frappe.db.get_value("MSP Department", label, "customer"), self.mine)

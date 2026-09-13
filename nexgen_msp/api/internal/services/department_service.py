@@ -117,6 +117,34 @@ class DepartmentService:
         return DepartmentService.list_departments(enabled_only=False)
 
     @staticmethod
+    def _refuse_if_worn_elsewhere(label, customer):
+        """A department people of other companies already wear cannot become one company's.
+
+        They would keep a department their own forms no longer offer, and the next edit of
+        any of them would be refused for it.
+        """
+        others = frappe.db.sql(
+            """
+            select customer, count(*) as people
+            from `tabMSP Client User`
+            where department = %(label)s and customer != %(customer)s
+            group by customer
+            order by people desc
+            """,
+            {"label": label, "customer": customer},
+            as_dict=True,
+        )
+
+        if others:
+            people = sum(row.people for row in others)
+            raise ValidationError(
+                f"'{label}' is used by {people} person(s) at {len(others)} other "
+                f"customer(s), starting with {others[0].customer}. Move them to another "
+                "department first, or leave this one available to every customer.",
+                "VALIDATION_ERROR",
+            )
+
+    @staticmethod
     def update_department(
         name=None,
         department_name=None,
@@ -149,6 +177,9 @@ class DepartmentService:
             doc.description = description
 
         if customer is not None:
+            if customer and customer != doc.customer:
+                DepartmentService._refuse_if_worn_elsewhere(old_label, customer)
+
             doc.customer = customer or None
 
         if enabled is not None:
