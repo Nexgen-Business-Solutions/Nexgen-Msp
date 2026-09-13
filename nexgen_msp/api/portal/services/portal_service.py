@@ -781,6 +781,7 @@ class PortalService:
             "request_type": doc.request_type,
             "status": doc.status,
             "priority": doc.priority,
+            "details": doc.details,
             "source": doc.source,
             "creation": doc.creation,
             "modified": doc.modified,
@@ -1073,7 +1074,9 @@ class PortalService:
         return doc
 
     @staticmethod
-    def save_draft(name=None, customer=None, request_type=None, priority=None, lines=None):
+    def save_draft(
+        name=None, customer=None, request_type=None, priority=None, lines=None, details=None
+    ):
         """Put a half-written request aside and come back to it.
 
         A draft reaches nobody: not our queue, not the approvers, not the colleagues at the
@@ -1088,6 +1091,8 @@ class PortalService:
             doc = PortalService._own_draft(name)
             doc.request_type = request_type or doc.request_type
             doc.priority = priority or doc.priority
+            # one note for the whole request, never one per line
+            doc.details = (details or "").strip() or None
             doc.set("lines", rows)
             doc.save(ignore_permissions=True)
         else:
@@ -1097,6 +1102,7 @@ class PortalService:
                     "customer": customer,
                     "request_type": request_type,
                     "priority": priority or "Medium",
+                    "details": (details or "").strip() or None,
                     "source": "Internal" if permissions.is_internal() else "Portal",
                     "status": "Draft",
                     "requester": frappe.session.user,
@@ -1118,7 +1124,9 @@ class PortalService:
         return {"discarded": name}
 
     @staticmethod
-    def create_request(name=None, customer=None, request_type=None, priority=None, lines=None):
+    def create_request(
+        name=None, customer=None, request_type=None, priority=None, lines=None, details=None
+    ):
         customer = PortalService._resolve_customer(customer)
 
         lines, rows = PortalService._line_rows(lines, customer, request_type)
@@ -1132,6 +1140,8 @@ class PortalService:
             doc = PortalService._own_draft(name)
             doc.request_type = request_type or doc.request_type
             doc.priority = priority or doc.priority
+            # one note for the whole request, never one per line
+            doc.details = (details or "").strip() or None
             doc.set("lines", rows)
             doc.status = opening_status
         else:
@@ -1141,6 +1151,7 @@ class PortalService:
                     "customer": customer,
                     "request_type": request_type,
                     "priority": priority or "Medium",
+                    "details": (details or "").strip() or None,
                     # a request opened by the team is not a request from the customer
                     "source": "Internal" if permissions.is_internal() else "Portal",
                     "status": opening_status,

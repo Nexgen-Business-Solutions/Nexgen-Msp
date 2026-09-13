@@ -155,6 +155,11 @@ export default function RequestDetail() {
                 ? ` by ${data.requester_name ?? data.requester}`
                 : ''}
             </p>
+            {data.details && (
+              <p className="mt-2 whitespace-pre-line rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                {data.details}
+              </p>
+            )}
             {data.rejection_reason && (
               <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
                 {data.rejection_reason}

@@ -326,6 +326,7 @@ export type PortalRequestDetail = {
   request_type: string;
   status: string;
   priority: string;
+  details?: string | null;
   source: string;
   creation: string;
   modified: string;
@@ -433,6 +434,7 @@ export type RequestPayload = {
   customer?: string;
   request_type?: string;
   priority?: string;
+  details?: string;
   lines: NewRequestLine[];
 };
 

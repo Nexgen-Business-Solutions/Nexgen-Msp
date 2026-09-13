@@ -93,6 +93,12 @@ export default function PortalRequestDetail() {
           {data.lines.length > 1 ? 's' : ''}
         </p>
 
+        {data.details && (
+          <p className="mt-3 whitespace-pre-line rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
+            {data.details}
+          </p>
+        )}
+
         {data.rejection_reason && (
           <div className="mt-4 rounded-lg border border-red-100 bg-red-50 p-3.5">
             <p className="text-xs font-semibold uppercase tracking-wider text-red-700">

@@ -448,6 +448,7 @@ class RequestService:
             "request_type": doc.request_type,
             "status": doc.status,
             "priority": doc.priority,
+            "details": doc.details,
             "source": doc.source,
             "requester": doc.requester,
             "requester_name": frappe.db.get_value("User", doc.requester, "full_name")

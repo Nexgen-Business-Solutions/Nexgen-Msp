@@ -773,6 +773,87 @@ class TestTheTechnicianSeesWhatWasSupplied(MSPTestCase):
         )
 
 
+class TestOneNoteForTheWholeRequest(MSPTestCase):
+    """What the customer wants to add is said once, for the request, not item by item."""
+
+    def setUp(self):
+        super().setUp()
+        self.customer = self.make_customer("NOTE")
+        self.track("MSP Approval Authority", self.customer)
+        self.person = self.make_person(self.customer, "Noted")
+        self.service = self.make_service("NOTE", scope="User")
+        self.cover_service(self.customer, self.service)
+        self.asker = self.make_account("customer", "MSP Customer Manager", self.customer, suffix="note")
+        self.grant(self.asker)
+
+    def lines(self):
+        return [
+            {
+                "request_action": self.action(),
+                "action": "Add",
+                "target_scope": "User",
+                "client_user": self.person,
+                "requested_service": self.service,
+            }
+        ]
+
+    def as_asker(self, call):
+        frappe.set_user(self.asker)
+        frappe.clear_cache(user=self.asker)
+        try:
+            return call()
+        finally:
+            frappe.set_user("Administrator")
+
+    def test_the_note_is_kept_on_the_request_and_read_back(self):
+        out = self.as_asker(
+            lambda: PortalService.create_request(
+                customer=self.customer,
+                request_type="Add",
+                lines=self.lines(),
+                details="  Please call before coming on site.  ",
+            )
+        )
+        name = self.track("MSP Service Request", out["name"])
+
+        self.assertEqual(out["details"], "Please call before coming on site.")
+        self.assertEqual(
+            frappe.db.get_value("MSP Service Request", name, "details"),
+            "Please call before coming on site.",
+        )
+
+    def test_a_draft_keeps_it_and_sending_it_keeps_it_too(self):
+        draft = self.as_asker(
+            lambda: PortalService.save_draft(
+                customer=self.customer, request_type="Add", lines=self.lines(), details="First word."
+            )
+        )
+        name = self.track("MSP Service Request", draft["name"])
+        self.assertEqual(draft["details"], "First word.")
+
+        sent = self.as_asker(
+            lambda: PortalService.create_request(
+                name=name,
+                customer=self.customer,
+                request_type="Add",
+                lines=self.lines(),
+                details="Final word.",
+            )
+        )
+
+        self.assertEqual(sent["details"], "Final word.")
+
+    def test_no_note_is_nothing_rather_than_an_empty_string(self):
+        out = self.as_asker(
+            lambda: PortalService.create_request(
+                customer=self.customer, request_type="Add", lines=self.lines(), details="   "
+            )
+        )
+        self.track("MSP Service Request", out["name"])
+
+        self.assertIsNone(out["details"])
+
+
 class TestCreatingThePersonARequestAskedFor(MSPTestCase):
     """The customer writes a new person once and asks for several things for them."""
 

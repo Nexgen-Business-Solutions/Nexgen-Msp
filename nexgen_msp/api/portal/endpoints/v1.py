@@ -216,17 +216,31 @@ def get_request(name=None):
 
 @frappe.whitelist()
 @handle_errors
-def create_request(name=None, customer=None, request_type=None, priority=None, lines=None):
+def create_request(
+    name=None, customer=None, request_type=None, priority=None, lines=None, details=None
+):
     return PortalService.create_request(
-        name=name, customer=customer, request_type=request_type, priority=priority, lines=lines
+        name=name,
+        customer=customer,
+        request_type=request_type,
+        priority=priority,
+        lines=lines,
+        details=details,
     )
 
 
 @frappe.whitelist()
 @handle_errors
-def save_request_draft(name=None, customer=None, request_type=None, priority=None, lines=None):
+def save_request_draft(
+    name=None, customer=None, request_type=None, priority=None, lines=None, details=None
+):
     return PortalService.save_draft(
-        name=name, customer=customer, request_type=request_type, priority=priority, lines=lines
+        name=name,
+        customer=customer,
+        request_type=request_type,
+        priority=priority,
+        lines=lines,
+        details=details,
     )
 
 

@@ -136,7 +136,16 @@ export const fromSavedRequest = (saved: PortalRequestDetail) => {
     });
   });
 
-  return { subjects, intents, priority: saved.priority };
+  // a request written before the details were one note carried them line by line: they are
+  // gathered into the single note rather than lost the next time it is saved
+  const earlier = [...new Set(saved.lines.map((line) => (line.comment ?? '').trim()).filter(Boolean))];
+
+  return {
+    subjects,
+    intents,
+    priority: saved.priority,
+    details: saved.details || earlier.join('\n'),
+  };
 };
 
 export const useRequestBuilder = (
@@ -149,6 +158,7 @@ export const useRequestBuilder = (
   const [subjects, setSubjects] = useState<RequestSubject[]>([]);
   const [intents, setIntents] = useState<RequestIntent[]>([]);
   const [priority, setPriority] = useState('Medium');
+  const [details, setDetails] = useState('');
   const [defaultDate, setDefaultDate] = useState(today());
   const [draft, setDraft] = useState<string | null>(reopen ?? null);
   const [loaded, setLoaded] = useState(false);
@@ -190,6 +200,7 @@ export const useRequestBuilder = (
     setSubjects(rebuilt.subjects);
     setIntents(rebuilt.intents);
     if (rebuilt.priority) setPriority(rebuilt.priority);
+    setDetails(rebuilt.details);
     setLoaded(true);
   }, [source, loaded, saved.data]);
 
@@ -286,7 +297,6 @@ export const useRequestBuilder = (
         target_scope: intent.targetScope,
         requested_service: intent.serviceItem,
         requested_effective_date: intent.requestedEffectiveDate || defaultDate,
-        comment: intent.comment || undefined,
       };
 
       if (intent.requestedQuantity) line.requested_quantity = intent.requestedQuantity;
@@ -335,7 +345,7 @@ export const useRequestBuilder = (
     });
   }, [intents, subjects, defaultDate]);
 
-  const payload = () => ({ priority, lines });
+  const payload = () => ({ priority, lines, details: details.trim() || undefined });
 
   const hasStaleIntents = intents.some((intent) => staleIntentKeys.has(intent.key));
   const canSend = subjects.length > 0 && intents.length > 0 && !hasStaleIntents;
@@ -377,6 +387,8 @@ export const useRequestBuilder = (
     intents,
     priority,
     setPriority,
+    details,
+    setDetails,
     defaultDate,
     setDefaultDate,
     draft,

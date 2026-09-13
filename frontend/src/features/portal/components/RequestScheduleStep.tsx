@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { CalendarDays, MessageSquarePlus, Trash2, Wrench } from 'lucide-react';
+import React from 'react';
+import { CalendarDays, Trash2, Wrench } from 'lucide-react';
 import FieldLabel from '@/shared/components/FieldLabel';
 import Select from '@/shared/components/Select';
 import { usePortalFilterOptions } from '../hooks/usePortal';
@@ -17,9 +17,8 @@ const PRIORITIES = [
   { value: 'Urgent', label: 'Urgent', hint: 'Business blocked' },
 ];
 
-/** When it should happen, and anything worth saying about one particular item. */
+/** When it should happen, how urgent it is, and anything worth saying about the request. */
 const RequestScheduleStep: React.FC<{ builder: Builder }> = ({ builder }) => {
-  const [detailing, setDetailing] = useState<string | null>(null);
   const options = usePortalFilterOptions();
 
   return (
@@ -98,14 +97,6 @@ const RequestScheduleStep: React.FC<{ builder: Builder }> = ({ builder }) => {
                   />
                   <button
                     type="button"
-                    onClick={() => setDetailing(detailing === intent.key ? null : intent.key)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
-                  >
-                    <MessageSquarePlus size={13} />
-                    {intent.comment ? 'Details' : 'Add details'}
-                  </button>
-                  <button
-                    type="button"
                     onClick={() => builder.removeIntent(intent.key)}
                     aria-label={`Remove ${intent.serviceLabel}`}
                     className="rounded-lg border border-slate-200 p-1.5 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
@@ -114,18 +105,6 @@ const RequestScheduleStep: React.FC<{ builder: Builder }> = ({ builder }) => {
                   </button>
                 </div>
               </div>
-
-              {(detailing === intent.key || intent.comment) && (
-                <textarea
-                  rows={2}
-                  value={intent.comment ?? ''}
-                  onChange={(event) =>
-                    builder.updateIntent(intent.key, { comment: event.target.value })
-                  }
-                  placeholder="Anything the technician should know."
-                  className="mt-2 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-500"
-                />
-              )}
 
               {/* the machine is the technician's to identify — but a customer who already
                   knows which one it is, or has it in front of them, may say so */}
@@ -172,6 +151,18 @@ const RequestScheduleStep: React.FC<{ builder: Builder }> = ({ builder }) => {
             </div>
           );
         })}
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <FieldLabel>Details</FieldLabel>
+        <textarea
+          rows={4}
+          value={builder.details}
+          onChange={(event) => builder.setDetails(event.target.value)}
+          placeholder="Anything the technician should know about this request (optional)."
+          aria-label="Details"
+          className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+        />
       </div>
     </div>
   );

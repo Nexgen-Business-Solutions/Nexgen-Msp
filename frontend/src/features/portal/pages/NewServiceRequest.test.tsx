@@ -333,6 +333,33 @@ describe('sending what was asked for', () => {
     expect(rmm?.client_user).toBeUndefined();
   });
 
+  it('carries one note for the whole request, and none on any line', async () => {
+    await renderPage();
+    await goToChanges();
+
+    fireEvent.click(screen.getByRole('button', { name: /Adobe Acrobat/ }));
+    fireEvent.click(screen.getByRole('button', { name: /RMM/ }));
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+    await screen.findByText(/what you are asking for/i);
+
+    expect(screen.queryByRole('button', { name: /add details/i })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('textbox', { name: 'Details' })).toHaveLength(1);
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Details' }), {
+      target: { value: 'Please call before coming on site.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+
+    expect(await screen.findByText(/please call before coming on site/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /submit request/i }));
+    await waitFor(() => expect(portal.createRequest).toHaveBeenCalledTimes(1));
+
+    const payload = vi.mocked(portal.createRequest).mock.calls[0][0];
+    expect(payload.details).toBe('Please call before coming on site.');
+    expect(payload.lines.every((line) => !('comment' in line) || !line.comment)).toBe(true);
+  });
+
   it('tells the customer what happens after they send it', async () => {
     await renderPage();
     await goToChanges();
@@ -445,6 +472,22 @@ describe('picking up what was put aside', () => {
     fireEvent.click(screen.getByRole('button', { name: /continue/i }));
 
     expect(await screen.findByRole('button', { name: /Adobe Acrobat — added/ })).toBeInTheDocument();
+  });
+
+  it('gathers what an older draft noted line by line into the one note', async () => {
+    vi.mocked(portal.getRequest).mockResolvedValue({
+      ...savedDraft,
+      lines: [{ ...savedDraft.lines[0], comment: 'Needs the Pro licence.' }],
+    } as unknown as Awaited<ReturnType<typeof portal.getRequest>>);
+
+    await renderPageWithParams('?draft=SR-DRAFT-1');
+    expect(await screen.findByText('John Doe')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+    await screen.findByRole('button', { name: /Adobe Acrobat — added/ });
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+
+    expect(await screen.findByRole('textbox', { name: 'Details' })).toHaveValue('Needs the Pro licence.');
   });
 
   it('flags an item the world has moved past', async () => {

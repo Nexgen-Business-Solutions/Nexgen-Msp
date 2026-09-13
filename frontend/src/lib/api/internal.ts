@@ -89,6 +89,7 @@ export type RequestDetail = {
   request_type: string;
   status: string;
   priority: string;
+  details?: string | null;
   source: string;
   requester: string | null;
   requester_name: string | null;

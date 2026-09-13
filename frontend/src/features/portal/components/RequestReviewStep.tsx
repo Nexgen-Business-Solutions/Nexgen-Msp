@@ -99,6 +99,11 @@ const RequestReviewStep: React.FC<{ builder: Builder }> = ({ builder }) => {
         <p className="text-sm text-slate-700">
           <span className="font-semibold text-slate-900">Priority:</span> {builder.priority}
         </p>
+        {builder.details.trim() && (
+          <p className="mt-2 whitespace-pre-line text-sm text-slate-700">
+            <span className="font-semibold text-slate-900">Details:</span> {builder.details.trim()}
+          </p>
+        )}
       </div>
 
       {submission.data && (
