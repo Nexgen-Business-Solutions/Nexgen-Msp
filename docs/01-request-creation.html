@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Nexgen MSP — Bulk Request Prototype</title>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f6f8fb; --card:#fff; --text:#0f172a; --muted:#64748b; --line:#e5eaf0;
+  --blue:#2563eb; --blueSoft:#eff6ff; --green:#059669; --greenSoft:#ecfdf5;
+  --amber:#b45309; --amberSoft:#fffbeb; --red:#b91c1c; --redSoft:#fef2f2;
+  --shadow:0 12px 32px rgba(15,23,42,.06);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);font-family:Inter,system-ui,sans-serif;color:var(--text)}
+button,input,select,textarea{font:inherit} button{cursor:pointer}
+.shell{min-height:100vh;padding:24px 28px 48px}.wrap{max-width:1200px;margin:0 auto}
+.header{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;margin-bottom:18px}
+.back{border:0;background:transparent;color:#52647d;padding:0;font-size:13px}
+h1{font-size:27px;letter-spacing:-.03em;margin:14px 0 5px}.sub{font-size:12px;color:var(--muted)}
+.approval-pill{display:flex;align-items:center;gap:8px;border:1px solid #fde7b0;background:var(--amberSoft);color:#92400e;border-radius:11px;padding:10px 12px;font-size:11px;font-weight:600}
+.dot{width:7px;height:7px;border-radius:50%;background:#f59e0b}
+.stepper{background:#fff;border:1px solid var(--line);border-radius:16px;padding:18px 22px;box-shadow:var(--shadow);margin-bottom:16px}
+.steps{display:grid;grid-template-columns:repeat(4,1fr)}.step{position:relative;text-align:center}
+.step:not(:last-child):after{content:"";position:absolute;top:16px;left:50%;right:-50%;height:2px;background:#e5e7eb;z-index:0}
+.step.done:not(:last-child):after{background:#86efac}
+.bubble{position:relative;z-index:2;width:32px;height:32px;margin:auto;border-radius:50%;display:grid;place-items:center;border:1px solid #d7dee8;background:#fff;color:#94a3b8;font-weight:700;font-size:11px}
+.step.active .bubble{background:var(--blue);border-color:var(--blue);color:#fff}.step.done .bubble{background:#10b981;border-color:#10b981;color:#fff}
+.step-label{margin-top:8px;font-size:11px;font-weight:700;color:#94a3b8}.step.active .step-label{color:#1d4ed8}.step.done .step-label{color:#047857}
+.step-sub{font-size:9px;color:#94a3b8;margin-top:2px}
+.panel{background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);overflow:hidden}
+.panel-head{padding:18px 20px;border-bottom:1px solid #edf1f5}.panel-title{font-size:17px;font-weight:700}.panel-hint{font-size:11px;color:var(--muted);margin-top:4px}
+.panel-body{padding:20px}.footer{padding:14px 20px;border-top:1px solid #edf1f5;background:#fbfcfe;display:flex;justify-content:space-between;align-items:center;gap:10px}
+.footer-note{font-size:9px;color:#94a3b8}.footer-actions{display:flex;gap:8px}
+.btn{height:40px;padding:0 14px;border-radius:10px;border:1px solid #dce3eb;background:#fff;color:#334155;font-size:11px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.btn:hover{background:#f8fafc}.btn.primary{background:var(--blue);border-color:var(--blue);color:#fff}.btn.primary:hover{background:#1d4ed8}.btn:disabled{opacity:.45;cursor:not-allowed}
+.segmented{display:inline-flex;border:1px solid #dce3eb;border-radius:10px;padding:3px;background:#f8fafc;gap:3px}
+.seg{border:0;background:transparent;border-radius:7px;padding:8px 11px;font-size:10px;font-weight:700;color:#64748b}.seg.active{background:#fff;color:#1d4ed8;box-shadow:0 1px 4px rgba(15,23,42,.08)}
+.searchrow{display:flex;gap:10px;margin-top:14px}.search{position:relative;flex:1}.search input{width:100%;height:43px;border:1px solid #dce3eb;border-radius:10px;padding:0 13px 0 38px;outline:none}
+.search input:focus,.field:focus,.textarea:focus{border-color:#7aa4ff;box-shadow:0 0 0 4px #eaf1ff}
+.search-icon{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:#94a3b8}
+.results{margin-top:8px;border:1px solid var(--line);border-radius:11px;overflow:hidden}.result{width:100%;border:0;border-bottom:1px solid #eef2f6;background:#fff;padding:11px 13px;text-align:left;display:flex;justify-content:space-between;gap:12px}.result:last-child{border-bottom:0}.result:hover{background:#f8fafc}
+.result b{font-size:11px}.result span{font-size:10px;color:var(--muted)}
+.dept-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px}
+.dept{border:1px solid #dfe6ee;border-radius:11px;background:#fff;padding:13px;text-align:left}.dept:hover{background:#f8fafc}.dept.selected{border-color:#93c5fd;background:#eff6ff}
+.dept b{display:block;font-size:11px}.dept span{display:block;font-size:9px;color:var(--muted);margin-top:3px}.dept .n{font-size:18px;font-weight:700;color:#0f172a;margin-top:9px}
+.allbox{margin-top:14px;padding:16px;border:1px solid #bfdbfe;background:#f8fbff;border-radius:12px;display:flex;justify-content:space-between;gap:16px;align-items:center}
+.allbox b{font-size:12px}.allbox p{margin:4px 0 0;font-size:10px;color:#64748b;line-height:1.5}
+.summary{margin-top:16px;border:1px solid #e3e9ef;border-radius:12px;background:#fbfcfe;padding:13px}
+.summary-top{display:flex;justify-content:space-between;align-items:center;gap:10px}.summary-top b{font-size:11px}.count{font-size:10px;color:#1d4ed8;font-weight:700}
+.chips{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.chip{padding:6px 8px;border-radius:999px;background:#fff;border:1px solid #dfe6ee;font-size:9px;font-weight:600;color:#475569}
+.people-mini{margin-top:10px;max-height:170px;overflow:auto;border-top:1px solid #e7ebf0}.mini{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid #edf1f5}.mini:last-child{border-bottom:0}.mini b{font-size:9px}.mini span{font-size:8px;color:#94a3b8}
+.scopebar{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;padding:12px;border:1px solid #dbeafe;background:#f8fbff;border-radius:11px;margin-bottom:14px}
+.scopebar b{font-size:10px}.scopebar span{font-size:9px;color:#64748b;display:block;margin-top:3px}.scopebar select{height:36px;border:1px solid #cbd5e1;border-radius:9px;background:#fff;padding:0 10px;font-size:10px;min-width:220px}
+.people-tabs{display:flex;gap:7px;overflow:auto;margin-bottom:14px}.person-tab{border:1px solid #dfe6ee;background:#fff;border-radius:9px;padding:8px 10px;min-width:150px;text-align:left}.person-tab.active{border-color:#93c5fd;background:#eff6ff}
+.person-tab b{font-size:9px;display:block}.person-tab span{font-size:8px;color:#64748b;display:block;margin-top:2px}
+.services-layout{display:grid;grid-template-columns:1fr 1fr;gap:14px}.section{border:1px solid #e1e8ef;border-radius:13px;overflow:hidden;background:#fff}.section-head{padding:11px 13px;background:#f8fafc;border-bottom:1px solid #e7edf3}.section-head b{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:#475569}.section-head div{font-size:9px;color:var(--muted);margin-top:2px}
+.service{padding:12px 13px;border-bottom:1px solid #eef2f6;display:flex;align-items:center;justify-content:space-between;gap:10px}.service:last-child{border-bottom:0}.service-name{font-size:11px;font-weight:700}.service-meta{font-size:9px;color:var(--muted);margin-top:2px}
+.actions{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}.action{border:1px solid #dce3eb;background:#fff;color:#475569;border-radius:8px;padding:6px 8px;font-size:9px;font-weight:700}.action:hover{background:#f8fafc}.action.selected{border-color:#86efac;background:#ecfdf5;color:#047857}.action.warning{border-color:#f5d59f;color:#b45309;background:#fffdf6}.action.danger{border-color:#fecaca;color:#b91c1c;background:#fffafa}.action.primary{border-color:#bfdbfe;color:#1d4ed8;background:#f8fbff}
+.bulk-result{margin-top:14px;border:1px solid #e5eaf0;border-radius:11px;padding:12px;background:#fbfcfe}.bulk-result b{font-size:10px}.ok{color:#047857}.bad{color:#b45309}.bulk-lines{display:flex;gap:12px;flex-wrap:wrap;margin-top:7px;font-size:9px;color:#64748b}
+.device-note{padding:10px 12px;margin:10px;border:1px dashed #bfdbfe;background:#f8fbff;border-radius:10px;font-size:9px;color:#334155}.device-note b{display:block;font-size:10px;color:#1d4ed8;margin-bottom:3px}
+.selected-box{margin-top:14px;border:1px solid #e4e9f0;background:#f8fafc;border-radius:11px;padding:11px 12px}.selected-head{display:flex;justify-content:space-between;gap:10px}.selected-head b{font-size:10px}.selected-head span{font-size:9px;color:#64748b}
+.selected-item{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid #e7ebf0}.selected-item:first-of-type{border-top:0}.selected-item b{font-size:9px}.selected-item small{display:block;font-size:8px;color:#64748b;margin-top:2px}.remove{border:0;background:transparent;color:#94a3b8}.remove:hover{color:#dc2626}
+.details-grid{display:grid;grid-template-columns:190px 190px 1fr;gap:12px}label{display:block;font-size:9px;color:#64748b;font-weight:700;margin-bottom:6px;text-transform:uppercase}.field{width:100%;height:40px;border:1px solid #dce3eb;border-radius:10px;padding:0 11px;outline:none;background:#fff}.textarea{width:100%;min-height:108px;border:1px solid #dce3eb;border-radius:10px;padding:10px 11px;outline:none;resize:vertical}
+.review-group{border:1px solid #e1e8ef;border-radius:12px;overflow:hidden;margin-bottom:10px}.review-head{padding:10px 12px;background:#f8fafc;border-bottom:1px solid #e7edf3;display:flex;justify-content:space-between;gap:10px}.review-head b{font-size:10px}.review-head span{font-size:8px;color:#64748b}.review-item{padding:10px 12px;border-bottom:1px solid #eef2f6;display:flex;justify-content:space-between;gap:10px}.review-item:last-child{border-bottom:0}.review-item b{font-size:9px}.review-item small{display:block;font-size:8px;color:#64748b;margin-top:2px}.tag{padding:4px 7px;border-radius:999px;background:#eff6ff;color:#1d4ed8;font-size:8px;font-weight:700;height:max-content}
+.review-meta{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:12px}.meta{border:1px solid #e5ebf1;border-radius:10px;padding:9px 10px}.meta span{display:block;font-size:8px;color:#94a3b8;text-transform:uppercase;font-weight:700}.meta b{display:block;font-size:10px;margin-top:2px}
+.approval{margin-top:12px;padding:11px 12px;border:1px solid #fde7b0;background:#fffbeb;border-radius:10px;color:#92400e;font-size:10px;line-height:1.5}
+.success{max-width:720px;margin:80px auto;background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:34px;text-align:center}.success-icon{width:52px;height:52px;border-radius:18px;background:#ecfdf5;color:#047857;display:grid;place-items:center;margin:0 auto 14px;font-size:22px;font-weight:800}
+@media(max-width:900px){.dept-grid,.services-layout{grid-template-columns:1fr}.details-grid{grid-template-columns:1fr}}
+@media(max-width:650px){.shell{padding:16px}.header{flex-direction:column}.searchrow,.scopebar{flex-direction:column}.steps{grid-template-columns:repeat(4,minmax(72px,1fr));overflow:auto}.step-sub{display:none}.scopebar select{width:100%;min-width:0}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useMemo,useState} = React;
+
+const allPeople = [
+{id:"CU-1001",name:"FRANCK MBASSI",department:"Commercial",email:"commercial@aci-cam.cm",status:"Active",device:"ACI-LT-041"},
+{id:"CU-1002",name:"AUDREY ESSAME",department:"Commercial",email:"audrey@aci-cam.cm",status:"Active",device:"ACI-LT-043"},
+{id:"CU-1003",name:"NADINE MANGA",department:"Commercial",email:"nadine@aci-cam.cm",status:"Active",device:null},
+{id:"CU-1004",name:"MARIE NGONO",department:"Finance",email:"marie.ngono@aci-cam.cm",status:"Active",device:null},
+{id:"CU-1005",name:"PAUL EKANI",department:"Finance",email:"paul.ekani@aci-cam.cm",status:"Active",device:"ACI-FIN-011"},
+{id:"CU-1006",name:"CELINE MBOG",department:"Finance",email:"celine@aci-cam.cm",status:"Active",device:"ACI-FIN-012"},
+{id:"CU-1007",name:"ALAIN ETOUNDI",department:"Operations",email:"alain.etoundi@aci-cam.cm",status:"Active",device:"ACI-OPS-082"},
+{id:"CU-1008",name:"ERIC TALLA",department:"Operations",email:"eric.talla@aci-cam.cm",status:"Active",device:"ACI-OPS-083"},
+{id:"CU-1009",name:"SANDRA EBOA",department:"Operations",email:"sandra.eboa@aci-cam.cm",status:"Active",device:null},
+{id:"CU-1010",name:"PATRICK ONANA",department:"IT",email:"patrick@aci-cam.cm",status:"Active",device:"ACI-IT-004"},
+{id:"CU-1011",name:"LOUISE NDONGO",department:"Human Resources",email:"louise@aci-cam.cm",status:"Active",device:"ACI-HR-002"},
+{id:"CU-1012",name:"MARC BIYINA",department:"Finance",email:"marc@aci-cam.cm",status:"Disabled",device:null}
+];
+
+const departmentNames=["Commercial","Finance","Operations","IT","Human Resources"];
+const dynamicServices = [
+  {service:"Microsoft 365",scope:"User",current:"Mixed",actions:[
+    {id:"RA-ADD",label:"Request service",action_type:"Add",tone:"primary"},
+    {id:"RA-CHANGE",label:"Modify service",action_type:"Change",tone:"neutral"},
+    {id:"RA-STOP",label:"Stop subscription",action_type:"Remove",tone:"danger"}]},
+  {service:"Nextcloud",scope:"User",current:"Mixed",actions:[
+    {id:"RA-ADD-NC",label:"Request service",action_type:"Add",tone:"primary"},
+    {id:"RA-PAUSE",label:"Pause access",action_type:"Suspend",tone:"warning"},
+    {id:"RA-STOP-NC",label:"Stop subscription",action_type:"Remove",tone:"danger"}]},
+  {service:"VPN",scope:"User",current:"Mixed",actions:[
+    {id:"RA-ADD-VPN",label:"Request service",action_type:"Add",tone:"primary"}]},
+  {service:"Sophos Endpoint",scope:"Device",current:"Mixed",actions:[
+    {id:"RA-SOPHOS",label:"Request protection",action_type:"Add",tone:"primary"},
+    {id:"RA-REM-SOPHOS",label:"Remove protection",action_type:"Remove",tone:"danger"}]},
+  {service:"RMM",scope:"Device",current:"Mixed",actions:[
+    {id:"RA-RMM",label:"Request monitoring",action_type:"Add",tone:"primary"},
+    {id:"RA-REM-RMM",label:"Remove monitoring",action_type:"Remove",tone:"danger"}]}
+];
+const toneClass={warning:"warning",danger:"danger",primary:"primary",neutral:""};
+
+function App(){
+ const [step,setStep]=useState(1);
+ const [peopleMode,setPeopleMode]=useState("individual");
+ const [search,setSearch]=useState("");
+ const [selectedIds,setSelectedIds]=useState(["CU-1001"]);
+ const [showPeople,setShowPeople]=useState(false);
+ const [activePersonId,setActivePersonId]=useState("CU-1001");
+ const [applyScope,setApplyScope]=useState("person:CU-1001");
+ const [intents,setIntents]=useState([]);
+ const [bulkInfo,setBulkInfo]=useState(null);
+ const [date,setDate]=useState("2026-09-15");
+ const [priority,setPriority]=useState("Normal");
+ const [note,setNote]=useState("");
+ const [submitted,setSubmitted]=useState(false);
+
+ const selectedPeople=allPeople.filter(p=>selectedIds.includes(p.id));
+ const activePeople=allPeople.filter(p=>p.status==="Active");
+ const departments=departmentNames.map(name=>({
+   name,active:allPeople.filter(p=>p.department===name&&p.status==="Active").length,
+   disabled:allPeople.filter(p=>p.department===name&&p.status==="Disabled").length
+ }));
+ const results=useMemo(()=>{
+   const q=search.trim().toLowerCase();
+   if(!q)return [];
+   return activePeople.filter(p=>!selectedIds.includes(p.id)&&[p.name,p.email,p.department,p.id].join(" ").toLowerCase().includes(q));
+ },[search,selectedIds]);
+
+ function addPerson(id){
+   setSelectedIds(prev=>[...new Set([...prev,id])]); setActivePersonId(id); setApplyScope("person:"+id); setSearch("");
+ }
+ function addDepartment(dept){
+   const ids=activePeople.filter(p=>p.department===dept).map(p=>p.id);
+   setSelectedIds(prev=>[...new Set([...prev,...ids])]);
+   setApplyScope("department:"+dept);
+ }
+ function addAll(){
+   setSelectedIds(activePeople.map(p=>p.id)); setApplyScope("all");
+ }
+ function removePerson(id){
+   if(selectedIds.length===1)return;
+   setSelectedIds(prev=>prev.filter(x=>x!==id));
+   setIntents(prev=>prev.filter(i=>i.personId!==id));
+   if(activePersonId===id){const next=selectedIds.find(x=>x!==id);setActivePersonId(next);setApplyScope("person:"+next)}
+ }
+ function targetPeople(){
+   if(applyScope==="all") return selectedPeople;
+   if(applyScope.startsWith("department:")){
+     const d=applyScope.split(":")[1]; return selectedPeople.filter(p=>p.department===d);
+   }
+   const id=applyScope.split(":")[1]; return selectedPeople.filter(p=>p.id===id);
+ }
+ function eligibility(person,svc,action){
+   if(person.status!=="Active") return {ok:false,why:"Inactive"};
+   if(svc.scope==="Device" && !person.device && action.action_type==="Remove") return {ok:false,why:"No device"};
+   // mock varied server eligibility so user can experience exceptions
+   if(action.action_type==="Add" && svc.service==="Microsoft 365" && ["CU-1001","CU-1004","CU-1005"].includes(person.id)) return {ok:false,why:"Already assigned"};
+   if(action.action_type==="Suspend" && svc.service==="Nextcloud" && ["CU-1007","CU-1008"].includes(person.id)) return {ok:false,why:"Not active"};
+   return {ok:true};
+ }
+ function applyAction(svc,action){
+   const targets=targetPeople();
+   const checks=targets.map(p=>({p,...eligibility(p,svc,action)}));
+   const eligible=checks.filter(x=>x.ok);
+   const blocked=checks.filter(x=>!x.ok);
+   setIntents(prev=>{
+     let next=[...prev];
+     eligible.forEach(({p})=>{
+       next=next.filter(i=>!(i.personId===p.id&&i.service===svc.service&&i.scope===svc.scope));
+       next.push({
+         key:[p.id,svc.scope,svc.service,action.id].join("|"),
+         personId:p.id,personName:p.name,department:p.department,device:p.device,
+         scope:svc.scope,service:svc.service,action_id:action.id,action_label:action.label,action_type:action.action_type
+       });
+     });
+     return next;
+   });
+   setBulkInfo({service:svc.service,action:action.label,eligible:eligible.length,blocked});
+ }
+ const availableDepartments=[...new Set(selectedPeople.map(p=>p.department))];
+ const canStep2=intents.length>0;
+ const grouped=selectedPeople.map(p=>({p,items:intents.filter(i=>i.personId===p.id)})).filter(g=>g.items.length);
+
+ if(submitted) return <div className="shell"><div className="success">
+   <div className="success-icon">✓</div><div style={{fontSize:21,fontWeight:700}}>Request submitted</div>
+   <div style={{marginTop:8,fontSize:11,color:"#64748b"}}>{grouped.length} people · {intents.length} requested changes.</div>
+   <button className="btn primary" style={{marginTop:20}} onClick={()=>setSubmitted(false)}>Back to review</button>
+ </div></div>;
+
+ const steps=[{n:1,label:"People",sub:"Who is concerned"},{n:2,label:"Changes",sub:"What should change"},{n:3,label:"Details",sub:"When and why"},{n:4,label:"Review",sub:"Check and submit"}];
+
+ return <div className="shell"><div className="wrap">
+   <div className="header">
+     <div><button className="back">← Back to requests</button><h1>New request</h1><div className="sub">Create one request for selected people, a department, or everyone.</div></div>
+     <div className="approval-pill"><span className="dot"></span> Customer approval required after submission</div>
+   </div>
+   <div className="stepper"><div className="steps">{steps.map(s=><div className={"step "+(step===s.n?"active ":"")+(step>s.n?"done":"")} key={s.n}><div className="bubble">{step>s.n?"✓":s.n}</div><div className="step-label">{s.label}</div><div className="step-sub">{s.sub}</div></div>)}</div></div>
+
+   <div className="panel">
+   {step===1&&<>
+     <div className="panel-head"><div className="panel-title">Who is this request for?</div><div className="panel-hint">Add specific people, an entire department, or all active Client Users.</div></div>
+     <div className="panel-body">
+       <div className="segmented">
+         <button className={"seg "+(peopleMode==="individual"?"active":"")} onClick={()=>setPeopleMode("individual")}>People</button>
+         <button className={"seg "+(peopleMode==="department"?"active":"")} onClick={()=>setPeopleMode("department")}>Department</button>
+         <button className={"seg "+(peopleMode==="all"?"active":"")} onClick={()=>setPeopleMode("all")}>Everyone</button>
+       </div>
+
+       {peopleMode==="individual"&&<>
+         <div className="searchrow"><div className="search"><span className="search-icon">⌕</span><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name, email, department or ID…"/></div></div>
+         {results.length>0&&<div className="results">{results.map(p=><button className="result" key={p.id} onClick={()=>addPerson(p.id)}><b>{p.name}</b><span>{p.department} · {p.email}</span></button>)}</div>}
+       </>}
+
+       {peopleMode==="department"&&<div className="dept-grid">{departments.map(d=><button key={d.name} className={"dept "+(selectedPeople.some(p=>p.department===d.name)?"selected":"")} onClick={()=>addDepartment(d.name)}><b>{d.name}</b><span>Active Client Users</span><div className="n">{d.active}</div>{d.disabled>0&&<span>{d.disabled} disabled excluded</span>}</button>)}</div>}
+
+       {peopleMode==="all"&&<div className="allbox"><div><b>Add all active people</b><p>This creates a snapshot of the currently eligible Client Users. Disabled users are excluded automatically.</p></div><button className="btn primary" onClick={addAll}>Add {activePeople.length} people</button></div>}
+
+       <div className="summary">
+         <div className="summary-top"><b>Selected people</b><span className="count">{selectedPeople.length} active people</span></div>
+         <div className="chips">{availableDepartments.map(d=><span className="chip" key={d}>{d} · {selectedPeople.filter(p=>p.department===d).length}</span>)}</div>
+         <div style={{marginTop:10}}><button className="btn" onClick={()=>setShowPeople(v=>!v)}>{showPeople?"Hide list":"View selected people"}</button></div>
+         {showPeople&&<div className="people-mini">{selectedPeople.map(p=><div className="mini" key={p.id}><div><b>{p.name}</b><span>{p.department} · {p.email}</span></div>{selectedPeople.length>1&&<button className="remove" onClick={()=>removePerson(p.id)}>✕</button>}</div>)}</div>}
+       </div>
+     </div>
+     <div className="footer"><div className="footer-note">Selection is a snapshot. Future Client Users are not added automatically.</div><div className="footer-actions"><button className="btn primary" disabled={!selectedPeople.length} onClick={()=>setStep(2)}>Continue →</button></div></div>
+   </>}
+
+   {step===2&&<>
+     <div className="panel-head"><div className="panel-title">What should change?</div><div className="panel-hint">Apply a change to one person, a selected department, or everyone. Eligibility is still checked per person by the backend.</div></div>
+     <div className="panel-body">
+       <div className="scopebar">
+         <div><b>Apply changes to</b><span>The same request may contain different changes for different groups.</span></div>
+         <select value={applyScope} onChange={e=>{setApplyScope(e.target.value);setBulkInfo(null)}}>
+           <option value="all">All selected people ({selectedPeople.length})</option>
+           {availableDepartments.map(d=><option key={d} value={"department:"+d}>{d} ({selectedPeople.filter(p=>p.department===d).length})</option>)}
+           <optgroup label="Individual people">{selectedPeople.map(p=><option key={p.id} value={"person:"+p.id}>{p.name}</option>)}</optgroup>
+         </select>
+       </div>
+
+       {applyScope.startsWith("person:")&&<div className="people-tabs">{selectedPeople.map(p=><button key={p.id} onClick={()=>setApplyScope("person:"+p.id)} className={"person-tab "+(applyScope==="person:"+p.id?"active":"")}><b>{p.name}</b><span>{p.department}</span></button>)}</div>}
+
+       <div className="services-layout">
+         <div className="section">
+           <div className="section-head"><b>Personal services</b><div>Dynamic actions returned by the backend for the selected target set.</div></div>
+           {dynamicServices.filter(s=>s.scope==="User").map(s=><div className="service" key={s.service}><div><div className="service-name">{s.service}</div><div className="service-meta">Availability varies by person</div></div><div className="actions">{s.actions.map(a=><button className={"action "+(toneClass[a.tone]||"")} key={a.id} onClick={()=>applyAction(s,a)}>{a.label}</button>)}</div></div>)}
+         </div>
+         <div className="section">
+           <div className="section-head"><b>Device services</b><div>People without a known Device can still request a new Device-scoped service.</div></div>
+           <div className="device-note"><b>Device targets stay Device-scoped</b>Nexgen resolves missing devices during fulfilment. The customer never enters hostname or serial here.</div>
+           {dynamicServices.filter(s=>s.scope==="Device").map(s=><div className="service" key={s.service}><div><div className="service-name">{s.service}</div><div className="service-meta">Per-person / per-device eligibility</div></div><div className="actions">{s.actions.map(a=><button className={"action "+(toneClass[a.tone]||"")} key={a.id} onClick={()=>applyAction(s,a)}>{a.label}</button>)}</div></div>)}
+         </div>
+       </div>
+
+       {bulkInfo&&<div className="bulk-result">
+         <b>{bulkInfo.action} · {bulkInfo.service}</b>
+         <div className="bulk-lines"><span className="ok">✓ {bulkInfo.eligible} eligible</span>{bulkInfo.blocked.length>0&&<span className="bad">⚠ {bulkInfo.blocked.length} not eligible</span>}</div>
+         {bulkInfo.blocked.length>0&&<div style={{marginTop:7,fontSize:8,color:"#64748b"}}>{bulkInfo.blocked.slice(0,4).map(x=>`${x.p.name}: ${x.why}`).join(" · ")}{bulkInfo.blocked.length>4?" · …":""}</div>}
+       </div>}
+
+       <div className="selected-box">
+         <div className="selected-head"><b>Request changes</b><span>{intents.length} person/change pair{intents.length===1?"":"s"}</span></div>
+         {grouped.length===0?<div style={{fontSize:9,color:"#94a3b8",padding:"8px 0"}}>Choose at least one action above.</div>:
+         grouped.map(g=><div key={g.p.id} style={{borderTop:"1px solid #e7ebf0",paddingTop:8,marginTop:8}}>
+           <div style={{fontSize:9,fontWeight:700}}>{g.p.name} <span style={{fontWeight:400,color:"#94a3b8"}}>· {g.p.department}</span></div>
+           {g.items.map(i=><div className="selected-item" key={i.key}><div><b>{i.action_label} · {i.service}</b><small>{i.scope==="Device"?(i.device?i.device:"Device to be identified by Nexgen"):"Personal service"}</small></div><button className="remove" onClick={()=>setIntents(prev=>prev.filter(x=>x.key!==i.key))}>✕</button></div>)}
+         </div>)}
+       </div>
+     </div>
+     <div className="footer"><div className="footer-note">Bulk actions never bypass per-person allowed_actions and eligibility checks.</div><div className="footer-actions"><button className="btn" onClick={()=>setStep(1)}>← Back</button><button className="btn primary" disabled={!canStep2} onClick={()=>setStep(3)}>Continue →</button></div></div>
+   </>}
+
+   {step===3&&<>
+     <div className="panel-head"><div className="panel-title">When should this happen?</div><div className="panel-hint">These details apply to the whole request.</div></div>
+     <div className="panel-body"><div className="details-grid">
+       <div><label>Requested date *</label><input className="field" type="date" value={date} onChange={e=>setDate(e.target.value)}/></div>
+       <div><label>Priority</label><select className="field" value={priority} onChange={e=>setPriority(e.target.value)}><option>Low</option><option>Normal</option><option>High</option><option>Urgent</option></select></div>
+       <div><label>Reason / instructions</label><textarea className="textarea" value={note} onChange={e=>setNote(e.target.value)} placeholder="Explain the business reason or anything Nexgen should know."></textarea></div>
+     </div></div>
+     <div className="footer"><div className="footer-note">Step 3 of 4</div><div className="footer-actions"><button className="btn" onClick={()=>setStep(2)}>← Back</button><button className="btn primary" onClick={()=>setStep(4)}>Review request →</button></div></div>
+   </>}
+
+   {step===4&&<>
+     <div className="panel-head"><div className="panel-title">Review your request</div><div className="panel-hint">{grouped.length} people will be included in this request.</div></div>
+     <div className="panel-body">
+       {grouped.map(g=><div className="review-group" key={g.p.id}><div className="review-head"><b>{g.p.name}</b><span>{g.p.department} · {g.items.length} change{g.items.length===1?"":"s"}</span></div>{g.items.map(i=><div className="review-item" key={i.key}><div><b>{i.action_label} · {i.service}</b><small>{i.scope==="Device"?(i.device?i.device:"Device required — Nexgen will identify target"):"Personal service"}</small></div><span className="tag">{i.scope}</span></div>)}</div>)}
+       <div className="review-meta"><div className="meta"><span>Requested date</span><b>{date}</b></div><div className="meta"><span>Priority</span><b>{priority}</b></div></div>
+       {note&&<div style={{marginTop:10,padding:"10px 11px",border:"1px solid #e5ebf1",borderRadius:10,fontSize:10,color:"#475569"}}>{note}</div>}
+       <div className="approval"><b>Customer approval</b><br/>After submission, the authority matrix determines the required internal approval path. No requested change is executed at this stage.</div>
+     </div>
+     <div className="footer"><div className="footer-note">Bulk selection is expanded into explicit request subjects and lines at submission time.</div><div className="footer-actions"><button className="btn" onClick={()=>setStep(3)}>← Back</button><button className="btn primary" onClick={()=>setSubmitted(true)}>Submit request</button></div></div>
+   </>}
+   </div>
+ </div></div>
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Nexgen MSP — Adaptive Request Approval</title>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f6f8fb;--card:#fff;--text:#0f172a;--muted:#64748b;--line:#e5eaf0;
+  --blue:#2563eb;--blueSoft:#eff6ff;--green:#059669;--greenSoft:#ecfdf5;
+  --amber:#b45309;--amberSoft:#fffbeb;--red:#b91c1c;--redSoft:#fef2f2;
+  --shadow:0 12px 32px rgba(15,23,42,.06)
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);font-family:Inter,system-ui,sans-serif;color:var(--text)}
+button,textarea{font:inherit}button{cursor:pointer}
+.shell{min-height:100vh;padding:24px 28px 48px}.wrap{max-width:1100px;margin:0 auto}
+.header{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;margin-bottom:16px}
+.back{border:0;background:transparent;color:#52647d;padding:0;font-size:13px}
+h1{font-size:27px;letter-spacing:-.03em;margin:14px 0 5px}.sub{font-size:12px;color:var(--muted)}
+.identity{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 12px;box-shadow:var(--shadow)}
+.avatar{width:34px;height:34px;border-radius:10px;background:#eaf1ff;color:#1d4ed8;display:grid;place-items:center;font-size:11px;font-weight:800}
+.id-name{font-size:11px;font-weight:700}.id-meta{font-size:9px;color:var(--muted);margin-top:2px}
+.auth{font-size:8px;font-weight:700;color:#047857;background:#ecfdf5;border:1px solid #bbf7d0;padding:4px 7px;border-radius:999px;margin-left:5px}
+
+.demo{margin-bottom:14px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.demo span{font-size:9px;color:#94a3b8;font-weight:700;text-transform:uppercase;margin-right:4px}
+.demo button{border:1px solid #dce3eb;background:#fff;border-radius:8px;padding:7px 10px;font-size:9px;font-weight:700;color:#64748b}
+.demo button.active{background:#eff6ff;border-color:#93c5fd;color:#1d4ed8}
+
+.card{background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);overflow:hidden}
+.head{padding:20px 22px;border-bottom:1px solid #edf1f5;display:flex;justify-content:space-between;gap:18px;align-items:flex-start}
+.req-title{font-size:19px;font-weight:700}.req-meta{font-size:10px;color:var(--muted);margin-top:5px;display:flex;gap:8px;flex-wrap:wrap}
+.status{padding:6px 9px;border-radius:999px;background:#fffbeb;color:#92400e;border:1px solid #fde7b0;font-size:9px;font-weight:700;white-space:nowrap}
+.body{padding:18px 22px}
+.banner{padding:11px 12px;border:1px solid #dbeafe;background:#f8fbff;border-radius:10px;color:#1e3a8a;font-size:10px;line-height:1.5}
+.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:13px}
+.summary>div{border:1px solid #e5eaf0;border-radius:10px;padding:9px 10px}.summary span{display:block;font-size:8px;color:#94a3b8;text-transform:uppercase;font-weight:700}.summary b{display:block;font-size:10px;margin-top:3px;color:#334155}
+
+.scope{margin-top:13px;border:1px solid #dbeafe;background:#fbfdff;border-radius:12px;padding:13px}
+.scope-top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.kicker{font-size:8px;color:#64748b;text-transform:uppercase;font-weight:800;letter-spacing:.04em}
+.scope-title{font-size:13px;font-weight:700;margin-top:3px}.scope-sub{font-size:9px;color:#64748b;margin-top:4px;line-height:1.5}
+.scope-badge{padding:5px 8px;border-radius:999px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;font-size:8px;font-weight:800;white-space:nowrap}
+.chips{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.chip{padding:5px 7px;border-radius:999px;background:#fff;border:1px solid #dfe6ee;font-size:8px;color:#475569;font-weight:700}
+
+.section{border:1px solid #e1e8ef;border-radius:12px;overflow:hidden;margin-top:13px}
+.section-head{padding:10px 12px;background:#f8fafc;border-bottom:1px solid #e7edf3;display:flex;justify-content:space-between;align-items:center}
+.section-head b{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:#475569}.section-head span{font-size:9px;color:#94a3b8}
+
+.person-group{padding:12px;border-bottom:1px solid #eef2f6;background:#fbfdff}.person-group:last-child{border-bottom:0}
+.person-title{font-size:11px;font-weight:700}.person-meta{font-size:9px;color:#64748b;margin-top:2px}
+.change{margin-top:9px;border:1px solid #e4e9ef;border-radius:10px;overflow:hidden;background:#fff}
+.change-top{padding:10px 11px;display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.change-title{font-size:10px;font-weight:700}.change-context{font-size:9px;color:#64748b;margin-top:3px}
+.tag{padding:4px 7px;border-radius:999px;background:#eff6ff;color:#1d4ed8;font-size:8px;font-weight:700;white-space:nowrap}
+.state-grid{display:grid;grid-template-columns:1fr 34px 1fr;border-top:1px solid #eef2f6;background:#fcfdff}
+.state{padding:9px 11px}.state span{display:block;font-size:8px;color:#94a3b8;text-transform:uppercase;font-weight:700}.state b{display:block;font-size:10px;margin-top:3px;color:#334155}
+.arrow{display:grid;place-items:center;color:#94a3b8;font-size:13px}
+
+.bulk{padding:12px;border-bottom:1px solid #eef2f6}.bulk:last-child{border-bottom:0}
+.bulk-top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.bulk-title{font-size:10px;font-weight:700}.bulk-meta{font-size:9px;color:#64748b;margin-top:3px}
+.stats{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}
+.ok{padding:4px 7px;border-radius:999px;background:#ecfdf5;border:1px solid #bbf7d0;color:#047857;font-size:8px;font-weight:700}
+.context{padding:4px 7px;border-radius:999px;background:#f8fafc;border:1px solid #e2e8f0;color:#475569;font-size:8px;font-weight:700}
+.warn{padding:4px 7px;border-radius:999px;background:#fffbeb;border:1px solid #fde68a;color:#92400e;font-size:8px;font-weight:700}
+.view{margin-top:9px;border:1px solid #dce3eb;background:#fff;border-radius:8px;padding:6px 8px;font-size:8px;font-weight:700;color:#475569}
+.people{margin-top:8px;border-top:1px solid #eef2f6;max-height:170px;overflow:auto}
+.p-row{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid #eef2f6}.p-row:last-child{border-bottom:0}
+.p-row b{font-size:8px}.p-row span{font-size:8px;color:#94a3b8}
+
+.note{padding:11px 12px;border:1px solid #e5eaf0;border-radius:10px;background:#fbfcfe;font-size:10px;color:#475569;line-height:1.55}
+.note b{display:block;font-size:9px;color:#64748b;text-transform:uppercase;margin-bottom:4px}
+.decision{margin-top:14px;border:1px solid #dfe6ee;border-radius:12px;padding:13px;background:#fff}
+.decision-top{display:flex;justify-content:space-between;gap:12px;align-items:center}.decision-top b{font-size:11px}
+.coverage{font-size:9px;color:#047857;background:#ecfdf5;border:1px solid #bbf7d0;border-radius:999px;padding:4px 7px;font-weight:700}
+.decision-text{font-size:9px;color:var(--muted);margin-top:5px;line-height:1.5}
+.actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+.btn{height:39px;padding:0 14px;border-radius:9px;border:1px solid #dce3eb;background:#fff;color:#334155;font-size:10px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.btn:hover{background:#f8fafc}.btn.approve{background:#059669;border-color:#059669;color:#fff}.btn.reject{color:#b91c1c;border-color:#fecaca;background:#fffafa}.btn:disabled{opacity:.45;cursor:not-allowed}
+.rejectbox{margin-top:10px;padding:11px;border:1px solid #fecaca;border-radius:10px;background:#fffafa}.textarea{width:100%;min-height:82px;border:1px solid #f5c2c2;border-radius:9px;padding:9px 10px;outline:none;resize:vertical;font-size:10px}
+.reject-actions{display:flex;justify-content:flex-end;gap:7px;margin-top:8px}.done{margin-top:14px;padding:13px;border:1px solid #bbf7d0;background:#ecfdf5;border-radius:11px;color:#047857;font-size:10px}
+@media(max-width:760px){.shell{padding:16px}.header{flex-direction:column}.summary{grid-template-columns:1fr 1fr}}
+@media(max-width:520px){.summary{grid-template-columns:1fr}.state-grid{grid-template-columns:1fr}.arrow{transform:rotate(90deg);padding:2px}.actions{flex-direction:column-reverse}.actions .btn{width:100%}}
+</style>
+</head>
+<body><div id="root"></div>
+<script type="text/babel">
+const {useState} = React;
+
+const people=[
+ {id:"1",name:"FRANCK MBASSI",dept:"Commercial",email:"commercial@aci-cam.cm"},
+ {id:"2",name:"AUDREY ESSAME",dept:"Commercial",email:"audrey@aci-cam.cm"},
+ {id:"3",name:"NADINE MANGA",dept:"Commercial",email:"nadine@aci-cam.cm"},
+ {id:"4",name:"MARIE NGONO",dept:"Finance",email:"marie.ngono@aci-cam.cm"},
+ {id:"5",name:"PAUL EKANI",dept:"Finance",email:"paul.ekani@aci-cam.cm"},
+ {id:"6",name:"CELINE MBOG",dept:"Finance",email:"celine@aci-cam.cm"},
+ {id:"7",name:"ALAIN ETOUNDI",dept:"Operations",email:"alain.etoundi@aci-cam.cm"},
+ {id:"8",name:"ERIC TALLA",dept:"Operations",email:"eric.talla@aci-cam.cm"},
+ {id:"9",name:"SANDRA EBOA",dept:"Operations",email:"sandra.eboa@aci-cam.cm"},
+ {id:"10",name:"PATRICK ONANA",dept:"IT",email:"patrick@aci-cam.cm"},
+ {id:"11",name:"LOUISE NDONGO",dept:"Human Resources",email:"louise@aci-cam.cm"}
+];
+
+const scenarios={
+ people:{
+  label:"Selected people",scopeType:"PEOPLE",scopeTitle:"3 selected people",
+  scopeSub:"Each person may have different requested changes.",
+  chips:["Commercial · 2","Finance · 1"],
+  people:people.slice(0,2).concat(people.slice(3,4)),
+  presentation:"individual",
+  individual:[
+   {person:people[0],changes:[
+    {service:"Nextcloud",action:"Pause access",context:"Personal service",current:"Active",requested:"Suspended"},
+    {service:"RMM",action:"Request monitoring",context:"ACI-LT-041 · Device service",current:"Not assigned",requested:"Add service"}]},
+   {person:people[1],changes:[
+    {service:"Microsoft 365",action:"Modify service",context:"Personal service",current:"Standard plan",requested:"Requested change"}]},
+   {person:people[3],changes:[
+    {service:"VPN",action:"Request service",context:"Personal service",current:"Not assigned",requested:"Add service"}]}
+  ]
+ },
+ department:{
+  label:"Department",scopeType:"DEPARTMENT",scopeTitle:"Commercial department",
+  scopeSub:"Snapshot of the active Commercial Client Users included when the request was submitted.",
+  chips:["3 people","Commercial","0 disabled included"],
+  people:people.slice(0,3),presentation:"grouped",
+  groups:[
+   {service:"Microsoft 365",action:"Modify service",scope:"User",people:people.slice(0,3),meta:"Same requested change for the full department"},
+   {service:"RMM",action:"Request monitoring",scope:"Device",people:people.slice(0,3),meta:"2 known devices · 1 device will be resolved by Nexgen"}
+  ]
+ },
+ everyone:{
+  label:"Everyone",scopeType:"EVERYONE",scopeTitle:"All active Client Users",
+  scopeSub:"Snapshot of all active Client Users at submission time. Future users are not included.",
+  chips:["11 people","5 departments","Disabled users excluded"],
+  people:people,presentation:"mixed",
+  groups:[
+   {service:"VPN",action:"Request service",scope:"User",people:people,meta:"Same change for everyone"},
+   {service:"Sophos Endpoint",action:"Request protection",scope:"Device",people:people.slice(0,8),meta:"Applied only to the 8 eligible subjects in the submitted request"}
+  ],
+  individual:[
+   {person:people[0],changes:[
+    {service:"Nextcloud",action:"Pause access",context:"Personal override in same request",current:"Active",requested:"Suspended"}]},
+   {person:people[4],changes:[
+    {service:"Microsoft 365",action:"Stop subscription",context:"Personal override in same request",current:"Active",requested:"Remove service"}]}
+  ]
+ }
+};
+
+function GroupCard({g}){
+ const [show,setShow]=useState(false);
+ return <div className="bulk">
+   <div className="bulk-top">
+    <div><div className="bulk-title">{g.service}</div><div className="bulk-meta">{g.meta}</div></div>
+    <span className="tag">{g.action}</span>
+   </div>
+   <div className="stats"><span className="ok">✓ {g.people.length} people included</span><span className="context">{g.scope} scope</span></div>
+   <button className="view" onClick={()=>setShow(v=>!v)}>{show?"Hide people":`View ${g.people.length} people`}</button>
+   {show&&<div className="people">{g.people.map(p=><div className="p-row" key={p.id}><div><b>{p.name}</b><span>{p.dept} · {p.email}</span></div></div>)}</div>}
+ </div>
+}
+
+function IndividualGroup({x}){
+ return <div className="person-group">
+   <div className="person-title">{x.person.name}</div>
+   <div className="person-meta">{x.person.dept} · {x.person.email}</div>
+   {x.changes.map((c,i)=><div className="change" key={i}>
+    <div className="change-top">
+      <div><div className="change-title">{c.service}</div><div className="change-context">{c.context}</div></div>
+      <span className="tag">{c.action}</span>
+    </div>
+    <div className="state-grid">
+      <div className="state"><span>Current state</span><b>{c.current}</b></div>
+      <div className="arrow">→</div>
+      <div className="state"><span>Requested state</span><b>{c.requested}</b></div>
+    </div>
+   </div>)}
+ </div>
+}
+
+function App(){
+ const [scenario,setScenario]=useState("people");
+ const [showScopePeople,setShowScopePeople]=useState(false);
+ const [rejecting,setRejecting]=useState(false);
+ const [reason,setReason]=useState("");
+ const [decision,setDecision]=useState(null);
+ const s=scenarios[scenario];
+ const total = (s.groups||[]).reduce((n,g)=>n+g.people.length,0)+(s.individual||[]).reduce((n,x)=>n+x.changes.length,0);
+
+ function sw(k){setScenario(k);setShowScopePeople(false);setRejecting(false);setReason("");setDecision(null)}
+
+ return <div className="shell"><div className="wrap">
+   <div className="header">
+    <div><button className="back">← Back to approvals</button><h1>Request approval</h1><div className="sub">Review exactly who is affected and what will be sent to Nexgen.</div></div>
+    <div className="identity"><div className="avatar">JM</div><div><div className="id-name">Jean Martin <span className="auth">CAN APPROVE</span></div><div className="id-meta">Customer Manager · Authority matrix applies</div></div></div>
+   </div>
+
+   <div className="demo"><span>Prototype scenario</span>{Object.entries(scenarios).map(([k,v])=><button key={k} className={scenario===k?"active":""} onClick={()=>sw(k)}>{v.label}</button>)}</div>
+
+   <div className="card">
+    <div className="head">
+      <div><div className="req-title">SR-2026-00544</div><div className="req-meta"><span>Requested by <b>Devteam Cam</b></span><span>•</span><span>Sep 13, 2026 · 09:31</span></div></div>
+      <span className="status">{decision==="approved"?"Customer Approved":decision==="rejected"?"Rejected":"Awaiting Customer Approval"}</span>
+    </div>
+
+    <div className="body">
+      <div className="banner">You can approve this request because your authority matrix covers every included subject. Your Manager / Operator role is not what grants approval authority.</div>
+
+      <div className="summary">
+        <div><span>Requested date</span><b>Sep 15, 2026</b></div>
+        <div><span>Priority</span><b>Normal</b></div>
+        <div><span>People</span><b>{s.people.length}</b></div>
+        <div><span>Requested changes</span><b>{total}</b></div>
+      </div>
+
+      <div className="scope">
+        <div className="scope-top">
+          <div><div className="kicker">Request scope</div><div className="scope-title">{s.scopeTitle}</div><div className="scope-sub">{s.scopeSub}</div></div>
+          <span className="scope-badge">{s.scopeType}</span>
+        </div>
+        <div className="chips">{s.chips.map(c=><span className="chip" key={c}>{c}</span>)}</div>
+        {(s.presentation!=="individual")&&<>
+          <button className="view" onClick={()=>setShowScopePeople(v=>!v)}>{showScopePeople?"Hide request snapshot":`View request snapshot (${s.people.length})`}</button>
+          {showScopePeople&&<div className="people">{s.people.map(p=><div className="p-row" key={p.id}><div><b>{p.name}</b><span>{p.dept} · {p.email}</span></div></div>)}</div>}
+        </>}
+      </div>
+
+      {(s.presentation==="grouped"||s.presentation==="mixed")&&<div className="section">
+        <div className="section-head"><b>Shared changes</b><span>Compressed for faster review</span></div>
+        {s.groups.map((g,i)=><GroupCard key={i} g={g}/>)}
+      </div>}
+
+      {(s.presentation==="individual"||s.presentation==="mixed")&&<div className="section">
+        <div className="section-head"><b>{s.presentation==="mixed"?"Individual changes":"Requested changes by person"}</b><span>{s.presentation==="mixed"?"Exceptions / additional changes":"Exact request detail"}</span></div>
+        {s.individual.map((x,i)=><IndividualGroup key={i} x={x}/>)}
+      </div>}
+
+      <div className="section">
+        <div className="section-head"><b>Business context</b><span>Provided by requester</span></div>
+        <div style={{padding:12}}><div className="note"><b>Reason / instructions</b>Please apply these changes before the affected teams start next week.</div></div>
+      </div>
+
+      {!decision&&<div className="decision">
+        <div className="decision-top">
+          <div><b>Customer approval decision</b><div className="decision-text">Approving sends this exact request snapshot to Nexgen. No service, device or Client User change is executed here.</div></div>
+          <span className="coverage">✓ Full authority coverage</span>
+        </div>
+        {!rejecting?<div className="actions"><button className="btn reject" onClick={()=>setRejecting(true)}>Reject</button><button className="btn approve" onClick={()=>setDecision("approved")}>Approve request</button></div>:
+        <div className="rejectbox">
+          <div style={{fontSize:10,fontWeight:700,color:"#991b1b",marginBottom:7}}>Why are you rejecting this request?</div>
+          <textarea className="textarea" value={reason} onChange={e=>setReason(e.target.value)} placeholder="Reason is required and will be visible to the requester."></textarea>
+          <div className="reject-actions"><button className="btn" onClick={()=>{setRejecting(false);setReason("")}}>Cancel</button><button className="btn reject" disabled={!reason.trim()} onClick={()=>setDecision("rejected")}>Confirm rejection</button></div>
+        </div>}
+      </div>}
+      {decision==="approved"&&<div className="done"><b>Approved by customer.</b><br/>This exact request snapshot is now ready for Nexgen processing.</div>}
+    </div>
+   </div>
+ </div></div>
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

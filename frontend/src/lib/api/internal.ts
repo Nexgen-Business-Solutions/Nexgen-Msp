@@ -146,6 +146,22 @@ export const setRequestLineStatus = (payload: {
   reason?: string;
 }) => post<RequestDetail>(`${BASE}.set_request_line_status`, payload);
 
+export type GroupOutcome<T> = {
+  results: { ok: boolean; message: string | null; idx?: number; work_order?: string }[];
+  failed: number;
+} & T;
+
+export const setRequestLineStatuses = (payload: {
+  name: string;
+  idxs: number[];
+  line_status: string;
+  reason?: string;
+}) =>
+  post<GroupOutcome<{ decided: number; request: RequestDetail }>>(
+    `${BASE}.set_request_line_statuses`,
+    { ...payload, idxs: JSON.stringify(payload.idxs) }
+  );
+
 // ---------------------------------------------------------------- the technician's workbench
 
 export type WorkChecklistItem = {
@@ -204,6 +220,9 @@ export type WorkCard = {
   resulting_assignment: string | null;
   resulting_client_user: string | null;
   resulting_device: string | null;
+  origin?: 'Request' | 'Technician' | null;
+  technician_reason?: string | null;
+  action_label?: string | null;
   checklist: WorkChecklistItem[];
   ready: boolean;
   waiting_on: string | null;
@@ -223,7 +242,7 @@ export type WorkCard = {
 };
 
 export type WorkStage = {
-  key: 'review' | 'prepare' | 'execute' | 'verify' | 'complete';
+  key: 'review' | 'execute' | 'verify' | 'complete';
   label: string;
   done: boolean;
   needed: boolean;
@@ -242,10 +261,62 @@ export type SubjectWorkGroup = {
   services: WorkCard[];
 };
 
+export type RequestContext = {
+  customer: string;
+  requester: string | null;
+  requester_name: string | null;
+  raised_at: string;
+  requested_date: string | null;
+  priority: string;
+  people: number;
+  lines: number;
+  details: string | null;
+  customer_approved: boolean;
+  technicians: string[];
+};
+
+export type RecapEntry = {
+  work_order: string;
+  subject_key: string | null;
+  subject: string | null;
+  department: string | null;
+  kind: 'requested' | 'technician' | 'object';
+  title: string;
+  detail: string;
+  reason: string | null;
+  at: string | null;
+  by: string | null;
+};
+
+export type FulfilmentOutcome = {
+  accepted: number;
+  rejected: number;
+  requested_done: number;
+  technician_added: number;
+  technician_done: number;
+  prepared: number;
+};
+
+export type TechnicianOption = {
+  key: string;
+  service_item: string;
+  service_name: string;
+  action: string;
+  action_label: string;
+  target_scope: 'User' | 'Device';
+  managed_device: string | null;
+  device_label: string | null;
+  source_service_assignment: string | null;
+  current_state: string;
+};
+
 export type ExecutionPlan = {
   request: string;
   customer: string;
   status: string;
+  context: RequestContext;
+  recap: RecapEntry[];
+  outcome: FulfilmentOutcome;
   stages: { stages: WorkStage[]; current: WorkStage['key'] };
   groups: SubjectWorkGroup[];
   rejected: { idx: number; service: string; reason: string | null }[];
@@ -293,6 +364,30 @@ export const executeServiceAction = (payload: {
   notes?: string;
   customer_note?: string;
 }) => post<ExecutionPlan>(`${BASE}.execute_service_action`, payload);
+
+export const executeServiceActions = (payload: { work_orders: string[]; effective_date?: string }) =>
+  post<GroupOutcome<{ completed: number; plan: ExecutionPlan }>>(`${BASE}.execute_service_actions`, {
+    ...payload,
+    work_orders: JSON.stringify(payload.work_orders),
+  });
+
+export const getTechnicianOptions = (name: string, subjectKey: string, signal?: AbortSignal) =>
+  get<{ subject_key: string; options: TechnicianOption[]; reason: string | null }>(
+    `${BASE}.get_technician_options`,
+    { name, subject_key: subjectKey },
+    signal
+  );
+
+export const addTechnicianAction = (payload: {
+  name: string;
+  subject_key: string;
+  option: TechnicianOption;
+  reason: string;
+}) =>
+  post<ExecutionPlan>(`${BASE}.add_technician_action`, {
+    ...payload,
+    option: JSON.stringify(payload.option),
+  });
 
 export const blockWorkItem = (payload: { work_order: string; reason: string }) =>
   post<ExecutionPlan>(`${BASE}.block_work_item`, payload);

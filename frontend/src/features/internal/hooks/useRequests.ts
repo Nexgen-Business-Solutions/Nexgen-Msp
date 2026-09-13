@@ -163,6 +163,19 @@ export const useRunRequestAction = () =>
     internal.runRequestAction(variables)
   );
 
+/** One decision for several lines; the answer says how each line took it. */
+export const useSetLineStatuses = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: internal.setRequestLineStatuses,
+    onSuccess: (outcome) => {
+      queryClient.setQueryData(requestKeys.detail(outcome.request.name), outcome.request);
+      queryClient.invalidateQueries({ queryKey: [...requestKeys.all, 'list'] });
+    },
+  });
+};
+
 export const useSetLineStatus = () =>
   useDetailMutation(
     (variables: { name: string; idx: number; line_status: string; reason?: string }) =>
@@ -206,6 +219,30 @@ export const useFailWorkItem = () => usePlanMutation(internal.failWorkItem);
 export const useCancelWorkItem = () => usePlanMutation(internal.cancelWorkItem);
 export const useVerifyWorkItem = () => usePlanMutation(internal.verifyWorkItem);
 export const useCompleteRequest = () => usePlanMutation(internal.completeRequest);
+export const useAddTechnicianAction = () => usePlanMutation(internal.addTechnicianAction);
+
+/** The same act for several people, run one by one; the outcome names each of them. */
+export const useExecuteServiceActions = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: internal.executeServiceActions,
+    onSuccess: (outcome) => {
+      queryClient.setQueryData(requestKeys.plan(outcome.plan.request), outcome.plan);
+      queryClient.invalidateQueries({ queryKey: requestKeys.detail(outcome.plan.request) });
+      queryClient.invalidateQueries({ queryKey: ['internal', 'users'] });
+      queryClient.invalidateQueries({ queryKey: ['internal', 'devices'] });
+    },
+  });
+};
+
+export const useTechnicianOptions = (name: string, subjectKey: string | null) =>
+  useQuery({
+    queryKey: [...requestKeys.plan(name), 'options', subjectKey ?? ''] as const,
+    queryFn: ({ signal }) => internal.getTechnicianOptions(name, subjectKey as string, signal),
+    enabled: Boolean(name && subjectKey),
+    staleTime: 0,
+  });
 export const useAssignRequestTechnician = () => usePlanMutation(internal.assignRequestTechnician);
 
 

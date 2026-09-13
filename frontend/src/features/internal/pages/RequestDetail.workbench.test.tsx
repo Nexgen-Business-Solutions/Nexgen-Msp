@@ -26,6 +26,10 @@ vi.mock('@/lib/api/internal', async (importOriginal) => {
     completeRequest: vi.fn(),
     assignRequestTechnician: vi.fn(),
     setRequestLineStatus: vi.fn(),
+    setRequestLineStatuses: vi.fn(),
+    executeServiceActions: vi.fn(),
+    getTechnicianOptions: vi.fn(),
+    addTechnicianAction: vi.fn(),
     runRequestAction: vi.fn(),
     listCustomerDevices: vi.fn(),
     getDeviceFilterOptions: vi.fn(),
@@ -117,14 +121,28 @@ const plan = (overrides: Partial<ExecutionPlan> = {}): ExecutionPlan => ({
   request: 'SR-0001',
   customer: 'ACME',
   status: 'In Progress',
+  context: {
+    customer: 'ACME',
+    requester: 'someone@acme.com',
+    requester_name: 'Devteam Cam',
+    raised_at: '2026-09-13 09:31:00',
+    requested_date: '2026-09-15',
+    priority: 'High',
+    people: 1,
+    lines: 1,
+    details: 'Please prepare everything before Monday.',
+    customer_approved: true,
+    technicians: [],
+  },
+  recap: [],
+  outcome: { accepted: 1, rejected: 0, requested_done: 0, technician_added: 0, technician_done: 0, prepared: 0 },
   stages: {
     current: 'execute',
     stages: [
-      { key: 'review', label: 'Review', done: true, needed: true, state: 'done' },
-      { key: 'prepare', label: 'Prepare', done: true, needed: false, state: 'skipped' },
+      { key: 'review', label: 'Review lines', done: true, needed: true, state: 'done' },
       { key: 'execute', label: 'Execute', done: false, needed: true, state: 'current' },
       { key: 'verify', label: 'Verify', done: false, needed: true, state: 'todo' },
-      { key: 'complete', label: 'Complete', done: false, needed: true, state: 'todo' },
+      { key: 'complete', label: 'Final validation', done: false, needed: true, state: 'todo' },
     ],
   },
   groups: [group()],
@@ -133,6 +151,89 @@ const plan = (overrides: Partial<ExecutionPlan> = {}): ExecutionPlan => ({
   activity: [],
   ...overrides,
 });
+
+const executed = (overrides: Partial<ExecutionPlan> = {}) =>
+  plan({
+    stages: {
+      current: 'verify',
+      stages: [
+        { key: 'review', label: 'Review lines', done: true, needed: true, state: 'done' },
+        { key: 'execute', label: 'Execute', done: true, needed: true, state: 'done' },
+        { key: 'verify', label: 'Verify', done: false, needed: true, state: 'current' },
+        { key: 'complete', label: 'Final validation', done: false, needed: true, state: 'todo' },
+      ],
+    },
+    groups: [group({ services: [card({ status: 'Completed', completed_at: '2026-09-13 10:00:00' })] })],
+    recap: [
+      {
+        work_order: 'WO-0001',
+        subject_key: 'user:CU-1',
+        subject: 'John Doe',
+        department: 'Accounting',
+        kind: 'requested',
+        title: 'Microsoft 365 · Grant a service',
+        detail: 'User scope · CU-1',
+        reason: null,
+        at: '2026-09-13 10:00:00',
+        by: 'Tech One',
+      },
+      {
+        work_order: 'WO-0002',
+        subject_key: 'user:CU-1',
+        subject: 'John Doe',
+        department: 'Accounting',
+        kind: 'technician',
+        title: 'VPN · Grant a service',
+        detail: 'User scope · CU-1',
+        reason: 'Needed for remote work',
+        at: '2026-09-13 10:05:00',
+        by: 'Tech One',
+      },
+    ],
+    outcome: { accepted: 1, rejected: 1, requested_done: 1, technician_added: 1, technician_done: 1, prepared: 0 },
+    summary: { people: 0, devices: 0, services: 2, open: 0, blocked: 0, failed: 0 },
+    ...overrides,
+  });
+
+const line = (idx: number, overrides: Record<string, unknown> = {}) => ({
+  idx,
+  action: 'Add',
+  action_label: 'Grant a service',
+  action_description: null,
+  target_scope: 'User',
+  service_scope: 'User',
+  is_new_user: 0,
+  client_user: `CU-${idx}`,
+  client_user_name: `Person ${idx}`,
+  client_user_department: 'Commercial',
+  new_user_full_name: null,
+  new_user_department: null,
+  new_user_email: null,
+  new_user_username: null,
+  is_new_device: 0,
+  new_device_label: null,
+  new_device_type: null,
+  new_device_serial: null,
+  managed_device: null,
+  device_hostname: null,
+  device_type: null,
+  device_holder: null,
+  requested_service: 'VPN',
+  requested_service_name: 'VPN',
+  requested_quantity: 1,
+  requested_effective_date: '2026-09-15',
+  comment: null,
+  device_serial: null,
+  client_username: null,
+  needs_serial: false,
+  needs_username: false,
+  line_status: 'Pending',
+  rejection_reason: null,
+  ...overrides,
+});
+
+const reviewing = (lines = [line(1), line(2)]) =>
+  request({ status: 'Under Review', can_decide_lines: true, lines, details: 'Before Monday.' } as never);
 
 const renderPage = async (detail: RequestDetailData, work?: ExecutionPlan) => {
   vi.mocked(internal.getRequest).mockResolvedValue(detail);
@@ -198,407 +299,301 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-// ------------------------------------------------------------------ the rule
+describe('the request stays in view at every step', () => {
+  it('shows who asked, for when, and the requester note as a message of its own', async () => {
+    await renderPage(request(), plan());
 
-describe('the request is the whole of the workbench', () => {
-  it('sends the technician nowhere else', async () => {
-    await renderPage(request());
-
-    expect(screen.queryByText(/open profile/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/work order/i)).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /device/i })).not.toBeInTheDocument();
+    expect(await screen.findByText('Request information')).toBeInTheDocument();
+    expect(screen.getAllByText('Devteam Cam').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText(/requester note/i)).toBeInTheDocument();
+    expect(screen.getByText('Please prepare everything before Monday.')).toBeInTheDocument();
   });
 
-  it('shows the five phases of the job with the ones nobody needs passed over', async () => {
-    await renderPage(request());
+  it('walks exactly four steps', async () => {
+    await renderPage(request(), plan());
+    await screen.findByText('Request information');
 
-    expect(screen.getByText('Execute')).toBeInTheDocument();
-    expect(screen.getByText(/not needed/i)).toBeInTheDocument();
-  });
-
-  it('never shows a service without saying who and what it is for', async () => {
-    await renderPage(request());
-
-    const service = screen.getByText(/Add · Microsoft 365/).closest('div') as HTMLElement;
-
-    expect(within(service).getByText(/John Doe/)).toBeInTheDocument();
+    for (const label of ['Review lines', 'Execute', 'Verify', 'Final validation']) {
+      expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
+    }
+    expect(screen.queryByText('Prepare')).not.toBeInTheDocument();
   });
 });
 
-describe('the review happens in the review stage', () => {
-  const underReview = request({
-    status: 'Under Review',
-    can_decide_lines: true,
-    lines: [
-      {
-        idx: 1,
-        action: 'Add',
-        action_label: 'Add',
-        target_scope: 'User',
-        client_user: 'CU-1',
-        client_user_name: 'John Doe',
-        requested_service: 'M365',
-        requested_service_name: 'Microsoft 365',
-        line_status: 'Pending',
-        is_new_user: 0,
-        is_new_device: 0,
-      },
-    ] as unknown as RequestDetailData['lines'],
+describe('step 1 — review lines', () => {
+  it('executes nothing and asks for a decision on every line', async () => {
+    await renderPage(reviewing());
+
+    expect(await screen.findByText(/nothing is executed at this stage/i)).toBeInTheDocument();
+    expect(screen.getAllByText('Decision required')).toHaveLength(2);
+    expect(screen.getByText(/every request line needs a decision/i)).toBeInTheDocument();
+    expect(internal.getRequestExecutionPlan).not.toHaveBeenCalled();
   });
 
-  it('decides a line without leaving the page', async () => {
-    vi.mocked(internal.setRequestLineStatus).mockResolvedValue(underReview);
-    await renderPage(underReview);
-
-    fireEvent.click(screen.getByRole('button', { name: /approve/i }));
-
-    await waitFor(() => expect(internal.setRequestLineStatus).toHaveBeenCalledTimes(1));
-    expect(vi.mocked(internal.setRequestLineStatus).mock.calls[0][0]).toMatchObject({
-      idx: 1,
-      line_status: 'Approved',
+  it('offers one decision for lines that plainly share it, written line by line', async () => {
+    const detail = reviewing();
+    await renderPage(detail);
+    vi.mocked(internal.setRequestLineStatuses).mockResolvedValue({
+      results: [
+        { idx: 1, ok: true, message: null },
+        { idx: 2, ok: true, message: null },
+      ],
+      decided: 2,
+      failed: 0,
+      request: detail,
     });
-  });
 
-  it('offers to approve the request only once every line is decided', async () => {
-    const decided = request({
-      ...underReview,
-      lines: [{ ...underReview.lines[0], line_status: 'Approved' }],
-    });
-    vi.mocked(internal.runRequestAction).mockResolvedValue(decided);
-    await renderPage(decided);
+    fireEvent.click(await screen.findByRole('button', { name: /accept 2 vpn lines/i }));
 
-    fireEvent.click(screen.getByRole('button', { name: /approve request and prepare work/i }));
-
-    await waitFor(() => expect(internal.runRequestAction).toHaveBeenCalledTimes(1));
-    expect(vi.mocked(internal.runRequestAction).mock.calls[0][0]).toMatchObject({
-      action: 'approve',
-    });
-  });
-
-  it('keeps start review and mark completed out of the header', async () => {
-    await renderPage(underReview);
-
-    expect(screen.queryByRole('button', { name: /start review/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /start work/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^mark completed$/i })).not.toBeInTheDocument();
-  });
-});
-
-describe('preparing the person and the machine, in the request', () => {
-  it('creates the user from the card itself', async () => {
-    vi.mocked(internal.executeUserSetup).mockResolvedValue(plan());
-    await renderPage(
-      request(),
-      plan({
-        groups: [
-          group({
-            person: {
-              name: null,
-              full_name: 'Marie Dupont',
-              department: 'Human Resources',
-              email: 'marie@acme.com',
-              username: null,
-              lifecycle_status: null,
-              is_new: true,
-            },
-            user_setup: card({
-              name: 'WO-USER',
-              work_type: 'User Setup',
-              action: 'Create User',
-              service_item: null,
-              service_name: null,
-            }),
-            services: [card({ name: 'WO-SVC', ready: false, waiting_on: 'the person to be created' })],
-          }),
-        ],
+    await waitFor(() =>
+      expect(internal.setRequestLineStatuses).toHaveBeenCalledWith({
+        name: 'SR-0001',
+        idxs: [1, 2],
+        line_status: 'Approved',
       })
     );
+  });
+
+  it('names the lines a group decision did not take', async () => {
+    const detail = reviewing();
+    await renderPage(detail);
+    vi.mocked(internal.setRequestLineStatuses).mockResolvedValue({
+      results: [
+        { idx: 1, ok: true, message: null },
+        { idx: 2, ok: false, message: 'Line 2 not found.' },
+      ],
+      decided: 1,
+      failed: 1,
+      request: detail,
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: /accept all pending/i }));
+
+    expect(await screen.findByText(/1 accepted, 1 not/i)).toBeInTheDocument();
+    expect(screen.getByText(/line 2 — line 2 not found/i)).toBeInTheDocument();
+  });
+
+  it('will not reject a line without a reason', async () => {
+    await renderPage(reviewing());
+
+    // the header's own Reject ends the whole request; the line's is the one next to it
+    const firstLine = (await screen.findAllByText('VPN · Grant a service'))[0].closest('div.grid') as HTMLElement;
+    fireEvent.click(within(firstLine).getByRole('button', { name: /^reject$/i }));
+    const dialog = await screen.findByRole('dialog');
+    const confirm = within(dialog).getByRole('button', { name: /reject line/i });
+
+    expect(confirm).toBeDisabled();
+
+    fireEvent.change(within(dialog).getByLabelText('Reason'), { target: { value: 'Not covered' } });
+    vi.mocked(internal.setRequestLineStatus).mockResolvedValue(reviewing());
+    fireEvent.click(confirm);
+
+    await waitFor(() =>
+      expect(internal.setRequestLineStatus).toHaveBeenCalledWith({
+        name: 'SR-0001',
+        idx: 1,
+        line_status: 'Rejected',
+        reason: 'Not covered',
+      })
+    );
+  });
+
+  it('moves on to Execute once every line is decided and one is accepted', async () => {
+    const decided = reviewing([line(1, { line_status: 'Approved' }), line(2, { line_status: 'Rejected', rejection_reason: 'No' })]);
+    await renderPage(decided);
+    vi.mocked(internal.runRequestAction).mockResolvedValue(decided);
+
+    expect(await screen.findByText(/1 accepted · 1 rejected/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /continue to execute/i }));
+
+    await waitFor(() =>
+      expect(internal.runRequestAction).toHaveBeenCalledWith({ name: 'SR-0001', action: 'approve' })
+    );
+  });
+});
+
+describe('step 2 — execute', () => {
+  it('asks for the Client User first and creates it from a modal', async () => {
+    const owed = plan({
+      groups: [
+        group({
+          person: { name: null, full_name: 'Chloe Mbarga', department: 'Finance', email: 'c@acme.com', username: null, lifecycle_status: null, is_new: true },
+          user_setup: card({ name: 'WO-USER', work_type: 'User Setup', action: 'Create User', service_item: null, service_name: null }),
+          services: [card({ name: 'WO-SVC', ready: false, waiting_on: 'the person to be created' })],
+        }),
+      ],
+    });
+    vi.mocked(internal.executeUserSetup).mockResolvedValue(owed);
+    await renderPage(request(), owed);
+
+    expect(await screen.findByText(/client user required/i)).toBeInTheDocument();
+    expect(screen.getByText(/waiting for the person to be created/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /apply action/i })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /create client user/i }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(/no portal account is created/i)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: /create client user/i }));
+
+    await waitFor(() =>
+      expect(vi.mocked(internal.executeUserSetup).mock.calls[0][0]).toMatchObject({ work_order: 'WO-USER', email: 'c@acme.com' })
+    );
+  });
+
+  it('prepares a missing device from stock through a modal', async () => {
+    const owed = plan({
+      groups: [
+        group({
+          devices: [
+            {
+              device_requirement_key: 'new-device:user:CU-1',
+              device: null,
+              work: card({ name: 'WO-DEV', work_type: 'Device Provisioning', action: 'Assign Device', service_item: null, service_name: null, device_requirement_key: 'new-device:user:CU-1' }),
+            },
+          ],
+          services: [card({ name: 'WO-SOPHOS', target_scope: 'Device', service_name: 'Sophos', device_requirement_key: 'new-device:user:CU-1', ready: false, waiting_on: 'the machine to be prepared' })],
+        }),
+      ],
+    });
+    vi.mocked(internal.executeDeviceProvisioning).mockResolvedValue(owed);
+    await renderPage(request(), owed);
+
+    expect(await screen.findByText(/device required/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /prepare device/i }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(await within(dialog).findByText('LAPTOP-STOCK-14'));
+    fireEvent.click(within(dialog).getByRole('button', { name: /assign device/i }));
+
+    await waitFor(() =>
+      expect(vi.mocked(internal.executeDeviceProvisioning).mock.calls[0][0]).toMatchObject({
+        work_order: 'WO-DEV',
+        mode: 'existing',
+        managed_device: 'DEV-STOCK',
+      })
+    );
+  });
+
+  it('applies a ready action', async () => {
+    vi.mocked(internal.executeServiceAction).mockResolvedValue(plan());
+    await renderPage(request(), plan());
+
+    fireEvent.click(await screen.findByRole('button', { name: /apply action/i }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: /apply action/i }));
+
+    await waitFor(() =>
+      expect(vi.mocked(internal.executeServiceAction).mock.calls[0][0]).toMatchObject({ work_order: 'WO-0001' })
+    );
+  });
+
+  it('runs the same ready action for several people and names the ones that failed', async () => {
+    const two = plan({
+      groups: [
+        group(),
+        group({
+          subject_key: 'user:CU-2',
+          person: { name: 'CU-2', full_name: 'Jane Roe', department: 'Accounting', email: null, username: 'j.roe', lifecycle_status: 'Active', is_new: false },
+          services: [card({ name: 'WO-0002', subject_key: 'user:CU-2', client_user: 'CU-2' })],
+        }),
+      ],
+    });
+    vi.mocked(internal.executeServiceActions).mockResolvedValue({
+      results: [
+        { work_order: 'WO-0001', ok: true, message: null },
+        { work_order: 'WO-0002', ok: false, message: 'Jane Roe is disabled and cannot be given a new service.' },
+      ],
+      completed: 1,
+      failed: 1,
+      plan: two,
+    });
+    await renderPage(request(), two);
+
+    fireEvent.click(await screen.findByRole('button', { name: /apply microsoft 365 to 2 people/i }));
+
+    await waitFor(() =>
+      expect(internal.executeServiceActions).toHaveBeenCalledWith({ work_orders: ['WO-0001', 'WO-0002'] })
+    );
+    expect(await screen.findByText(/1 completed · 1 failed/i)).toBeInTheDocument();
+    expect(screen.getByText(/jane roe is disabled/i)).toBeInTheDocument();
+  });
+
+  it('offers more actions from the server and marks what the technician adds as additional', async () => {
+    const option = {
+      key: 'VPN|Add|CU-1||',
+      service_item: 'VPN',
+      service_name: 'VPN',
+      action: 'Add',
+      action_label: 'Grant a service',
+      target_scope: 'User' as const,
+      managed_device: null,
+      device_label: null,
+      source_service_assignment: null,
+      current_state: 'Not assigned',
+    };
+    vi.mocked(internal.getTechnicianOptions).mockResolvedValue({ subject_key: 'user:CU-1', options: [option], reason: null });
+    const withExtra = plan({
+      groups: [group({ services: [card({}), card({ name: 'WO-EXTRA', service_item: 'VPN', service_name: 'VPN', origin: 'Technician', technician_reason: 'Remote work', request_line_name: null })] })],
+    });
+    vi.mocked(internal.addTechnicianAction).mockResolvedValue(withExtra);
+    await renderPage(request(), plan());
+
+    fireEvent.click(await screen.findByRole('button', { name: /more actions/i }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(await within(dialog).findByRole('button', { name: /vpn · grant a service/i }));
+
+    const add = within(dialog).getByRole('button', { name: /add to execution/i });
+    expect(add).toBeDisabled();
+
+    fireEvent.change(within(dialog).getByLabelText('Technician note'), { target: { value: 'Remote work' } });
+    fireEvent.click(add);
+
+    await waitFor(() =>
+      expect(internal.addTechnicianAction).toHaveBeenCalledWith({
+        name: 'SR-0001',
+        subject_key: 'user:CU-1',
+        option,
+        reason: 'Remote work',
+      })
+    );
+    expect(await screen.findByText('Additional')).toBeInTheDocument();
+    expect(screen.getByText(/additional technician action · ready/i)).toBeInTheDocument();
+  });
+});
+
+describe('step 3 — verify', () => {
+  it('is a recap of what was performed, not a checklist', async () => {
+    await renderPage(request(), executed());
+
+    expect(await screen.findByText(/what was actually done/i)).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(screen.getByText('Microsoft 365 · Grant a service')).toBeInTheDocument();
+    expect(screen.getByText('Request line')).toBeInTheDocument();
+    expect(screen.getByText('Additional action')).toBeInTheDocument();
+    expect(screen.getByText('Needed for remote work')).toBeInTheDocument();
+  });
+});
+
+describe('step 4 — final validation', () => {
+  it('sums up the outcome and closes the request', async () => {
+    vi.mocked(internal.completeRequest).mockResolvedValue(executed({ status: 'Completed' }));
+    await renderPage(request(), executed());
+
+    fireEvent.click(await screen.findByRole('button', { name: /continue to final validation/i }));
+
+    expect(await screen.findByText(/1 accepted request line completed · 1 rejected · 1 additional action completed/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /validate & complete request/i }));
+
+    await waitFor(() => expect(internal.completeRequest).toHaveBeenCalledWith({ name: 'SR-0001' }));
+  });
+});
+
+describe('what the page must never show', () => {
+  it('says nothing about portal accounts', async () => {
+    await renderPage(request(), plan());
+    await screen.findByText('Request information');
 
     expect(screen.queryByText(/portal access/i)).not.toBeInTheDocument();
-
-    fireEvent.change(screen.getByPlaceholderText(/licence is issued against/i), {
-      target: { value: 'm.dupont' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /create user/i }));
-
-    await waitFor(() => expect(internal.executeUserSetup).toHaveBeenCalledTimes(1));
-    expect(vi.mocked(internal.executeUserSetup).mock.calls[0][0]).toMatchObject({
-      work_order: 'WO-USER',
-      username: 'm.dupont',
-    });
-  });
-
-  it('says what a waiting service is waiting for', async () => {
-    await renderPage(
-      request(),
-      plan({
-        groups: [
-          group({
-            services: [card({ ready: false, waiting_on: 'the machine to be prepared' })],
-          }),
-        ],
-      })
-    );
-
-    expect(screen.getByText(/waiting for the machine to be prepared/i)).toBeInTheDocument();
-  });
-
-  it('registers a new device from the card itself', async () => {
-    vi.mocked(internal.executeDeviceProvisioning).mockResolvedValue(plan());
-    await renderPage(request(), planWithDevice());
-
-    fireEvent.click(screen.getByRole('button', { name: /register a new device/i }));
-    fireEvent.change(screen.getByPlaceholderText('LAPTOP-MDUPONT'), {
-      target: { value: 'LAPTOP-JD' },
-    });
-    fireEvent.change(screen.getByPlaceholderText('DELL-938828'), {
-      target: { value: 'SN-4242' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /register and assign/i }));
-
-    await waitFor(() => expect(internal.executeDeviceProvisioning).toHaveBeenCalledTimes(1));
-    expect(vi.mocked(internal.executeDeviceProvisioning).mock.calls[0][0]).toMatchObject({
-      mode: 'new',
-      hostname: 'LAPTOP-JD',
-      serial_number: 'SN-4242',
-    });
-  });
-
-  it('takes a machine off the shelf from the card itself', async () => {
-    vi.mocked(internal.executeDeviceProvisioning).mockResolvedValue(plan());
-    await renderPage(request(), planWithDevice());
-
-    fireEvent.click(await screen.findByText('LAPTOP-STOCK-14'));
-    fireEvent.click(screen.getByRole('button', { name: /assign this device/i }));
-
-    await waitFor(() => expect(internal.executeDeviceProvisioning).toHaveBeenCalledTimes(1));
-    expect(vi.mocked(internal.executeDeviceProvisioning).mock.calls[0][0]).toMatchObject({
-      mode: 'existing',
-      managed_device: 'DEV-STOCK',
-    });
-  });
-
-  it('never moves a machine somebody else holds without saying so', async () => {
-    vi.mocked(internal.executeDeviceProvisioning).mockResolvedValue(plan());
-    await renderPage(request(), planWithDevice());
-
-    fireEvent.click(await screen.findByText('LAPTOP-14'));
-
-    expect(screen.getByText(/currently held by Peter Holder/i)).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: /transfer to John Doe/i }));
-
-    await waitFor(() => expect(internal.executeDeviceProvisioning).toHaveBeenCalledTimes(1));
-    expect(vi.mocked(internal.executeDeviceProvisioning).mock.calls[0][0]).toMatchObject({
-      managed_device: 'DEV-HELD',
-      confirm_transfer: 1,
-    });
-  });
-});
-
-const planWithDevice = () =>
-  plan({
-    groups: [
-      group({
-        devices: [
-          {
-            device_requirement_key: 'new-device:user:CU-1',
-            device: null,
-            work: card({
-              name: 'WO-DEV',
-              work_type: 'Device Provisioning',
-              action: 'Register Device',
-              target_scope: 'Device',
-              service_item: null,
-              service_name: null,
-              device_requirement_key: 'new-device:user:CU-1',
-            }),
-          },
-        ],
-        services: [
-          card({
-            name: 'WO-SVC',
-            target_scope: 'Device',
-            device_requirement_key: 'new-device:user:CU-1',
-            ready: false,
-            waiting_on: 'the machine to be prepared',
-          }),
-        ],
-      }),
-    ],
-  });
-
-describe('acting on the service, in the request', () => {
-  it('executes the act from its own card', async () => {
-    vi.mocked(internal.executeServiceAction).mockResolvedValue(plan());
-    await renderPage(request());
-
-    fireEvent.click(screen.getByRole('button', { name: /activate service/i }));
-
-    await waitFor(() => expect(internal.executeServiceAction).toHaveBeenCalledTimes(1));
-    expect(vi.mocked(internal.executeServiceAction).mock.calls[0][0]).toMatchObject({
-      work_order: 'WO-0001',
-    });
-  });
-
-  it('asks for the account name only when the person has none', async () => {
-    await renderPage(
-      request(),
-      plan({
-        groups: [
-          group({
-            person: {
-              name: 'CU-2',
-              full_name: 'No Account',
-              department: null,
-              email: null,
-              username: null,
-              lifecycle_status: 'Active',
-              is_new: false,
-            },
-          }),
-        ],
-      })
-    );
-
-    expect(screen.getByPlaceholderText(/name on the licence/i)).toBeInTheDocument();
-  });
-
-  it('shows what the service is doing today before changing it', async () => {
-    await renderPage(
-      request(),
-      plan({
-        groups: [
-          group({
-            services: [
-              card({
-                action: 'Suspend',
-                current: {
-                  name: 'SA-1',
-                  operational_status: 'Active',
-                  quantity: 1,
-                  effective_start_date: '2026-01-10',
-                  effective_end_date: null,
-                },
-              }),
-            ],
-          }),
-        ],
-      })
-    );
-
-    expect(screen.getByText(/currently active/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /suspend service/i })).toBeInTheDocument();
-  });
-});
-
-describe('when the work will not go through', () => {
-  it('blocks an item with a reason, in place', async () => {
-    vi.mocked(internal.blockWorkItem).mockResolvedValue(plan());
-    await renderPage(request());
-
-    fireEvent.click(screen.getByRole('button', { name: /^block$/i }));
-    fireEvent.change(screen.getByLabelText(/reason to block/i), {
-      target: { value: 'Vendor licence unavailable' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /confirm/i }));
-
-    await waitFor(() => expect(internal.blockWorkItem).toHaveBeenCalledTimes(1));
-    expect(vi.mocked(internal.blockWorkItem).mock.calls[0][0]).toMatchObject({
-      reason: 'Vendor licence unavailable',
-    });
-  });
-
-  it('resumes it from the same card', async () => {
-    vi.mocked(internal.resumeWorkItem).mockResolvedValue(plan());
-    await renderPage(
-      request(),
-      plan({
-        groups: [
-          group({
-            services: [
-              card({ status: 'Blocked', failure_reason: 'Vendor licence unavailable' }),
-            ],
-          }),
-        ],
-      })
-    );
-
-    expect(screen.getByText(/vendor licence unavailable/i)).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: /resume work/i }));
-
-    await waitFor(() => expect(internal.resumeWorkItem).toHaveBeenCalledTimes(1));
-  });
-});
-
-describe('signing off and closing', () => {
-  const awaiting = plan({
-    groups: [
-      group({
-        services: [
-          card({
-            status: 'Awaiting Verification',
-            resulting_assignment: 'SA-0492',
-            checklist: [
-              { name: 'c1', idx: 1, step: 'Service assignment written', is_done: 1, note: null },
-              {
-                name: 'c2',
-                idx: 2,
-                step: 'Confirmed working for the customer',
-                is_done: 0,
-                note: null,
-              },
-            ],
-          }),
-        ],
-      }),
-    ],
-  });
-
-  it('never asks the technician to tick what the record already proves', async () => {
-    await renderPage(request(), awaiting);
-
-    expect(screen.getByText('Service assignment written')).toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: /assignment written/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('checkbox', { name: /confirmed working/i })).toBeInTheDocument();
-  });
-
-  it('verifies from the card, with a note the customer will read', async () => {
-    vi.mocked(internal.verifyWorkItem).mockResolvedValue(plan());
-    await renderPage(request(), awaiting);
-
-    fireEvent.click(screen.getByRole('checkbox', { name: /confirmed working/i }));
-    fireEvent.change(screen.getByLabelText(/note for the customer/i), {
-      target: { value: 'Credentials sent securely.' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /^verify$/i }));
-
-    await waitFor(() => expect(internal.verifyWorkItem).toHaveBeenCalledTimes(1));
-    expect(vi.mocked(internal.verifyWorkItem).mock.calls[0][0]).toMatchObject({
-      work_order: 'WO-0001',
-      customer_note: 'Credentials sent securely.',
-    });
-  });
-
-  it('closes the file from the summary at the bottom of the request', async () => {
-    vi.mocked(internal.completeRequest).mockResolvedValue(plan({ status: 'Completed' }));
-    await renderPage(request());
-
-    fireEvent.click(screen.getByRole('button', { name: /complete request/i }));
-
-    await waitFor(() => expect(internal.completeRequest).toHaveBeenCalledTimes(1));
-    expect(vi.mocked(internal.completeRequest).mock.calls[0][0]).toMatchObject({
-      name: 'SR-0001',
-    });
-  });
-
-  it('takes the whole request in one gesture', async () => {
-    vi.mocked(internal.assignRequestTechnician).mockResolvedValue(plan());
-    await renderPage(request());
-
-    fireEvent.click(screen.getByRole('button', { name: /assign this request to me/i }));
-
-    await waitFor(() => expect(internal.assignRequestTechnician).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText(/invite/i)).not.toBeInTheDocument();
   });
 });

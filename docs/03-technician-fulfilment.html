@@ -1,0 +1,648 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nexgen MSP — Technician Fulfilment v4</title>
+<style>
+:root{
+  --bg:#f6f8fb;--card:#fff;--text:#0f172a;--muted:#64748b;--line:#e5eaf0;
+  --blue:#2563eb;--green:#059669;--greenSoft:#ecfdf5;--amber:#b45309;--amberSoft:#fffbeb;
+  --red:#b91c1c;--redSoft:#fef2f2;--violet:#6d28d9;--shadow:0 12px 32px rgba(15,23,42,.06)
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--text)}
+button,input,select,textarea{font:inherit}button{cursor:pointer}
+.shell{min-height:100vh;padding:24px 28px 48px}.wrap{max-width:1240px;margin:0 auto}
+.header{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;margin-bottom:14px}
+.back{border:0;background:transparent;color:#52647d;padding:0;font-size:13px}
+h1{font-size:27px;letter-spacing:-.03em;margin:14px 0 5px}.sub{font-size:12px;color:var(--muted)}
+.headerRight{display:flex;gap:8px;align-items:center}.approved{padding:7px 9px;border-radius:999px;border:1px solid #bbf7d0;background:#ecfdf5;color:#047857;font-size:8px;font-weight:800}
+.tech{display:flex;align-items:center;gap:9px;background:#fff;border:1px solid var(--line);border-radius:11px;padding:9px 11px}
+.avatar{width:31px;height:31px;border-radius:9px;background:#eaf1ff;color:#1d4ed8;display:grid;place-items:center;font-size:10px;font-weight:800}
+.tech b{font-size:10px}.tech span{display:block;font-size:8px;color:#94a3b8;margin-top:2px}
+
+.requestContext{background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:13px 15px;margin-bottom:14px}
+.contextTop{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.contextTitle{font-size:10px;font-weight:800}.contextHint{font-size:8px;color:#64748b;margin-top:2px}
+.contextGrid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:10px}
+.contextCell{border:1px solid #e8edf2;border-radius:9px;padding:8px 9px;background:#fbfcfe}
+.contextCell span{display:block;font-size:7px;color:#94a3b8;text-transform:uppercase;font-weight:800}.contextCell b{display:block;font-size:9px;margin-top:3px}
+.contextNote{margin-top:9px;padding-top:9px;border-top:1px solid #edf1f5;font-size:8px;color:#64748b;line-height:1.5}
+.contextNote b{color:#475569}
+.requesterNote{margin-top:11px;border:1px solid #dbeafe;background:#f8fbff;border-radius:11px;padding:11px 12px}
+.requesterNoteTop{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.requesterIdentity{display:flex;gap:8px;align-items:center}
+.requesterAvatar{width:30px;height:30px;border-radius:9px;background:#eaf1ff;color:#1d4ed8;display:grid;place-items:center;font-size:9px;font-weight:800}
+.requesterName{font-size:9px;font-weight:800;color:#1e3a8a}
+.requesterMeta{font-size:7px;color:#64748b;margin-top:2px}
+.requesterLabel{font-size:7px;text-transform:uppercase;letter-spacing:.04em;font-weight:800;color:#1d4ed8}
+.requesterMessage{margin-top:9px;padding:10px 11px;border-radius:9px;background:#fff;border:1px solid #dbeafe;font-size:9px;color:#334155;line-height:1.6}
+
+.stepper{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 18px;box-shadow:var(--shadow);margin-bottom:16px}
+.steps{display:grid;grid-template-columns:repeat(4,1fr)}
+.step{position:relative;text-align:center}.step:not(:last-child):after{content:"";position:absolute;top:14px;left:50%;right:-50%;height:2px;background:#e5e7eb;z-index:0}
+.step.done:not(:last-child):after{background:#86efac}
+.stepDot{position:relative;z-index:2;width:28px;height:28px;border-radius:50%;margin:auto;display:grid;place-items:center;border:1px solid #dbe2ea;background:#fff;color:#94a3b8;font-size:9px;font-weight:800}
+.step.done .stepDot{background:#10b981;border-color:#10b981;color:#fff}.step.active .stepDot{background:#2563eb;border-color:#2563eb;color:#fff}
+.stepLabel{font-size:9px;font-weight:800;color:#94a3b8;margin-top:6px}.step.done .stepLabel{color:#047857}.step.active .stepLabel{color:#1d4ed8}
+
+.card{background:#fff;border:1px solid var(--line);border-radius:15px;box-shadow:var(--shadow);overflow:hidden}
+.cardHead{padding:16px 18px;border-bottom:1px solid #edf1f5;display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.cardTitle{font-size:15px;font-weight:700}.cardSub{font-size:9px;color:#64748b;margin-top:3px;line-height:1.45}
+.counter{padding:5px 8px;border-radius:999px;background:#f8fafc;border:1px solid #e2e8f0;color:#475569;font-size:8px;font-weight:800}
+.body{padding:16px 18px}.banner{padding:11px 12px;border:1px solid #dbeafe;background:#f8fbff;border-radius:10px;color:#1e3a8a;font-size:9px;line-height:1.55;margin-bottom:13px}.banner b{font-size:10px}
+
+.subject{border:1px solid #e1e8ef;border-radius:12px;overflow:hidden;margin-top:12px}.subject:first-child{margin-top:0}
+.subjectHead{padding:11px 12px;background:#f8fafc;border-bottom:1px solid #e7edf3;display:flex;justify-content:space-between;gap:12px;align-items:center}
+.personName{font-size:11px;font-weight:800}.personMeta{font-size:8px;color:#64748b;margin-top:3px}.personState{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.badge{padding:4px 7px;border-radius:999px;font-size:8px;font-weight:800}.badge.ready{background:#ecfdf5;border:1px solid #bbf7d0;color:#047857}.badge.pending{background:#fffbeb;border:1px solid #fde68a;color:#92400e}
+
+.line{padding:11px 12px;border-bottom:1px solid #eef2f6;display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:10px;align-items:start;background:#fff}
+.line:last-child{border-bottom:0}.line.accepted{background:#fbfffd}.line.rejected{background:#fffafa}.line.done{background:#fbfffd}
+.lineIcon{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;font-size:12px;background:#f8fafc;border:1px solid #e5eaf0}
+.line.done .lineIcon{background:#ecfdf5;border-color:#bbf7d0;color:#047857}.line.rejected .lineIcon{background:#fef2f2;border-color:#fecaca;color:#b91c1c}
+.lineTitle{font-size:10px;font-weight:800}.lineMeta{font-size:8px;color:#64748b;margin-top:3px;line-height:1.45}.lineState{font-size:8px;margin-top:6px}
+.lineState.ok{color:#047857;font-weight:700}.lineState.no{color:#b91c1c}.lineState.wait{color:#92400e}
+.lineActions{display:flex;gap:6px;align-items:center}
+.btn{height:35px;padding:0 11px;border-radius:9px;border:1px solid #dce3eb;background:#fff;color:#334155;font-size:9px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;gap:5px}
+.btn:hover{background:#f8fafc}.btn.primary{background:#2563eb;border-color:#2563eb;color:#fff}.btn.success{background:#059669;border-color:#059669;color:#fff}.btn.reject{color:#b91c1c;border-color:#fecaca;background:#fffafa}.btn:disabled{opacity:.42;cursor:not-allowed}
+.smallBtn{height:30px;padding:0 9px}.more{width:34px;padding:0}
+
+.bulkbar{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:10px 12px;border:1px solid #dbeafe;background:#f8fbff;border-radius:10px;margin-bottom:10px}
+.bulkbar b{font-size:9px}.bulkbar span{font-size:8px;color:#64748b;display:block;margin-top:2px}.bulkActions{display:flex;gap:6px;flex-wrap:wrap}
+.groupCard{border:1px solid #e1e8ef;border-radius:11px;padding:11px 12px;margin-top:10px;background:#fff}
+.groupTop{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.groupTop b{font-size:10px}.groupTop span{font-size:8px;color:#64748b;display:block;margin-top:3px}
+.groupPeople{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.chip{padding:4px 7px;border:1px solid #e2e8f0;border-radius:999px;background:#f8fafc;color:#475569;font-size:7px;font-weight:700}
+
+.nextBar{margin-top:14px;padding:12px;border:1px solid #bbf7d0;background:#ecfdf5;border-radius:10px;display:flex;justify-content:space-between;gap:12px;align-items:center}
+.nextBar b{font-size:9px;color:#047857}.nextBar span{display:block;font-size:8px;color:#047857;margin-top:3px}
+.warnBar{margin-top:12px;padding:10px 11px;border:1px solid #fde68a;background:#fffbeb;border-radius:10px;color:#92400e;font-size:8px;line-height:1.5}
+
+.verify{padding:12px;border:1px solid #e1e8ef;border-radius:11px}
+.check{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid #eef2f6}.check:last-child{border-bottom:0}.check b{font-size:9px}.check span{font-size:8px;color:#64748b}.ok{color:#047857!important;font-weight:800}
+.complete{padding:12px;border:1px solid #bbf7d0;background:#ecfdf5;border-radius:10px;color:#047857;font-size:9px;line-height:1.5}
+.note{margin-top:12px;padding:11px 12px;border:1px solid #e5eaf0;border-radius:10px;background:#fbfcfe;font-size:9px;color:#475569;line-height:1.55}
+
+.extraActionBtn{height:30px;padding:0 9px;border:1px dashed #a5b4fc;background:#fafaff;color:#5b21b6;border-radius:8px;font-size:8px;font-weight:800}
+.lineState.extra{color:#6d28d9;font-weight:700}
+.flexHint{margin-top:8px;padding:8px 9px;border-radius:9px;background:#fafaff;border:1px solid #e9e5ff;font-size:8px;color:#5b21b6;line-height:1.45}
+.optionList{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.optionCard{border:1px solid #e1e8ef;border-radius:10px;padding:10px;background:#fff;text-align:left}
+.optionCard:hover{background:#f8fafc}.optionCard.active{border-color:#a5b4fc;background:#fafaff}
+.optionCard b{display:block;font-size:9px}.optionCard span{display:block;font-size:8px;color:#64748b;margin-top:3px;line-height:1.4}
+.recapStats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:13px}
+.recapStat{border:1px solid #e5eaf0;border-radius:10px;padding:9px 10px;background:#fbfcfe}
+.recapStat span{display:block;font-size:7px;color:#94a3b8;text-transform:uppercase;font-weight:800}
+.recapStat b{display:block;font-size:13px;margin-top:3px}
+.recapGroup{border:1px solid #e1e8ef;border-radius:12px;overflow:hidden;margin-top:10px}
+.recapGroupHead{padding:10px 12px;background:#f8fafc;border-bottom:1px solid #e7edf3}
+.recapGroupHead b{font-size:10px}.recapGroupHead span{display:block;font-size:8px;color:#64748b;margin-top:2px}
+.recapRow{padding:10px 12px;border-bottom:1px solid #eef2f6;display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:9px;align-items:start}
+.recapRow:last-child{border-bottom:0}
+.recapIcon{width:26px;height:26px;border-radius:8px;background:#ecfdf5;border:1px solid #bbf7d0;color:#047857;display:grid;place-items:center;font-size:10px;font-weight:800}
+.recapTitle{font-size:9px;font-weight:800}.recapMeta{font-size:8px;color:#64748b;margin-top:3px;line-height:1.4}
+.recapTag{padding:4px 7px;border-radius:999px;font-size:7px;font-weight:800;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe}
+.recapTag.tech{background:#f5f3ff;color:#6d28d9;border-color:#ddd6fe}
+.recapTag.object{background:#ecfdf5;color:#047857;border-color:#bbf7d0}
+
+.modalBackdrop{position:fixed;inset:0;background:rgba(15,23,42,.45);display:flex;align-items:center;justify-content:center;padding:20px;z-index:50}
+.modal{width:min(620px,100%);background:#fff;border-radius:15px;box-shadow:0 24px 60px rgba(15,23,42,.22);overflow:hidden}
+.modalHead{padding:15px 17px;border-bottom:1px solid #edf1f5;display:flex;justify-content:space-between;gap:10px;align-items:center}.modalHead b{font-size:13px}.close{border:0;background:transparent;color:#94a3b8;font-size:18px}
+.modalBody{padding:16px 17px}.fields{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+label{display:block;font-size:7px;color:#64748b;font-weight:800;text-transform:uppercase;margin-bottom:5px}.field{width:100%;height:38px;border:1px solid #dce3eb;border-radius:8px;background:#fff;padding:0 9px;font-size:9px;outline:none}.textarea{width:100%;min-height:72px;border:1px solid #dce3eb;border-radius:8px;padding:8px 9px;font-size:9px;outline:none;resize:vertical}
+.field:focus,.textarea:focus{border-color:#7aa4ff;box-shadow:0 0 0 3px #eaf1ff}.modalActions{display:flex;justify-content:flex-end;gap:7px;margin-top:13px}
+.choiceRow{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}.choice{border:1px solid #dce3eb;border-radius:9px;padding:10px;background:#fff;text-align:left}.choice.active{border-color:#93c5fd;background:#eff6ff}.choice b{font-size:9px;display:block}.choice span{font-size:8px;color:#64748b;display:block;margin-top:3px}
+.hidden{display:none!important}
+
+@media(max-width:900px){.contextGrid{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:650px){.shell{padding:16px}.header{flex-direction:column}.steps{grid-template-columns:repeat(4,minmax(80px,1fr));overflow:auto}.line{grid-template-columns:30px 1fr}.lineActions{grid-column:2}.fields{grid-template-columns:1fr}.bulkbar,.nextBar{flex-direction:column;align-items:stretch}.contextGrid{grid-template-columns:1fr 1fr}.optionList{grid-template-columns:1fr}.recapStats{grid-template-columns:1fr 1fr}.recapRow{grid-template-columns:26px 1fr}.recapTag{grid-column:2;width:max-content}}
+</style>
+</head>
+<body>
+<div class="shell"><div class="wrap">
+
+  <div class="header">
+    <div><button class="back">← Back to requests</button><h1>SR-2026-00544</h1><div class="sub">Customer-approved request · technician fulfilment</div></div>
+    <div class="headerRight"><span class="approved">CUSTOMER APPROVED</span><div class="tech"><div class="avatar">JG</div><div><b>John Garcia</b><span>Assigned technician</span></div></div></div>
+  </div>
+
+  <div class="requestContext">
+    <div class="contextTop">
+      <div><div class="contextTitle">Request information</div><div class="contextHint">Available throughout the fulfilment workflow</div></div>
+    </div>
+    <div class="contextGrid">
+      <div class="contextCell"><span>Customer</span><b>ACI Cameroon</b></div>
+      <div class="contextCell"><span>Requested by</span><b>Devteam Cam</b></div>
+      <div class="contextCell"><span>Requested date</span><b>Sep 15, 2026</b></div>
+      <div class="contextCell"><span>Priority</span><b>Normal</b></div>
+      <div class="contextCell"><span>People</span><b>5</b></div>
+      <div class="contextCell"><span>Request lines</span><b>6</b></div>
+    </div>
+    <div class="requesterNote">
+      <div class="requesterNoteTop">
+        <div class="requesterIdentity">
+          <div class="requesterAvatar">DC</div>
+          <div>
+            <div class="requesterName">Devteam Cam</div>
+            <div class="requesterMeta">Requester · Sep 13, 2026 at 09:31</div>
+          </div>
+        </div>
+        <div class="requesterLabel">Requester note</div>
+      </div>
+      <div class="requesterMessage">Please prepare the required services before the affected teams start next week. Chloe is a new managed person and may also require a new Device.</div>
+    </div>
+  </div>
+
+  <div class="stepper"><div class="steps" id="steps"></div></div>
+
+  <div class="card">
+    <div class="cardHead">
+      <div><div class="cardTitle" id="mainTitle"></div><div class="cardSub" id="mainSub"></div></div>
+      <span class="counter" id="mainCounter"></span>
+    </div>
+    <div class="body" id="mainBody"></div>
+  </div>
+
+</div></div>
+
+<div class="modalBackdrop hidden" id="modalBackdrop">
+  <div class="modal">
+    <div class="modalHead"><b id="modalTitle"></b><button class="close" onclick="closeModal()">×</button></div>
+    <div class="modalBody" id="modalBody"></div>
+  </div>
+</div>
+
+<script>
+const steps=["Review lines","Execute","Verify","Final validation"];
+
+const subjects={
+  chloe:{name:"CHLOE MBARGA",department:"Finance",email:"chloe.mbarga@aci-cam.cm",clientUserId:null,isNew:true,device:null},
+  franck:{name:"FRANCK MBASSI",department:"Commercial",email:"commercial@aci-cam.cm",clientUserId:"CU-1232",isNew:false,device:{id:"DEV-0041",hostname:"ACI-LT-041",serial:"DELL-7K23",type:"Laptop"}},
+  audrey:{name:"AUDREY ESSAME",department:"Commercial",email:"audrey@aci-cam.cm",clientUserId:"CU-1288",isNew:false,device:null},
+  nadine:{name:"NADINE MANGA",department:"Commercial",email:"nadine@aci-cam.cm",clientUserId:"CU-1290",isNew:false,device:null},
+  alain:{name:"ALAIN ETOUNDI",department:"Operations",email:"alain@aci-cam.cm",clientUserId:"CU-1310",isNew:false,device:{id:"DEV-0082",hostname:"ACI-OPS-082",serial:"HP-88A2",type:"Laptop"}}
+};
+
+const additionalCatalog={
+  chloe:[
+    {key:"vpn-add",service:"VPN",action:"Request service",scope:"User",needsUser:true,needsDevice:false,current:"Not assigned",requested:"Add service"},
+    {key:"m365-change",service:"Microsoft 365",action:"Modify service",scope:"User",needsUser:true,needsDevice:false,current:"After requested setup",requested:"Modify service"},
+    {key:"rmm-add",service:"RMM",action:"Request monitoring",scope:"Device",needsUser:true,needsDevice:true,current:"Not assigned",requested:"Add service"},
+    {key:"backup-add",service:"Backup Agent",action:"Request installation",scope:"Device",needsUser:true,needsDevice:true,current:"Not assigned",requested:"Add service"}
+  ],
+  franck:[
+    {key:"vpn-add",service:"VPN",action:"Request service",scope:"User",needsUser:false,needsDevice:false,current:"Not assigned",requested:"Add service"},
+    {key:"m365-change",service:"Microsoft 365",action:"Modify service",scope:"User",needsUser:false,needsDevice:false,current:"Active",requested:"Modify service"},
+    {key:"backup-add",service:"Backup Agent",action:"Request installation",scope:"Device",needsUser:false,needsDevice:false,current:"Not assigned",requested:"Add service"},
+    {key:"device-transfer",service:"Device",action:"Transfer device",scope:"Device",needsUser:false,needsDevice:false,current:"Assigned",requested:"Transfer"}
+  ],
+  audrey:[
+    {key:"m365-add",service:"Microsoft 365",action:"Request service",scope:"User",needsUser:false,needsDevice:false,current:"Not assigned",requested:"Add service"},
+    {key:"nextcloud-add",service:"Nextcloud",action:"Request service",scope:"User",needsUser:false,needsDevice:false,current:"Not assigned",requested:"Add service"},
+    {key:"sophos-add",service:"Sophos Endpoint",action:"Request protection",scope:"Device",needsUser:false,needsDevice:true,current:"No Device",requested:"Add service"}
+  ],
+  nadine:[
+    {key:"m365-add",service:"Microsoft 365",action:"Request service",scope:"User",needsUser:false,needsDevice:false,current:"Not assigned",requested:"Add service"},
+    {key:"nextcloud-add",service:"Nextcloud",action:"Request service",scope:"User",needsUser:false,needsDevice:false,current:"Not assigned",requested:"Add service"},
+    {key:"sophos-add",service:"Sophos Endpoint",action:"Request protection",scope:"Device",needsUser:false,needsDevice:true,current:"No Device",requested:"Add service"}
+  ],
+  alain:[
+    {key:"vpn-add",service:"VPN",action:"Request service",scope:"User",needsUser:false,needsDevice:false,current:"Not assigned",requested:"Add service"},
+    {key:"sophos-change",service:"Sophos Endpoint",action:"Modify protection",scope:"Device",needsUser:false,needsDevice:false,current:"Active",requested:"Modify service"},
+    {key:"device-repossess",service:"Device",action:"Repossess device",scope:"Device",needsUser:false,needsDevice:false,current:"Assigned",requested:"Return to stock"},
+    {key:"device-transfer",service:"Device",action:"Transfer device",scope:"Device",needsUser:false,needsDevice:false,current:"Assigned",requested:"Transfer"}
+  ]
+};
+
+let state={
+  phase:0,
+  rejectLineId:null,
+  deviceMode:"stock",
+  completed:false,
+  selectedAdditional:null,
+  performed:[],
+  lines:[
+    {id:"L1",subject:"chloe",service:"Microsoft 365",scope:"User",action:"Request service",current:"Not assigned",requested:"Add service",decision:"pending",status:"pending",needsUser:true,needsDevice:false,technicianAdded:false},
+    {id:"L2",subject:"chloe",service:"Sophos Endpoint",scope:"Device",action:"Request protection",current:"No Device yet",requested:"Add service",decision:"pending",status:"pending",needsUser:true,needsDevice:true,technicianAdded:false},
+    {id:"L3",subject:"franck",service:"Nextcloud",scope:"User",action:"Pause access",current:"Active",requested:"Suspended",decision:"pending",status:"pending",needsUser:false,needsDevice:false,technicianAdded:false},
+    {id:"L4",subject:"audrey",service:"VPN",scope:"User",action:"Request service",current:"Not assigned",requested:"Add service",decision:"pending",status:"pending",needsUser:false,needsDevice:false,technicianAdded:false},
+    {id:"L5",subject:"nadine",service:"VPN",scope:"User",action:"Request service",current:"Not assigned",requested:"Add service",decision:"pending",status:"pending",needsUser:false,needsDevice:false,technicianAdded:false},
+    {id:"L6",subject:"alain",service:"RMM",scope:"Device",action:"Remove monitoring",current:"Active",requested:"Remove service",decision:"pending",status:"pending",needsUser:false,needsDevice:false,technicianAdded:false}
+  ]
+};
+
+function byId(id){return document.getElementById(id)}
+function esc(s){return String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]))}
+function setPhase(n){state.phase=n;render();window.scrollTo({top:0,behavior:"smooth"})}
+function acceptedLines(){return state.lines.filter(l=>l.decision==="accepted")}
+function pendingDecisions(){return state.lines.filter(l=>!l.technicianAdded&&l.decision==="pending").length}
+function allExecutionDone(){return acceptedLines().every(l=>l.status==="done")}
+function subjectReadyUser(id){return !!subjects[id].clientUserId}
+function subjectReadyDevice(id){return !!subjects[id].device}
+function nowLabel(){return new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}
+
+function recordPerformed(entry){
+  state.performed.push({id:"P"+Date.now()+Math.random(),time:nowLabel(),...entry});
+}
+
+function stepsHTML(){
+ return steps.map((s,i)=>{
+   const cls=i<state.phase?"step done":i===state.phase?"step active":"step";
+   return `<div class="${cls}"><div class="stepDot">${i<state.phase?"✓":i+1}</div><div class="stepLabel">${s}</div></div>`;
+ }).join("");
+}
+
+function subjectHeader(id,withMore=false){
+ const s=subjects[id];
+ return `<div class="subjectHead">
+   <div><div class="personName">${esc(s.name)}</div><div class="personMeta">${esc(s.department)} · ${esc(s.email)}${s.clientUserId?` · ${esc(s.clientUserId)}`:""}${s.device?` · ${esc(s.device.hostname)}`:""}</div></div>
+   <div class="personState">
+     <span class="badge ${s.clientUserId?"ready":"pending"}">${s.clientUserId?"CLIENT USER READY":"CLIENT USER REQUIRED"}</span>
+     ${state.lines.some(l=>l.subject===id&&l.scope==="Device"&&l.decision!=="rejected")?`<span class="badge ${s.device?"ready":"pending"}">${s.device?"DEVICE READY":"DEVICE REQUIRED"}</span>`:""}
+     ${withMore?`<button class="extraActionBtn" onclick="openAdditionalAction('${id}')">＋ More actions</button>`:""}
+   </div>
+ </div>`;
+}
+
+function lineReviewHTML(l){
+ const s=subjects[l.subject];
+ let cls="line";
+ if(l.decision==="accepted")cls+=" accepted";
+ if(l.decision==="rejected")cls+=" rejected";
+ let stateText=l.decision==="accepted"
+   ? `<div class="lineState ok">Accepted for execution</div>`
+   : l.decision==="rejected"
+   ? `<div class="lineState no">Rejected${l.rejectReason?` · ${esc(l.rejectReason)}`:""}</div>`
+   : `<div class="lineState wait">Decision required</div>`;
+
+ return `<div class="${cls}">
+   <div class="lineIcon">${l.scope==="Device"?"💻":"👤"}</div>
+   <div>
+     <div class="lineTitle">${esc(l.service)} · ${esc(l.action)}</div>
+     <div class="lineMeta">${esc(s.name)} · ${esc(l.scope)} scope · ${esc(l.current)} → ${esc(l.requested)}</div>
+     ${stateText}
+   </div>
+   <div class="lineActions">
+     ${l.decision!=="accepted"?`<button class="btn success smallBtn" onclick="acceptLine('${l.id}')">Accept</button>`:""}
+     ${l.decision!=="rejected"?`<button class="btn reject smallBtn" onclick="openReject('${l.id}')">Reject</button>`:""}
+   </div>
+ </div>`;
+}
+
+function executionLineHTML(l){
+ const s=subjects[l.subject];
+ const userMissing=l.needsUser&&!subjectReadyUser(l.subject);
+ const deviceMissing=l.needsDevice&&!subjectReadyDevice(l.subject);
+
+ let msg=l.status==="done"
+   ? `<div class="lineState ok">Completed</div>`
+   : userMissing
+   ? `<div class="lineState wait">Client User information required first</div>`
+   : deviceMissing
+   ? `<div class="lineState wait">Device information required first</div>`
+   : l.technicianAdded
+   ? `<div class="lineState extra">Additional technician action · ready</div>`
+   : `<div class="lineState ok">Ready to execute</div>`;
+
+ let actions="";
+ if(l.status!=="done"){
+   if(userMissing) actions+=`<button class="btn smallBtn" onclick="openUserModal('${l.subject}')">Create Client User</button>`;
+   else if(deviceMissing) actions+=`<button class="btn smallBtn" onclick="openDeviceModal('${l.subject}')">Prepare Device</button>`;
+   else actions+=`<button class="btn primary smallBtn" onclick="executeLine('${l.id}')">Apply action</button>`;
+ }
+ return `<div class="line ${l.status==="done"?"done":""}">
+   <div class="lineIcon">${l.status==="done"?"✓":l.scope==="Device"?"💻":"⚙"}</div>
+   <div>
+     <div class="lineTitle">${esc(l.service)} · ${esc(l.action)}</div>
+     <div class="lineMeta">${esc(s.name)} · ${esc(l.scope)} scope · ${esc(l.current)} → ${esc(l.requested)}</div>
+     ${msg}
+   </div>
+   <div class="lineActions">${actions}<button class="btn more">⋯</button></div>
+ </div>`;
+}
+
+function renderReview(){
+ byId("mainTitle").textContent="Review request lines";
+ byId("mainSub").textContent="Accept or reject each requested action before execution.";
+ byId("mainCounter").textContent=`${pendingDecisions()} decisions remaining`;
+
+ const originalLines=state.lines.filter(l=>!l.technicianAdded);
+ byId("mainBody").innerHTML=`
+   <div class="banner"><b>Technician decision</b><br>Nothing is executed at this stage. You are deciding which requested lines will enter the work plan.</div>
+
+   <div class="bulkbar">
+     <div><b>Group decisions</b><span>Useful when several lines clearly require the same decision.</span></div>
+     <div class="bulkActions">
+       <button class="btn success smallBtn" onclick="bulkDecision(['L4','L5'],'accepted')">Accept both VPN lines</button>
+       <button class="btn success smallBtn" onclick="bulkDecision(state.lines.filter(l=>!l.technicianAdded&&l.decision==='pending').map(l=>l.id),'accepted')">Accept all pending</button>
+     </div>
+   </div>
+
+   <div class="groupCard">
+     <div class="groupTop"><div><b>Grouped request · VPN</b><span>Same requested action for 2 people.</span></div></div>
+     <div class="groupPeople"><span class="chip">AUDREY ESSAME</span><span class="chip">NADINE MANGA</span></div>
+   </div>
+
+   ${["chloe","franck","audrey","nadine","alain"].map(id=>{
+     const lines=originalLines.filter(l=>l.subject===id);
+     return `<div class="subject">${subjectHeader(id,false)}${lines.map(lineReviewHTML).join("")}</div>`;
+   }).join("")}
+
+   ${pendingDecisions()===0
+     ? `<div class="nextBar"><div><b>Line review complete</b><span>${acceptedLines().filter(l=>!l.technicianAdded).length} accepted · ${originalLines.filter(l=>l.decision==="rejected").length} rejected</span></div><button class="btn primary" onclick="setPhase(1)">Continue to Execute</button></div>`
+     : `<div class="warnBar">Every request line needs a decision before execution can start.</div>`}
+ `;
+}
+
+function renderExecute(){
+ byId("mainTitle").textContent="Execute accepted actions";
+ byId("mainSub").textContent="Accepted request lines stay first. Add other legitimate actions whenever the situation requires them.";
+ byId("mainCounter").textContent=`${acceptedLines().filter(l=>l.status!=="done").length} remaining`;
+
+ const accepted=acceptedLines();
+ const groups={};
+ accepted.filter(l=>l.status!=="done").forEach(l=>{
+   const userOk=!l.needsUser||subjectReadyUser(l.subject);
+   const deviceOk=!l.needsDevice||subjectReadyDevice(l.subject);
+   if(userOk&&deviceOk){
+     const key=l.service+"|"+l.action;
+     (groups[key]??=[]).push(l);
+   }
+ });
+ const executableGroups=Object.values(groups).filter(arr=>arr.length>1);
+
+ byId("mainBody").innerHTML=`
+   <div class="banner"><b>Execution</b><br>Work first on the accepted request. Each person also exposes context-sensitive additional actions so the technician is not trapped by the original request when operational work requires more.</div>
+
+   ${executableGroups.length?`
+   <div class="bulkbar">
+     <div><b>Grouped execution</b><span>Same ready action across several subjects.</span></div>
+     <div class="bulkActions">
+       ${executableGroups.map(arr=>`<button class="btn primary smallBtn" onclick="executeGroup([${arr.map(l=>`'${l.id}'`).join(",")}])">Apply ${esc(arr[0].service)} to ${arr.length} people</button>`).join("")}
+     </div>
+   </div>`:""}
+
+   ${["chloe","franck","audrey","nadine","alain"].map(id=>{
+     const lines=accepted.filter(l=>l.subject===id);
+     if(!lines.length && !additionalCatalog[id]?.length)return "";
+     return `<div class="subject">
+       ${subjectHeader(id,true)}
+       ${lines.length?lines.map(executionLineHTML).join(""):`<div class="flexHint">No accepted request line remains for this person, but context-sensitive technician actions are still available.</div>`}
+     </div>`;
+   }).join("")}
+
+   <div class="flexHint"><b>More actions</b> is intentionally secondary. In production, the available choices are returned by the backend from the current Client User / Device / service state and permissions.</div>
+
+   ${allExecutionDone()
+     ? `<div class="nextBar"><div><b>Execution complete</b><span>All accepted request lines and technician-added actions have been completed.</span></div><button class="btn primary" onclick="setPhase(2)">Continue to Verify</button></div>`
+     : ""}
+ `;
+}
+
+function renderVerify(){
+ byId("mainTitle").textContent="Execution recap";
+ byId("mainSub").textContent="Review exactly what was performed before final validation.";
+ byId("mainCounter").textContent=`${state.performed.length} performed operations`;
+
+ const requestedActions=state.performed.filter(p=>p.kind==="requested").length;
+ const technicianActions=state.performed.filter(p=>p.kind==="technician").length;
+ const objectOps=state.performed.filter(p=>p.kind==="object").length;
+ const performedBySubject={};
+ state.performed.forEach(p=>(performedBySubject[p.subject]??=[]).push(p));
+
+ byId("mainBody").innerHTML=`
+   <div class="banner"><b>What was actually done</b><br>This is not a prerequisite checklist. It is the execution history generated by the work just performed.</div>
+
+   <div class="recapStats">
+     <div class="recapStat"><span>Total operations</span><b>${state.performed.length}</b></div>
+     <div class="recapStat"><span>Requested actions</span><b>${requestedActions}</b></div>
+     <div class="recapStat"><span>Additional actions</span><b>${technicianActions}</b></div>
+     <div class="recapStat"><span>Created / prepared</span><b>${objectOps}</b></div>
+   </div>
+
+   ${Object.keys(performedBySubject).length
+      ? Object.entries(performedBySubject).map(([sid,items])=>`
+        <div class="recapGroup">
+          <div class="recapGroupHead"><b>${esc(subjects[sid].name)}</b><span>${esc(subjects[sid].department)} · ${items.length} operation${items.length===1?"":"s"}</span></div>
+          ${items.map(p=>`
+            <div class="recapRow">
+              <div class="recapIcon">✓</div>
+              <div><div class="recapTitle">${esc(p.title)}</div><div class="recapMeta">${esc(p.detail)} · ${esc(p.time)}</div></div>
+              <span class="recapTag ${p.kind==="technician"?"tech":p.kind==="object"?"object":""}">${p.kind==="requested"?"REQUEST LINE":p.kind==="technician"?"ADDITIONAL ACTION":"CREATED / PREPARED"}</span>
+            </div>`).join("")}
+        </div>`).join("")
+      : `<div class="warnBar">No executed operation has been recorded yet.</div>`}
+
+   <div class="nextBar">
+     <div><b>Execution recap ready</b><span>Review the performed operations above before final validation.</span></div>
+     <button class="btn primary" onclick="setPhase(3)">Continue to Final validation</button>
+   </div>
+ `;
+}
+
+function renderFinal(){
+ byId("mainTitle").textContent="Final validation";
+ byId("mainSub").textContent="Confirm the final outcome and close the request.";
+ byId("mainCounter").textContent=state.completed?"Completed":"Ready to close";
+ const original=state.lines.filter(l=>!l.technicianAdded);
+ const acceptedOriginal=original.filter(l=>l.decision==="accepted").length;
+ const rejected=original.filter(l=>l.decision==="rejected").length;
+ const added=state.lines.filter(l=>l.technicianAdded).length;
+
+ byId("mainBody").innerHTML=`
+   <div class="complete"><b>${state.completed?"Request completed":"Ready for final validation"}</b><br>${acceptedOriginal} accepted request lines completed · ${rejected} rejected · ${added} technician-added action${added===1?"":"s"}.</div>
+   ${state.completed?"":`
+   <div class="note"><b>Final outcome</b><br>The audit trail keeps the original request lines, technician decisions, Client User / Device preparation, requested actions performed, and all additional technician actions.</div>
+   <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn success" onclick="state.completed=true;render()">Validate & complete request</button></div>`}
+ `;
+}
+
+function render(){
+ byId("steps").innerHTML=stepsHTML();
+ if(state.phase===0)renderReview();
+ if(state.phase===1)renderExecute();
+ if(state.phase===2)renderVerify();
+ if(state.phase===3)renderFinal();
+}
+
+function acceptLine(id){const l=state.lines.find(x=>x.id===id);if(l){l.decision="accepted";l.rejectReason="";render()}}
+function bulkDecision(ids,decision){ids.forEach(id=>{const l=state.lines.find(x=>x.id===id);if(l&&l.decision==="pending")l.decision=decision});render()}
+
+function openReject(id){
+ state.rejectLineId=id;
+ const l=state.lines.find(x=>x.id===id);
+ showModal("Reject request line",`
+   <div class="note" style="margin-top:0"><b>${esc(l.service)} · ${esc(l.action)}</b><br>${esc(subjects[l.subject].name)}</div>
+   <div style="margin-top:12px"><label>Reason *</label><textarea class="textarea" id="rejectReason" placeholder="Why is this line being rejected?"></textarea></div>
+   <div class="modalActions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn reject" onclick="confirmReject()">Reject line</button></div>
+ `);
+}
+function confirmReject(){
+ const reason=byId("rejectReason").value.trim();if(!reason)return;
+ const l=state.lines.find(x=>x.id===state.rejectLineId);if(l){l.decision="rejected";l.rejectReason=reason;l.status="pending";}
+ closeModal();render();
+}
+
+function executeLine(id){
+ const l=state.lines.find(x=>x.id===id);
+ if(!l||l.decision!=="accepted"||l.status==="done")return;
+ const userOk=!l.needsUser||subjectReadyUser(l.subject);
+ const deviceOk=!l.needsDevice||subjectReadyDevice(l.subject);
+ if(!userOk||!deviceOk)return;
+ l.status="done";
+ recordPerformed({
+   subject:l.subject,
+   kind:l.technicianAdded?"technician":"requested",
+   title:`${l.service} · ${l.action}`,
+   detail:`${l.scope} scope · ${l.current} → ${l.requested}`
+ });
+ render();
+}
+function executeGroup(ids){ids.forEach(id=>executeLineNoRender(id));render()}
+function executeLineNoRender(id){
+ const l=state.lines.find(x=>x.id===id);
+ if(!l||l.decision!=="accepted"||l.status==="done")return;
+ const userOk=!l.needsUser||subjectReadyUser(l.subject);
+ const deviceOk=!l.needsDevice||subjectReadyDevice(l.subject);
+ if(!userOk||!deviceOk)return;
+ l.status="done";
+ recordPerformed({
+   subject:l.subject,
+   kind:l.technicianAdded?"technician":"requested",
+   title:`${l.service} · ${l.action}`,
+   detail:`${l.scope} scope · ${l.current} → ${l.requested}`
+ });
+}
+
+function openAdditionalAction(subjectId){
+ state.selectedAdditional=additionalCatalog[subjectId][0]?.key||null;
+ showModal("More actions",additionalModalBody(subjectId));
+}
+function additionalModalBody(subjectId){
+ const s=subjects[subjectId],options=additionalCatalog[subjectId]||[];
+ return `
+   <div class="banner"><b>${esc(s.name)}</b><br>Choose an additional operational action. These options are adapted to the current subject and target state.</div>
+   <div class="optionList">
+     ${options.map(o=>`
+       <button class="optionCard ${state.selectedAdditional===o.key?"active":""}" onclick="state.selectedAdditional='${o.key}';refreshAdditionalModal('${subjectId}')">
+         <b>${esc(o.service)} · ${esc(o.action)}</b>
+         <span>${esc(o.scope)} scope · ${o.needsDevice?"Device required":o.needsUser?"Client User required":"Ready from current context"}</span>
+       </button>`).join("")}
+   </div>
+   <div style="margin-top:12px"><label>Technician note *</label><textarea class="textarea" id="additionalReason" placeholder="Why is this additional action needed?"></textarea></div>
+   <div class="modalActions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="addAdditionalAction('${subjectId}')">Add to execution</button></div>
+ `;
+}
+function refreshAdditionalModal(subjectId){
+ const existing=byId("additionalReason")?.value||"";
+ byId("modalBody").innerHTML=additionalModalBody(subjectId);
+ if(byId("additionalReason"))byId("additionalReason").value=existing;
+}
+function addAdditionalAction(subjectId){
+ const reason=byId("additionalReason").value.trim();if(!reason)return;
+ const spec=(additionalCatalog[subjectId]||[]).find(o=>o.key===state.selectedAdditional);if(!spec)return;
+ state.lines.push({
+   id:"T"+Date.now(),
+   subject:subjectId,
+   service:spec.service,
+   scope:spec.scope,
+   action:spec.action,
+   current:spec.current,
+   requested:spec.requested,
+   decision:"accepted",
+   status:"pending",
+   needsUser:spec.needsUser,
+   needsDevice:spec.needsDevice,
+   technicianAdded:true,
+   technicianReason:reason
+ });
+ closeModal();render();
+}
+
+function openUserModal(subjectId){
+ const s=subjects[subjectId];
+ showModal("Create / complete Client User",`
+   <div class="banner"><b>Client User required</b><br>Complete the managed-person information before executing dependent actions.</div>
+   <div class="fields">
+     <div><label>Full name *</label><input class="field" id="uName" value="${esc(s.name)}"></div>
+     <div><label>Department *</label><select class="field" id="uDept"><option ${s.department==="Finance"?"selected":""}>Finance</option><option ${s.department==="Commercial"?"selected":""}>Commercial</option><option>Operations</option><option>IT</option></select></div>
+     <div><label>Email</label><input class="field" id="uEmail" value="${esc(s.email)}"></div>
+     <div><label>Internal reference</label><input class="field" id="uRef" placeholder="Optional"></div>
+   </div>
+   <div class="note"><b>Important</b><br>This creates an MSP Client User only. No portal account or Frappe User is created.</div>
+   <div class="modalActions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn success" onclick="saveUser('${subjectId}')">Create Client User</button></div>
+ `);
+}
+function saveUser(subjectId){
+ const name=byId("uName").value.trim(),dept=byId("uDept").value;if(!name||!dept)return;
+ subjects[subjectId].name=name;
+ subjects[subjectId].department=dept;
+ subjects[subjectId].email=byId("uEmail").value.trim();
+ subjects[subjectId].clientUserId="CU-"+Math.floor(2000+Math.random()*7000);
+ recordPerformed({
+   subject:subjectId,
+   kind:"object",
+   title:"Client User created",
+   detail:`${subjects[subjectId].clientUserId} · ${subjects[subjectId].department}`
+ });
+ closeModal();render();
+}
+
+function openDeviceModal(subjectId){
+ state.deviceMode="stock";
+ showModal("Prepare Device",deviceModalBody(subjectId));
+}
+function deviceModalBody(subjectId){
+ const s=subjects[subjectId],stock=state.deviceMode==="stock";
+ return `
+   <div class="banner"><b>Device required</b><br>Fill the missing Device information before executing Device-scoped actions.</div>
+   <div class="choiceRow">
+     <button class="choice ${stock?"active":""}" onclick="state.deviceMode='stock';refreshDeviceModal('${subjectId}')"><b>Use existing stock Device</b><span>Select and assign an available Device.</span></button>
+     <button class="choice ${!stock?"active":""}" onclick="state.deviceMode='new';refreshDeviceModal('${subjectId}')"><b>Register new Device</b><span>Create the Device, then assign it.</span></button>
+   </div>
+   ${stock?`
+   <div class="fields">
+     <div><label>Available Device *</label><select class="field" id="dStock"><option value="ACI-STK-102|DELL-102|Laptop">ACI-STK-102 · Dell Latitude · DELL-102</option><option value="ACI-STK-118|HP-118|Laptop">ACI-STK-118 · HP EliteBook · HP-118</option></select></div>
+     <div><label>Holder</label><input class="field" readonly value="${esc(s.name)}"></div>
+     <div><label>Assignment date *</label><input class="field" id="dDate" type="date" value="2026-09-13"></div>
+     <div><label>Site / location</label><input class="field" id="dSite" placeholder="Optional"></div>
+   </div>`:`
+   <div class="fields">
+     <div><label>Hostname *</label><input class="field" id="dHost" value="ACI-FIN-044"></div>
+     <div><label>Serial number *</label><input class="field" id="dSerial" value="DELL-F44-992"></div>
+     <div><label>Device type *</label><select class="field" id="dType"><option>Laptop</option><option>Desktop</option></select></div>
+     <div><label>Holder</label><input class="field" readonly value="${esc(s.name)}"></div>
+   </div>`}
+   <div class="modalActions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn success" onclick="saveDevice('${subjectId}')">${stock?"Assign Device":"Register & assign"}</button></div>
+ `;
+}
+function refreshDeviceModal(subjectId){byId("modalBody").innerHTML=deviceModalBody(subjectId)}
+function saveDevice(subjectId){
+ let detail="";
+ if(state.deviceMode==="stock"){
+   const [hostname,serial,type]=byId("dStock").value.split("|");
+   subjects[subjectId].device={id:"DEV-"+Math.floor(1000+Math.random()*8000),hostname,serial,type};
+   detail=`${hostname} · ${serial} · assigned from stock`;
+ }else{
+   const hostname=byId("dHost").value.trim(),serial=byId("dSerial").value.trim(),type=byId("dType").value;
+   if(!hostname||!serial)return;
+   subjects[subjectId].device={id:"DEV-"+Math.floor(1000+Math.random()*8000),hostname,serial,type};
+   detail=`${hostname} · ${serial} · registered and assigned`;
+ }
+ recordPerformed({
+   subject:subjectId,
+   kind:"object",
+   title:"Device prepared",
+   detail
+ });
+ closeModal();render();
+}
+
+function showModal(title,body){byId("modalTitle").textContent=title;byId("modalBody").innerHTML=body;byId("modalBackdrop").classList.remove("hidden")}
+function closeModal(){byId("modalBackdrop").classList.add("hidden");byId("modalBody").innerHTML=""}
+
+render();
+</script>
+</body>
+</html>

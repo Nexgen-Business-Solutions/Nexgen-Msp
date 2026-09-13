@@ -675,5 +675,6 @@ champs commerciaux, aucun département en texte libre, le workbench n'exige aucu
 | 2026-09-13 | agent principal | Décisions d'Idriss appliquées : matrice d'autorité stricte, désactivation Client User, contrats par dates, prorata 5 jours sur 30, fin de service déjà facturé acceptée. |
 | 2026-09-13 | agent principal | Steppers unifiés sur le design « Add Item » de trixapos_retail_core : `WorkflowStepper` et `WorkflowHeader` partagés, utilisés par la demande, la Run de facturation, le workbench et la 2FA. |
 | 2026-09-13 | agent principal | Demande : un seul champ « Details » pour toute la demande (`MSP Service Request.details`) à l'étape 3, plus de commentaire par ligne. Les anciens commentaires de ligne restent lisibles et sont regroupés à la réouverture d'un brouillon. |
+| 2026-09-13 | agent principal | UX-UI-ADAPTATION-SPEC, écran C (réalisation technicien) : 4 étapes Review lines / Execute / Verify / Final validation, contexte et note du demandeur toujours visibles, décisions et exécutions groupées avec résultat par ligne, « More actions » servies par le backend (`origin = Technician` + raison sur le Work Order), Verify = récapitulatif persistant, plus de checklist de vérification bloquante. Écrans A et B non commencés. |
 
 > Ajoute ta ligne ici quand tu termines quelque chose.
