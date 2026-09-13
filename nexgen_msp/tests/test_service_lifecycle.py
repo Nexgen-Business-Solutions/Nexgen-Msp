@@ -377,17 +377,54 @@ class TestServiceLifecycle(MSPTestCase):
         with self.assertRaises(ValidationError):
             ServiceLifecycleService.resume(assignment=opened["name"], effective_date=self.days_ago(10))
 
-    def test_a_pause_cannot_be_backdated_into_an_invoiced_period(self):
+    def test_a_pause_behind_an_invoiced_period_asks_to_be_confirmed(self):
         service = self.offering("LIFEBILLED")
         opened = self.open_service(service, effective_date=self.days_ago(60))
         self.invoice(opened["name"], self.days_ago(60), self.days_ago(31))
 
-        with self.assertRaises(ValidationError) as refused:
+        with self.assertRaises(ValidationError) as warned:
             ServiceLifecycleService.suspend(
                 assignment=opened["name"], effective_date=self.days_ago(40)
             )
 
-        self.assertIn("invoiced", str(refused.exception).lower())
+        self.assertEqual(warned.exception.code, "BILLED_PERIOD")
+        self.assertIn("invoiced", str(warned.exception).lower())
+        self.assertEqual(self.reload(opened["name"]).operational_status, "Active")
+
+    def test_confirmed_it_goes_through_and_says_so_in_the_history(self):
+        service = self.offering("LIFEBILLOK")
+        opened = self.open_service(service, effective_date=self.days_ago(60))
+        run = self.invoice(opened["name"], self.days_ago(60), self.days_ago(31))
+        amount = frappe.db.get_value("MSP Billing Run Line", {"parent": run}, "amount")
+
+        ServiceLifecycleService.suspend(
+            assignment=opened["name"], effective_date=self.days_ago(40), confirm_billed=1
+        )
+
+        doc = self.reload(opened["name"])
+        self.assertEqual(doc.operational_status, "Suspended")
+        self.assertIn("invoice", (doc.suspension_log[0].note or "").lower())
+        self.assertEqual(frappe.db.get_value("MSP Billing Run Line", {"parent": run}, "amount"), amount)
+
+    def test_a_resume_behind_an_invoiced_period_is_confirmed_the_same_way(self):
+        service = self.offering("LIFEBILLRS")
+        opened = self.open_service(service, effective_date=self.days_ago(60))
+        ServiceLifecycleService.suspend(assignment=opened["name"], effective_date=self.days_ago(50))
+        self.invoice(opened["name"], self.days_ago(60), self.days_ago(31))
+
+        with self.assertRaises(ValidationError) as warned:
+            ServiceLifecycleService.resume(assignment=opened["name"], effective_date=self.days_ago(40))
+        self.assertEqual(warned.exception.code, "BILLED_PERIOD")
+
+        ServiceLifecycleService.resume(
+            assignment=opened["name"], effective_date=self.days_ago(40), confirm_billed=1
+        )
+        self.assertEqual(self.reload(opened["name"]).operational_status, "Active")
+
+    def test_a_pause_after_the_invoiced_period_asks_nothing(self):
+        service = self.offering("LIFEBILLAF")
+        opened = self.open_service(service, effective_date=self.days_ago(60))
+        self.invoice(opened["name"], self.days_ago(60), self.days_ago(31))
 
         ServiceLifecycleService.suspend(assignment=opened["name"], effective_date=self.days_ago(10))
         self.assertEqual(self.reload(opened["name"]).operational_status, "Suspended")

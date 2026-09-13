@@ -153,6 +153,7 @@ def execute_service_action(
     serial_number=None,
     notes=None,
     customer_note=None,
+    confirm_billed=0,
 ):
     return _execution().execute_service_action(
         work_order=work_order,
@@ -162,6 +163,7 @@ def execute_service_action(
         serial_number=serial_number,
         notes=notes,
         customer_note=customer_note,
+        confirm_billed=confirm_billed,
     )
 
 
@@ -191,9 +193,9 @@ def cancel_work_item(work_order=None, reason=None):
 
 @frappe.whitelist()
 @handle_errors
-def execute_service_actions(work_orders=None, effective_date=None):
+def execute_service_actions(work_orders=None, effective_date=None, confirm_billed=0):
     return _execution().execute_service_actions(
-        work_orders=work_orders, effective_date=effective_date
+        work_orders=work_orders, effective_date=effective_date, confirm_billed=confirm_billed
     )
 
 
@@ -499,7 +501,12 @@ def assign_user_service(
 @frappe.whitelist()
 @handle_errors
 def change_user_service(
-    assignment=None, action=None, effective_date=None, notes=None, source_request=None
+    assignment=None,
+    action=None,
+    effective_date=None,
+    notes=None,
+    source_request=None,
+    confirm_billed=0,
 ):
     from nexgen_msp.api.internal.services.user_service import UserService
 
@@ -509,6 +516,7 @@ def change_user_service(
         effective_date=effective_date,
         notes=notes,
         source_request=source_request,
+        confirm_billed=confirm_billed,
     )
 
 

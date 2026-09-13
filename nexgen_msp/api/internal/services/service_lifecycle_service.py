@@ -36,8 +36,9 @@ ENDABLE_STATUSES = ("Active", "Suspended", "Pending Removal")
 
 CHANGEABLE_STATUSES = ("Active", "Suspended")
 
-BILLED_PERIOD_REFUSAL = (
-    "This period has already been invoiced. Issue a credit note / adjustment instead."
+BILLED_PERIOD_WARNING = (
+    "This period has already been invoiced. Confirm to go ahead anyway: the invoice already "
+    "issued stays as it is."
 )
 
 
@@ -148,7 +149,12 @@ class ServiceLifecycleService:
 
     @staticmethod
     def suspend(
-        assignment=None, effective_date=None, source_request=None, notes=None, _commit=True
+        assignment=None,
+        effective_date=None,
+        source_request=None,
+        notes=None,
+        confirm_billed=0,
+        _commit=True,
     ):
         """Pause a running service from a stated day, and write the days down.
 
@@ -167,7 +173,7 @@ class ServiceLifecycleService:
 
         on_date = ServiceLifecycleService._day(effective_date)
         ServiceLifecycleService._after_start(doc, on_date)
-        ServiceLifecycleService._after_invoices(doc, on_date)
+        notes = ServiceLifecycleService._after_invoices(doc, on_date, confirm_billed, notes)
 
         request = UserService._checked_request(source_request, doc.customer)
 
@@ -195,7 +201,12 @@ class ServiceLifecycleService:
 
     @staticmethod
     def resume(
-        assignment=None, effective_date=None, source_request=None, notes=None, _commit=True
+        assignment=None,
+        effective_date=None,
+        source_request=None,
+        notes=None,
+        confirm_billed=0,
+        _commit=True,
     ):
         """Start a paused service again, closing the pause on the day it becomes billable."""
         RequestService._guard_internal()
@@ -225,7 +236,7 @@ class ServiceLifecycleService:
                 "VALIDATION_ERROR",
             )
 
-        ServiceLifecycleService._after_invoices(doc, on_date)
+        notes = ServiceLifecycleService._after_invoices(doc, on_date, confirm_billed, notes)
 
         request = UserService._checked_request(source_request, doc.customer)
 
@@ -916,16 +927,28 @@ class ServiceLifecycleService:
             )
 
     @staticmethod
-    def _after_invoices(doc, on_date):
-        """A day the customer has already been billed for is not moved from here."""
+    def _after_invoices(doc, on_date, confirm_billed=0, notes=None):
+        """A day already invoiced is a warning, never a wall.
+
+        The act is refused once, with a code the screen recognises, so whoever is doing it is
+        told the period was billed. Confirmed, it goes through: the invoice already issued is
+        not touched, and the history says the act was recorded behind it.
+        """
         billed_to = UserService._billed_to(doc.name)
 
-        if billed_to and on_date <= frappe.utils.getdate(billed_to):
+        if not billed_to or on_date > frappe.utils.getdate(billed_to):
+            return notes
+
+        if not frappe.utils.cint(confirm_billed):
             raise ValidationError(
                 f"This service is invoiced up to {frappe.utils.formatdate(billed_to)}. "
-                + BILLED_PERIOD_REFUSAL,
-                "VALIDATION_ERROR",
+                + BILLED_PERIOD_WARNING,
+                "BILLED_PERIOD",
             )
+
+        remark = f"Recorded behind an invoice covering up to {frappe.utils.formatdate(billed_to)}."
+
+        return f"{notes} — {remark}" if notes else remark
 
     @staticmethod
     def _label(service_item):

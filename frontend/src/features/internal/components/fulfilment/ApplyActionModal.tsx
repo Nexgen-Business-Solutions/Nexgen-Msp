@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Play } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
+import ConfirmModal from '@/shared/components/ConfirmModal';
+import { isBilledPeriod } from '@/shared/lib/billedPeriod';
 import FieldLabel from '@/shared/components/FieldLabel';
 import type { SubjectWorkGroup, WorkCard } from '@/lib/api/internal';
 import { useExecuteServiceAction } from '../../hooks/useRequests';
@@ -18,12 +20,14 @@ const ApplyActionModal: React.FC<Props> = ({ card, person, onClose }) => {
   const [date, setDate] = useState('');
   const [quantity, setQuantity] = useState('1');
   const [identifier, setIdentifier] = useState('');
+  const [billedWarning, setBilledWarning] = useState<string | null>(null);
 
   useEffect(() => {
     if (!card) return;
     setDate(card.effective_date ?? new Date().toISOString().slice(0, 10));
     setQuantity(String(card.requested_quantity ?? 1));
     setIdentifier('');
+    setBilledWarning(null);
     run.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [card]);
@@ -33,18 +37,23 @@ const ApplyActionModal: React.FC<Props> = ({ card, person, onClose }) => {
   const onDevice = card.target_scope === 'Device';
   const missing = identifierMissing(card, person);
 
-  const submit = async () => {
+  const submit = async (confirmBilled = false) => {
     try {
       await run.mutateAsync({
+        confirm_billed: confirmBilled ? 1 : undefined,
         work_order: card.name,
         effective_date: date || undefined,
         quantity: card.action === 'Change' ? Number(quantity) : undefined,
         username: !onDevice && identifier.trim() ? identifier.trim() : undefined,
         serial_number: onDevice && identifier.trim() ? identifier.trim() : undefined,
       });
+      setBilledWarning(null);
       onClose();
-    } catch {
-      // shown below
+    } catch (error) {
+      if (isBilledPeriod(error)) {
+        setBilledWarning(error.message);
+        run.reset();
+      }
     }
   };
 
@@ -70,11 +79,11 @@ const ApplyActionModal: React.FC<Props> = ({ card, person, onClose }) => {
           </button>
           <button
             type="button"
-            onClick={submit}
+            onClick={() => submit()}
             disabled={run.isLoading || (missing && !identifier.trim())}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
           >
-            {run.isLoading ? 'Applying…' : 'Apply action'}
+            {run.isLoading ? 'Working…' : card.action_label ?? card.action}
           </button>
         </div>
       }
@@ -105,13 +114,13 @@ const ApplyActionModal: React.FC<Props> = ({ card, person, onClose }) => {
         )}
         {missing && (
           <div>
-            <FieldLabel required>{onDevice ? 'Serial number' : 'Account name'}</FieldLabel>
+            <FieldLabel required>{onDevice ? 'Serial Number' : 'Username'}</FieldLabel>
             <input
               className={inputClass}
               value={identifier}
               onChange={(event) => setIdentifier(event.target.value)}
               placeholder={onDevice ? 'Read it off the machine' : 'The name on the licence'}
-              aria-label={onDevice ? 'Serial number' : 'Account name'}
+              aria-label={onDevice ? 'Serial Number' : 'Username'}
             />
           </div>
         )}
@@ -128,6 +137,16 @@ const ApplyActionModal: React.FC<Props> = ({ card, person, onClose }) => {
           {run.error.message}
         </p>
       )}
+      <ConfirmModal
+        open={Boolean(billedWarning)}
+        tone="warning"
+        title="This period is already invoiced"
+        description={billedWarning ?? ''}
+        confirmLabel="Go ahead"
+        loading={run.isLoading}
+        onCancel={() => setBilledWarning(null)}
+        onConfirm={() => submit(true)}
+      />
     </Modal>
   );
 };

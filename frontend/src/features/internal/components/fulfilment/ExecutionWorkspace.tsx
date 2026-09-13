@@ -15,6 +15,7 @@ import {
   subjectCard,
   warnBar,
 } from '../../lib/fulfilmentStyles';
+import ConfirmModal from '@/shared/components/ConfirmModal';
 import ApplyActionModal from './ApplyActionModal';
 import ClientUserModal from './ClientUserModal';
 import DeviceModal from './DeviceModal';
@@ -63,6 +64,7 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
   const [applying, setApplying] = useState<{ card: WorkCard; person: SubjectWorkGroup['person'] } | null>(null);
   const [adding, setAdding] = useState<{ key: string; name: string } | null>(null);
   const [outcome, setOutcome] = useState<string | null>(null);
+  const [billedGroup, setBilledGroup] = useState<{ orders: string[]; message: string } | null>(null);
 
   const remaining = plan.groups.reduce(
     (count, group) =>
@@ -84,7 +86,7 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
 
         const key = `${card.service_item}|${card.action}`;
         const entry = byAct.get(key) ?? {
-          label: card.service_name ?? card.service_item ?? '',
+          label: `${card.action_label ?? card.action} · ${card.service_name ?? card.service_item ?? ''}`,
           cards: [],
         };
         entry.cards.push(card);
@@ -95,11 +97,24 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
     return [...byAct.values()].filter((entry) => entry.cards.length > 1);
   }, [plan.groups]);
 
-  const runGroup = async (cards: WorkCard[]) => {
+  const runGroup = async (orders: string[], confirmBilled = false) => {
     setOutcome(null);
+    setBilledGroup(null);
     try {
-      const result = await groupRun.mutateAsync({ work_orders: cards.map((card) => card.name) });
+      const result = await groupRun.mutateAsync({
+        work_orders: orders,
+        confirm_billed: confirmBilled ? 1 : undefined,
+      });
       const refused = result.results.filter((row) => !row.ok);
+      const billed = refused.filter((row) => row.code === 'BILLED_PERIOD');
+
+      if (billed.length && !confirmBilled) {
+        setBilledGroup({
+          orders: billed.map((row) => row.work_order as string),
+          message: billed.map((row) => row.message).join(' '),
+        });
+      }
+
       setOutcome(
         refused.length
           ? `${result.completed} completed · ${refused.length} failed: ` +
@@ -141,10 +156,10 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
                 key={`${entry.cards[0].service_item}|${entry.cards[0].action}`}
                 type="button"
                 disabled={groupRun.isLoading}
-                onClick={() => runGroup(entry.cards)}
+                onClick={() => runGroup(entry.cards.map((card) => card.name))}
                 className={btnPrimary}
               >
-                Apply {entry.label} to {entry.cards.length} people
+                {entry.label} for {entry.cards.length} people
               </button>
             ))}
           </div>
@@ -328,7 +343,7 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
                       {card.ready && !heldUp && (
                         <button type="button" onClick={() => setApplying({ card, person })} className={btnPrimary}>
                           <Play size={13} />
-                          Apply action
+                          {card.action_label ?? card.action}
                         </button>
                       )}
                       <WorkItemMenu card={card} />
@@ -369,6 +384,17 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
       ) : (
         remaining > 0 && <p className="text-xs text-slate-500">{remaining} item{remaining > 1 ? 's' : ''} remaining.</p>
       )}
+
+      <ConfirmModal
+        open={Boolean(billedGroup)}
+        tone="warning"
+        title="Some of these periods are already invoiced"
+        description={billedGroup?.message ?? ''}
+        confirmLabel={`Go ahead for ${billedGroup?.orders.length ?? 0}`}
+        loading={groupRun.isLoading}
+        onCancel={() => setBilledGroup(null)}
+        onConfirm={() => billedGroup && runGroup(billedGroup.orders, true)}
+      />
 
       <ClientUserModal card={creating?.card ?? null} person={creating?.person ?? null} onClose={() => setCreating(null)} />
       <DeviceModal

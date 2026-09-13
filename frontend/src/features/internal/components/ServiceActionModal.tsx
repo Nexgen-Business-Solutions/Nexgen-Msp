@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { AlertCircle, CircleX, PauseCircle, PlayCircle } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
+import ConfirmModal from '@/shared/components/ConfirmModal';
+import { isBilledPeriod } from '@/shared/lib/billedPeriod';
 import FieldLabel from '@/shared/components/FieldLabel';
 import type { CustomerRequestRef, UserServiceRow } from '@/lib/api/internal';
 import RequestReferenceField from './RequestReferenceField';
@@ -78,12 +80,14 @@ const ServiceActionModal: React.FC<Props> = ({
   const [actionDate, setActionDate] = useState(today());
   const [notes, setNotes] = useState('');
   const [sourceRequest, setSourceRequest] = useState('');
+  const [billedWarning, setBilledWarning] = useState<string | null>(null);
 
   useEffect(() => {
     if (!target) return;
     setActionDate(today());
     setNotes('');
     setSourceRequest(defaultRequest ?? '');
+    setBilledWarning(null);
     change.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target]);
@@ -95,7 +99,7 @@ const ServiceActionModal: React.FC<Props> = ({
   // closing behind what was already invoiced is allowed; the invoice itself stays as it is
   const closesBilledDays = target.action === 'End' && Boolean(billedTo) && actionDate <= (billedTo ?? '');
 
-  const submit = async () => {
+  const submit = async (confirmBilled = false) => {
     try {
       await change.mutateAsync({
         assignment: target.row.name,
@@ -103,10 +107,16 @@ const ServiceActionModal: React.FC<Props> = ({
         effective_date: actionDate,
         notes: notes.trim() || undefined,
         source_request: sourceRequest || undefined,
+        confirm_billed: confirmBilled ? 1 : undefined,
       });
+      setBilledWarning(null);
       onClose();
-    } catch {
-      // surfaced by the error banner below
+    } catch (error) {
+      // an invoiced period is a warning to confirm, not a refusal
+      if (isBilledPeriod(error)) {
+        setBilledWarning(error.message);
+        change.reset();
+      }
     }
   };
 
@@ -130,7 +140,7 @@ const ServiceActionModal: React.FC<Props> = ({
           </button>
           <button
             type="button"
-            onClick={submit}
+            onClick={() => submit()}
             disabled={change.isLoading}
             className={`flex min-w-[7rem] items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${copy.tone}`}
           >
@@ -214,6 +224,16 @@ const ServiceActionModal: React.FC<Props> = ({
           </div>
         )}
       </div>
+      <ConfirmModal
+        open={Boolean(billedWarning)}
+        tone="warning"
+        title="This period is already invoiced"
+        description={billedWarning ?? ''}
+        confirmLabel="Go ahead"
+        loading={change.isLoading}
+        onCancel={() => setBilledWarning(null)}
+        onConfirm={() => submit(true)}
+      />
     </Modal>
   );
 };

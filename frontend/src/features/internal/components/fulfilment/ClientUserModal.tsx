@@ -71,7 +71,7 @@ const ClientUserModal: React.FC<Props> = ({ card, person, onClose }) => {
     >
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <FieldLabel>Full name</FieldLabel>
+          <FieldLabel>Full Name</FieldLabel>
           <input className={`${inputClass} bg-slate-50`} readOnly value={person?.full_name ?? ''} />
         </div>
         <div>
@@ -89,13 +89,13 @@ const ClientUserModal: React.FC<Props> = ({ card, person, onClose }) => {
           />
         </div>
         <div>
-          <FieldLabel>Account name</FieldLabel>
+          <FieldLabel>Username</FieldLabel>
           <input
             className={inputClass}
             value={username}
             onChange={(event) => setUsername(event.target.value)}
             placeholder="Optional"
-            aria-label="Account name"
+            aria-label="Username"
           />
         </div>
       </div>

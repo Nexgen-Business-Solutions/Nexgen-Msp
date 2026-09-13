@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as internal from '@/lib/api/internal';
 import type { UserServiceRow } from '@/lib/api/internal';
+import { FrappeError } from '@/lib/api/client';
 import ServiceActionModal from './ServiceActionModal';
 
 vi.mock('@/lib/api/internal', async (importOriginal) => {
@@ -91,5 +92,31 @@ describe('closing a service already invoiced', () => {
     const dialog = open('Suspend');
 
     expect(within(dialog).queryByText(/invoiced up to/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('a period already invoiced is a warning, not a wall', () => {
+  it('asks to confirm, then goes ahead with the confirmation', async () => {
+    vi.mocked(internal.changeUserService)
+      .mockRejectedValueOnce(
+        new FrappeError(
+          'This service is invoiced up to 24-11-2026. This period has already been invoiced. Confirm to go ahead anyway: the invoice already issued stays as it is.',
+          400,
+          'BILLED_PERIOD'
+        )
+      )
+      .mockResolvedValueOnce({} as never);
+    const dialog = open('Suspend');
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /^suspend$/i }));
+
+    expect(await screen.findByText(/this period is already invoiced/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /go ahead/i }));
+
+    await waitFor(() => expect(internal.changeUserService).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(internal.changeUserService).mock.calls[1][0]).toMatchObject({
+      action: 'Suspend',
+      confirm_billed: 1,
+    });
   });
 });

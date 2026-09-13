@@ -583,7 +583,12 @@ class UserService:
 
     @staticmethod
     def change_service(
-        assignment=None, action=None, effective_date=None, notes=None, source_request=None
+        assignment=None,
+        action=None,
+        effective_date=None,
+        notes=None,
+        source_request=None,
+        confirm_billed=0,
     ):
         """Suspend, resume or end a running service, from the user's screen.
 
@@ -612,11 +617,14 @@ class UserService:
         if not frappe.db.exists("MSP Service Assignment", assignment):
             raise NotFoundError(f"Service Assignment {assignment} not found.", "NOT_FOUND")
 
+        extra = {"confirm_billed": confirm_billed} if action in ("Suspend", "Resume") else {}
+
         acts[action](
             assignment=assignment,
             effective_date=effective_date,
             source_request=source_request,
             notes=notes,
+            **extra,
         )
 
         client_user, managed_device = frappe.db.get_value(

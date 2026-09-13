@@ -427,7 +427,7 @@ describe('step 2 — execute', () => {
 
     expect(await screen.findByText(/client user required/i)).toBeInTheDocument();
     expect(screen.getByText(/waiting for the person to be created/i)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /apply action/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^add$/i })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /create client user/i }));
     const dialog = await screen.findByRole('dialog');
@@ -472,13 +472,15 @@ describe('step 2 — execute', () => {
     );
   });
 
-  it('applies a ready action', async () => {
-    vi.mocked(internal.executeServiceAction).mockResolvedValue(plan());
-    await renderPage(request(), plan());
+  it('names the button after the exact action and runs it', async () => {
+    const labelled = plan({ groups: [group({ services: [card({ action_label: 'Grant a service' })] })] });
+    vi.mocked(internal.executeServiceAction).mockResolvedValue(labelled);
+    await renderPage(request(), labelled);
 
-    fireEvent.click(await screen.findByRole('button', { name: /apply action/i }));
+    expect(screen.queryByRole('button', { name: /apply action/i })).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: 'Grant a service' }));
     const dialog = await screen.findByRole('dialog');
-    fireEvent.click(within(dialog).getByRole('button', { name: /apply action/i }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Grant a service' }));
 
     await waitFor(() =>
       expect(vi.mocked(internal.executeServiceAction).mock.calls[0][0]).toMatchObject({ work_order: 'WO-0001' })
@@ -507,7 +509,7 @@ describe('step 2 — execute', () => {
     });
     await renderPage(request(), two);
 
-    fireEvent.click(await screen.findByRole('button', { name: /apply microsoft 365 to 2 people/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /add · microsoft 365 for 2 people/i }));
 
     await waitFor(() =>
       expect(internal.executeServiceActions).toHaveBeenCalledWith({ work_orders: ['WO-0001', 'WO-0002'] })
@@ -612,10 +614,13 @@ describe('who each line is for', () => {
       } as never)
     );
 
-    expect(await screen.findByText(/commercial · p1@acme.com · account p.one · cu-1/i)).toBeInTheDocument();
+    expect(await screen.findByText('Username')).toBeInTheDocument();
+    expect(screen.getByText('p.one')).toBeInTheDocument();
+    expect(screen.getByText('p1@acme.com')).toBeInTheDocument();
     expect(screen.getByText('KV-P1 · SN-1')).toBeInTheDocument();
     expect(screen.getByText('Parallels')).toBeInTheDocument();
-    expect(screen.getByText(/also in sr-0099/i)).toBeInTheDocument();
+    expect(screen.getByText('SR-0099')).toBeInTheDocument();
+    expect(screen.queryByText(/account/i)).not.toBeInTheDocument();
   });
 
   it('shows what the request says about somebody not on file yet', async () => {
@@ -637,8 +642,8 @@ describe('who each line is for', () => {
     );
 
     expect(await screen.findByText('New person')).toBeInTheDocument();
-    expect(screen.getByText(/finance · chloe@acme.com/i)).toBeInTheDocument();
-    expect(screen.getByText(/created during execution/i)).toBeInTheDocument();
+    expect(screen.getByText('Finance')).toBeInTheDocument();
+    expect(screen.getByText('chloe@acme.com')).toBeInTheDocument();
   });
 });
 

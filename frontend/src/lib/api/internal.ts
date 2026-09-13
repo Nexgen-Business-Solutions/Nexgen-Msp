@@ -162,7 +162,7 @@ export const setRequestLineStatus = (payload: {
 }) => post<RequestDetail>(`${BASE}.set_request_line_status`, payload);
 
 export type GroupOutcome<T> = {
-  results: { ok: boolean; message: string | null; idx?: number; work_order?: string }[];
+  results: { ok: boolean; message: string | null; idx?: number; work_order?: string; code?: string | null }[];
   failed: number;
 } & T;
 
@@ -378,9 +378,14 @@ export const executeServiceAction = (payload: {
   serial_number?: string;
   notes?: string;
   customer_note?: string;
+  confirm_billed?: number;
 }) => post<ExecutionPlan>(`${BASE}.execute_service_action`, payload);
 
-export const executeServiceActions = (payload: { work_orders: string[]; effective_date?: string }) =>
+export const executeServiceActions = (payload: {
+  work_orders: string[];
+  effective_date?: string;
+  confirm_billed?: number;
+}) =>
   post<GroupOutcome<{ completed: number; plan: ExecutionPlan }>>(`${BASE}.execute_service_actions`, {
     ...payload,
     work_orders: JSON.stringify(payload.work_orders),
@@ -856,6 +861,7 @@ export const changeUserService = (payload: {
   effective_date?: string;
   notes?: string;
   source_request?: string;
+  confirm_billed?: number;
 }) => post<UserDetail>(`${BASE}.change_user_service`, payload);
 
 export type ServiceAvailabilityTarget = {

@@ -890,6 +890,7 @@ class RequestExecutionService:
 		serial_number=None,
 		notes=None,
 		customer_note=None,
+		confirm_billed=0,
 	):
 		"""Carry out the act one approved line asked for, through the service domain.
 
@@ -943,6 +944,7 @@ class RequestExecutionService:
 						effective_date=on_date,
 						source_request=doc.name,
 						notes=notes,
+						confirm_billed=confirm_billed,
 						_commit=False,
 					)
 				elif order.action == "Resume":
@@ -951,6 +953,7 @@ class RequestExecutionService:
 						effective_date=on_date,
 						source_request=doc.name,
 						notes=notes,
+						confirm_billed=confirm_billed,
 						_commit=False,
 					)
 				elif order.action == "Remove":
@@ -986,7 +989,7 @@ class RequestExecutionService:
 		return RequestExecutionService.get_execution_plan(doc.name)
 
 	@staticmethod
-	def execute_service_actions(work_orders=None, effective_date=None):
+	def execute_service_actions(work_orders=None, effective_date=None, confirm_billed=0):
 		"""The same ready act for several people, carried out one person at a time.
 
 		Grouping is a convenience of the screen. Every work order still goes through the
@@ -1015,9 +1018,9 @@ class RequestExecutionService:
 		for name in work_orders:
 			try:
 				RequestExecutionService.execute_service_action(
-					work_order=name, effective_date=effective_date
+					work_order=name, effective_date=effective_date, confirm_billed=confirm_billed
 				)
-				results.append({"work_order": name, "ok": True, "message": None})
+				results.append({"work_order": name, "ok": True, "message": None, "code": None})
 			except Exception as error:
 				frappe.db.rollback()
 				results.append(
@@ -1025,6 +1028,7 @@ class RequestExecutionService:
 						"work_order": name,
 						"ok": False,
 						"message": getattr(error, "message", None) or str(error),
+						"code": getattr(error, "code", None),
 					}
 				)
 
