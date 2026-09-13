@@ -4,9 +4,9 @@ Named people, never a role: the same person can be allowed to raise a request an
 approve it, or only one of the two, and the answer is written down per person rather than
 inferred from a group they belong to.
 
-A customer with no authority on file behaves exactly as before — their requests reach
-Nexgen straight away. That is what keeps every existing customer working the day this
-ships.
+The matrix is the whole answer. An account it does not name may neither raise nor approve,
+whatever its role: being a Customer Manager decides what somebody sees, never what they
+may ask for.
 """
 
 import frappe
@@ -115,8 +115,7 @@ def covers_line(rights, row):
 def gaps(customer):
     """Whether this company still has someone to raise a request, and someone to agree.
 
-    Raising is open to every enabled account of the company except those the matrix names
-    without the right; agreeing belongs only to those it names with it.
+    Both belong only to the accounts the matrix names with the right.
     """
     accounts = frappe.db.sql_list(
         """
@@ -131,7 +130,7 @@ def gaps(customer):
     named = {row.user: row for row in (doc.approvers if doc else [])}
 
     raisers = [
-        user for user in accounts if user not in named or named[user].can_submit
+        user for user, row in named.items() if row.can_submit and user in accounts
     ]
     approvers = [
         user for user, row in named.items() if row.can_approve and user in accounts

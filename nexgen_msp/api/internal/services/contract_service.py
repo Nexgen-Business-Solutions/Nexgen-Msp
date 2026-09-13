@@ -25,12 +25,13 @@ PROFILE_FIELDS = (
 
 class ContractService:
     @staticmethod
-    def _price_list(customer, service_item=None):
+    def _price_list(customer, service_item=None, on_date=None):
         """The selling price list this customer is billed from.
 
         The live contract covering the service decides it, because that is what the
-        customer actually signed. The legacy profile is only a fallback for data that
-        predates contracts.
+        customer actually signed. When the same service sits on two contracts one after the
+        other, the one whose dates hold the day being priced wins. The legacy profile is only
+        a fallback for data that predates contracts.
         """
         if service_item:
             covering = frappe.db.sql(
@@ -42,10 +43,18 @@ class ContractService:
                   and cs.service_item = %(item)s
                   and c.status in %(live)s
                   and c.price_list is not null and c.price_list != ''
-                order by c.start_date desc
+                order by
+                    (c.start_date <= %(on_date)s
+                        and ifnull(c.end_date, '9999-12-31') >= %(on_date)s) desc,
+                    c.start_date desc
                 limit 1
                 """,
-                {"customer": customer, "item": service_item, "live": LIVE_CONTRACT_STATUSES},
+                {
+                    "customer": customer,
+                    "item": service_item,
+                    "live": LIVE_CONTRACT_STATUSES,
+                    "on_date": on_date or frappe.utils.today(),
+                },
                 pluck=True,
             )
 
@@ -95,12 +104,11 @@ class ContractService:
     @staticmethod
     def current_rate(customer, service_item, on_date=None):
         """The rate that applies on a given day. Dated rows in Item Price are the history."""
-        price_list = ContractService._price_list(customer, service_item)
+        on_date = on_date or frappe.utils.today()
+        price_list = ContractService._price_list(customer, service_item, on_date)
 
         if not price_list:
             return None
-
-        on_date = on_date or frappe.utils.today()
 
         found = frappe.db.sql(
             """

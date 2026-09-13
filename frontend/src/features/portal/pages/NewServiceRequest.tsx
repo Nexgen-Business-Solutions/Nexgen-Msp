@@ -43,7 +43,7 @@ export default function NewServiceRequest() {
   const setCustomer = usePortalFilters((state) => state.setCustomer);
   const options = useUserFilterOptions(onBehalf);
 
-  // someone who only decides at their company raises nothing; the server refuses too
+  // only the accounts the company's authority matrix names may raise; the server refuses too
   if (rights.data?.can_submit === false) {
     return (
       <div className="px-6 pb-6 pt-4">
@@ -52,8 +52,8 @@ export default function NewServiceRequest() {
           <div>
             <p className="text-sm font-semibold text-amber-900">You may not raise requests</p>
             <p className="mt-1 text-sm text-amber-800">
-              Your account decides on your company's requests but does not open them. Ask
-              Nexgen if that should change.
+              Your account has not been given the right to open requests for your company.
+              Ask Nexgen if that should change.
             </p>
           </div>
         </div>

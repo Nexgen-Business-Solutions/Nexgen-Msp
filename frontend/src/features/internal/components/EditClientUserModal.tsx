@@ -169,8 +169,8 @@ const EditClientUserModal: React.FC<Props> = ({ open, user, onClose }) => {
         </div>
 
         <p className="text-sm text-slate-500">
-          Their company and their status are not editable here: moving someone would orphan
-          their services, and the status follows the services themselves.
+          Their company is not editable here: moving someone would orphan their services. To
+          record that they left, use Disable on their page.
         </p>
 
         {save.error instanceof Error && (

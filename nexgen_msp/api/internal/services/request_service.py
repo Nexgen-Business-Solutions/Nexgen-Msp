@@ -817,10 +817,12 @@ class RequestService:
             select name, title, status, currency
             from `tabMSP Contract`
             where customer = %(customer)s and status in ('Active', 'Suspended')
-            order by (status = 'Active') desc, start_date desc
+            order by
+                (start_date <= %(today)s and ifnull(end_date, '9999-12-31') >= %(today)s) desc,
+                (status = 'Active') desc, start_date desc
             limit 1
             """,
-            {"customer": doc.customer},
+            {"customer": doc.customer, "today": frappe.utils.today()},
             as_dict=True,
         )
         contract = contract[0] if contract else None

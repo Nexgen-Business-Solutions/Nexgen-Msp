@@ -37,3 +37,4 @@ nexgen_msp.patches.stamp_request_line_keys
 nexgen_msp.patches.index_hot_lookups
 nexgen_msp.patches.index_hot_lookups #register
 nexgen_msp.patches.repair_open_request_departments
+nexgen_msp.patches.thirty_day_proration

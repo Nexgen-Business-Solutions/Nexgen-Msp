@@ -1080,6 +1080,8 @@ class PortalService:
         customer. It is the author's own until they send it.
         """
         customer = PortalService._resolve_customer(customer)
+        # a draft is the start of a request: whoever may not raise one may not start one
+        PortalService._guard_may_submit(customer)
         _, rows = PortalService._line_rows(lines, customer, request_type, strict=False)
 
         if name:
@@ -1178,7 +1180,8 @@ class PortalService:
         return {
             "customer": customer,
             "has_authority": approval.has_approvers(customer),
-            "can_submit": rights.get("can_submit", True) if rights else True,
+            # our own team raises on a customer's behalf and answers to no customer matrix
+            "can_submit": bool(rights.get("can_submit")) or permissions.is_internal(),
             "can_approve": bool(rights.get("can_approve")),
             "department": rights.get("department"),
             "awaiting": frappe.db.count(
@@ -1360,18 +1363,15 @@ class PortalService:
 
     @staticmethod
     def _guard_may_submit(customer):
-        """Refuse a request from someone whose line says they may not raise one.
+        """Refuse a request from anyone the matrix does not name with the right to raise one.
 
-        Only bites on people the matrix names. Anyone not in it keeps what they have always
-        had, because naming someone is a deliberate act and switching the matrix on must not
-        silently take the portal away from every other employee.
+        Not being in the matrix is not a quiet yes: an account nobody has decided about may
+        look at the portal, and nothing more.
         """
         if permissions.is_internal():
             return
 
-        rights = approval.rights_of(customer)
-
-        if rights and not rights.get("can_submit"):
+        if not approval.may("can_submit", customer):
             raise ValidationError(
                 "You are not allowed to raise requests for this company.",
                 "PERMISSION_DENIED",
@@ -1400,10 +1400,11 @@ class PortalService:
 
     @staticmethod
     def list_catalogue(customer=None):
-        """Only what the customer's live contract covers — they cannot order the rest.
+        """Only what the customer's live contracts cover today — they cannot order the rest.
 
-        Whether a contract exists at all is reported alongside, so an empty list can say why
-        it is empty instead of looking like a fault.
+        A contract that starts next year offers nothing yet, and one whose dates are over
+        offers nothing any more. Whether a contract exists at all is reported alongside, so
+        an empty list can say why it is empty instead of looking like a fault.
         """
         customer = PortalService._resolve_customer(customer)
 
@@ -1413,8 +1414,9 @@ class PortalService:
             from `tabMSP Contract` c
             join `tabMSP Contract Service` cs on cs.parent = c.name
             where c.customer = %(customer)s and c.status in ('Active', 'Suspended')
+              and c.start_date <= %(today)s and ifnull(c.end_date, '9999-12-31') >= %(today)s
             """,
-            {"customer": customer},
+            {"customer": customer, "today": frappe.utils.today()},
         )
 
         has_contract = bool(

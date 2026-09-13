@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pencil, Plus, Trash2 } from 'lucide-react';
+import { Pencil, Plus, Trash2, UserCheck, UserX } from 'lucide-react';
 import StatusBadge from '@/shared/components/StatusBadge';
 import type { UserDetail } from '@/lib/api/internal';
 
@@ -11,6 +11,7 @@ type Props = {
   onEdit: () => void;
   onDelete: () => void;
   onNewRequest: () => void;
+  onStatus: () => void;
 };
 
 /** Who this is, at a glance, and the one thing anybody normally comes here to start. */
@@ -20,9 +21,11 @@ const UserIdentityCard: React.FC<Props> = ({
   onEdit,
   onDelete,
   onNewRequest,
+  onStatus,
 }) => {
   const { user, summary } = detail;
   const archived = user.lifecycle_status === 'Archived';
+  const disabled = user.lifecycle_status === 'Disabled';
 
   return (
     <section className="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
@@ -42,6 +45,7 @@ const UserIdentityCard: React.FC<Props> = ({
           <p className="mt-2 text-sm text-slate-500">
             {user.customer} · in service since {fmtDate(user.start_date)}
             {user.disabled_date ? ` · disabled ${fmtDate(user.disabled_date)}` : ''}
+            {user.disabled_reason ? ` (${user.disabled_reason})` : ''}
           </p>
 
           <p className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm text-slate-600">
@@ -87,6 +91,16 @@ const UserIdentityCard: React.FC<Props> = ({
             <Pencil size={14} />
             Edit
           </button>
+          {!archived && (
+            <button
+              type="button"
+              onClick={onStatus}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+            >
+              {disabled ? <UserCheck size={14} /> : <UserX size={14} />}
+              {disabled ? 'Reactivate' : 'Disable'}
+            </button>
+          )}
           {isAdmin && (
             <button
               type="button"

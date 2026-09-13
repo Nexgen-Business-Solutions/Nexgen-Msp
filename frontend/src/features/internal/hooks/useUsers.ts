@@ -223,6 +223,22 @@ export const useUpdateClientUser = () => {
 };
 
 
+const useStatusChange = <T,>(mutationFn: (payload: T) => Promise<internal.UserDetail>) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn,
+    onSuccess: (detail) => {
+      queryClient.setQueryData(userKeys.detail(detail.user.name), detail);
+      queryClient.invalidateQueries({ queryKey: [...userKeys.all, 'list'] });
+    },
+  });
+};
+
+export const useDisableClientUser = () => useStatusChange(internal.disableClientUser);
+
+export const useReactivateClientUser = () => useStatusChange(internal.reactivateClientUser);
+
 export const useDeleteClientUser = () => {
   const queryClient = useQueryClient();
 

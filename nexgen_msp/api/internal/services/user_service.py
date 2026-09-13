@@ -419,14 +419,14 @@ class UserService:
 
     @staticmethod
     def _end_date_for(assignment, effective_date):
-        """The day a service stops, refusing a date that rewrites an issued invoice.
+        """The day a service stops.
 
         A service often stops before anyone gets round to recording it, so the date has to
-        be allowed into the past. What it may not cross is a period already billed: the
-        customer has the invoice, and moving the end date behind it would silently claim
-        back days that were charged.
+        be allowed into the past — even behind a period already invoiced. That invoice is
+        not touched and no credit note is issued: the date records where our own follow-up
+        of the service ends, and the next run simply has nothing more to bill for it.
 
-        Backdating is the administrator's call, since it is the invoice it touches.
+        Backdating is the administrator's call.
         """
         end_on = frappe.utils.getdate(effective_date or frappe.utils.today())
         today = frappe.utils.getdate(frappe.utils.today())
@@ -449,15 +449,6 @@ class UserService:
                     "Only an administrator can end a service on a past date.",
                     "PERMISSION_DENIED",
                     403,
-                )
-
-            billed_to = UserService._billed_to(assignment.name)
-
-            if billed_to and end_on < frappe.utils.getdate(billed_to):
-                raise ValidationError(
-                    f"This service is invoiced up to {frappe.utils.formatdate(billed_to)}. "
-                    "It cannot be ended before that day — issue a credit note instead.",
-                    "VALIDATION_ERROR",
                 )
 
         return end_on
@@ -732,10 +723,10 @@ class UserService:
         start_date=None,
         remarks=None,
     ):
-        """Correct what we hold about a person. Their customer and lifecycle never move here.
+        """Correct what we hold about a person. Their customer and status never move here.
 
-        Moving someone between customers would orphan their services, and the lifecycle is
-        driven by the services themselves — both are deliberately out of reach.
+        Moving someone between customers would orphan their services. Their status has its
+        own two doors, disabling and reactivating, so it is never changed in passing.
         """
         RequestService._guard_internal()
 
@@ -766,6 +757,63 @@ class UserService:
         frappe.db.commit()
 
         return UserService.get_user(name)
+
+    @staticmethod
+    def disable_client_user(name=None, effective_date=None, reason=None):
+        """Record that somebody has left, from a stated day, and nothing else.
+
+        Their services, their machines and what was billed stay exactly as they are: leaving
+        does not return a laptop or cancel a licence by itself. What is still in their hands
+        is shown on their page as something to deal with, not undone behind anyone's back.
+        """
+        RequestService._guard_internal()
+
+        doc = UserService._client_user(name)
+
+        if doc.lifecycle_status in ("Disabled", "Archived"):
+            raise ValidationError(
+                f"{doc.full_name} is already {doc.lifecycle_status.lower()}.", "VALIDATION_ERROR"
+            )
+
+        reasons = frappe.get_meta("MSP Client User").get_field("disabled_reason").options.split("\n")
+
+        if reason and reason not in reasons:
+            raise ValidationError(f"'{reason}' is not a reason we record.", "VALIDATION_ERROR")
+
+        doc.lifecycle_status = "Disabled"
+        doc.disabled_date = frappe.utils.getdate(effective_date or frappe.utils.today())
+        doc.disabled_reason = reason or None
+        doc.save()
+        frappe.db.commit()
+
+        return UserService.get_user(name)
+
+    @staticmethod
+    def reactivate_client_user(name=None):
+        """Bring back somebody who had left. Nothing they used to have comes back with them."""
+        RequestService._guard_internal()
+
+        doc = UserService._client_user(name)
+
+        if doc.lifecycle_status != "Disabled":
+            raise ValidationError(
+                f"Only a disabled person can be reactivated; {doc.full_name} is "
+                f"{doc.lifecycle_status.lower()}.",
+                "VALIDATION_ERROR",
+            )
+
+        doc.lifecycle_status = "Active"
+        doc.save()
+        frappe.db.commit()
+
+        return UserService.get_user(name)
+
+    @staticmethod
+    def _client_user(name):
+        if not name or not frappe.db.exists("MSP Client User", name):
+            raise NotFoundError(f"Client User {name} not found.", "NOT_FOUND")
+
+        return frappe.get_doc("MSP Client User", name)
 
     @staticmethod
     def deletion_blockers(name):

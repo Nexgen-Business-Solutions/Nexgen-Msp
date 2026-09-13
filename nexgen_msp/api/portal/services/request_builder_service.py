@@ -15,7 +15,7 @@ import frappe
 from nexgen_msp.api.internal.services.service_availability_service import (
     ServiceAvailabilityService,
 )
-from nexgen_msp.utils import approval, request_intents
+from nexgen_msp.utils import approval, permissions, request_intents
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 MAX_SEARCH_RESULTS = 25
@@ -200,14 +200,14 @@ class RequestBuilderService:
 
         customer = PortalService._resolve_customer(customer)
         rights = approval.rights_of(customer)
-        has_approvers = approval.has_approvers(customer)
         decides_own = bool(rights.get("can_approve"))
 
-        waits = has_approvers and not decides_own
+        # the same rule the request itself follows when it is sent
+        waits = not decides_own and not permissions.is_internal()
 
         return {
             "customer": customer,
-            "may_submit": rights.get("can_submit", True) if rights else True,
+            "may_submit": bool(rights.get("can_submit")) or permissions.is_internal(),
             "needs_customer_approval": waits,
             "message": (
                 "This request will first wait for approval inside your company."

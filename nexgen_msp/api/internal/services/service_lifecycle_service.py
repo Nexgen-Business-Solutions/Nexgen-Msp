@@ -456,7 +456,7 @@ class ServiceLifecycleService:
         on_date = ServiceLifecycleService._day(effective_date)
         wanted = ServiceLifecycleService._quantity(quantity)
 
-        contract = ServiceLifecycleService._contract(customer, item.name)
+        contract = ServiceLifecycleService._contract(customer, item.name, on_date)
         pricing = ServiceLifecycleService._rate(
             customer, item.name, on_date, agreed_rate, rate_override_reason
         )
@@ -698,17 +698,21 @@ class ServiceLifecycleService:
         return device
 
     @staticmethod
-    def _contract(customer, service_item):
-        """The live contract that puts this service on offer to this customer.
+    def _contract(customer, service_item, on_date=None):
+        """The active contract that puts this service on offer to this customer on that day.
 
         A contract is what the customer signed for, so a service nobody wrote into one is not
-        sold by mistake. A suspended contract still reads its history and its rates, but it
+        sold by mistake. It covers a stretch of time, and the same service may sit on another
+        contract before or after it: the one that counts is the one whose dates hold the day
+        the service opens. A suspended contract still reads its history and its rates, but it
         opens nothing new. Customers who predate contracts carry the same answer on their
         profile, which is the only reason the profile is read at all.
         """
+        on_date = frappe.utils.getdate(on_date or frappe.utils.today())
+
         rows = frappe.db.sql(
             """
-            select c.name, c.title, c.status
+            select c.name, c.title, c.status, c.start_date, c.end_date
             from `tabMSP Contract` c
             join `tabMSP Contract Service` cs on cs.parent = c.name
             where c.customer = %(customer)s and cs.service_item = %(item)s
@@ -718,10 +722,25 @@ class ServiceLifecycleService:
             as_dict=True,
         )
 
-        live = next((row for row in rows if row.status == "Active"), None)
+        def holds(row):
+            return frappe.utils.getdate(row.start_date) <= on_date and (
+                not row.end_date or frappe.utils.getdate(row.end_date) >= on_date
+            )
+
+        live = next((row for row in rows if row.status == "Active" and holds(row)), None)
 
         if live:
             return live.title or live.name
+
+        elsewhere = next((row for row in rows if row.status == "Active"), None)
+
+        if elsewhere:
+            raise ValidationError(
+                f"{service_item} is on contract {elsewhere.title or elsewhere.name}, which runs "
+                f"from {elsewhere.start_date} to {elsewhere.end_date or 'no end date'} and does "
+                f"not cover {on_date}.",
+                "VALIDATION_ERROR",
+            )
 
         legacy = ServiceLifecycleService._profile_offer(customer, service_item)
 

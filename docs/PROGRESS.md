@@ -131,6 +131,23 @@ Déjà tranché, à l'encontre de la spec :
 - **Données techniques client facultatives conservées** (contre §51 / P0-06) : le client peut
   toujours saisir nom de compte, nom d'hôte, numéro de série et type d'appareil s'il les connaît.
 
+Tranché ensuite par Idriss, point par point, et implémenté :
+
+| Point | Décision | Fait |
+|---|---|---|
+| Autorité des demandes | La matrice décide seule | Un compte absent de la matrice ne peut ni créer ni préparer un brouillon. Plus de « oui » par défaut. Le personnel Nexgen n'est pas concerné. |
+| Invitations | E-mail envoyé par défaut | Rien changé |
+| Statut d'un Client User | Désactivable, comme avant la refonte | « Disable » / « Reactivate » sur User 360 : date et motif, aucune cascade sur services, machines ou facturation. `test_client_user_status` (14). |
+| Service de machine sans machine | Non tranché | Rien changé |
+| Contrats | Pas deux contrats sur le même service aux mêmes dates | Exclusivité par chevauchement de dates (fin vide = infinie, brouillon libre). Ouverture, liste de prix, catalogue client et détail de demande choisissent le contrat qui couvre le jour. `test_contract_periods` (13). |
+| Tarifs | Garder l'existant d'avant refonte | Rien changé : identique à avant la refonte |
+| Prorata | Blocs de 5 jours sur 30 | Défaut `30-Day Convention`, les 10 contrats migrés (`thirty_day_proration`). Les Runs déjà tirées gardent leurs quantités. |
+| Fin de service déjà facturé | Accepté après confirmation | Plus de refus. La fenêtre de clôture indique « Invoiced up to … » et que la facture reste inchangée, sans avoir. Suspendre / reprendre restent protégés. |
+
+**Toujours ouvert :** un changement de tarif en milieu de mois arrondit chaque tranche de tarif
+séparément (10 + 3 jours → 10 + 5). La spec §135 demande une décision explicite ; rien n'a été
+inventé.
+
 ---
 
 ## 3. Ce qui a été construit
@@ -655,5 +672,6 @@ champs commerciaux, aucun département en texte libre, le workbench n'exige aucu
 | 2026-09-13 | agent principal | P0 réduit par Idriss : aucune relation Client User ↔ User, `portal_visible`, `portal_access` et `needs_portal_access` retirés. |
 | 2026-09-13 | agent principal | Réglages → Départements : sélecteur « Customer » (All customers par défaut), refusé si des personnes d'une autre entreprise portent déjà ce département. |
 | 2026-09-13 | agent principal | Correction Spec v2 lue, mise en attente : Idriss teste et décide point par point. Rien implémenté. |
+| 2026-09-13 | agent principal | Décisions d'Idriss appliquées : matrice d'autorité stricte, désactivation Client User, contrats par dates, prorata 5 jours sur 30, fin de service déjà facturé acceptée. |
 
 > Ajoute ta ligne ici quand tu termines quelque chose.

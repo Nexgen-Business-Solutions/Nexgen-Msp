@@ -481,6 +481,7 @@ export type UserServiceRow = {
   source_request: string | null;
   device_serial_number?: string | null;
   device_user_name?: string | null;
+  last_billed_on?: string | null;
 };
 
 export type CustomerRequestRef = {
@@ -513,9 +514,13 @@ export type UserServiceEntry = {
   source_request: string | null;
   allowed_actions: string[];
   pending_request: string | null;
+  last_billed_on?: string | null;
 };
 
-export type ServiceHistoryEntry = Omit<UserServiceEntry, 'allowed_actions' | 'pending_request'>;
+export type ServiceHistoryEntry = Omit<
+  UserServiceEntry,
+  'allowed_actions' | 'pending_request' | 'last_billed_on'
+>;
 
 export type ServiceOffer = {
   service_item: string;
@@ -588,6 +593,7 @@ export type UserDetail = {
     lifecycle_status: string;
     start_date: string | null;
     disabled_date: string | null;
+    disabled_reason?: string | null;
   };
   summary: {
     current_devices: number;
@@ -2270,6 +2276,15 @@ export const updateClientUser = (payload: {
   start_date?: string;
   remarks?: string;
 }) => post<UserDetail>(`${BASE}.update_client_user`, payload);
+
+export const disableClientUser = (payload: {
+  name: string;
+  effective_date?: string;
+  reason?: string;
+}) => post<UserDetail>(`${BASE}.disable_client_user`, payload);
+
+export const reactivateClientUser = (name: string) =>
+  post<UserDetail>(`${BASE}.reactivate_client_user`, { name });
 
 export const setBillingLineDiscount = (payload: {
   name: string;

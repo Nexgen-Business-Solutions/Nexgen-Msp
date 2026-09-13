@@ -141,7 +141,7 @@ export default function PortalDashboard() {
         showToolbar={false}
         showPagination={false}
         action={
-          rights.data?.can_submit === false
+          rights.data?.can_submit !== true
             ? undefined
             : { label: 'New Request', icon: FilePlus2, onClick: () => navigate('/msp/requests/new') }
         }

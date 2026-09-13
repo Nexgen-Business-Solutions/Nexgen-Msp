@@ -22,7 +22,7 @@ const EMPTY: ContractProfile = {
   contract_end_date: null,
   billing_frequency: 'Monthly',
   billing_timing: 'In Arrears',
-  proration_method: 'Daily Actual Days',
+  proration_method: '30-Day Convention',
   invoice_grouping: 'One Invoice',
   customer_approval_required: 0,
   price_list: null,

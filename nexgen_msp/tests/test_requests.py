@@ -20,6 +20,8 @@ class TestRequests(MSPTestCase):
         self.contact = self.make_account(
             "customer", "MSP Customer Manager", self.customer
         )
+        self.track("MSP Approval Authority", self.customer)
+        self.grant(self.contact)
 
     def line(self, service, **extra):
         base = {
@@ -293,6 +295,7 @@ class TestWhoHearsAboutANewRequest(MSPTestCase):
         AuthorityService.set_account_rights(self.contact, {"can_submit": 1, "can_approve": 1})
 
         other = self.make_account("customer", "MSP Customer Operator", self.customer, suffix="o")
+        AuthorityService.set_account_rights(other, {"can_submit": 1, "can_approve": 0})
         frappe.set_user(other)
         out = PortalService.create_request(
             customer=self.customer,
@@ -508,6 +511,7 @@ class TestDraftsAreNotWork(MSPTestCase):
         self.track("MSP Approval Authority", self.customer)
         AuthorityService.set_account_rights(self.author, {"can_submit": 1, "can_approve": 1})
         other = self.make_account("customer", "MSP Customer Operator", self.customer, suffix="o")
+        AuthorityService.set_account_rights(other, {"can_submit": 1, "can_approve": 0})
 
         frappe.set_user(other)
         out = PortalService.create_request(

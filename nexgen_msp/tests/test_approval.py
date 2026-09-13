@@ -115,11 +115,12 @@ class TestACompanyNobodyCanActFor(MSPTestCase):
             (self.admin, "%A company is stuck%"),
         )
 
-    def test_an_unnamed_account_may_raise_but_nobody_may_approve(self):
+    def test_an_unnamed_account_may_neither_raise_nor_approve(self):
+        """The matrix is the whole answer: an account it does not name holds nothing."""
         state = approval.gaps(self.customer)
 
         self.assertEqual(state["accounts"], 1)
-        self.assertFalse(state["nobody_may_raise"])
+        self.assertTrue(state["nobody_may_raise"])
         self.assertTrue(state["nobody_may_approve"])
 
     def test_naming_the_only_account_approve_only_leaves_nobody_to_raise(self):
@@ -162,6 +163,10 @@ class TestACompanyNobodyCanActFor(MSPTestCase):
     def test_a_request_waiting_on_nobody_tells_the_administrator_which_one(self):
         person = self.make_person(self.customer, "Subject")
         service = self.make_service("GP", scope="User")
+        self.grant(self.operator, can_submit=1, can_approve=0)
+        frappe.db.set_default(self.marker, "")
+        frappe.db.delete("Email Queue")
+        frappe.db.commit()
 
         frappe.set_user(self.operator)
         try:

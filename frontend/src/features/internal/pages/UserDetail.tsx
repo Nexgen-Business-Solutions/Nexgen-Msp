@@ -9,6 +9,7 @@ import AddDeviceModal from '../components/AddDeviceModal';
 import AddUserServiceModal from '../components/AddUserServiceModal';
 import DeviceServiceModal from '../components/DeviceServiceModal';
 import EditClientUserModal from '../components/EditClientUserModal';
+import UserStatusModal from '../components/UserStatusModal';
 import HeldDeviceCard from '../components/HeldDeviceCard';
 import ServiceActionModal, { type ServiceAction } from '../components/ServiceActionModal';
 import UserAttentionPanel from '../components/UserAttentionPanel';
@@ -60,6 +61,7 @@ export default function UserDetail() {
 
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [changingStatus, setChangingStatus] = useState(false);
   const [addingService, setAddingService] = useState(false);
   const [addingDevice, setAddingDevice] = useState(false);
   const [deviceService, setDeviceService] = useState<string | null>(null);
@@ -131,6 +133,7 @@ export default function UserDetail() {
         isAdmin={isAdmin}
         onEdit={() => setEditing(true)}
         onDelete={() => setDeleting(true)}
+        onStatus={() => setChangingStatus(true)}
         onNewRequest={() => ask({ client_user: user.name })}
       />
 
@@ -300,6 +303,7 @@ export default function UserDetail() {
                   source_request: applying.service.source_request,
                   device_serial_number: applying.device?.device.serial_number ?? null,
                   device_user_name: user.full_name,
+                  last_billed_on: applying.service.last_billed_on ?? null,
                 },
                 action: applying.action,
               }
@@ -310,6 +314,12 @@ export default function UserDetail() {
       />
 
       <EditClientUserModal open={editing} user={user} onClose={() => setEditing(false)} />
+
+      <UserStatusModal
+        open={changingStatus}
+        detail={data}
+        onClose={() => setChangingStatus(false)}
+      />
 
       <ConfirmModal
         open={deleting}

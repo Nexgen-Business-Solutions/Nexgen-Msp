@@ -123,7 +123,7 @@ export default function PortalRequests() {
           setStart(0);
         }}
         action={
-          rights.data?.can_submit === false
+          rights.data?.can_submit !== true
             ? undefined
             : { label: 'New request', icon: FilePlus2, onClick: () => navigate('/msp/requests/new') }
         }

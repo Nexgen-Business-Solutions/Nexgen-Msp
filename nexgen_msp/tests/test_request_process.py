@@ -28,6 +28,8 @@ class TestTheRequestProcess(MSPTestCase):
         self.asker = self.make_account("customer", "MSP Customer Operator", self.customer, suffix="ask")
         self.decider = self.make_account("customer", "MSP Customer Manager", self.customer, suffix="dec")
         self.tech = self.make_account("internal", "MSP Technician", suffix="tec")
+        # only an account the matrix names may raise a request at all
+        self.rights(self.asker, can_submit=1, can_approve=0)
 
     # ------------------------------------------------------------- helpers
     def as_user(self, email, fn):
@@ -126,14 +128,25 @@ class TestTheRequestProcess(MSPTestCase):
         with self.assertRaises(ValidationError):
             self.raise_one(self.asker)
 
-    def test_someone_the_matrix_does_not_name_may_still_raise_and_waits(self):
-        """Naming an approver must not silently take the portal away from everyone else."""
+    def test_someone_the_matrix_does_not_name_cannot_raise_one(self):
+        """Being a Manager decides what somebody sees, never what they may ask for."""
         self.rights(self.decider, can_submit=1, can_approve=1)
+        unnamed = self.make_account("customer", "MSP Customer Manager", self.customer, suffix="unn")
 
-        name, out = self.raise_one(self.asker)
+        with self.assertRaises(ValidationError):
+            self.raise_one(unnamed)
 
-        self.assertEqual(out["status"], "Awaiting Customer Approval")
-        self.assertFalse(self.reaches_us(name))
+        rights = self.as_user(unnamed, lambda: PortalService.my_approval_rights(self.customer))
+        self.assertFalse(rights["can_submit"])
+
+    def test_someone_the_matrix_does_not_name_cannot_even_start_a_draft(self):
+        unnamed = self.make_account("customer", "MSP Customer Operator", self.customer, suffix="und")
+
+        with self.assertRaises(ValidationError):
+            self.as_user(
+                unnamed,
+                lambda: PortalService.save_draft(customer=self.customer, request_type="Add", lines=[]),
+            )
 
     def test_someone_without_the_right_cannot_agree(self):
         self.rights(self.decider, can_submit=1, can_approve=1)
@@ -334,6 +347,7 @@ class TestNothingSlipsThroughWithoutAnAccord(MSPTestCase):
         self.service = self.make_service("NS", scope="User")
         self.asker = self.make_account("customer", "MSP Customer Operator", self.customer, suffix="nsa")
         self.tech = self.make_account("internal", "MSP Technician", suffix="nst")
+        AuthorityService.set_account_rights(self.asker, {"can_submit": 1, "can_approve": 0})
 
     def as_user(self, email, fn):
         frappe.set_user(email)
@@ -379,11 +393,26 @@ class TestNothingSlipsThroughWithoutAnAccord(MSPTestCase):
         detail = self.as_user(self.asker, lambda: PortalService.get_request(name))
         self.assertFalse(detail["has_approver"], "and the page can say nobody can approve yet")
 
-    def test_someone_the_matrix_does_not_name_waits_too(self):
-        name, out = self.raise_one()
+    def test_a_manager_the_matrix_does_not_name_is_refused_outright(self):
+        manager = self.make_account("customer", "MSP Customer Manager", self.customer, suffix="nsm")
 
-        self.assertEqual(out["status"], "Awaiting Customer Approval")
-        self.assertFalse(self.reaches_us(name))
+        with self.assertRaises(ValidationError):
+            self.as_user(
+                manager,
+                lambda: PortalService.create_request(
+                    customer=self.customer,
+                    request_type="Add",
+                    lines=[
+                        {
+                            "request_action": self.action(),
+                            "action": "Add",
+                            "target_scope": "User",
+                            "client_user": self.person,
+                            "requested_service": self.service,
+                        }
+                    ],
+                ),
+            )
 
     def test_once_the_right_is_granted_the_waiting_request_can_be_agreed(self):
         name, _ = self.raise_one()

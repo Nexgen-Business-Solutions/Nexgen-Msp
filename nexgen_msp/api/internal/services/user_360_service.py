@@ -129,6 +129,7 @@ class User360Service:
                 "lifecycle_status",
                 "start_date",
                 "disabled_date",
+                "disabled_reason",
                 "covered_until",
                 "last_billed_on",
             ],
@@ -152,6 +153,7 @@ class User360Service:
             "lifecycle_status": person.lifecycle_status,
             "start_date": person.start_date,
             "disabled_date": person.disabled_date,
+            "disabled_reason": person.disabled_reason,
         }
 
     # ------------------------------------------------------------------ what is theirs
@@ -175,9 +177,11 @@ class User360Service:
         )
 
         pending = User360Service._pending_on([row["name"] for row in rows])
+        billed = User360Service._billed_through([row["name"] for row in rows])
 
         for row in rows:
             User360Service._describe_service(row, pending)
+            row["last_billed_on"] = billed.get(row["name"])
 
         offer = ServiceAvailabilityService.read_user(person.name) if internal else None
 
@@ -235,6 +239,30 @@ class User360Service:
         )
 
         return {row.assignment: row.request for row in rows}
+
+    @staticmethod
+    def _billed_through(assignments):
+        """The last day each of these services was invoiced for, in one query."""
+        if not assignments:
+            return {}
+
+        rows = frappe.db.sql(
+            """
+            select brl.service_assignment as assignment, max(br.billing_period_end) as billed_to
+            from `tabMSP Billing Run Line` brl
+            join `tabMSP Billing Run` br on br.name = brl.parent
+            join `tabMSP Service Assignment` sa on sa.name = brl.service_assignment
+            where brl.service_assignment in %(assignments)s
+              and br.customer = sa.customer
+              and br.docstatus = 1
+              and ifnull(br.credit_note_of, '') = ''
+            group by brl.service_assignment
+            """,
+            {"assignments": tuple(assignments)},
+            as_dict=True,
+        )
+
+        return {row.assignment: row.billed_to for row in rows}
 
     @staticmethod
     def _describe_service(row, pending=None):
@@ -316,10 +344,14 @@ class User360Service:
         pending = User360Service._pending_on(
             [row["name"] for rows in running.values() for row in rows]
         )
+        billed = User360Service._billed_through(
+            [row["name"] for rows in running.values() for row in rows]
+        )
 
         for rows in running.values():
             for row in rows:
                 User360Service._describe_service(row, pending)
+                row["last_billed_on"] = billed.get(row["name"])
 
         # The page is used by the MSP team and customer administrators, not by the
         # individual holder. Keep the machine's closed service history visible after a

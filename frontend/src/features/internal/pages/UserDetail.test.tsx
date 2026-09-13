@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as internal from '@/lib/api/internal';
@@ -19,6 +19,8 @@ vi.mock('@/lib/api/internal', async (importOriginal) => {
     listCustomerRequests: vi.fn(),
     getDeviceFilterOptions: vi.fn(),
     getSession: vi.fn(),
+    disableClientUser: vi.fn(),
+    reactivateClientUser: vi.fn(),
   };
 });
 
@@ -333,5 +335,51 @@ describe('the past is asked for, not carried', () => {
     fireEvent.click(screen.getByRole('button', { name: /load older activity/i }));
 
     expect(await screen.findByText(/LAPTOP-17/)).toBeInTheDocument();
+  });
+});
+
+describe('somebody leaving, and coming back', () => {
+  it('disables them from a day and for a reason, and says nothing else moves', async () => {
+    const data = detail();
+    await renderPage(data);
+    vi.mocked(internal.disableClientUser).mockResolvedValue(data);
+
+    fireEvent.click(screen.getByRole('button', { name: /^disable$/i }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(/nothing else changes on its own/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(/stay open until you end them/i)).toBeInTheDocument();
+
+    fireEvent.change(within(dialog).getByDisplayValue(/^\d{4}-\d{2}-\d{2}$/), {
+      target: { value: '2026-09-01' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: /disable user/i }));
+
+    await waitFor(() =>
+      expect(internal.disableClientUser).toHaveBeenCalledWith({
+        name: data.user.name,
+        effective_date: '2026-09-01',
+        reason: 'Departure',
+      })
+    );
+  });
+
+  it('offers to reactivate somebody who has left, instead of disabling them again', async () => {
+    const data = detail();
+    const gone = {
+      ...data,
+      user: { ...data.user, lifecycle_status: 'Disabled', disabled_date: '2026-09-01', disabled_reason: 'Departure' },
+    };
+    await renderPage(gone);
+    vi.mocked(internal.reactivateClientUser).mockResolvedValue(data);
+
+    expect(screen.queryByRole('button', { name: /^disable$/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/\(Departure\)/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /^reactivate$/i }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: /^reactivate$/i }));
+
+    await waitFor(() => expect(internal.reactivateClientUser).toHaveBeenCalledWith(data.user.name));
   });
 });

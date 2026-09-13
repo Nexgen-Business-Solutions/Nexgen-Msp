@@ -16,7 +16,7 @@ import { useMyApprovalRights } from '../hooks/usePortal';
  */
 export default function PortalServices() {
   const rights = useMyApprovalRights();
-  const canSubmit = rights.data?.can_submit !== false;
+  const canSubmit = rights.data?.can_submit === true;
   const navigate = useNavigate();
   const catalogue = useCatalogue();
   const subscribed = useSubscribedServices();

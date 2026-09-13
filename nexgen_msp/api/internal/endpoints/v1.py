@@ -1534,6 +1534,22 @@ def update_client_user(
 
 @frappe.whitelist()
 @handle_errors
+def disable_client_user(name=None, effective_date=None, reason=None):
+    from nexgen_msp.api.internal.services.user_service import UserService
+
+    return UserService.disable_client_user(name=name, effective_date=effective_date, reason=reason)
+
+
+@frappe.whitelist()
+@handle_errors
+def reactivate_client_user(name=None):
+    from nexgen_msp.api.internal.services.user_service import UserService
+
+    return UserService.reactivate_client_user(name=name)
+
+
+@frappe.whitelist()
+@handle_errors
 def set_billing_line_discount(name=None, service_assignment=None, discount_percent=0):
     return _billing().set_line_discount(
         name=name, service_assignment=service_assignment, discount_percent=discount_percent

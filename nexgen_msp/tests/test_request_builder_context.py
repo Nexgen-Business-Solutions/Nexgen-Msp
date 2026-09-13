@@ -255,11 +255,33 @@ class TestTheFormForSomebodyWhoDoesNotExistYet(RequestBuilderCase):
 
 
 class TestWhatHappensWhenItIsSent(RequestBuilderCase):
-    def test_without_an_approver_it_reaches_us_directly(self):
+    def test_without_the_right_to_approve_it_waits_even_with_no_approver_yet(self):
+        """The screen says what the request will really do: nothing reaches us unagreed."""
+        out = self.as_asker(lambda: RequestBuilderService.submission_context(self.customer))
+
+        self.assertTrue(out["needs_customer_approval"])
+        self.assertIn("your company", out["message"])
+
+    def test_someone_who_decides_too_sends_it_straight_to_us(self):
+        self.grant(self.asker, can_submit=1, can_approve=1)
+
         out = self.as_asker(lambda: RequestBuilderService.submission_context(self.customer))
 
         self.assertFalse(out["needs_customer_approval"])
         self.assertIn("Nexgen", out["message"])
+
+    def test_an_account_the_matrix_does_not_name_may_not_submit(self):
+        unnamed = self.make_account(
+            "customer", "MSP Customer Manager", self.customer, suffix=f"rn{self.tag[:3]}"
+        )
+        frappe.set_user(unnamed)
+        frappe.clear_cache(user=unnamed)
+        try:
+            out = RequestBuilderService.submission_context(self.customer)
+        finally:
+            frappe.set_user("Administrator")
+
+        self.assertFalse(out["may_submit"])
 
     def test_with_an_approver_it_waits_for_the_company_first(self):
         decider = self.make_account(

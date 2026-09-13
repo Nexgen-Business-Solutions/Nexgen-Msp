@@ -91,6 +91,9 @@ const ServiceActionModal: React.FC<Props> = ({
   if (!target) return null;
 
   const copy = COPY[target.action];
+  const billedTo = target.row.last_billed_on?.slice(0, 10) ?? null;
+  // closing behind what was already invoiced is allowed; the invoice itself stays as it is
+  const closesBilledDays = target.action === 'End' && Boolean(billedTo) && actionDate <= (billedTo ?? '');
 
   const submit = async () => {
     try {
@@ -166,6 +169,26 @@ const ServiceActionModal: React.FC<Props> = ({
         </div>
 
         <p className="text-xs leading-relaxed text-slate-500">{copy.hint}</p>
+
+        {target.action === 'End' && billedTo && (
+          <div
+            className={`rounded-lg border p-3 text-sm ${
+              closesBilledDays
+                ? 'border-amber-200 bg-amber-50 text-amber-900'
+                : 'border-slate-200 bg-slate-50 text-slate-600'
+            }`}
+          >
+            <p className="font-medium">Invoiced up to {billedTo}.</p>
+            {closesBilledDays ? (
+              <p className="mt-1">
+                Closing it on {actionDate} is accepted. The invoice already issued stays as it
+                is and no credit note is created.
+              </p>
+            ) : (
+              <p className="mt-1">Nothing after {billedTo} has been invoiced yet.</p>
+            )}
+          </div>
+        )}
 
         <RequestReferenceField
           requests={requests}

@@ -168,7 +168,7 @@ class ServiceAvailabilityService:
         run, and whatever they refuse with is what an administrator reads.
         """
         try:
-            ServiceLifecycleService._contract(customer, service_item)
+            ServiceLifecycleService._contract(customer, service_item, on_date)
             ServiceLifecycleService._rate(customer, service_item, on_date)
         except NexgenError as exc:
             return exc.message

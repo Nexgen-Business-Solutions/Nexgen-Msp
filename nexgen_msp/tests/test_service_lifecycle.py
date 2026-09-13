@@ -393,6 +393,32 @@ class TestServiceLifecycle(MSPTestCase):
         self.assertEqual(self.reload(opened["name"]).operational_status, "Suspended")
 
     # ------------------------------------------------------------------ closing it
+    def test_a_service_can_be_closed_behind_a_period_already_invoiced(self):
+        """Recorded late, it still closes: the invoice stays and no credit note appears."""
+        service = self.offering("LIFEENDBILLED")
+        opened = self.open_service(service, effective_date=self.days_ago(60))
+        run = self.invoice(opened["name"], self.days_ago(60), self.days_ago(1))
+        lines_before = frappe.get_all(
+            "MSP Billing Run Line",
+            filters={"parent": run},
+            fields=["amount", "billable_months", "covered_to"],
+        )
+
+        ServiceLifecycleService.end(assignment=opened["name"], effective_date=self.days_ago(20))
+
+        doc = self.reload(opened["name"])
+        self.assertEqual(doc.operational_status, "Ended")
+        self.assertEqual(frappe.utils.getdate(doc.effective_end_date), frappe.utils.getdate(self.days_ago(20)))
+        self.assertEqual(
+            frappe.get_all(
+                "MSP Billing Run Line",
+                filters={"parent": run},
+                fields=["amount", "billable_months", "covered_to"],
+            ),
+            lines_before,
+        )
+        self.assertFalse(frappe.db.exists("MSP Billing Run", {"credit_note_of": run}))
+
     def test_closing_a_suspended_service_keeps_its_pause_open(self):
         service = self.offering("LIFECLOSED")
         opened = self.open_service(service, effective_date=self.days_ago(30))
