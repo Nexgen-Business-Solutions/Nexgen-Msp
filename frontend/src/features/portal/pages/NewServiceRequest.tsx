@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertCircle, ArrowLeft, ArrowRight, Info, Save, Trash2 } from 'lucide-react';
 import ConfirmModal from '@/shared/components/ConfirmModal';
@@ -18,9 +18,9 @@ import RequestScheduleStep from '../components/RequestScheduleStep';
 import RequestReviewStep from '../components/RequestReviewStep';
 
 const STEPS = [
-  { key: 'person', label: 'Person' },
+  { key: 'person', label: 'Users' },
   { key: 'changes', label: 'Changes' },
-  { key: 'when', label: 'When & details' },
+  { key: 'when', label: 'Details' },
   { key: 'review', label: 'Review' },
 ];
 
@@ -46,6 +46,13 @@ export default function NewServiceRequest() {
   const customer = usePortalFilters((state) => state.customer);
   const setCustomer = usePortalFilters((state) => state.setCustomer);
   const options = useUserFilterOptions(onBehalf);
+
+  // a draft reopened by staff is worked on for the company it was written for
+  useEffect(() => {
+    if (onBehalf && builder.sourceCustomer && builder.sourceCustomer !== customer) {
+      setCustomer(builder.sourceCustomer);
+    }
+  }, [onBehalf, builder.sourceCustomer, customer, setCustomer]);
 
   // only the accounts the company's authority matrix names may raise; the server refuses too
   if (rights.data?.can_submit === false) {

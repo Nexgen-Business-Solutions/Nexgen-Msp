@@ -24,8 +24,12 @@ const formatAge = (hours: number) => {
   return `${Math.floor(hours / 24)}d`;
 };
 
-const openPath = (row: { name: string; billing_run: string | null }) =>
-  row.billing_run ? `/msp/billing/${row.billing_run}` : `/msp/requests/${row.name}`;
+const openPath = (row: { name: string; billing_run: string | null; status?: string }) =>
+  row.billing_run
+    ? `/msp/billing/${row.billing_run}`
+    : row.status === 'Draft'
+      ? `/msp/requests/new?draft=${encodeURIComponent(row.name)}`
+      : `/msp/requests/${row.name}`;
 
 export default function RequestsList() {
   const navigate = useNavigate();

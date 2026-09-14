@@ -432,6 +432,8 @@ export const useRequestBuilder = (
     saving: saveDraft.isLoading,
     reopening: Boolean(source) && !loaded && !saved.error,
     correcting: Boolean(correct),
+    /** the company a reopened draft or a corrected request belongs to */
+    sourceCustomer: saved.data?.customer ?? null,
     error: (create.error || saveDraft.error || saved.error) as Error | null,
   };
 };

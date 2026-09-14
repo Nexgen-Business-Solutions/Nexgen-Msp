@@ -23,7 +23,6 @@ import { requestKeys, useExecuteServiceActions, useRecordRequestActivity } from 
 import { useCustomerRequests } from '../../hooks/useUsers';
 import { useDeviceFilterOptions } from '../../hooks/useDevices';
 import {
-  banner,
   btn,
   btnPrimary,
   bulkBar,
@@ -254,13 +253,13 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
 
   return (
     <div className="space-y-4">
-      <div className={banner}>
+      {/* <div className={banner}>
         <p className="font-semibold">Execution</p>
         <p className="mt-0.5">
           Complete the accepted work below. The ⋯ menus act on the person or the service directly
           when the real work differs from what was asked.
         </p>
-      </div>
+      </div> */}
 
       {groupable.length > 0 && (
         <div className={bulkBar}>

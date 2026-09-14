@@ -11,6 +11,7 @@ const inputClass =
 const errorMessageFor = (err: unknown) => {
   if (err instanceof FrappeError) {
     if (err.status === 429) return 'Too many reset requests. Try again in an hour.';
+    if (err.status === 404) return 'Account not found.';
     if (err.status >= 500) return 'The server is unavailable. Please try again later.';
     return err.message || 'The request could not be sent.';
   }
@@ -58,8 +59,7 @@ export default function ForgotPassword() {
           <div className="flex items-start gap-2.5 rounded-lg border border-emerald-100 bg-emerald-50 p-3 text-emerald-800">
             <MailCheck className="mt-0.5 h-4 w-4 shrink-0" />
             <span className="text-sm font-medium">
-              If this email is registered with us, reset instructions are on their way. Check your
-              inbox, and your spam folder.
+              Reset instructions are on their way. Check your inbox, and your spam folder.
             </span>
           </div>
 

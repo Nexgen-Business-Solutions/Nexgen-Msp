@@ -497,7 +497,13 @@ const NewSubjectChanges: React.FC<{ subject: RequestSubject; builder: Builder }>
 
   const data = context.data;
 
-  if (!data) return null;
+  if (!data) {
+    return (
+      <p className="py-8 text-center text-sm text-slate-500">
+        {(context.error as Error)?.message || 'Choose the customer you act for first.'}
+      </p>
+    );
+  }
 
   const offer = (scope: 'User' | 'Device') =>
     scope === 'User' ? data.available_user_services : data.available_device_services;

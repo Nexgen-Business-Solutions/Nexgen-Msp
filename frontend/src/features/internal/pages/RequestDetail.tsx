@@ -10,12 +10,13 @@ import LineReview from '../components/fulfilment/LineReview';
 import ExecutionWorkspace from '../components/fulfilment/ExecutionWorkspace';
 import ExecutionRecap from '../components/fulfilment/ExecutionRecap';
 import FinalValidation from '../components/fulfilment/FinalValidation';
+import RequestLinesByPerson, { type PersonLine } from '@/shared/components/RequestLinesByPerson';
 import {
   useRequestDetail,
   useRequestExecutionPlan,
   useRunRequestAction,
 } from '../hooks/useRequests';
-import type { ExecutionPlan, RequestDetail as Detail } from '@/lib/api/internal';
+import type { ExecutionPlan, RequestDetail as Detail, RequestDetailLine } from '@/lib/api/internal';
 import { pill } from '../lib/fulfilmentStyles';
 
 const STEPS = [
@@ -62,6 +63,38 @@ const contextFrom = (data: Detail) => ({
   customer_approved: true,
 });
 
+// a request that is over is read back, never worked on again
+const CLOSED = ['Completed', 'Rejected', 'Cancelled'];
+
+/** A request line as the recap reads it: the person first, then what was asked for them. */
+const asPersonLine = (line: RequestDetailLine): PersonLine => {
+  const person = line.client_user || line.requested_for_user || line.device_holder || null;
+  const isNewUser = Boolean(line.is_new_user) && !person;
+
+  return {
+    idx: line.idx,
+    person,
+    personName: isNewUser ? line.new_user_full_name : line.client_user_name,
+    isNewUser,
+    username: isNewUser ? line.new_user_username : line.client_username,
+    department: isNewUser ? line.new_user_department : line.client_user_department,
+    email: line.new_user_email,
+    action: line.action,
+    actionLabel: line.action_label,
+    service: line.requested_service_name || line.requested_service || '',
+    onDevice: Boolean(line.managed_device || line.is_new_device),
+    serviceScope: line.service_scope,
+    isNewDevice: Boolean(line.is_new_device),
+    deviceName: line.is_new_device ? line.new_device_label : line.device_hostname,
+    serial: line.is_new_device ? line.new_device_serial : line.device_serial,
+    deviceType: line.is_new_device ? line.new_device_type : line.device_type,
+    requestedFor: line.requested_effective_date,
+    status: line.line_status,
+    comment: line.comment,
+    rejectionReason: line.rejection_reason,
+  };
+};
+
 const counterFor = (step: StepKey, data: Detail, plan?: ExecutionPlan) => {
   if (step === 'review') {
     const pending = data.lines.filter((line) => line.line_status === 'Pending').length;
@@ -95,6 +128,13 @@ export default function RequestDetail() {
     if (data?.billing_run) navigate(`/msp/billing/${data.billing_run}`, { replace: true });
   }, [data?.billing_run, navigate]);
 
+  // a draft is picked up again where it was being written
+  useEffect(() => {
+    if (data?.status === 'Draft') {
+      navigate(`/msp/requests/new?draft=${encodeURIComponent(data.name)}`, { replace: true });
+    }
+  }, [data?.status, data?.name, navigate]);
+
   if (detail.isLoading) {
     return (
       <div className="flex items-center justify-center p-16">
@@ -118,6 +158,7 @@ export default function RequestDetail() {
   const furthest = server === 'verify' ? indexOf('complete') : indexOf(server);
   const step: StepKey = viewing && indexOf(viewing) <= furthest ? viewing : server;
   const completed = data.status === 'Completed';
+  const closed = CLOSED.includes(data.status);
 
   const steps: WorkflowStep[] = STEPS.map((entry, index) => ({
     ...entry,
@@ -129,7 +170,9 @@ export default function RequestDetail() {
           : 'todo',
   }));
 
-  const headerActions = data.available_actions.filter((action) => ['reject', 'cancel'].includes(action.action));
+  const headerActions = closed
+    ? []
+    : data.available_actions.filter((action) => ['reject', 'cancel'].includes(action.action));
   const actionError = runAction.error as Error | undefined;
 
   const confirmPrompt = async () => {
@@ -179,11 +222,13 @@ export default function RequestDetail() {
           />
         }
         stepper={
+          closed ? undefined : (
           <WorkflowStepper
             steps={steps}
             canGo={(key) => indexOf(key as StepKey) <= furthest}
             onGo={(key) => setViewing(key as StepKey)}
           />
+          )
         }
       />
 
@@ -204,6 +249,35 @@ export default function RequestDetail() {
         </p>
       )}
 
+      {closed ? (
+        <div className="space-y-4">
+          {completed && plan.data && (
+            <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+              <div className="border-b border-slate-100 px-5 py-4">
+                <h2 className="text-base font-semibold text-slate-900">What was done</h2>
+              </div>
+              <div className="px-5 py-4">
+                <ExecutionRecap plan={plan.data} />
+              </div>
+            </section>
+          )}
+          <RequestLinesByPerson
+            lines={data.lines.map(asPersonLine)}
+            noteLabel="Customer note"
+            headerActions={(group) =>
+              group.first.person && !group.first.isNewUser ? (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/msp/users/${group.first.person}`)}
+                  className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Open profile
+                </button>
+              ) : null
+            }
+          />
+        </div>
+      ) : (
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
           <div>
@@ -258,6 +332,7 @@ export default function RequestDetail() {
           )}
         </div>
       </section>
+      )}
 
       <Modal
         open={Boolean(prompt)}

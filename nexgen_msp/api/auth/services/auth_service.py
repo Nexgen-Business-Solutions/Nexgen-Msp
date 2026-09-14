@@ -30,7 +30,7 @@ from nexgen_msp.utils.auth_constants import (
     PENDING_LOGIN_PREFIX,
     PENDING_LOGIN_TTL,
 )
-from nexgen_msp.utils.errors import ValidationError
+from nexgen_msp.utils.errors import NotFoundError, ValidationError
 from nexgen_msp.utils.rate_limit import bump_window_counter, window_retry_after
 
 
@@ -173,6 +173,26 @@ class AuthService:
             # moment it will have to sign in again
             "session_expiry_seconds": TwoFactorService.session_expiry_seconds(),
         }
+
+    @staticmethod
+    def request_password_reset(user=None):
+        """Send a reset link to an account that exists and may sign in.
+
+        Idriss's choice: an unknown address is told so, rather than answered as if it might
+        exist. Both calls are rate limited per address and per IP.
+        """
+        from frappe.core.doctype.user.user import reset_password
+
+        user = (user or "").strip()
+        account = frappe.db.get_value("User", {"name": user, "enabled": 1}, "name") if user else None
+
+        if not account or account in ("Administrator", "Guest"):
+            raise NotFoundError(_("Account not found."), "NOT_FOUND")
+
+        reset_password(account)
+        frappe.clear_messages()
+
+        return {"ok": True}
 
     @staticmethod
     def _two_factor_required(username):

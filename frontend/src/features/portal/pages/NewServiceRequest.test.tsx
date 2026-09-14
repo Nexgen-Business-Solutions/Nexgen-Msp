@@ -917,7 +917,8 @@ describe('starting from a machine', () => {
     await renderPage(subjectContext, '/msp/requests/new?new_user=1');
 
     expect(await screen.findByPlaceholderText('Marie Dupont')).toBeInTheDocument();
-    expect(screen.getByText(/Person/)).toBeInTheDocument();
+    // the first step is named Users
+    expect(screen.getByRole('button', { name: /^users$/i })).toBeInTheDocument();
   });
 });
 
