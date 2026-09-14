@@ -418,7 +418,7 @@ class UserService:
         return UserService.get_user(client_user)
 
     @staticmethod
-    def _end_date_for(assignment, effective_date):
+    def _end_date_for(assignment, effective_date, allow_past=False):
         """The day a service stops.
 
         A service often stops before anyone gets round to recording it, so the date has to
@@ -443,7 +443,7 @@ class UserService:
         if end_on > today:
             raise ValidationError("A service cannot be ended in the future.", "VALIDATION_ERROR")
 
-        if end_on < today:
+        if end_on < today and not allow_past:
             if not RequestService._roles().intersection(ADMIN_ROLES):
                 raise ValidationError(
                     "Only an administrator can end a service on a past date.",

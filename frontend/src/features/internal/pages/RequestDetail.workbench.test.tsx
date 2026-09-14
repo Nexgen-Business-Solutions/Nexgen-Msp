@@ -654,6 +654,37 @@ describe('step 2 — execute', () => {
     );
   });
 
+  it('asks for the new service when a change the customer asked for is run', async () => {
+    const changing = plan({
+      groups: [group({ services: [card({ action: 'Change', action_label: 'Change a service' })] })],
+    });
+    vi.mocked(internal.userServiceAvailability).mockResolvedValue({
+      available: [{ service_item: 'SVC-NEW', item_name: 'Replacement', service_scope: 'User' }],
+      current: [],
+      blocked: [],
+      target_reason: null,
+    } as never);
+    vi.mocked(internal.executeServiceAction).mockResolvedValue(changing);
+    await renderPage(request(), changing);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Change a service' }));
+    const dialog = await screen.findByRole('dialog');
+    const run = within(dialog).getByRole('button', { name: 'Change a service' });
+    expect(run).toBeDisabled();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /select the service that replaces it/i }));
+    fireEvent.click(await screen.findByRole('option', { name: /Replacement/ }));
+    await waitFor(() => expect(run).toBeEnabled());
+    fireEvent.click(run);
+
+    await waitFor(() =>
+      expect(vi.mocked(internal.executeServiceAction).mock.calls[0][0]).toMatchObject({
+        work_order: 'WO-0001',
+        service_item: 'SVC-NEW',
+      })
+    );
+  });
+
   it('runs the same ready action for several people and names the ones that failed', async () => {
     const two = plan({
       groups: [

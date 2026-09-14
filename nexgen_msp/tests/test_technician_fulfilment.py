@@ -334,6 +334,33 @@ class TestTheTechnicianDecidesTheAct(FulfilmentCase):
             )
         )
 
+    def test_a_technician_carries_out_a_change_from_today(self):
+        service, assignment = self.running("TD5")
+        other = self.offering("TD6")
+        name = self.approved(self.line(service, action="Change", source_service_assignment=assignment))
+        order = self.work(name, "Service Action").name
+
+        self.tech_does(
+            lambda: RequestExecutionService.execute_service_action(
+                work_order=order, service_item=other, effective_date=frappe.utils.today()
+            )
+        )
+        self.sweep(name)
+
+        self.assertEqual(
+            frappe.db.get_value("MSP Service Assignment", assignment, "operational_status"), "Ended"
+        )
+        self.assertEqual(
+            str(frappe.db.get_value("MSP Service Assignment", assignment, "effective_end_date")),
+            str(frappe.utils.add_days(frappe.utils.today(), -1)),
+        )
+        self.assertTrue(
+            frappe.db.exists(
+                "MSP Service Assignment",
+                {"client_user": self.john, "service_item": other, "operational_status": "Active"},
+            )
+        )
+
     def test_something_asked_to_be_added_cannot_be_turned_into_another_act(self):
         name = self.approved(self.line(self.offering("TD4")))
         order = self.work(name, "Service Action").name

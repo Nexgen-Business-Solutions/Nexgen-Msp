@@ -90,7 +90,7 @@ const ApplyActionModal: React.FC<Props> = ({ card, person, action, onClose }) =>
           <button
             type="button"
             onClick={() => submit()}
-            disabled={run.isLoading || (needs.username && !username.trim()) || (needs.serial && !serial.trim()) || (changing && !!action && !replacement)}
+            disabled={run.isLoading || (needs.username && !username.trim()) || (needs.serial && !serial.trim()) || (changing && !replacement)}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
           >
             {run.isLoading ? 'Working…' : label}
@@ -109,7 +109,8 @@ const ApplyActionModal: React.FC<Props> = ({ card, person, action, onClose }) =>
             aria-label="Effective date"
           />
         </div>
-        {changing && action && (
+        {/* a change is always a move onto another service, whoever asked for it */}
+        {changing && (
           <div className="sm:col-span-2">
             <FieldLabel required>New service</FieldLabel>
             <Select

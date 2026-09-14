@@ -13,7 +13,7 @@ the operational record from matching what happened in reality.
 import frappe
 
 from nexgen_msp.api.internal.services.contract_service import ContractService
-from nexgen_msp.api.internal.services.request_service import RequestService
+from nexgen_msp.api.internal.services.request_service import ADMIN_ROLES, RequestService
 from nexgen_msp.api.internal.services.user_service import UserService
 from nexgen_msp.utils import remarks as remarks_util
 from nexgen_msp.utils import service_suspensions
@@ -301,7 +301,14 @@ class ServiceLifecycleService:
         return ServiceLifecycleService._outcome(doc)
 
     @staticmethod
-    def end(assignment=None, effective_date=None, source_request=None, notes=None, _commit=True):
+    def end(
+        assignment=None,
+        effective_date=None,
+        source_request=None,
+        notes=None,
+        _commit=True,
+        _replaced=False,
+    ):
         """Close a service for good, on the day it really stopped.
 
         A service closed while it was suspended keeps that suspension open: Billing clips it
@@ -317,7 +324,9 @@ class ServiceLifecycleService:
                 "INVALID_TRANSITION",
             )
 
-        end_on = UserService._end_date_for(doc, effective_date)
+        # a change closes the old period the day before the new one opens; that day is part of
+        # the change, whose own date is what the backdating rule is read against
+        end_on = UserService._end_date_for(doc, effective_date, allow_past=_replaced)
         request = UserService._checked_request(source_request, doc.customer)
 
         doc.effective_end_date = end_on
@@ -382,6 +391,15 @@ class ServiceLifecycleService:
 
         on_date = ServiceLifecycleService._day(effective_date)
 
+        if on_date < frappe.utils.getdate(frappe.utils.today()) and not RequestService._roles().intersection(
+            ADMIN_ROLES
+        ):
+            raise ValidationError(
+                "Only an administrator can change a service from a past date.",
+                "PERMISSION_DENIED",
+                403,
+            )
+
         wanted_item = service_item or doc.service_item
         wanted_quantity = doc.quantity if quantity is None else frappe.utils.flt(quantity)
 
@@ -406,6 +424,7 @@ class ServiceLifecycleService:
                 source_request=source_request,
                 notes=notes,
                 _commit=False,
+                _replaced=True,
             )
 
             outcome = ServiceLifecycleService.activate(
