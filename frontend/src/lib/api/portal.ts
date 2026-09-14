@@ -763,7 +763,6 @@ export type RequestSubjectContext = {
   target_reason: string | null;
   devices: RequestDeviceContext[];
   new_device_services?: RequestServiceOffer[];
-  open_requests?: { name: string; status: string; creation: string }[];
   assignable_devices?: {
     name: string;
     hostname: string;

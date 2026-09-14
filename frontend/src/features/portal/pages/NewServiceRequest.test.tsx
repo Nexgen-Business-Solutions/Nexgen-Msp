@@ -242,7 +242,6 @@ describe('the request builder walks four steps', () => {
     await renderPage({
       ...subjectContext,
       user: { ...subjectContext.user, username: 'j.doe', start_date: '2025-02-18' },
-      open_requests: [{ name: 'SR-2026-0042', status: 'Under Review', creation: '2026-09-01' }],
     });
     await pickJohn();
 
@@ -259,7 +258,7 @@ describe('the request builder walks four steps', () => {
     }
     expect(screen.getByText('Microsoft 365')).toBeInTheDocument();
     expect(screen.getByText(/Sophos Endpoint since 2026-02-01/)).toBeInTheDocument();
-    expect(screen.getByText('SR-2026-0042')).toBeInTheDocument();
+    expect(screen.queryByText(/open requests/i)).not.toBeInTheDocument();
   });
 
   it('offers no free service, action or scope dropdown', async () => {

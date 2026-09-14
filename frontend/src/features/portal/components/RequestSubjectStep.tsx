@@ -12,13 +12,9 @@ const inputClass =
 
 const Fact: React.FC<{ label: string; value?: React.ReactNode }> = ({ label, value }) => (
   <div className="min-w-0">
-    <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{label}</p>
-    <p className="mt-0.5 truncate text-sm text-slate-800">{value || '—'}</p>
+    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">{label}</p>
+    <p className="truncate text-xs text-slate-800">{value || '—'}</p>
   </div>
-);
-
-const Heading: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">{children}</p>
 );
 
 const day = (value?: string | null) => (value ? String(value).slice(0, 10) : null);
@@ -32,91 +28,69 @@ const IdentityCard: React.FC<{ subject: RequestSubject; onRemove: () => void }> 
   const data = context.data;
   const devices = data?.devices ?? [];
   const services = data?.personal_services.current ?? [];
-  const asked = data?.open_requests ?? [];
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4">
-      <div className="flex items-start justify-between gap-3">
-        <p className="text-sm font-bold text-slate-900">{subject.fullName}</p>
+    <div className="rounded-xl border border-slate-200 bg-white p-3">
+      <div className="flex items-start justify-between gap-2">
+        <p className="truncate text-sm font-bold text-slate-900">{subject.fullName}</p>
         <button
           type="button"
           onClick={onRemove}
           aria-label={`Remove ${subject.fullName}`}
-          className="rounded-lg border border-slate-200 p-2 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
+          className="rounded-md border border-slate-200 p-1.5 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
         >
-          <Trash2 size={14} />
+          <Trash2 size={12} />
         </button>
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5">
         <Fact label="Department" value={subject.department ?? data?.user.department} />
         <Fact label="Email" value={subject.email ?? data?.user.email} />
         <Fact label="Username" value={data?.user.username} />
-        <Fact label="Lifecycle Status" value={data?.user.lifecycle_status} />
         <Fact label="Start Date" value={day(data?.user.start_date)} />
+        <Fact label="Lifecycle Status" value={data?.user.lifecycle_status} />
       </div>
 
       {data && (
-        <div className="mt-4 space-y-4 border-t border-slate-100 pt-3">
-          <div className="space-y-1.5">
-            <Heading>Personal services</Heading>
-            {services.length === 0 ? (
-              <p className="text-sm text-slate-500">No personal service yet.</p>
-            ) : (
-              <ul className="flex flex-wrap gap-2">
-                {services.map((service) => (
-                  <li key={service.assignment} className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-700">
-                    <span className="font-semibold text-slate-900">{service.label}</span>
-                    {' · '}
-                    {service.status}
+        <div className="mt-2 space-y-1.5 border-t border-slate-100 pt-2 text-xs text-slate-600">
+          <p>
+            <span className="font-semibold text-slate-500">Personal services: </span>
+            {services.length === 0
+              ? 'none'
+              : services.map((service, index) => (
+                  <span key={service.assignment}>
+                    {index > 0 && ', '}
+                    <span className="font-medium text-slate-900">{service.label}</span>
                     {service.since ? ` since ${day(service.since)}` : ''}
-                  </li>
+                  </span>
                 ))}
-              </ul>
-            )}
-          </div>
+          </p>
 
-          <div className="space-y-1.5">
-            <Heading>Devices</Heading>
-            {devices.length === 0 ? (
-              <p className="text-sm text-slate-500">No device currently assigned.</p>
-            ) : (
-              <div className="grid gap-2 lg:grid-cols-2">
-                {devices.map((device) => (
-                  <div key={device.name} className="rounded-lg border border-slate-200 px-3 py-2.5">
-                    <p className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-900">
-                      <Laptop size={13} className="text-slate-400" />
-                      {device.hostname}
-                    </p>
-                    <div className="mt-2 grid grid-cols-3 gap-3">
-                      <Fact label="Serial Number" value={device.serial_number} />
-                      <Fact label="Device Type" value={device.device_type} />
-                      <Fact label="In Service Since" value={day(device.assigned_date)} />
-                    </div>
-                    {device.services.current.length > 0 && (
-                      <p className="mt-2 text-xs text-slate-600">
-                        {device.services.current
-                          .map((service) => `${service.label}${service.since ? ` since ${day(service.since)}` : ''}`)
-                          .join(', ')}
-                      </p>
-                    )}
-                  </div>
-                ))}
+          {devices.length === 0 ? (
+            <p>
+              <span className="font-semibold text-slate-500">Devices: </span>none
+            </p>
+          ) : (
+            devices.map((device) => (
+              <div key={device.name} className="rounded-md bg-slate-50 px-2 py-1.5">
+                <p className="inline-flex items-center gap-1 font-semibold text-slate-900">
+                  <Laptop size={12} className="text-slate-400" />
+                  {device.hostname}
+                  {device.device_type && <span className="font-normal text-slate-500">· {device.device_type}</span>}
+                </p>
+                <div className="mt-1 grid grid-cols-2 gap-x-3">
+                  <Fact label="Serial Number" value={device.serial_number} />
+                  <Fact label="In Service Since" value={day(device.assigned_date)} />
+                </div>
+                {device.services.current.length > 0 && (
+                  <p className="mt-1">
+                    {device.services.current
+                      .map((service) => `${service.label}${service.since ? ` since ${day(service.since)}` : ''}`)
+                      .join(', ')}
+                  </p>
+                )}
               </div>
-            )}
-          </div>
-
-          {asked.length > 0 && (
-            <div className="space-y-1.5">
-              <Heading>Open requests</Heading>
-              <ul className="flex flex-wrap gap-2">
-                {asked.map((row) => (
-                  <li key={row.name} className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs text-amber-900">
-                    <span className="font-semibold">{row.name}</span> · {row.status}
-                  </li>
-                ))}
-              </ul>
-            </div>
+            ))
           )}
         </div>
       )}
@@ -262,7 +236,7 @@ const RequestSubjectStep: React.FC<{ builder: Builder }> = ({ builder }) => {
           Pick the person this request is about, or add a new one.
         </p>
       ) : (
-        <div className="space-y-3">
+        <div className="grid items-start gap-3 md:grid-cols-2 xl:grid-cols-3">
           {builder.subjects.map((subject) =>
             subject.kind === 'existing' ? (
               <IdentityCard
