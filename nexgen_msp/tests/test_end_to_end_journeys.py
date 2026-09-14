@@ -553,3 +553,34 @@ class TestAMachineAskedForSomebodyOnFile(JourneyCase):
         self.assertTrue(slots, "a machine is to be prepared")
         self.assertEqual(slots[0]["work"]["asked_hostname"], f"ZZTEST-JN-{self.tag}")
         self.assertEqual(slots[0]["work"]["asked_serial"], f"ZZTEST-SN-JN-{self.tag}")
+
+
+class TestARequestStillWaitingForTheCompany(JourneyCase):
+    """Until somebody at the company agrees, the request exists for the customer alone."""
+
+    def setUp(self):
+        super().setUp()
+        self.grant(self.asker, can_submit=1, can_approve=0)
+        self.service = self.offering("JW1")
+        self.held = self.running(self.service)
+        self.name = self.raised(self.line(self.service, action="Suspend", source_service_assignment=self.held))
+
+    def pending(self, reading):
+        return next(
+            row["pending_request"]
+            for row in reading["personal_services"]["current"]
+            if row["name"] == self.held
+        )
+
+    def test_it_is_waiting_for_the_company(self):
+        self.assertEqual(self.status(self.name), "Awaiting Customer Approval")
+
+    def test_nexgen_is_not_told_about_it_on_the_person_page(self):
+        reading = self.tech_does(lambda: User360Service.get_user(self.john))
+
+        self.assertIsNone(self.pending(reading))
+
+    def test_the_customer_still_sees_it_on_their_side(self):
+        reading = User360Service.read_user(self.john, internal=False)
+
+        self.assertEqual(self.pending(reading), self.name)

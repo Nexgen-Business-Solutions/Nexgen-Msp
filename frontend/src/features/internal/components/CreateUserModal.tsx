@@ -36,7 +36,7 @@ const CreateUserModal: React.FC<Props> = ({
   onClose,
 }) => {
   const create = useCreateClientUser();
-  const departmentOptions = useDepartmentOptions();
+  const departmentOptions = useDepartmentOptions(customer || null);
 
   const [fullName, setFullName] = useState('');
   const [department, setDepartment] = useState('');

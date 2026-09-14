@@ -47,10 +47,10 @@ export const useDepartmentList = (enabledOnly = false) =>
     queryFn: ({ signal }) => internal.listDepartments(enabledOnly, signal),
   });
 
-export const useDepartmentOptions = () =>
+export const useDepartmentOptions = (customer?: string | null) =>
   useQuery({
-    queryKey: settingsKeys.departments(true),
-    queryFn: ({ signal }) => internal.listDepartmentOptions(signal),
+    queryKey: [...settingsKeys.departments(true), customer ?? ''] as const,
+    queryFn: ({ signal }) => internal.listDepartmentOptions(customer, signal),
     staleTime: 5 * 60 * 1000,
   });
 

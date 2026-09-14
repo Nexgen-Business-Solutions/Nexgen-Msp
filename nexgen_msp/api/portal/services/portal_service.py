@@ -148,7 +148,7 @@ KPI_SOURCES = {
         "body": ASSIGNMENT_HOLDER_JOIN
         + f"""
             where sa.customer = %(customer)s
-              and sa.operational_status not in ('Ended', 'Cancelled')
+              and sa.operational_status in ('Pending Setup', 'Active', 'Suspended', 'Pending Removal')
               and {HOLDER_STATUS} in ('Disabled', 'Archived')
         """,
         "order_by": "coalesce(holder.disabled_date, device_holder.disabled_date) desc",
@@ -171,7 +171,7 @@ KPI_SOURCES = {
               and not exists (
                   select 1 from `tabMSP Service Assignment` sa
                   where sa.managed_device = device.name
-                    and sa.operational_status not in ('Ended', 'Cancelled')
+                    and sa.operational_status in ('Pending Setup', 'Active', 'Suspended', 'Pending Removal')
               )
         """,
         "order_by": "device.assigned_date desc, device.hostname asc",
@@ -226,9 +226,9 @@ class PortalService:
             "service_assignments": frappe.db.count("MSP Service Assignment", base),
             "active_services": PortalService._count_kpi("active_services", customer),
             "open_requests": PortalService._count_kpi("open_requests", customer),
+            # waiting for someone at the company to agree, before it ever reaches Nexgen
             "awaiting_approval": frappe.db.count(
-                "MSP Service Request",
-                {**base, "status": ["in", ["Submitted", "Under Review"]]},
+                "MSP Service Request", {**base, "status": "Awaiting Customer Approval"}
             ),
             "reclaimable_licences": PortalService._count_kpi("reclaimable_licences", customer),
             "devices_without_services": PortalService._count_kpi("devices_without_services", customer),
@@ -547,7 +547,7 @@ class PortalService:
                   and not exists (
                       select 1 from `tabMSP Service Assignment` sa
                       where sa.managed_device = device.name
-                        and sa.operational_status not in ('Ended', 'Cancelled')
+                        and sa.operational_status in ('Pending Setup', 'Active', 'Suspended', 'Pending Removal')
                   )
                 """,
                 {"customer": filters["customer"]},
@@ -1482,7 +1482,7 @@ class PortalService:
                 on d.assigned_client_user = cu.name and d.status = 'Active'
             left join `tabMSP Service Assignment` sa
                 on (sa.client_user = cu.name or sa.managed_device = d.name)
-                and sa.operational_status not in ('Ended', 'Cancelled')
+                and sa.operational_status in ('Pending Setup', 'Active', 'Suspended', 'Pending Removal')
         """
 
         rows = frappe.db.sql(

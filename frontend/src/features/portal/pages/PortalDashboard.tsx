@@ -105,7 +105,7 @@ export default function PortalDashboard() {
           accent="blue"
           label="Open requests"
           value={summary.data?.open_requests ?? 0}
-          caption={`${summary.data?.awaiting_approval ?? 0} awaiting approval`}
+          caption={`${summary.data?.awaiting_approval ?? 0} awaiting internal approval`}
           loading={summary.isLoading}
           onView={() => openKpi('open_requests')}
         />

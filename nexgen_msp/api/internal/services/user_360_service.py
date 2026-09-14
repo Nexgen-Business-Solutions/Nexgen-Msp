@@ -176,7 +176,7 @@ class User360Service:
             as_dict=True,
         )
 
-        pending = User360Service._pending_on([row["name"] for row in rows])
+        pending = User360Service._pending_on([row["name"] for row in rows], internal)
         billed = User360Service._billed_through([row["name"] for row in rows])
 
         for row in rows:
@@ -213,14 +213,23 @@ class User360Service:
         return rows
 
     @staticmethod
-    def _pending_on(assignments):
+    def _pending_on(assignments, internal=True):
         """Which of these services somebody is already asking for something on.
 
         One query for the lot. Asked service by service, a person with a dozen of them
         would cost a dozen round trips to draw one page.
+
+        A request still waiting for the company's own accord has not reached Nexgen: only
+        the customer's side is told about it.
         """
         if not assignments:
             return {}
+
+        in_flight = tuple(
+            status
+            for status in request_intents.IN_FLIGHT_STATUSES
+            if not (internal and status == CUSTOMER_STATUS)
+        )
 
         rows = frappe.db.sql(
             """
@@ -233,7 +242,7 @@ class User360Service:
             """,
             {
                 "assignments": tuple(assignments),
-                "in_flight": request_intents.IN_FLIGHT_STATUSES,
+                "in_flight": in_flight,
             },
             as_dict=True,
         )
@@ -342,7 +351,7 @@ class User360Service:
             running.setdefault(row.managed_device, []).append(row)
 
         pending = User360Service._pending_on(
-            [row["name"] for rows in running.values() for row in rows]
+            [row["name"] for rows in running.values() for row in rows], internal
         )
         billed = User360Service._billed_through(
             [row["name"] for rows in running.values() for row in rows]

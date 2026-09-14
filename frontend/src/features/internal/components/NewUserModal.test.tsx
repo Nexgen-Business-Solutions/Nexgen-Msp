@@ -64,7 +64,7 @@ describe('NewUserModal — department field', () => {
     expect(screen.queryByRole('option', { name: /somebody typed this once/i })).not.toBeInTheDocument();
   });
 
-  it('sends the picked department, and nothing changing the Customer touches the choices', async () => {
+  it('offers the departments of the chosen customer and sends the picked one', async () => {
     await renderModal();
 
     fireEvent.click(screen.getByRole('button', { name: /select a customer/i }));
@@ -84,7 +84,9 @@ describe('NewUserModal — department field', () => {
         expect.objectContaining({ customer: 'ACME', department: 'Human Resources' })
       )
     );
-    // the department options came from the global endpoint, not from the customer's own users
-    expect(internal.listDepartmentOptions).toHaveBeenCalled();
+    // asked for that customer: the shared departments plus its own, never another company's
+    expect(vi.mocked(internal.listDepartmentOptions).mock.calls.some(([customer]) => customer === 'ACME')).toBe(
+      true
+    );
   });
 });

@@ -19,7 +19,7 @@ const inputClass =
 
 const EditClientUserModal: React.FC<Props> = ({ open, user, onClose, onDone }) => {
   const save = useUpdateClientUser();
-  const departmentOptions = useDepartmentOptions();
+  const departmentOptions = useDepartmentOptions(user?.customer ?? null);
 
   const [fullName, setFullName] = useState('');
   const [department, setDepartment] = useState('');

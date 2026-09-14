@@ -16,10 +16,11 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 const NewUserModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
   const options = useUserFilterOptions();
-  const departmentOptions = useDepartmentOptions();
   const create = useCreateClientUser();
 
   const [customer, setCustomer] = useState('');
+  // the shared departments and the chosen customer's own
+  const departmentOptions = useDepartmentOptions(customer || null);
   const [fullName, setFullName] = useState('');
   const [department, setDepartment] = useState('');
   const [email, setEmail] = useState('');
@@ -95,7 +96,11 @@ const NewUserModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
               searchable
               className="w-full"
               value={customer}
-              onChange={setCustomer}
+              onChange={(value) => {
+                // a department of the previous customer is not one this one offers
+                setCustomer(value);
+                setDepartment('');
+              }}
               placeholder="Select a customer"
               options={(options.data?.customers ?? []).map((item) => ({
                 value: item,

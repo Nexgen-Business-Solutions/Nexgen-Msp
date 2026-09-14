@@ -2141,11 +2141,19 @@ export type DepartmentRow = {
 
 export type DepartmentOption = { value: string; label: string };
 
-export const listDepartments = (enabledOnly = true, signal?: AbortSignal) =>
-  get<DepartmentRow[]>(`${BASE}.list_departments`, { enabled_only: enabledOnly ? 1 : 0 }, signal);
+export const listDepartments = (enabledOnly = true, signal?: AbortSignal, customer?: string | null) =>
+  get<DepartmentRow[]>(
+    `${BASE}.list_departments`,
+    { enabled_only: enabledOnly ? 1 : 0, customer: customer || undefined },
+    signal
+  );
 
-export const listDepartmentOptions = async (signal?: AbortSignal): Promise<DepartmentOption[]> =>
-  (await listDepartments(true, signal)).map((row) => ({
+/** The departments a person at this customer may be put in: the shared ones and their own. */
+export const listDepartmentOptions = async (
+  customer?: string | null,
+  signal?: AbortSignal
+): Promise<DepartmentOption[]> =>
+  (await listDepartments(true, signal, customer)).map((row) => ({
     value: row.department_name,
     label: row.department_name,
   }));

@@ -33,7 +33,7 @@ const meaning = (customer: string, canSubmit: boolean, canApprove: boolean) => {
 const PersonRightsPanel: React.FC<Props> = ({ user }) => {
   const rights = useAccountRights(user);
   const save = useSetAccountRights(user);
-  const departmentOptions = useDepartmentOptions();
+  const departmentOptions = useDepartmentOptions(rights.data?.customer ?? null);
 
   const data = rights.data;
   const [form, setForm] = useState({ can_submit: false, can_approve: false });
