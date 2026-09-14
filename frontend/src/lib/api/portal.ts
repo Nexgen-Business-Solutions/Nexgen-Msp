@@ -753,6 +753,8 @@ export type RequestSubjectContext = {
     email: string | null;
     department: string | null;
     lifecycle_status: string;
+    username?: string | null;
+    start_date?: string | null;
   };
   personal_services: {
     current: RequestCurrentService[];
@@ -761,6 +763,7 @@ export type RequestSubjectContext = {
   target_reason: string | null;
   devices: RequestDeviceContext[];
   new_device_services?: RequestServiceOffer[];
+  open_requests?: { name: string; status: string; creation: string }[];
   assignable_devices?: {
     name: string;
     hostname: string;

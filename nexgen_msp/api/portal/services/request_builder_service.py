@@ -73,7 +73,16 @@ class RequestBuilderService:
         person = frappe.db.get_value(
             "MSP Client User",
             client_user,
-            ["name", "customer", "full_name", "email", "department", "lifecycle_status"],
+            [
+                "name",
+                "customer",
+                "full_name",
+                "email",
+                "department",
+                "lifecycle_status",
+                "username",
+                "start_date",
+            ],
             as_dict=True,
         )
 
@@ -105,7 +114,29 @@ class RequestBuilderService:
                 person.customer, "Device", selectable_services
             ),
             "assignable_devices": RequestBuilderService._assignable_devices(person),
+            "open_requests": RequestBuilderService._open_requests(person),
         }
+
+    @staticmethod
+    def _open_requests(person):
+        """What is already asked about this person, so the same thing is not asked twice."""
+        from nexgen_msp.api.internal.services.request_service import CUSTOMER_STATUS, OPEN_STATUSES
+
+        # a draft is its author's alone; one awaiting the company's own accord is live
+        live = tuple(status for status in OPEN_STATUSES if status != "Draft") + (CUSTOMER_STATUS,)
+
+        return frappe.db.sql(
+            """
+            select distinct sr.name, sr.status, sr.creation
+            from `tabMSP Service Request` sr
+            join `tabMSP Service Request Line` srl on srl.parent = sr.name
+            where sr.customer = %(customer)s and sr.status in %(open)s
+                and (srl.client_user = %(person)s or srl.requested_for_user = %(person)s)
+            order by sr.creation desc
+            """,
+            {"customer": person.customer, "open": live, "person": person.name},
+            as_dict=True,
+        )
 
     @staticmethod
     def _assignable_devices(person):

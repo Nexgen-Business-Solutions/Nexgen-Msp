@@ -361,3 +361,37 @@ class TestAPersonWithNoMachine(RequestBuilderCase):
         self.assertIsNone(rows[shelf]["holder_name"])
         self.assertIn(held, rows, "a machine somebody holds may still be asked for")
         self.assertEqual(rows[held]["assigned_client_user"], colleague)
+
+
+class TestThePersonIsDescribed(RequestBuilderCase):
+    def test_their_username_and_start_date_come_with_them(self):
+        frappe.db.set_value(
+            "MSP Client User", self.john, {"username": f"j.{self.tag}", "start_date": "2025-02-18"}
+        )
+
+        user = self.context()["user"]
+
+        self.assertEqual(user["username"], f"j.{self.tag}")
+        self.assertEqual(str(user["start_date"]), "2025-02-18")
+
+    def test_what_is_already_asked_about_them_is_listed(self):
+        service = self.offering("OR1")
+        out = self.as_asker(
+            lambda: PortalService.create_request(
+                customer=self.customer,
+                request_type="Add",
+                lines=[
+                    {
+                        "request_action": self.action("Add"),
+                        "action": "Add",
+                        "target_scope": "User",
+                        "client_user": self.john,
+                        "requested_service": service,
+                    }
+                ],
+            )
+        )
+        self.track("MSP Service Request", out["name"])
+
+        self.assertIn(out["name"], [row["name"] for row in self.context()["open_requests"]])
+

@@ -10,28 +10,34 @@ type Builder = ReturnType<typeof useRequestBuilder>;
 const inputClass =
   'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
 
+const Fact: React.FC<{ label: string; value?: React.ReactNode }> = ({ label, value }) => (
+  <div className="min-w-0">
+    <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{label}</p>
+    <p className="mt-0.5 truncate text-sm text-slate-800">{value || '—'}</p>
+  </div>
+);
+
+const Heading: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">{children}</p>
+);
+
+const day = (value?: string | null) => (value ? String(value).slice(0, 10) : null);
+
 /** Who the request is about, shown as they actually are rather than as a name in a box. */
 const IdentityCard: React.FC<{ subject: RequestSubject; onRemove: () => void }> = ({
   subject,
   onRemove,
 }) => {
   const context = useRequestSubjectContext(subject.clientUser);
-  const devices = context.data?.devices ?? [];
+  const data = context.data;
+  const devices = data?.devices ?? [];
+  const services = data?.personal_services.current ?? [];
+  const asked = data?.open_requests ?? [];
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4">
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-sm font-bold text-slate-900">{subject.fullName}</p>
-          <p className="mt-0.5 text-xs text-slate-500">
-            {[subject.department, subject.email].filter(Boolean).join(' · ')}
-          </p>
-          {context.data && (
-            <p className="mt-1 text-xs text-slate-500">
-              Status: {context.data.user.lifecycle_status}
-            </p>
-          )}
-        </div>
+        <p className="text-sm font-bold text-slate-900">{subject.fullName}</p>
         <button
           type="button"
           onClick={onRemove}
@@ -42,25 +48,76 @@ const IdentityCard: React.FC<{ subject: RequestSubject; onRemove: () => void }> 
         </button>
       </div>
 
-      {devices.length > 0 && (
-        <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
-          <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Devices</p>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {devices.map((device) => (
-              <div key={device.name} className="rounded-lg border border-slate-200 px-3 py-2">
-                <p className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-900">
-                  <Laptop size={13} className="text-slate-400" />
-                  {device.hostname}
-                </p>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  {device.serial_number ? `Serial: ${device.serial_number}` : 'Serial: not recorded'}
-                </p>
-                {device.device_type && (
-                  <p className="text-xs text-slate-500">{device.device_type}</p>
-                )}
-              </div>
-            ))}
+      <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3 lg:grid-cols-5">
+        <Fact label="Department" value={subject.department ?? data?.user.department} />
+        <Fact label="Email" value={subject.email ?? data?.user.email} />
+        <Fact label="Username" value={data?.user.username} />
+        <Fact label="Lifecycle Status" value={data?.user.lifecycle_status} />
+        <Fact label="Start Date" value={day(data?.user.start_date)} />
+      </div>
+
+      {data && (
+        <div className="mt-4 space-y-4 border-t border-slate-100 pt-3">
+          <div className="space-y-1.5">
+            <Heading>Personal services</Heading>
+            {services.length === 0 ? (
+              <p className="text-sm text-slate-500">No personal service yet.</p>
+            ) : (
+              <ul className="flex flex-wrap gap-2">
+                {services.map((service) => (
+                  <li key={service.assignment} className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-700">
+                    <span className="font-semibold text-slate-900">{service.label}</span>
+                    {' · '}
+                    {service.status}
+                    {service.since ? ` since ${day(service.since)}` : ''}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
+
+          <div className="space-y-1.5">
+            <Heading>Devices</Heading>
+            {devices.length === 0 ? (
+              <p className="text-sm text-slate-500">No device currently assigned.</p>
+            ) : (
+              <div className="grid gap-2 lg:grid-cols-2">
+                {devices.map((device) => (
+                  <div key={device.name} className="rounded-lg border border-slate-200 px-3 py-2.5">
+                    <p className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-900">
+                      <Laptop size={13} className="text-slate-400" />
+                      {device.hostname}
+                    </p>
+                    <div className="mt-2 grid grid-cols-3 gap-3">
+                      <Fact label="Serial Number" value={device.serial_number} />
+                      <Fact label="Device Type" value={device.device_type} />
+                      <Fact label="In Service Since" value={day(device.assigned_date)} />
+                    </div>
+                    {device.services.current.length > 0 && (
+                      <p className="mt-2 text-xs text-slate-600">
+                        {device.services.current
+                          .map((service) => `${service.label}${service.since ? ` since ${day(service.since)}` : ''}`)
+                          .join(', ')}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {asked.length > 0 && (
+            <div className="space-y-1.5">
+              <Heading>Open requests</Heading>
+              <ul className="flex flex-wrap gap-2">
+                {asked.map((row) => (
+                  <li key={row.name} className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs text-amber-900">
+                    <span className="font-semibold">{row.name}</span> · {row.status}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
     </div>
