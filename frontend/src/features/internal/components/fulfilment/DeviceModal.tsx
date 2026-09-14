@@ -47,14 +47,14 @@ const DeviceModal: React.FC<Props> = ({ card, customer, person, needs, onClose }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [card]);
 
-  // the machine the customer named, when it is one of theirs waiting on the shelf
+  // the machine the customer named; one somebody holds still asks the technician to confirm
+  // the transfer before anything moves
   useEffect(() => {
     if (!card || picked || !devices.data) return;
 
     const named = devices.data.find(
       (row) =>
-        row.status === 'Stock' &&
-        !row.assigned_client_user &&
+        row.status !== 'Retired' &&
         ((card.asked_serial && row.serial_number === card.asked_serial) ||
           (card.asked_hostname && row.hostname?.toLowerCase() === card.asked_hostname.toLowerCase()))
     );

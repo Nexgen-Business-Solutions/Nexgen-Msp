@@ -104,17 +104,31 @@ class RequestBuilderService:
             "new_device_services": RequestBuilderService._offered(
                 person.customer, "Device", selectable_services
             ),
-            "stock_devices": frappe.get_all(
-                "MSP Managed Device",
-                filters={
-                    "customer": person.customer,
-                    "status": "Stock",
-                    "assigned_client_user": ("is", "not set"),
-                },
-                fields=["name", "hostname", "serial_number", "device_type"],
-                order_by="hostname asc",
-            ),
+            "assignable_devices": RequestBuilderService._assignable_devices(person),
         }
+
+    @staticmethod
+    def _assignable_devices(person):
+        """Every machine of the company the customer may suggest, and who holds it now.
+
+        One somebody else holds can be suggested too: the customer only says they want it
+        handed over, and the technician carries the transfer out.
+        """
+        devices = frappe.get_all(
+            "MSP Managed Device",
+            filters={"customer": person.customer, "status": ("!=", "Retired")},
+            fields=["name", "hostname", "serial_number", "device_type", "status", "assigned_client_user"],
+            order_by="hostname asc",
+        )
+
+        for device in devices:
+            device["holder_name"] = (
+                frappe.db.get_value("MSP Client User", device.assigned_client_user, "full_name")
+                if device.assigned_client_user
+                else None
+            )
+
+        return [device for device in devices if device.assigned_client_user != person.name]
 
     @staticmethod
     def _devices_of(person, selectable_services=None):

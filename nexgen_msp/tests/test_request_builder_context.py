@@ -350,11 +350,14 @@ class TestAPersonWithNoMachine(RequestBuilderCase):
 
         self.assertIn(sophos, offered)
 
-    def test_the_company_s_machines_in_stock_can_be_suggested(self):
+    def test_every_machine_of_the_company_can_be_suggested_with_its_holder(self):
         shelf = self.make_device(self.customer, f"NM-{self.tag}", serial=f"ZZTEST-NM-{self.tag}")
-        held = self.make_device(self.customer, f"NH-{self.tag}", holder=self.john)
+        colleague = self.make_person(self.customer, "Colleague", department="Accounting")
+        held = self.make_device(self.customer, f"NH-{self.tag}", holder=colleague)
 
-        stock = [row["name"] for row in self.context()["stock_devices"]]
+        rows = {row["name"]: row for row in self.context()["assignable_devices"]}
 
-        self.assertIn(shelf, stock)
-        self.assertNotIn(held, stock, "a machine somebody holds is not on the shelf")
+        self.assertIn(shelf, rows)
+        self.assertIsNone(rows[shelf]["holder_name"])
+        self.assertIn(held, rows, "a machine somebody holds may still be asked for")
+        self.assertEqual(rows[held]["assigned_client_user"], colleague)

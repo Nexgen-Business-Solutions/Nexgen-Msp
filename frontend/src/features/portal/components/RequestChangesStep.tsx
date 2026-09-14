@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { AlertCircle, Laptop, Wrench } from 'lucide-react';
 import type { RequestAction, RequestSubjectContext } from '@/lib/api/portal';
 import Select from '@/shared/components/Select';
+import ConfirmModal from '@/shared/components/ConfirmModal';
 import { useNewUserRequestContext, useRequestSubjectContext } from '../hooks/usePortal';
 import { staleReason, type RequestSubject, type useRequestBuilder } from '../hooks/useRequestBuilder';
 import { AvailableServiceRow, CurrentServiceRow } from './RequestServiceCard';
@@ -39,8 +40,9 @@ const MACHINE_CHOICES: { value: MachineChoice; label: string }[] = [
 
 /**
  * Somebody with no machine can still be asked a machine service. Which machine it runs on is
- * the customer's to suggest — one sitting in stock, or a new one — and left unsaid, it is a
- * machine the technician prepares.
+ * the customer's to suggest — one of theirs, even one a colleague holds, or a new one — and
+ * left unsaid, it is a machine the technician prepares. Suggesting a held machine only says
+ * the customer wants it handed over: the technician carries the transfer out.
  */
 const NoDeviceSection: React.FC<{
   subject: RequestSubject;
@@ -49,8 +51,9 @@ const NoDeviceSection: React.FC<{
 }> = ({ subject, builder, data }) => {
   const [choice, setChoice] = useState<MachineChoice>('unspecified');
   const [stockDevice, setStockDevice] = useState('');
+  const [confirming, setConfirming] = useState<string | null>(null);
 
-  const stock = data.stock_devices ?? [];
+  const stock = data.assignable_devices ?? [];
   const offers = data.new_device_services ?? [];
   const machineIntents = builder.intentsOf(subject.key).filter((intent) => intent.isNewDevice);
   const picked = stock.find((device) => device.name === stockDevice);
@@ -73,10 +76,20 @@ const NoDeviceSection: React.FC<{
     restamp(described(picked, mode));
   };
 
-  const pickStock = (name: string) => {
+  const takeStock = (name: string) => {
     setStockDevice(name);
     restamp(described(stock.find((device) => device.name === name), 'stock'));
   };
+
+  // a machine somebody holds is only suggested once the customer says they want it moved
+  const pickStock = (name: string) => {
+    const device = stock.find((row) => row.name === name);
+
+    if (device?.assigned_client_user) setConfirming(name);
+    else takeStock(name);
+  };
+
+  const pending = stock.find((device) => device.name === confirming);
 
   const add = (action: RequestAction, offer: { service_item: string; item_name: string }) =>
     builder.addIntent({
@@ -124,7 +137,13 @@ const NoDeviceSection: React.FC<{
               options={stock.map((device) => ({
                 value: device.name,
                 label: device.hostname,
-                description: [device.serial_number, device.device_type].filter(Boolean).join(' · '),
+                description: [
+                  device.serial_number,
+                  device.device_type,
+                  device.holder_name ? `held by ${device.holder_name}` : 'in stock',
+                ]
+                  .filter(Boolean)
+                  .join(' · '),
               }))}
             />
           </div>
@@ -133,7 +152,9 @@ const NoDeviceSection: React.FC<{
         <p className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600">
           <Wrench size={13} className="text-slate-400" />
           {choice === 'stock' && picked
-            ? `A technician will hand ${picked.hostname} over with the device services below.`
+            ? picked.holder_name
+              ? `A technician will transfer ${picked.hostname} from ${picked.holder_name} with the device services below.`
+              : `A technician will hand ${picked.hostname} over with the device services below.`
             : choice === 'new'
               ? 'A technician will prepare a new device. You can give its details at the next step.'
               : 'A technician will prepare or identify the device.'}
@@ -157,6 +178,19 @@ const NoDeviceSection: React.FC<{
           })}
         </div>
       )}
+
+      <ConfirmModal
+        open={Boolean(pending)}
+        title={`${pending?.hostname ?? ''} is held by ${pending?.holder_name ?? 'somebody else'}`}
+        description={`Do you want it transferred to ${subject.fullName}? Nothing moves now: a technician carries out the transfer.`}
+        confirmLabel="Confirm transfer"
+        tone="warning"
+        onCancel={() => setConfirming(null)}
+        onConfirm={() => {
+          if (confirming) takeStock(confirming);
+          setConfirming(null);
+        }}
+      />
     </Section>
   );
 };

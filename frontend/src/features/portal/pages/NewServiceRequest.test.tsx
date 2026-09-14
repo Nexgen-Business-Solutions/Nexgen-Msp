@@ -119,7 +119,10 @@ const subjectContext: portal.RequestSubjectContext = {
   ],
 };
 
-const renderPage = async (context: portal.RequestSubjectContext = subjectContext) => {
+const renderPage = async (
+  context: portal.RequestSubjectContext = subjectContext,
+  entry = '/msp/requests/new'
+) => {
   vi.mocked(portal.getMyApprovalRights).mockResolvedValue({
     customer: 'ACME',
     has_authority: false,
@@ -166,7 +169,7 @@ const renderPage = async (context: portal.RequestSubjectContext = subjectContext
 
   render(
     <QueryClientProvider client={client}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[entry]}>
         <NewServiceRequest />
       </MemoryRouter>
     </QueryClientProvider>
@@ -686,7 +689,7 @@ describe('a person with no machine', () => {
     ...subjectContext,
     devices: [],
     new_device_services: [sophos],
-    stock_devices: [],
+    assignable_devices: [],
     ...overrides,
   });
 
@@ -729,8 +732,16 @@ describe('a person with no machine', () => {
   it('carries the machine from stock the customer picked', async () => {
     await renderPage(
       noMachine({
-        stock_devices: [
-          { name: 'DEV-9', hostname: 'LAPTOP-STOCK', serial_number: 'SN-9', device_type: 'Laptop' },
+        assignable_devices: [
+          {
+            name: 'DEV-9',
+            hostname: 'LAPTOP-STOCK',
+            serial_number: 'SN-9',
+            device_type: 'Laptop',
+            status: 'Stock',
+            assigned_client_user: null,
+            holder_name: null,
+          },
         ],
       })
     );
@@ -749,5 +760,66 @@ describe('a person with no machine', () => {
       new_device_serial: 'SN-9',
       new_device_type: 'Laptop',
     });
+  });
+
+  const held = {
+    name: 'DEV-7',
+    hostname: 'LAPTOP-JANE',
+    serial_number: 'SN-7',
+    device_type: 'Laptop',
+    status: 'Active',
+    assigned_client_user: 'CU-002',
+    holder_name: 'Jane Roe',
+  };
+
+  it('asks before suggesting a machine somebody else holds, then carries it', async () => {
+    await renderPage(noMachine({ assignable_devices: [held] }));
+    await goToChanges();
+
+    fireEvent.click(await screen.findByRole('radio', { name: /one of our machines/i }));
+    fireEvent.click(screen.getByRole('button', { name: /search a hostname or a serial/i }));
+    fireEvent.click(await screen.findByRole('option', { name: /LAPTOP-JANE/ }));
+
+    expect(await screen.findByText(/LAPTOP-JANE is held by Jane Roe/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /confirm transfer/i }));
+    expect(await screen.findByText(/transfer LAPTOP-JANE from Jane Roe/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Sophos Endpoint/ }));
+
+    const line = await submitted();
+
+    expect(line).toMatchObject({ is_new_device: 1, new_device_label: 'LAPTOP-JANE', new_device_serial: 'SN-7' });
+    expect(line.managed_device).toBeUndefined();
+  });
+
+  it('keeps nothing when the customer does not confirm the transfer', async () => {
+    await renderPage(noMachine({ assignable_devices: [held] }));
+    await goToChanges();
+
+    fireEvent.click(await screen.findByRole('radio', { name: /one of our machines/i }));
+    fireEvent.click(screen.getByRole('button', { name: /search a hostname or a serial/i }));
+    fireEvent.click(await screen.findByRole('option', { name: /LAPTOP-JANE/ }));
+    // the close cross and the button both say Cancel, and both leave the machine unsuggested
+    fireEvent.click(within(await screen.findByRole('dialog')).getAllByRole('button', { name: /cancel/i })[0]);
+    fireEvent.click(screen.getByRole('button', { name: /Sophos Endpoint/ }));
+
+    const line = await submitted();
+
+    expect(line.new_device_label).toBeUndefined();
+  });
+});
+
+describe('starting from a machine', () => {
+  it('a held machine starts the request about whoever holds it', async () => {
+    await renderPage(subjectContext, '/msp/requests/new?client_user=CU-001');
+
+    expect(await screen.findByText('John Doe')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /continue/i })).toBeEnabled();
+  });
+
+  it('a machine nobody holds starts it about somebody new, who can still be changed', async () => {
+    await renderPage(subjectContext, '/msp/requests/new?new_user=1');
+
+    expect(await screen.findByPlaceholderText('Marie Dupont')).toBeInTheDocument();
+    expect(screen.getByText(/Person/)).toBeInTheDocument();
   });
 });

@@ -153,7 +153,9 @@ export const useRequestBuilder = (
   reopen?: string,
   correct?: string,
   /** the person a page sent us here about, so nobody searches for who they were just reading */
-  about?: string
+  about?: string,
+  /** a machine nobody holds: the request starts about somebody still to be described */
+  startNew?: boolean
 ) => {
   const [subjects, setSubjects] = useState<RequestSubject[]>([]);
   const [intents, setIntents] = useState<RequestIntent[]>([]);
@@ -192,6 +194,13 @@ export const useRequestBuilder = (
     ]);
     setLoaded(true);
   }, [source, loaded, seeded.data]);
+
+  useEffect(() => {
+    if (source || about || loaded || !startNew) return;
+
+    setSubjects([{ key: newKey(), kind: 'new' }]);
+    setLoaded(true);
+  }, [source, about, loaded, startNew]);
 
   useEffect(() => {
     if (!source || loaded || !saved.data) return;
