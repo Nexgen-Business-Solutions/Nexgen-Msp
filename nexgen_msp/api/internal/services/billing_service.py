@@ -2903,7 +2903,7 @@ class BillingService:
             from `tabMSP Contract` c
             join `tabCustomer` cust on cust.name = c.customer
             left join `tabMSP Billing Run` br
-                on br.contract = c.name and br.docstatus != 2 and br.status != 'Cancelled'
+                on br.contract = c.name and br.customer = c.customer and br.docstatus != 2 and br.status != 'Cancelled'
             where c.status = 'Active' and ifnull(cust.msp_free_of_charge, 0) = 0
             group by c.name
             order by covered_upto asc

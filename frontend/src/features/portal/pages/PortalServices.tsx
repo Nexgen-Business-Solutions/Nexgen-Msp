@@ -127,6 +127,7 @@ export default function PortalServices() {
             : 'Your contract covers no service yet.'
         }
         showToolbar={false}
+        showPagination={false}
       >
         {rows.map((item) => {
           const scope = item.scope || 'User';

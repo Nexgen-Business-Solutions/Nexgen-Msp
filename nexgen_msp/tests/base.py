@@ -46,6 +46,8 @@ class MSPTestCase(IntegrationTestCase):
                 self._purge_mail(doctype, name)
                 self._purge_work(doctype, name)
 
+                self._purge_runs(doctype, name)
+
                 if doctype == "User":
                     self._purge_account(name)
                 elif frappe.db.exists(doctype, name):
@@ -81,6 +83,23 @@ class MSPTestCase(IntegrationTestCase):
             frappe.delete_doc(
                 "MSP Service Work Order", order, force=True, ignore_permissions=True
             )
+
+    def _purge_runs(self, doctype, name):
+        """A submitted billing run refuses an ordinary delete, so it is removed outright.
+
+        Left behind, it kept pointing at a contract name that the next contract created was
+        given, and that contract then showed runs and a coverage it never had.
+        """
+        if doctype == "MSP Billing Run":
+            runs = [name]
+        elif doctype == "Customer":
+            runs = frappe.get_all("MSP Billing Run", filters={"customer": name}, pluck="name")
+        else:
+            return
+
+        for run in runs:
+            frappe.db.sql("delete from `tabMSP Billing Run Line` where parent = %s", run)
+            frappe.db.sql("delete from `tabMSP Billing Run` where name = %s", run)
 
     def _purge_mail(self, doctype, name):
         queued = frappe.get_all(

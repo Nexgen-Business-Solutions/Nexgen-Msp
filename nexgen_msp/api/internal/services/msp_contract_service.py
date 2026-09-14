@@ -108,7 +108,7 @@ class MSPContractService:
                 (select count(*) from `tabMSP Contract Service` cs where cs.parent = c.name)
                     as service_count,
                 (select count(*) from `tabMSP Billing Run` br
-                    where br.contract = c.name and br.docstatus != 2) as run_count
+                    where br.contract = c.name and br.customer = c.customer and br.docstatus != 2) as run_count
             from `tabMSP Contract` c
             {where}
             order by c.customer asc, c.start_date desc

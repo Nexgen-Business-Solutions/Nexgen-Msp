@@ -111,7 +111,11 @@ export default function PortalRequests() {
         rowCount={rows.length}
         isLoading={list.isLoading}
         error={list.error}
-        emptyLabel="No request matches these filters."
+        emptyLabel={
+          search || Object.values(filters).some(Boolean)
+            ? 'No request matches these filters.'
+            : 'No request yet.'
+        }
         showToolbar={false}
         start={start}
         pageLength={pageLength}

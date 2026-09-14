@@ -232,7 +232,8 @@ class PortalService:
             ),
             "reclaimable_licences": PortalService._count_kpi("reclaimable_licences", customer),
             "devices_without_services": PortalService._count_kpi("devices_without_services", customer),
-            "catalogue_size": frappe.db.count("Item", {"disabled": 0, "is_stock_item": 0}),
+            # what this customer may order, not the whole catalogue of the site
+            "catalogue_size": PortalService.list_catalogue(customer=customer)["count"],
         }
 
     @staticmethod

@@ -32,7 +32,11 @@ const queryClient = new QueryClient({
   }),
   defaultOptions: {
     queries: {
-      retry: (failureCount, error) => !isAuthError(error) && failureCount < 2,
+      // a refusal or a record that is not there answers the same way the second time
+      retry: (failureCount, error) =>
+        !isAuthError(error) &&
+        !(error instanceof FrappeError && [403, 404].includes(error.status)) &&
+        failureCount < 2,
       refetchOnWindowFocus: false,
       staleTime: 30 * 1000,
     },

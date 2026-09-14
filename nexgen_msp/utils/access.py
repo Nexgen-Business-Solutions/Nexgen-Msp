@@ -155,8 +155,10 @@ def refuse(customer=None):
     Telling the two apart would answer a question nobody asked: whether that company is a
     customer of ours at all.
     """
+    # the name is not repeated back: a record opened from a pasted link would otherwise tell
+    # the reader which other company it belongs to
     raise ValidationError(
-        f"You are not allowed to access customer {customer}." if customer
+        "You are not allowed to access this customer." if customer
         else "No customer is linked to your account.",
         REFUSED,
         403,
