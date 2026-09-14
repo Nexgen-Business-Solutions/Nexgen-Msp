@@ -765,6 +765,35 @@ describe('a person with no machine', () => {
     expect(line.new_device_label).toBeUndefined();
   });
 
+  it('a new machine can be described, and what is typed goes with the request', async () => {
+    await renderPage(noMachine());
+    await goToChanges();
+
+    fireEvent.click(await screen.findByRole('radio', { name: /a new machine/i }));
+    fireEvent.change(screen.getByLabelText('Serial Number'), { target: { value: 'SN-NEW' } });
+    fireEvent.change(screen.getByLabelText('Hostname'), { target: { value: 'LAPTOP-NEW' } });
+    fireEvent.click(screen.getByRole('button', { name: /Sophos Endpoint/ }));
+
+    const line = await submitted();
+
+    expect(line).toMatchObject({ is_new_device: 1, new_device_serial: 'SN-NEW', new_device_label: 'LAPTOP-NEW' });
+  });
+
+  it('a new machine needs none of its details to go on', async () => {
+    await renderPage(noMachine());
+    await goToChanges();
+
+    fireEvent.click(await screen.findByRole('radio', { name: /a new machine/i }));
+    expect(screen.getByLabelText('Serial Number')).toHaveValue('');
+    fireEvent.click(screen.getByRole('button', { name: /Sophos Endpoint/ }));
+
+    const line = await submitted();
+
+    expect(line).toMatchObject({ is_new_device: 1 });
+    expect(line.new_device_serial).toBeUndefined();
+    expect(line.new_device_label).toBeUndefined();
+  });
+
   it('carries the machine from stock the customer picked', async () => {
     await renderPage(
       noMachine({

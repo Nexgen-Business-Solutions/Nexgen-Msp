@@ -48,6 +48,10 @@ export type RequestSubject = {
   /** for somebody with no machine: which one the customer suggests, if any */
   machineChoice?: 'unspecified' | 'stock' | 'new';
   machineDevice?: string;
+  /** a new machine the customer already knows something about — none of it is required */
+  machineSerial?: string;
+  machineHostname?: string;
+  machineType?: string;
 };
 
 const newKey = () => Math.random().toString(36).slice(2, 10);

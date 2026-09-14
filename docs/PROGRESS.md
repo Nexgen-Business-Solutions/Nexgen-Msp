@@ -695,5 +695,6 @@ champs commerciaux, aucun département en texte libre, le workbench n'exige aucu
 | 2026-09-14 | agent principal | Étape Changes : une seule carte par personne (nom, Personal services, Devices, puis Previous / Next en pied de carte) ; les rubriques sont des sections de la carte et non plus des boîtes séparées. |
 | 2026-09-14 | agent principal | Étape Changes : la liste des personnes fait partie de la même carte (colonne de gauche grisée), la personne choisie à droite. |
 | 2026-09-14 | agent principal | Étape Changes allégée : Previous / Next sans nom, plus de sous-titres de rubrique, « No service yet », « No device » ; seul message restant pour la machine : « Transfer from … » quand une machine détenue est choisie. |
+| 2026-09-14 | agent principal | « A new machine » affiche Serial Number, Hostname et Device Type, facultatifs : gardés sur la personne (`machineSerial`, `machineHostname`, `machineType`) et reportés sur chaque service machine en `new_device_serial` / `new_device_label` / `new_device_type` ; le client continue qu'il les remplisse ou non. |
 
 > Ajoute ta ligne ici quand tu termines quelque chose.

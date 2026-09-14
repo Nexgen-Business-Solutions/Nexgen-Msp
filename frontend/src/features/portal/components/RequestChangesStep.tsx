@@ -3,7 +3,7 @@ import { AlertCircle, ArrowLeft, ArrowRight, Check, Laptop, Wrench } from 'lucid
 import type { RequestAction, RequestSubjectContext } from '@/lib/api/portal';
 import Select from '@/shared/components/Select';
 import ConfirmModal from '@/shared/components/ConfirmModal';
-import { useNewUserRequestContext, useRequestSubjectContext } from '../hooks/usePortal';
+import { useNewUserRequestContext, useRequestSubjectContext, usePortalFilterOptions } from '../hooks/usePortal';
 import { staleReason, type RequestSubject, type useRequestBuilder } from '../hooks/useRequestBuilder';
 import { AvailableServiceRow, CurrentServiceRow } from './RequestServiceCard';
 
@@ -32,6 +32,15 @@ const Note: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 
 type MachineChoice = 'unspecified' | 'stock' | 'new';
 
+const fieldClass =
+  'h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
+
+const fromSubject = (subject: RequestSubject) => ({
+  deviceHostname: subject.machineHostname?.trim() || undefined,
+  deviceSerial: subject.machineSerial?.trim() || undefined,
+  deviceType: subject.machineType || undefined,
+});
+
 // left alone, the machine is one the technician prepares: that is the default, not a choice
 const MACHINE_CHOICES: { value: MachineChoice; label: string }[] = [
   { value: 'stock', label: 'Existing device' },
@@ -55,6 +64,7 @@ const NoDeviceSection: React.FC<{
   const [confirming, setConfirming] = useState<string | null>(null);
 
   const stock = data.assignable_devices ?? [];
+  const options = usePortalFilterOptions();
   const offers = data.new_device_services ?? [];
   const machineIntents = builder.intentsOf(subject.key).filter((intent) => intent.isNewDevice);
   const picked = stock.find((device) => device.name === stockDevice);
@@ -67,7 +77,15 @@ const NoDeviceSection: React.FC<{
           deviceSerial: device.serial_number ?? undefined,
           deviceType: device.device_type ?? undefined,
         }
-      : { deviceHostname: undefined, deviceSerial: undefined, deviceType: undefined };
+      : mode === 'new'
+        ? fromSubject(subject)
+        : { deviceHostname: undefined, deviceSerial: undefined, deviceType: undefined };
+
+  // what the customer typed about a new machine travels on every service asked for it
+  const describeNew = (patch: Partial<RequestSubject>) => {
+    builder.updateSubject(subject.key, patch);
+    restamp(fromSubject({ ...subject, ...patch }));
+  };
 
   const restamp = (patch: ReturnType<typeof described>) =>
     machineIntents.forEach((intent) => builder.updateIntent(intent.key, patch));
@@ -163,6 +181,32 @@ const NoDeviceSection: React.FC<{
               }))}
             />
           </div>
+        </div>
+      )}
+
+      {choice === 'new' && (
+        <div className="grid gap-2 px-4 pb-3 sm:grid-cols-3 sm:pl-16">
+          <input
+            className={fieldClass}
+            value={subject.machineSerial ?? ''}
+            onChange={(event) => describeNew({ machineSerial: event.target.value })}
+            placeholder="Serial Number"
+            aria-label="Serial Number"
+          />
+          <input
+            className={fieldClass}
+            value={subject.machineHostname ?? ''}
+            onChange={(event) => describeNew({ machineHostname: event.target.value })}
+            placeholder="Hostname"
+            aria-label="Hostname"
+          />
+          <Select
+            className="w-full"
+            value={subject.machineType ?? ''}
+            onChange={(value) => describeNew({ machineType: value })}
+            placeholder="Device Type"
+            options={(options.data?.device_types ?? []).map((type) => ({ value: type, label: type }))}
+          />
         </div>
       )}
 
