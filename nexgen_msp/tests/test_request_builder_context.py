@@ -82,6 +82,13 @@ class TestTheSubjectIsShownAsTheyAre(RequestBuilderCase):
 
         self.assertIn(service, offered)
 
+    def test_a_service_outside_the_contract_is_not_offered_for_an_existing_person(self):
+        uncovered = self.make_service(f"EXISTING{self.tag[:3]}", scope="User")
+
+        offered = {row["service_item"] for row in self.context()["personal_services"]["available"]}
+
+        self.assertNotIn(uncovered, offered)
+
     def test_the_machines_shown_are_the_ones_this_person_holds(self):
         mine = self.make_device(
             self.customer, hostname="MINE", holder=self.john, serial=f"SN-MI{self.tag}"
@@ -246,10 +253,19 @@ class TestTheFormForSomebodyWhoDoesNotExistYet(RequestBuilderCase):
         self.assertIn(personal, [row["service_item"] for row in out["available_user_services"]])
         self.assertIn(machine, [row["service_item"] for row in out["available_device_services"]])
 
-    def test_a_service_outside_the_contract_is_offered_with_a_warning(self):
+    def test_a_service_outside_the_contract_is_not_offered_to_the_customer(self):
         uncovered = self.make_service(f"NOCON{self.tag[:3]}", scope="User")
 
         out = self.as_asker(lambda: RequestBuilderService.new_user_context(self.customer))
+
+        self.assertNotIn(
+            uncovered, [row["service_item"] for row in out["available_user_services"]]
+        )
+
+    def test_staff_can_still_record_a_service_outside_the_contract(self):
+        uncovered = self.make_service(f"INTERNAL{self.tag[:3]}", scope="User")
+
+        out = RequestBuilderService.new_user_context(self.customer)
 
         offer = next(
             row for row in out["available_user_services"] if row["service_item"] == uncovered
@@ -324,3 +340,21 @@ class TestFindingThePerson(RequestBuilderCase):
         found = self.as_asker(lambda: RequestBuilderService.search_users(self.customer))
 
         self.assertNotIn(gone, [row["name"] for row in found])
+
+
+class TestAPersonWithNoMachine(RequestBuilderCase):
+    def test_machine_services_are_still_offered_for_a_machine_to_come(self):
+        sophos = self.offering("NM1", scope="Device")
+
+        offered = [row["service_item"] for row in self.context()["new_device_services"]]
+
+        self.assertIn(sophos, offered)
+
+    def test_the_company_s_machines_in_stock_can_be_suggested(self):
+        shelf = self.make_device(self.customer, f"NM-{self.tag}", serial=f"ZZTEST-NM-{self.tag}")
+        held = self.make_device(self.customer, f"NH-{self.tag}", holder=self.john)
+
+        stock = [row["name"] for row in self.context()["stock_devices"]]
+
+        self.assertIn(shelf, stock)
+        self.assertNotIn(held, stock, "a machine somebody holds is not on the shelf")

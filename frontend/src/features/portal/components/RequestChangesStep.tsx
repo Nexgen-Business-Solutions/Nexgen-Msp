@@ -1,6 +1,7 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AlertCircle, Laptop, Wrench } from 'lucide-react';
-import type { RequestAction } from '@/lib/api/portal';
+import type { RequestAction, RequestSubjectContext } from '@/lib/api/portal';
+import Select from '@/shared/components/Select';
 import { useNewUserRequestContext, useRequestSubjectContext } from '../hooks/usePortal';
 import { staleReason, type RequestSubject, type useRequestBuilder } from '../hooks/useRequestBuilder';
 import { AvailableServiceRow, CurrentServiceRow } from './RequestServiceCard';
@@ -27,6 +28,138 @@ const Note: React.FC<{ children: React.ReactNode }> = ({ children }) => (
     <span className="text-sm text-amber-900">{children}</span>
   </div>
 );
+
+type MachineChoice = 'unspecified' | 'stock' | 'new';
+
+const MACHINE_CHOICES: { value: MachineChoice; label: string }[] = [
+  { value: 'unspecified', label: 'Not specified' },
+  { value: 'stock', label: 'One of our machines' },
+  { value: 'new', label: 'A new machine' },
+];
+
+/**
+ * Somebody with no machine can still be asked a machine service. Which machine it runs on is
+ * the customer's to suggest — one sitting in stock, or a new one — and left unsaid, it is a
+ * machine the technician prepares.
+ */
+const NoDeviceSection: React.FC<{
+  subject: RequestSubject;
+  builder: Builder;
+  data: RequestSubjectContext;
+}> = ({ subject, builder, data }) => {
+  const [choice, setChoice] = useState<MachineChoice>('unspecified');
+  const [stockDevice, setStockDevice] = useState('');
+
+  const stock = data.stock_devices ?? [];
+  const offers = data.new_device_services ?? [];
+  const machineIntents = builder.intentsOf(subject.key).filter((intent) => intent.isNewDevice);
+  const picked = stock.find((device) => device.name === stockDevice);
+
+  // what the customer said about the machine travels on every service asked for it
+  const described = (device = picked, mode = choice) =>
+    mode === 'stock' && device
+      ? {
+          deviceHostname: device.hostname,
+          deviceSerial: device.serial_number ?? undefined,
+          deviceType: device.device_type ?? undefined,
+        }
+      : { deviceHostname: undefined, deviceSerial: undefined, deviceType: undefined };
+
+  const restamp = (patch: ReturnType<typeof described>) =>
+    machineIntents.forEach((intent) => builder.updateIntent(intent.key, patch));
+
+  const choose = (mode: MachineChoice) => {
+    setChoice(mode);
+    restamp(described(picked, mode));
+  };
+
+  const pickStock = (name: string) => {
+    setStockDevice(name);
+    restamp(described(stock.find((device) => device.name === name), 'stock'));
+  };
+
+  const add = (action: RequestAction, offer: { service_item: string; item_name: string }) =>
+    builder.addIntent({
+      subjectKey: subject.key,
+      action: action.action_type,
+      requestAction: action.name,
+      actionLabel: action.title || action.action_type,
+      serviceItem: offer.service_item,
+      serviceLabel: offer.item_name,
+      targetScope: 'Device',
+      isNewDevice: true,
+      ...described(),
+    });
+
+  return (
+    <Section title="Devices">
+      <div className="space-y-3 px-4 py-4">
+        <p className="text-sm text-slate-500">No device currently assigned to {subject.fullName}.</p>
+
+        <div className="inline-flex flex-wrap gap-1 rounded-lg bg-slate-100 p-1" role="radiogroup" aria-label="Device">
+          {MACHINE_CHOICES.filter((row) => row.value !== 'stock' || stock.length > 0).map((row) => (
+            <button
+              key={row.value}
+              type="button"
+              role="radio"
+              aria-checked={choice === row.value}
+              onClick={() => choose(row.value)}
+              className={`rounded-md px-3 py-2 text-xs font-semibold transition-all ${
+                choice === row.value ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
+              }`}
+            >
+              {row.label}
+            </button>
+          ))}
+        </div>
+
+        {choice === 'stock' && (
+          <div className="max-w-md">
+            <Select
+              searchable
+              className="w-full"
+              value={stockDevice}
+              onChange={pickStock}
+              placeholder="Search a hostname or a serial"
+              options={stock.map((device) => ({
+                value: device.name,
+                label: device.hostname,
+                description: [device.serial_number, device.device_type].filter(Boolean).join(' · '),
+              }))}
+            />
+          </div>
+        )}
+
+        <p className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600">
+          <Wrench size={13} className="text-slate-400" />
+          {choice === 'stock' && picked
+            ? `A technician will hand ${picked.hostname} over with the device services below.`
+            : choice === 'new'
+              ? 'A technician will prepare a new device. You can give its details at the next step.'
+              : 'A technician will prepare or identify the device.'}
+        </p>
+      </div>
+
+      {offers.length > 0 && (
+        <div className="flex flex-wrap gap-2 border-t border-slate-100 px-4 py-3">
+          {offers.map((offer) => {
+            const asked = machineIntents.find((intent) => intent.serviceItem === offer.service_item);
+
+            return (
+              <AvailableServiceRow
+                key={offer.service_item}
+                offer={offer}
+                asked={Boolean(asked)}
+                onAdd={(action) => add(action, offer)}
+                onUndo={() => asked && builder.removeIntent(asked.key)}
+              />
+            );
+          })}
+        </div>
+      )}
+    </Section>
+  );
+};
 
 /** What can be asked for an existing person: what they hold, and what they could hold. */
 const ExistingSubjectChanges: React.FC<{ subject: RequestSubject; builder: Builder }> = ({
@@ -161,12 +294,7 @@ const ExistingSubjectChanges: React.FC<{ subject: RequestSubject; builder: Build
       </Section>
 
       {data.devices.length === 0 ? (
-        <Section title="Devices">
-          <p className="px-4 py-5 text-sm text-slate-500">
-            No device currently assigned to {subject.fullName}. A technician will identify or
-            prepare one if a device service is needed.
-          </p>
-        </Section>
+        <NoDeviceSection subject={subject} builder={builder} data={data} />
       ) : (
         data.devices.map((device) => (
           <Section

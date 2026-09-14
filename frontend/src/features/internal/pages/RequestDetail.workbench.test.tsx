@@ -555,6 +555,48 @@ describe('step 2 — execute', () => {
     );
   });
 
+  it('has the machine the customer named from stock already chosen', async () => {
+    const owed = plan({
+      groups: [
+        group({
+          devices: [
+            {
+              device_requirement_key: 'new-device:user:CU-1',
+              device: null,
+              work: card({
+                name: 'WO-DEV',
+                work_type: 'Device Provisioning',
+                action: 'Assign Device',
+                service_item: null,
+                service_name: null,
+                device_requirement_key: 'new-device:user:CU-1',
+                asked_hostname: 'LAPTOP-STOCK-14',
+                asked_serial: 'DELL-99881',
+              }),
+            },
+          ],
+          services: [card({ name: 'WO-SOPHOS', target_scope: 'Device', service_name: 'Sophos', device_requirement_key: 'new-device:user:CU-1', ready: false, waiting_on: 'the machine to be prepared' })],
+        }),
+      ],
+    });
+    vi.mocked(internal.executeDeviceProvisioning).mockResolvedValue(owed);
+    await renderPage(request(), owed);
+
+    fireEvent.click(await screen.findByRole('button', { name: /prepare device/i }));
+    const dialog = await screen.findByRole('dialog');
+    const assign = within(dialog).getByRole('button', { name: /assign device/i });
+    await waitFor(() => expect(assign).toBeEnabled());
+    fireEvent.click(assign);
+
+    await waitFor(() =>
+      expect(vi.mocked(internal.executeDeviceProvisioning).mock.calls[0][0]).toMatchObject({
+        work_order: 'WO-DEV',
+        mode: 'existing',
+        managed_device: 'DEV-STOCK',
+      })
+    );
+  });
+
   it('names the button after the exact action and runs it', async () => {
     const labelled = plan({ groups: [group({ services: [card({ action_label: 'Grant a service' })] })] });
     vi.mocked(internal.executeServiceAction).mockResolvedValue(labelled);

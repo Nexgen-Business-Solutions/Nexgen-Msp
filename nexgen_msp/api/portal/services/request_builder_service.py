@@ -82,6 +82,7 @@ class RequestBuilderService:
 
         # the caller may only read their own company's people
         PortalService._resolve_customer(person.customer)
+        selectable_services = RequestBuilderService._selectable_services(person.customer)
 
         personal = ServiceAvailabilityService.read_user(person.name)
 
@@ -92,15 +93,31 @@ class RequestBuilderService:
                     RequestBuilderService._current_entry(row) for row in personal["current"]
                 ],
                 "available": [
-                    RequestBuilderService._offer_entry(row) for row in personal["available"]
+                    RequestBuilderService._offer_entry(row)
+                    for row in personal["available"]
+                    if selectable_services is None or row["service_item"] in selectable_services
                 ],
             },
             "target_reason": personal.get("target_reason"),
-            "devices": RequestBuilderService._devices_of(person),
+            "devices": RequestBuilderService._devices_of(person, selectable_services),
+            # a machine still to be given: what could run on it, and what it could be
+            "new_device_services": RequestBuilderService._offered(
+                person.customer, "Device", selectable_services
+            ),
+            "stock_devices": frappe.get_all(
+                "MSP Managed Device",
+                filters={
+                    "customer": person.customer,
+                    "status": "Stock",
+                    "assigned_client_user": ("is", "not set"),
+                },
+                fields=["name", "hostname", "serial_number", "device_type"],
+                order_by="hostname asc",
+            ),
         }
 
     @staticmethod
-    def _devices_of(person):
+    def _devices_of(person, selectable_services=None):
         """The machines this person holds today, each with what it runs and what it could.
 
         Only theirs: a colleague's machine and the ones sitting in stock are not the
@@ -121,7 +138,9 @@ class RequestBuilderService:
                     for row in reading["current"]
                 ],
                 "available": [
-                    RequestBuilderService._offer_entry(row) for row in reading["available"]
+                    RequestBuilderService._offer_entry(row)
+                    for row in reading["available"]
+                    if selectable_services is None or row["service_item"] in selectable_services
                 ],
             }
             device["target_reason"] = reading.get("target_reason")
@@ -140,6 +159,7 @@ class RequestBuilderService:
         from nexgen_msp.api.portal.services.portal_service import PortalService
 
         customer = PortalService._resolve_customer(customer)
+        selectable_services = RequestBuilderService._selectable_services(customer)
 
         return {
             "customer": customer,
@@ -147,12 +167,16 @@ class RequestBuilderService:
                 {"value": row.department_name, "label": row.department_name}
                 for row in DepartmentService.list_departments(customer=customer)
             ],
-            "available_user_services": RequestBuilderService._offered(customer, "User"),
-            "available_device_services": RequestBuilderService._offered(customer, "Device"),
+            "available_user_services": RequestBuilderService._offered(
+                customer, "User", selectable_services
+            ),
+            "available_device_services": RequestBuilderService._offered(
+                customer, "Device", selectable_services
+            ),
         }
 
     @staticmethod
-    def _offered(customer, scope):
+    def _offered(customer, scope, selectable_services=None):
         """Every compatible catalogue service at a given scope.
 
         Read against the customer rather than a target, because there is no target yet: a
@@ -172,6 +196,8 @@ class RequestBuilderService:
             item.msp_service_scope = item.msp_service_scope or "Both"
             if item.msp_service_scope not in sellable:
                 continue
+            if selectable_services is not None and item.name not in selectable_services:
+                continue
 
             warning = ServiceAvailabilityService._commercial_warning(
                 customer, item.name, frappe.utils.getdate(frappe.utils.today())
@@ -188,6 +214,22 @@ class RequestBuilderService:
             )
 
         return offered
+
+    @staticmethod
+    def _selectable_services(customer):
+        """Restrict customer selectors to their contract, without restricting staff tools.
+
+        Internal service-management screens intentionally allow operational reality to be
+        recorded even when billing setup is incomplete.  A customer request is different:
+        its service picker is their contracted catalogue, so an uncovered item is omitted
+        rather than offered with an internal billing warning.
+        """
+        if permissions.is_internal():
+            return None
+
+        from nexgen_msp.api.portal.services.portal_service import PortalService
+
+        return {row["name"] for row in PortalService.list_catalogue(customer)["items"]}
 
     # ------------------------------------------------------------------ what happens next
     @staticmethod

@@ -674,3 +674,80 @@ describe('technical details are offered, never demanded', () => {
     expect(line.new_device_serial).toBe('SN-9912');
   });
 });
+
+describe('a person with no machine', () => {
+  const sophos = {
+    service_item: 'SOPHOS',
+    item_name: 'Sophos Endpoint',
+    service_scope: 'Device',
+    allowed_request_actions: [addAction],
+  };
+  const noMachine = (overrides: Partial<portal.RequestSubjectContext> = {}) => ({
+    ...subjectContext,
+    devices: [],
+    new_device_services: [sophos],
+    stock_devices: [],
+    ...overrides,
+  });
+
+  const submitted = async () => {
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+    await screen.findByText(/what you are asking for/i);
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+    await screen.findByText(/after submission/i);
+    fireEvent.click(screen.getByRole('button', { name: /submit request/i }));
+    await waitFor(() => expect(portal.createRequest).toHaveBeenCalledTimes(1));
+
+    return vi.mocked(portal.createRequest).mock.calls[0][0].lines[0];
+  };
+
+  it('is still offered the machine services of the contract', async () => {
+    await renderPage(noMachine());
+    await goToChanges();
+
+    expect(await screen.findByRole('button', { name: /Sophos Endpoint/ })).toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: /one of our machines/i })).not.toBeInTheDocument();
+  });
+
+  it('left unsaid, the machine is one the technician prepares', async () => {
+    await renderPage(noMachine());
+    await goToChanges();
+    fireEvent.click(await screen.findByRole('button', { name: /Sophos Endpoint/ }));
+
+    const line = await submitted();
+
+    expect(line).toMatchObject({
+      requested_service: 'SOPHOS',
+      target_scope: 'User',
+      is_new_device: 1,
+      requested_for_user: 'CU-001',
+    });
+    expect(line.managed_device).toBeUndefined();
+    expect(line.new_device_label).toBeUndefined();
+  });
+
+  it('carries the machine from stock the customer picked', async () => {
+    await renderPage(
+      noMachine({
+        stock_devices: [
+          { name: 'DEV-9', hostname: 'LAPTOP-STOCK', serial_number: 'SN-9', device_type: 'Laptop' },
+        ],
+      })
+    );
+    await goToChanges();
+
+    fireEvent.click(await screen.findByRole('radio', { name: /one of our machines/i }));
+    fireEvent.click(screen.getByRole('button', { name: /search a hostname or a serial/i }));
+    fireEvent.click(await screen.findByRole('option', { name: /LAPTOP-STOCK/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Sophos Endpoint/ }));
+
+    const line = await submitted();
+
+    expect(line).toMatchObject({
+      is_new_device: 1,
+      new_device_label: 'LAPTOP-STOCK',
+      new_device_serial: 'SN-9',
+      new_device_type: 'Laptop',
+    });
+  });
+});

@@ -760,6 +760,8 @@ export type RequestSubjectContext = {
   };
   target_reason: string | null;
   devices: RequestDeviceContext[];
+  new_device_services?: RequestServiceOffer[];
+  stock_devices?: { name: string; hostname: string; serial_number: string | null; device_type: string | null }[];
 };
 
 export type NewUserRequestContext = {

@@ -34,7 +34,7 @@ const DeviceModal: React.FC<Props> = ({ card, customer, person, needs, onClose }
   useEffect(() => {
     if (!card) return;
     setMode('existing');
-    setSearch('');
+    setSearch(card.asked_serial ?? card.asked_hostname ?? '');
     setPicked(null);
     setHostname(card.asked_hostname ?? '');
     setSerial(card.asked_serial ?? '');
@@ -46,6 +46,22 @@ const DeviceModal: React.FC<Props> = ({ card, customer, person, needs, onClose }
     provision.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [card]);
+
+  // the machine the customer named, when it is one of theirs waiting on the shelf
+  useEffect(() => {
+    if (!card || picked || !devices.data) return;
+
+    const named = devices.data.find(
+      (row) =>
+        row.status === 'Stock' &&
+        !row.assigned_client_user &&
+        ((card.asked_serial && row.serial_number === card.asked_serial) ||
+          (card.asked_hostname && row.hostname?.toLowerCase() === card.asked_hostname.toLowerCase()))
+    );
+
+    if (named) setPicked(named.name);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [card, devices.data]);
 
   const matches = useMemo(() => {
     const needle = search.trim().toLowerCase();
