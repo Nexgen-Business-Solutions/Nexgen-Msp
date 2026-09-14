@@ -66,6 +66,7 @@ const AddDeviceModal: React.FC<Props> = ({
   const [existing, setExisting] = useState('');
   const [handOverDate, setHandOverDate] = useState(today());
   const [handOverNote, setHandOverNote] = useState('');
+  const [existingSerial, setExistingSerial] = useState('');
 
   // a request line may be settled with a machine this person already holds
   const fleet = useCustomerDevices(open ? customer : null, workOrder ? undefined : clientUser);
@@ -85,6 +86,7 @@ const AddDeviceModal: React.FC<Props> = ({
     setExisting('');
     setHandOverDate(today());
     setHandOverNote('');
+    setExistingSerial('');
     handOver.reset();
     provision.reset();
     setHostname(initial?.hostname ?? '');
@@ -128,6 +130,8 @@ const AddDeviceModal: React.FC<Props> = ({
   }, [open, workOrder, fleet.data]);
 
   const chosen = (fleet.data ?? []).find((item) => item.name === existing) ?? null;
+  // a request line is only settled with a machine whose serial is on file
+  const serialMissing = Boolean(workOrder && chosen && !(chosen.serial_number ?? '').trim());
 
   const openDevice = (name: string) => {
     onClose();
@@ -141,6 +145,7 @@ const AddDeviceModal: React.FC<Props> = ({
           work_order: workOrder,
           mode: 'existing',
           managed_device: existing,
+          serial_number: serialMissing ? existingSerial.trim() : undefined,
           effective_date: handOverDate,
           notes: handOverNote.trim() || undefined,
           // picked knowing who holds it, as on any hand-over
@@ -222,7 +227,11 @@ const AddDeviceModal: React.FC<Props> = ({
             disabled={
               mode === 'new'
                 ? !hostname.trim() || !serial.trim() || Boolean(serialTaken) || add.isLoading || provision.isLoading
-                : !existing || !handOverDate || handOver.isLoading || provision.isLoading
+                : !existing ||
+                  !handOverDate ||
+                  (serialMissing && !existingSerial.trim()) ||
+                  handOver.isLoading ||
+                  provision.isLoading
             }
             className="flex min-w-[7rem] items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
@@ -345,6 +354,23 @@ const AddDeviceModal: React.FC<Props> = ({
                     </div>
                   )}
                 </dl>
+              </div>
+            )}
+
+            {serialMissing && (
+              <div>
+                <FieldLabel required>Serial number</FieldLabel>
+                <input
+                  type="text"
+                  value={existingSerial}
+                  onChange={(event) => setExistingSerial(event.target.value)}
+                  placeholder="What is engraved on the case"
+                  aria-label="Serial number"
+                  className={inputClass}
+                />
+                <p className="mt-1.5 text-xs text-slate-400">
+                  This machine has no serial number on file yet.
+                </p>
               </div>
             )}
 

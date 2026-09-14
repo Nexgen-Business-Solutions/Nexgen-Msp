@@ -110,20 +110,19 @@ class TestServiceAvailability(MSPTestCase):
         self.assertIn(service, self.codes(person_view["available"]))
         self.assertNotIn(service, self.codes(person_view["current"]))
 
-    def test_a_service_no_contract_covers_is_offered_with_a_billing_warning(self):
+    def test_a_service_no_contract_covers_is_not_offered(self):
+        # only what their contract covers is offered (Idriss, 2026-09-14)
         service = self.make_service("NOCONTRACT", scope="Both")
         device = self.make_device(self.customer, "NOCON", holder=self.john, serial="ZZAVAIL4")
 
         person_view = ServiceAvailabilityService.for_user(self.john)
         device_view = ServiceAvailabilityService.for_device(device)
 
-        self.assertIn(service, self.codes(person_view["available"]))
-        self.assertIn(service, self.codes(device_view["available"]))
+        self.assertNotIn(service, self.codes(person_view["available"]))
+        self.assertNotIn(service, self.codes(device_view["available"]))
 
-        person = next(row for row in person_view["available"] if row["service_item"] == service)
-        device_offer = next(row for row in device_view["available"] if row["service_item"] == service)
-        self.assertIn("contract", person["warning"].lower())
-        self.assertIn("contract", device_offer["warning"].lower())
+        if person_view["is_admin"]:
+            self.assertEqual(self.reason_for(person_view["blocked"], service), "Not in their contract")
 
     def test_a_machine_that_cannot_take_a_service_offers_none(self):
         service = self.make_service("RETIRED", scope="Device")

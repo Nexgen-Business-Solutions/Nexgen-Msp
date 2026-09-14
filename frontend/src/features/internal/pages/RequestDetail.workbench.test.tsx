@@ -27,6 +27,7 @@ vi.mock('@/lib/api/internal', async (importOriginal) => {
     setRequestLineStatus: vi.fn(),
     setRequestLineStatuses: vi.fn(),
     executeServiceActions: vi.fn(),
+    settleWorkDoneElsewhere: vi.fn(),
     getTechnicianOptions: vi.fn(),
     addTechnicianAction: vi.fn(),
     runRequestAction: vi.fn(),

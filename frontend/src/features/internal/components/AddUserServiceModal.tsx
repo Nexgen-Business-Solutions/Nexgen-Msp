@@ -12,8 +12,6 @@ type Props = {
   user: UserDetail['user'];
   requests: CustomerRequestRef[];
   defaultRequest?: string;
-  /** Services a request line is already about to add; that line is where they are given. */
-  pending?: string[];
   onClose: () => void;
 };
 
@@ -27,7 +25,6 @@ const AddUserServiceModal: React.FC<Props> = ({
   user,
   requests,
   defaultRequest,
-  pending = [],
   onClose,
 }) => {
   const availability = useUserServiceAvailability(open ? user.name : undefined);
@@ -52,7 +49,7 @@ const AddUserServiceModal: React.FC<Props> = ({
 
   const data = availability.data;
   const refusal = data?.target_reason ?? null;
-  const available = (data?.available ?? []).filter((item) => !pending.includes(item.service_item));
+  const available = data?.available ?? [];
   const selectedOffer = available.find((item) => item.service_item === service);
   const nothingLeft = Boolean(data) && !refusal && available.length === 0;
   // a personal service is issued against the username the person uses on it

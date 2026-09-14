@@ -19,7 +19,12 @@ import {
 } from 'lucide-react';
 import RowActionsMenu, { type RowAction } from '@/shared/components/RowActionsMenu';
 import type { ExecutionPlan, PersonFacts, SubjectWorkGroup, UserDetail, WorkCard, WorkPersonCard } from '@/lib/api/internal';
-import { requestKeys, useExecuteServiceActions, useRecordRequestActivity } from '../../hooks/useRequests';
+import {
+  requestKeys,
+  useExecuteServiceActions,
+  useRecordRequestActivity,
+  useSettleWorkDoneElsewhere,
+} from '../../hooks/useRequests';
 import { useCustomerRequests } from '../../hooks/useUsers';
 import { useDeviceFilterOptions } from '../../hooks/useDevices';
 import {
@@ -124,6 +129,7 @@ const LineIcon: React.FC<{ tone: 'done' | 'wait' | 'extra' | 'plain'; children: 
 const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
   const groupRun = useExecuteServiceActions();
   const recordActivity = useRecordRequestActivity();
+  const settleElsewhere = useSettleWorkDoneElsewhere();
   const [creating, setCreating] = useState<{ card: WorkCard; person: SubjectWorkGroup['person'] } | null>(null);
   const [preparing, setPreparing] = useState<{ card: WorkCard; group: SubjectWorkGroup } | null>(null);
   const [applying, setApplying] = useState<{
@@ -149,9 +155,11 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
     queryClient.invalidateQueries(requestKeys.plan(plan.request));
     queryClient.invalidateQueries(requestKeys.detail(plan.request));
   };
+  // the menu stays available whatever the request asks; a line it already did is settled
   const closeActing = () => {
     setActing(null);
     refresh();
+    settleElsewhere.mutate(plan.request);
   };
 
   const personActions = (group: SubjectWorkGroup, facts: PersonFacts | null): RowAction[] => {
@@ -542,9 +550,6 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
           <AddUserServiceModal
             open={acting.kind === 'service'}
             user={userRecord(acting.person, acting.facts, plan.customer)}
-            pending={(plan.groups.find((row) => row.subject_key === acting.key)?.services ?? [])
-              .filter((card) => !settled(card) && card.action === 'Add')
-              .map((card) => card.service_item ?? '')}
             requests={customerRequests.data ?? []}
             defaultRequest={plan.request}
             onClose={closeActing}

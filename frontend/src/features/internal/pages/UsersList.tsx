@@ -39,14 +39,13 @@ const COVERAGE_OPTIONS = [
   },
 ];
 
-// what is theirs and what their machines carry are counted apart: they are owned apart
 const COLUMNS = [
   'User',
   'Department',
   'Status',
   'Devices',
-  'Personal services',
-  'Device services',
+  'Active services',
+  'Inactive services',
   'Open requests',
   '',
 ];
@@ -263,12 +262,18 @@ export default function UsersList() {
                     </td>
                     <td className="whitespace-nowrap px-4 py-3">
                       <span className="inline-flex min-w-[2rem] justify-center rounded-lg bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 tabular-nums">
-                        {row.personal_services}
+                        {row.active_services}
                       </span>
                     </td>
                     <td className="whitespace-nowrap px-4 py-3">
-                      <span className="inline-flex min-w-[2rem] justify-center rounded-lg bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600 tabular-nums">
-                        {row.device_services}
+                      <span
+                        className={`inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-1 text-xs font-semibold tabular-nums ${
+                          row.inactive_services
+                            ? 'bg-slate-100 text-slate-600'
+                            : 'bg-transparent text-slate-300'
+                        }`}
+                      >
+                        {row.inactive_services}
                       </span>
                     </td>
                     <td className="whitespace-nowrap px-4 py-3">

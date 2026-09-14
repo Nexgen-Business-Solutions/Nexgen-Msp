@@ -195,6 +195,12 @@ def add_technician_action(name=None, subject_key=None, option=None, reason=None)
 
 @frappe.whitelist()
 @handle_errors
+def settle_request_work_done_elsewhere(name=None):
+    return _execution().settle_work_done_elsewhere(request=name)
+
+
+@frappe.whitelist()
+@handle_errors
 def record_request_activity(name=None, subject_key=None, label=None, detail=None):
     return _execution().record_context_action(
         request=name,

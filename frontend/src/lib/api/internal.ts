@@ -422,6 +422,9 @@ export const addTechnicianAction = (payload: {
     option: JSON.stringify(payload.option),
   });
 
+export const settleWorkDoneElsewhere = (name: string) =>
+  post<ExecutionPlan>(`${BASE}.settle_request_work_done_elsewhere`, { name });
+
 export const recordRequestActivity = (payload: {
   name: string;
   subject_key: string;

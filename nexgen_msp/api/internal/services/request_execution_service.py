@@ -939,6 +939,7 @@ class RequestExecutionService:
 					raise ValidationError("Say which machine.", "VALIDATION_ERROR")
 
 				RequestExecutionService._owned_device(doc.customer, device)
+				RequestExecutionService._fill_serial(device, serial_number)
 				action = "Assign Device"
 
 			if person:
@@ -1357,6 +1358,90 @@ class RequestExecutionService:
 		return RequestExecutionService.get_execution_plan(doc.name)
 
 	@staticmethod
+	def settle_work_done_elsewhere(request=None):
+		"""Lines the person's own actions already carried out are settled.
+
+		The ⋯ menu acts on the person directly and stays available whatever the request asks.
+		When what it did is exactly what a line was waiting for (the service opened, suspended,
+		resumed or ended), the line is marked done rather than left asking for it again.
+		"""
+		RequestService._guard_internal()
+		doc = RequestExecutionService._request(request)
+
+		if doc.status not in ("Approved", "In Progress"):
+			return RequestExecutionService.get_execution_plan(doc.name)
+
+		open_orders = frappe.get_all(
+			WORK_ORDER,
+			filters={
+				"service_request": doc.name,
+				"work_type": SERVICE_ACTION,
+				"status": ("not in", (*FINISHED_STATUSES, "Awaiting Verification")),
+			},
+			pluck="name",
+		)
+		settled = False
+
+		for name in open_orders:
+			order = frappe.get_doc(WORK_ORDER, name)
+			assignment = RequestExecutionService._already_done(doc, order)
+
+			if not assignment:
+				continue
+
+			order.resulting_assignment = assignment
+			order.effective_date = order.effective_date or frappe.utils.today()
+			order.execution_notes = "Already done from the person's actions."
+			RequestExecutionService._executed(order)
+			settled = True
+
+		if settled:
+			RequestExecutionService._work_has_begun(doc)
+
+		frappe.db.commit()
+
+		return RequestExecutionService.get_execution_plan(doc.name)
+
+	@staticmethod
+	def _already_done(doc, order):
+		"""The service record that already shows what this line asked for, if one does."""
+		if order.action == "Add":
+			target = order.client_user if order.target_scope == "User" else order.managed_device
+
+			if not target or not order.service_item:
+				return None
+
+			found = frappe.get_all(
+				"MSP Service Assignment",
+				filters={
+					"customer": doc.customer,
+					"service_item": order.service_item,
+					"assignment_scope": order.target_scope,
+					("client_user" if order.target_scope == "User" else "managed_device"): target,
+					"operational_status": "Active",
+				},
+				pluck="name",
+				limit=1,
+			)
+
+			return found[0] if found else None
+
+		reached = {
+			"Remove": ("Ended", "Pending Removal"),
+			"Suspend": ("Suspended",),
+			"Resume": ("Active",),
+		}.get(order.action)
+
+		if not reached or not order.source_service_assignment:
+			return None
+
+		status = frappe.db.get_value(
+			"MSP Service Assignment", order.source_service_assignment, "operational_status"
+		)
+
+		return order.source_service_assignment if status in reached else None
+
+	@staticmethod
 	def _identify_target(order, username, serial_number):
 		"""What a service needs to be issued against, asked for where the work is happening.
 
@@ -1472,6 +1557,35 @@ class RequestExecutionService:
 			)
 
 		return device
+
+	@staticmethod
+	def _fill_serial(device, serial_number):
+		"""A machine from the shelf with no serial on file gets the one read off its case."""
+		if (frappe.db.get_value("MSP Managed Device", device, "serial_number") or "").strip():
+			return
+
+		serial = (serial_number or "").strip()
+
+		if not serial:
+			raise ValidationError(
+				"This machine has no serial number on file. Enter the one on its case.",
+				"VALIDATION_ERROR",
+			)
+
+		twin = frappe.db.get_value(
+			"MSP Managed Device",
+			{"serial_number": serial, "name": ("!=", device)},
+			["hostname", "customer"],
+			as_dict=True,
+		)
+
+		if twin:
+			raise ValidationError(
+				f"Serial number {serial} is already on {twin.hostname} ({twin.customer}).",
+				"VALIDATION_ERROR",
+			)
+
+		frappe.db.set_value("MSP Managed Device", device, "serial_number", serial)
 
 	@staticmethod
 	def _register_device(customer, hostname, serial_number, device_type, interfaces):

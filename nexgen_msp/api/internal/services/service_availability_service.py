@@ -1,8 +1,8 @@
 """What a person or a machine already has, what it may be given, and what it may not.
 
 The question a detail page asks is never merely "what is in the catalogue". It is what this
-exact target already has and what can be recorded next. Missing commercial setup is shown as
-a warning beside the option; it does not remove the option or prevent the operation.
+exact target already has and what can be recorded next. Only what the customer's contract
+covers is offered; a covered service with no rate yet is shown with a warning beside it.
 """
 
 import frappe
@@ -122,6 +122,14 @@ class ServiceAvailabilityService:
         for item in ServiceAvailabilityService._catalogue(SELLABLE_AT[scope]):
             if ServiceLifecycleService._open_assignment(customer, item.name, scope, target):
                 # already had: neither an offer nor a refusal, it is simply in CURRENT
+                continue
+
+            # only what their contract covers is offered (Idriss, 2026-09-14)
+            if not ServiceLifecycleService._contract(customer, item.name, on_date):
+                if is_admin:
+                    blocked.append(
+                        ServiceAvailabilityService._entry(item, reason="Not in their contract")
+                    )
                 continue
 
             warning = ServiceAvailabilityService._commercial_warning(

@@ -287,6 +287,30 @@ class TestSettlingTheMachine(ExecutionCase):
             frappe.db.get_value("MSP Managed Device", device, "assigned_client_user"), self.john
         )
 
+    def test_a_shelf_machine_with_no_serial_asks_for_it_before_it_is_given(self):
+        device = self.make_device(self.customer, hostname="NOSN1")
+        frappe.db.set_value("MSP Managed Device", device, "serial_number", None)
+        name = self.approved(self.line(self.offering("DV8", scope="Device"), is_new_device=1))
+        job = self.work(name, "Device Provisioning")
+
+        with self.assertRaises(ServiceRefused) as refused:
+            self.tech_does(
+                lambda: RequestExecutionService.execute_device_provisioning(
+                    work_order=job.name, mode="existing", managed_device=device
+                )
+            )
+        self.assertIn("no serial number", str(refused.exception).lower())
+        self.assertFalse(frappe.db.get_value("MSP Managed Device", device, "assigned_client_user"))
+
+        self.tech_does(
+            lambda: RequestExecutionService.execute_device_provisioning(
+                work_order=job.name, mode="existing", managed_device=device, serial_number=f"NS-{self.tag}"
+            )
+        )
+
+        self.assertEqual(frappe.db.get_value("MSP Managed Device", device, "serial_number"), f"NS-{self.tag}")
+        self.assertEqual(self.state(job.name), "Completed")
+
     def test_a_machine_somebody_else_holds_is_never_taken_silently(self):
         bob = self.make_person(self.customer, "Bob")
         device = self.make_device(
@@ -466,6 +490,61 @@ class TestActingOnTheService(ExecutionCase):
             frappe.db.get_value("MSP Service Assignment", opened["name"], "operational_status"),
             "Suspended",
         )
+
+
+class TestWorkDoneFromThePersonMenu(ExecutionCase):
+    """The ⋯ menu stays available; what it already did settles the line waiting for it."""
+
+    def opened(self, service):
+        from nexgen_msp.api.internal.services.service_lifecycle_service import (
+            ServiceLifecycleService,
+        )
+
+        out = ServiceLifecycleService.activate(
+            customer=self.customer, service_item=service, target_scope="User", client_user=self.john
+        )
+        return self.track("MSP Service Assignment", out["name"])
+
+    def settle(self, name):
+        return self.tech_does(lambda: RequestExecutionService.settle_work_done_elsewhere(request=name))
+
+    def test_a_service_already_ended_from_the_menu_settles_the_removal_line(self):
+        from nexgen_msp.api.internal.services.service_lifecycle_service import (
+            ServiceLifecycleService,
+        )
+
+        service = self.offering("ME1")
+        running = self.opened(service)
+        name = self.approved(self.line(service, action="Remove", source_service_assignment=running))
+        job = self.work(name, "Service Action")
+
+        self.tech_does(lambda: ServiceLifecycleService.end(assignment=running))
+        self.settle(name)
+
+        self.assertEqual(self.state(job.name), "Completed")
+        self.assertEqual(
+            frappe.db.get_value(WORK_ORDER, job.name, "resulting_assignment"), running
+        )
+
+    def test_a_service_already_given_from_the_menu_settles_the_line_that_asked_for_it(self):
+        service = self.offering("ME2")
+        name = self.approved(self.line(service))
+        job = self.work(name, "Service Action")
+
+        given = self.tech_does(lambda: self.opened(service))
+        self.settle(name)
+
+        self.assertEqual(self.state(job.name), "Completed")
+        self.assertEqual(frappe.db.get_value(WORK_ORDER, job.name, "resulting_assignment"), given)
+
+    def test_a_line_nobody_has_done_yet_stays_to_do(self):
+        service = self.offering("ME3")
+        name = self.approved(self.line(service))
+        job = self.work(name, "Service Action")
+
+        self.settle(name)
+
+        self.assertNotEqual(self.state(job.name), "Completed")
 
 
 class TestActionsAddedWhileWorking(ExecutionCase):

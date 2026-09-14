@@ -217,6 +217,7 @@ export const useVerifyWorkItem = () => usePlanMutation(internal.verifyWorkItem);
 export const useCompleteRequest = () => usePlanMutation(internal.completeRequest);
 export const useAddTechnicianAction = () => usePlanMutation(internal.addTechnicianAction);
 export const useRecordRequestActivity = () => usePlanMutation(internal.recordRequestActivity);
+export const useSettleWorkDoneElsewhere = () => usePlanMutation(internal.settleWorkDoneElsewhere);
 
 /** The same act for several people, run one by one; the outcome names each of them. */
 export const useExecuteServiceActions = () => {
