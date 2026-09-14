@@ -23,8 +23,12 @@ type Props = {
   continuing: boolean;
 };
 
+// a machine still to be prepared names its person as the one it is requested for
 const personKey = (line: RequestDetailLine) =>
-  line.client_user || line.device_holder || `new:${line.new_user_full_name ?? line.idx}`;
+  line.client_user ||
+  line.requested_for_user ||
+  line.device_holder ||
+  `new:${line.new_user_full_name ?? line.idx}`;
 
 const personName = (line: RequestDetailLine) =>
   (line.is_new_user && !line.client_user ? line.new_user_full_name : line.client_user_name) ||

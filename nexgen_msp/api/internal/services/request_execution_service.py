@@ -691,6 +691,26 @@ class RequestExecutionService:
 			card["asked_serial"] = row.new_device_serial
 			card["asked_device_type"] = row.new_device_type
 
+		# preparing a machine answers no line of its own: what the customer said about the machine
+		# is on the lines of the services waiting for it
+		if order.work_type == DEVICE_PROVISIONING and order.device_requirement_key and not (
+			card.get("asked_hostname") or card.get("asked_serial")
+		):
+			for line_name in frappe.get_all(
+				WORK_ORDER,
+				filters={
+					"device_requirement_key": order.device_requirement_key,
+					"request_line_name": ("in", list(lines) or [""]),
+				},
+				pluck="request_line_name",
+			):
+				asked = lines.get(line_name)
+				if asked and (asked.new_device_label or asked.new_device_serial or asked.new_device_type):
+					card["asked_hostname"] = asked.new_device_label
+					card["asked_serial"] = asked.new_device_serial
+					card["asked_device_type"] = asked.new_device_type
+					break
+
 		card["device"] = RequestExecutionService._device_card(
 			order.resulting_device or order.managed_device
 		)

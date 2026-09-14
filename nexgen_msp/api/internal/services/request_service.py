@@ -386,9 +386,9 @@ class RequestService:
                 coalesce(ra.title, srl.action) as action_label,
                 ra.description as action_description,
                 srl.target_scope, srl.is_new_user,
-                srl.client_user,
-                coalesce(cu.full_name, holder.full_name) as client_user_name,
-                coalesce(cu.department, holder.department) as client_user_department,
+                srl.client_user, srl.requested_for_user,
+                coalesce(cu.full_name, rfu.full_name, holder.full_name) as client_user_name,
+                coalesce(cu.department, rfu.department, holder.department) as client_user_department,
                 srl.new_user_full_name, srl.new_user_department, srl.new_user_email,
                 srl.new_user_username,
                 srl.is_new_device, srl.new_device_label, srl.new_device_type,
@@ -397,12 +397,14 @@ class RequestService:
                 device.serial_number as device_serial, device.device_type as device_type,
                 -- the person a device line is really about, so their profile stays one click away
                 device.assigned_client_user as device_holder,
-                coalesce(cu.username, holder.username) as client_username,
+                coalesce(cu.username, rfu.username, holder.username) as client_username,
                 srl.requested_service, item.item_name as requested_service_name,
                 srl.requested_quantity, srl.requested_effective_date,
                 srl.comment, srl.line_status, srl.rejection_reason
             from `tabMSP Service Request Line` srl
             left join `tabMSP Client User` cu on cu.name = srl.client_user
+            -- a machine still to be prepared names its person here rather than as the line's own
+            left join `tabMSP Client User` rfu on rfu.name = srl.requested_for_user
             left join `tabMSP Managed Device` device on device.name = srl.managed_device
             left join `tabMSP Client User` holder on holder.name = device.assigned_client_user
             left join `tabItem` item on item.name = srl.requested_service
@@ -466,7 +468,11 @@ class RequestService:
             "review": RequestService._review_checks(doc),
             "people": RequestService._people_facts(
                 doc.name,
-                {line.get("client_user") or line.get("device_holder") for line in lines} - {None},
+                {
+                    line.get("client_user") or line.get("requested_for_user") or line.get("device_holder")
+                    for line in lines
+                }
+                - {None},
             ),
         }
 

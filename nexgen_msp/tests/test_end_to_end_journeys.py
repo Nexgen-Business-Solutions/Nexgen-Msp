@@ -516,3 +516,40 @@ class TestAMachineThroughManyHands(JourneyCase):
             pluck="service_item",
         )
         self.assertEqual(still, [service])
+
+
+class TestAMachineAskedForSomebodyOnFile(JourneyCase):
+    """A person on file with no machine: the customer asks a machine service and says what the
+    machine is. The technician must see who it is for, and find what the customer typed."""
+
+    def asked(self):
+        service = self.offering("JN1", scope="Device")
+        return self.approved(
+            {
+                "request_action": self.action("Add"),
+                "action": "Add",
+                "target_scope": "User",
+                "requested_for_user": self.john,
+                "is_new_device": 1,
+                "new_device_label": f"ZZTEST-JN-{self.tag}",
+                "new_device_serial": f"ZZTEST-SN-JN-{self.tag}",
+                "requested_service": service,
+            }
+        )
+
+    def test_the_line_names_the_person_it_is_for(self):
+        name = self.asked()
+
+        line = self.tech_does(lambda: RequestService.get_request(name))["lines"][0]
+
+        self.assertEqual(line["requested_for_user"], self.john)
+        self.assertEqual(line["client_user_name"], frappe.db.get_value("MSP Client User", self.john, "full_name"))
+
+    def test_preparing_the_machine_starts_from_what_the_customer_typed(self):
+        name = self.asked()
+
+        slots = [slot for group in self.plan(name)["groups"] for slot in group["devices"]]
+
+        self.assertTrue(slots, "a machine is to be prepared")
+        self.assertEqual(slots[0]["work"]["asked_hostname"], f"ZZTEST-JN-{self.tag}")
+        self.assertEqual(slots[0]["work"]["asked_serial"], f"ZZTEST-SN-JN-{self.tag}")

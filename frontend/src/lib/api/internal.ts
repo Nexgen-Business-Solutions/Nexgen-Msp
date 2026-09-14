@@ -55,6 +55,8 @@ export type RequestDetailLine = {
   service_scope: string;
   is_new_user: number;
   client_user: string | null;
+  /** the person a machine still to be prepared is for, when the line names no person itself */
+  requested_for_user?: string | null;
   client_user_name: string | null;
   client_user_department: string | null;
   new_user_full_name: string | null;

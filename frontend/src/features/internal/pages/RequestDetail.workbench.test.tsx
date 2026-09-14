@@ -771,6 +771,34 @@ describe('who each line is for', () => {
   });
 });
 
+describe('a machine to prepare for somebody on file', () => {
+  it('is reviewed under that person, not as somebody new', async () => {
+    await renderPage(
+      request({
+        status: 'Under Review',
+        can_decide_lines: true,
+        lines: [
+          line(1),
+          line(2, {
+            client_user: null,
+            requested_for_user: 'CU-1',
+            client_user_name: 'Person 1',
+            is_new_device: 1,
+            new_device_label: 'LAPTOP-NEW',
+            target_scope: 'User',
+            requested_service: 'SOPHOS',
+            requested_service_name: 'Sophos',
+          }),
+        ],
+      } as never)
+    );
+
+    expect(await screen.findByText('Sophos · Grant a service')).toBeInTheDocument();
+    expect(screen.queryByText(/unnamed person/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^new person$/i)).not.toBeInTheDocument();
+  });
+});
+
 describe('what the page must never show', () => {
   it('says nothing about portal accounts', async () => {
     await renderPage(request(), plan());
