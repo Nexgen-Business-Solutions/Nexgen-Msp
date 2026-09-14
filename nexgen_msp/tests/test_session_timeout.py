@@ -245,3 +245,39 @@ class TestSessionsAlreadyOpen(SessionCase):
     def stored(self, sid):
         row = frappe.db.sql("select sessiondata from `tabSessions` where sid = %s", sid)
         return frappe.parse_json(row[0][0])["session_expiry"]
+
+    def test_saving_the_setting_reaches_a_session_already_open(self):
+        """The administrator tightens the limit; nobody has to sign out for it to hold.
+
+        The scenario the addon would have loosened: the setting is saved through the screen
+        an administrator actually uses, not by calling the refresh by hand.
+        """
+        from nexgen_msp.api.internal.services.settings_service import SettingsService
+
+        self.choose("1 day")
+        user_type = frappe.db.get_value("User", self.client, "user_type")
+        frappe.local.request = Request(EnvironBuilder(path="/api/method/login").get_environ())
+        frappe.local.request_ip = "127.0.0.1"
+        frappe.local.session_obj = Session(
+            user=self.client, resume=False, full_name=self.client, user_type=user_type
+        )
+        frappe.local.session = frappe.local.session_obj.data
+        session_timeout.on_session_creation()
+        sid = frappe.session.sid
+        self.restore()
+
+        try:
+            self.assertEqual(self.stored(sid), "24:00:00")
+
+            SettingsService.save_portal_settings({"customer_session_timeout": "1 hour"})
+            frappe.db.commit()
+
+            self.assertEqual(self.stored(sid), "01:00:00")
+            frappe.local.cache.clear()
+            self.assertEqual(
+                frappe.cache.hget("session", sid)["data"]["session_expiry"], "01:00:00"
+            )
+        finally:
+            delete_session(sid)
+            if hasattr(frappe.local, "request"):
+                del frappe.local.request

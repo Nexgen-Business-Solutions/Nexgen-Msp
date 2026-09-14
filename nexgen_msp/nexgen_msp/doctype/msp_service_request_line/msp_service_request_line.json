@@ -8,8 +8,10 @@
  "field_order": [
   "target_scope",
   "client_user",
+  "requested_for_user",
   "managed_device",
   "customer_site",
+  "source_service_assignment",
   "requested_service",
   "requested_quantity",
   "requested_effective_date",
@@ -28,7 +30,8 @@
   "new_device_serial",
   "request_action",
   "action",
-  "needs_portal_access"
+  "subject_key",
+  "device_requirement_key"
  ],
  "fields": [
   {
@@ -51,6 +54,12 @@
    "options": "MSP Client User"
   },
   {
+   "fieldname": "requested_for_user",
+   "fieldtype": "Link",
+   "label": "Requested For",
+   "options": "MSP Client User"
+  },
+  {
    "columns": 2,
    "depends_on": "eval:doc.target_scope==\"Device\"",
    "fieldname": "managed_device",
@@ -59,6 +68,12 @@
    "label": "Managed Device",
    "mandatory_depends_on": "eval:doc.target_scope==\"Device\"",
    "options": "MSP Managed Device"
+  },
+  {
+   "fieldname": "source_service_assignment",
+   "fieldtype": "Link",
+   "label": "Service Assignment",
+   "options": "MSP Service Assignment"
   },
   {
    "depends_on": "eval:doc.target_scope==\"Site\"",
@@ -136,11 +151,10 @@
    "label": "New User Department"
   },
   {
-   "depends_on": "eval:doc.is_new_user && doc.needs_portal_access",
+   "depends_on": "eval:doc.is_new_user",
    "fieldname": "new_user_email",
    "fieldtype": "Data",
    "label": "New User Email",
-   "mandatory_depends_on": "eval:doc.is_new_user && doc.needs_portal_access",
    "options": "Email"
   },
   {
@@ -180,24 +194,29 @@
    "reqd": 1
   },
   {
-   "default": "0",
-   "depends_on": "eval:doc.is_new_user",
-   "fieldname": "needs_portal_access",
-   "fieldtype": "Check",
-   "label": "Needs Portal Access"
-  },
-  {
    "fieldname": "request_action",
    "fieldtype": "Link",
    "label": "Action",
    "options": "MSP Request Action"
+  },
+  {
+   "fieldname": "subject_key",
+   "fieldtype": "Data",
+   "label": "Subject Key",
+   "read_only": 1
+  },
+  {
+   "fieldname": "device_requirement_key",
+   "fieldtype": "Data",
+   "label": "Device Requirement Key",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-08-17 14:21:39.898193",
+ "modified": "2026-09-13 06:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nexgen MSP",
  "name": "MSP Service Request Line",

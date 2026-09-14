@@ -88,6 +88,25 @@ export const useBillingDue = (horizonDays = 30) =>
     staleTime: 60 * 1000,
   });
 
+/** Changing what a draft run is billing: its scope, not the services themselves. */
+const useScopeChange = <TVariables>(
+  mutationFn: (variables: TVariables) => Promise<internal.BillingRunDetail>
+) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn,
+    onSuccess: (detail) => {
+      queryClient.setQueryData(billingKeys.detail(detail.name), detail);
+      queryClient.invalidateQueries({ queryKey: [...billingKeys.all, 'list'] });
+    },
+  });
+};
+
+export const useRemoveFromBillingRun = () => useScopeChange(internal.removeFromBillingRun);
+
+export const useAddToBillingRun = () => useScopeChange(internal.addToBillingRun);
+
 export const useSetLineDiscount = () => {
   const queryClient = useQueryClient();
 

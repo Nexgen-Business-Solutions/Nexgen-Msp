@@ -4,10 +4,15 @@ import Modal from '@/shared/components/Modal';
 import FieldLabel from '@/shared/components/FieldLabel';
 import Select from '@/shared/components/Select';
 import RequestReferenceField from './RequestReferenceField';
-import { useAssignDeviceService, useDeviceContext } from '../hooks/useDevices';
+import {
+  useAssignDeviceService,
+  useDeviceContext,
+  useDeviceServiceAvailability,
+} from '../hooks/useDevices';
 
 type Props = {
   device: string | null;
+  defaultRequest?: string;
   onClose: () => void;
 };
 
@@ -16,27 +21,42 @@ const inputClass =
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-const DeviceServiceModal: React.FC<Props> = ({ device, onClose }) => {
+const DeviceServiceModal: React.FC<Props> = ({ device, defaultRequest, onClose }) => {
   const context = useDeviceContext(device);
+  const availability = useDeviceServiceAvailability(device);
   const assign = useAssignDeviceService();
 
   const [service, setService] = useState('');
   const [effectiveDate, setEffectiveDate] = useState(today());
   const [notes, setNotes] = useState('');
   const [sourceRequest, setSourceRequest] = useState('');
+  const [serial, setSerial] = useState('');
+  const [username, setUsername] = useState('');
 
   useEffect(() => {
     if (!device) return;
     setService('');
     setEffectiveDate(today());
     setNotes('');
-    setSourceRequest('');
+    setSourceRequest(defaultRequest ?? '');
+    setSerial('');
+    setUsername('');
     assign.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [device]);
 
   const data = context.data;
-  const available = (data?.catalogue ?? []).filter((item) => !item.already_open);
+  // what this machine may be given is a backend reading, never a catalogue filtered here
+  const refusal = availability.data?.target_reason ?? null;
+  const available = refusal ? [] : (availability.data?.available ?? []);
+  const selectedOffer = available.find((item) => item.service_item === service);
+  // a machine service is issued against the serial engraved on the machine
+  const serialMissing = Boolean(data) && !(data?.device.serial_number ?? '').trim();
+  // sold to both, it is also issued against the username of whoever holds the machine
+  const usernameMissing =
+    selectedOffer?.service_scope === 'Both' &&
+    Boolean(data?.device.assigned_client_user) &&
+    !(data?.holder_username ?? '').trim();
 
   const submit = async () => {
     if (!device) return;
@@ -48,6 +68,8 @@ const DeviceServiceModal: React.FC<Props> = ({ device, onClose }) => {
         effective_date: effectiveDate || undefined,
         notes: notes.trim() || undefined,
         source_request: sourceRequest || undefined,
+        serial_number: serialMissing ? serial.trim() : undefined,
+        username: usernameMissing ? username.trim() : undefined,
       });
       onClose();
     } catch {
@@ -80,7 +102,7 @@ const DeviceServiceModal: React.FC<Props> = ({ device, onClose }) => {
           <button
             type="button"
             onClick={submit}
-            disabled={!service || assign.isLoading}
+            disabled={!service || assign.isLoading || (serialMissing && !serial.trim()) || (usernameMissing && !username.trim())}
             className="flex min-w-[7rem] items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {assign.isLoading ? (
@@ -102,6 +124,13 @@ const DeviceServiceModal: React.FC<Props> = ({ device, onClose }) => {
 
       {data && (
         <div className="space-y-4">
+          {refusal && (
+            <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <AlertCircle size={16} className="mt-0.5 shrink-0 text-amber-600" />
+              <span className="text-sm font-medium text-amber-900">{refusal}</span>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <FieldLabel required>Service</FieldLabel>
@@ -114,12 +143,40 @@ const DeviceServiceModal: React.FC<Props> = ({ device, onClose }) => {
                   available.length ? 'Select a service' : 'No device service left to add'
                 }
                 options={available.map((item) => ({
-                  value: item.name,
+                  value: item.service_item,
                   label: item.item_name,
-                  description: item.scope === 'Both' ? 'User or device' : 'Billed per device',
+                  description:
+                    item.warning ??
+                    (item.service_scope === 'Both' ? 'User or device' : 'Billed per device'),
                 }))}
               />
             </div>
+            {usernameMissing && (
+              <div>
+                <FieldLabel required>Username</FieldLabel>
+                <input
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  placeholder="The username they use on this service"
+                  aria-label="Username"
+                  className={inputClass}
+                />
+              </div>
+            )}
+
+            {serialMissing && (
+              <div>
+                <FieldLabel required>Serial Number</FieldLabel>
+                <input
+                  value={serial}
+                  onChange={(event) => setSerial(event.target.value)}
+                  placeholder="Read it off the machine"
+                  aria-label="Serial Number"
+                  className={inputClass}
+                />
+              </div>
+            )}
+
             <div>
               <FieldLabel>Effective date</FieldLabel>
               <input
@@ -130,6 +187,16 @@ const DeviceServiceModal: React.FC<Props> = ({ device, onClose }) => {
               />
             </div>
           </div>
+
+          {selectedOffer?.warning && (
+            <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <AlertCircle size={16} className="mt-0.5 shrink-0 text-amber-600" />
+              <div className="text-sm text-amber-900">
+                <p className="font-semibold">Billing setup needs attention</p>
+                <p className="mt-0.5">{selectedOffer.warning} The service will still be added.</p>
+              </div>
+            </div>
+          )}
 
           <RequestReferenceField
             requests={data.customer_requests}

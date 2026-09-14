@@ -20,6 +20,8 @@ class TestRequests(MSPTestCase):
         self.contact = self.make_account(
             "customer", "MSP Customer Manager", self.customer
         )
+        self.track("MSP Approval Authority", self.customer)
+        self.grant(self.contact)
 
     def line(self, service, **extra):
         base = {
@@ -76,33 +78,16 @@ class TestRequests(MSPTestCase):
         self.assertEqual(out["lines"][0]["is_new_device"], 1)
 
     # ------------------------------------------------------- closing the request
-    def test_a_device_service_cannot_be_closed_without_a_serial(self):
-        name = self.open_request(
-            [self.line(self.device_service, target_scope="Device", client_user=None,
-                       managed_device=self.device, line_status="Approved")],
-            status="In Progress",
-        )
-
-        with self.assertRaises(ValidationError):
-            RequestService.run_action(name, "complete")
-
-        RequestService.set_delivery_detail(name, 1, serial_number="ZZTEST-SN-1")
-        RequestService.run_action(name, "complete")
-
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Completed")
-
-    def test_a_user_service_cannot_be_closed_without_a_username(self):
+    def test_a_request_with_work_still_open_cannot_be_closed(self):
+        """What stops a closure is unfinished work, never a field discovered at the last moment."""
         name = self.open_request(
             [self.line(self.user_service, line_status="Approved")], status="In Progress"
         )
 
-        with self.assertRaises(ValidationError):
+        with self.assertRaises(ValidationError) as caught:
             RequestService.run_action(name, "complete")
 
-        RequestService.set_delivery_detail(name, 1, username="zz.user")
-        RequestService.run_action(name, "complete")
-
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Completed")
+        self.assertIn("no work on this request", str(caught.exception))
 
     def test_the_screen_says_what_is_still_owed(self):
         name = self.open_request(
@@ -154,7 +139,8 @@ class TestRequests(MSPTestCase):
 
 
 class TestBothScopeClosing(MSPTestCase):
-    """A service sold against a person or a machine asks for whichever it landed on."""
+    """A service sold to both asks a person for their username, a machine for its serial and
+    the username of whoever holds it."""
 
     def setUp(self):
         super().setUp()
@@ -198,29 +184,20 @@ class TestBothScopeClosing(MSPTestCase):
         self.assertTrue(line["needs_username"])
         self.assertFalse(line["needs_serial"])
 
-        with self.assertRaises(ValidationError):
-            RequestService.run_action(name, "complete")
+    def test_on_a_machine_it_asks_for_the_serial_and_the_holder_s_username(self):
+        name = self.open_line("Device")
+        line = RequestService.get_request(name)["lines"][0]
 
-        # the serial alone does not unlock it: this instance lives on the person
-        RequestService.set_delivery_detail(name, 1, username="b.holder")
-        RequestService.run_action(name, "complete")
+        self.assertTrue(line["needs_serial"])
+        self.assertTrue(line["needs_username"])
 
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Completed")
-
-    def test_on_a_machine_it_asks_for_the_serial_only(self):
+    def test_on_a_machine_whose_holder_has_a_username_it_asks_for_the_serial_only(self):
+        frappe.db.set_value("MSP Client User", self.person, "username", f"h.{frappe.generate_hash(length=6)}")
         name = self.open_line("Device")
         line = RequestService.get_request(name)["lines"][0]
 
         self.assertTrue(line["needs_serial"])
         self.assertFalse(line["needs_username"])
-
-        with self.assertRaises(ValidationError):
-            RequestService.run_action(name, "complete")
-
-        RequestService.set_delivery_detail(name, 1, serial_number="ZZTEST-BOTH-1")
-        RequestService.run_action(name, "complete")
-
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Completed")
 
     def test_a_line_never_carries_both_targets_at_once(self):
         """The doctype refuses it, which is why 'both' can only ever mean one per line."""
@@ -327,6 +304,7 @@ class TestWhoHearsAboutANewRequest(MSPTestCase):
         AuthorityService.set_account_rights(self.contact, {"can_submit": 1, "can_approve": 1})
 
         other = self.make_account("customer", "MSP Customer Operator", self.customer, suffix="o")
+        AuthorityService.set_account_rights(other, {"can_submit": 1, "can_approve": 0})
         frappe.set_user(other)
         out = PortalService.create_request(
             customer=self.customer,
@@ -542,6 +520,7 @@ class TestDraftsAreNotWork(MSPTestCase):
         self.track("MSP Approval Authority", self.customer)
         AuthorityService.set_account_rights(self.author, {"can_submit": 1, "can_approve": 1})
         other = self.make_account("customer", "MSP Customer Operator", self.customer, suffix="o")
+        AuthorityService.set_account_rights(other, {"can_submit": 1, "can_approve": 0})
 
         frappe.set_user(other)
         out = PortalService.create_request(
@@ -739,6 +718,7 @@ class TestTheTechnicianSeesWhatWasSupplied(MSPTestCase):
         self.assertFalse(device_line["needs_serial"])
 
     def test_what_the_customer_typed_for_a_new_person_reaches_the_technician(self):
+        department = self.make_department("Sales")
         name = self.raise_with(
             {
                 "request_action": self.action(),
@@ -746,10 +726,9 @@ class TestTheTechnicianSeesWhatWasSupplied(MSPTestCase):
                 "target_scope": "User",
                 "is_new_user": 1,
                 "new_user_full_name": "Fresh Face",
-                "new_user_department": "Sales",
+                "new_user_department": department,
                 "new_user_email": "fresh@example.invalid",
                 "new_user_username": "f.face",
-                "needs_portal_access": 1,
                 "requested_service": self.service,
             }
         )
@@ -757,10 +736,10 @@ class TestTheTechnicianSeesWhatWasSupplied(MSPTestCase):
         line = self.as_tech(name)["lines"][0]
 
         self.assertEqual(line["new_user_full_name"], "Fresh Face")
-        self.assertEqual(line["new_user_department"], "Sales")
+        self.assertEqual(line["new_user_department"], department)
         self.assertEqual(line["new_user_email"], "fresh@example.invalid")
         self.assertEqual(line["new_user_username"], "f.face")
-        self.assertEqual(line["needs_portal_access"], 1)
+        self.assertNotIn("needs_portal_access", line)
 
     def test_what_the_customer_typed_for_a_new_machine_reaches_the_technician(self):
         name = self.raise_with(
@@ -803,6 +782,87 @@ class TestTheTechnicianSeesWhatWasSupplied(MSPTestCase):
         )
 
 
+class TestOneNoteForTheWholeRequest(MSPTestCase):
+    """What the customer wants to add is said once, for the request, not item by item."""
+
+    def setUp(self):
+        super().setUp()
+        self.customer = self.make_customer("NOTE")
+        self.track("MSP Approval Authority", self.customer)
+        self.person = self.make_person(self.customer, "Noted")
+        self.service = self.make_service("NOTE", scope="User")
+        self.cover_service(self.customer, self.service)
+        self.asker = self.make_account("customer", "MSP Customer Manager", self.customer, suffix="note")
+        self.grant(self.asker)
+
+    def lines(self):
+        return [
+            {
+                "request_action": self.action(),
+                "action": "Add",
+                "target_scope": "User",
+                "client_user": self.person,
+                "requested_service": self.service,
+            }
+        ]
+
+    def as_asker(self, call):
+        frappe.set_user(self.asker)
+        frappe.clear_cache(user=self.asker)
+        try:
+            return call()
+        finally:
+            frappe.set_user("Administrator")
+
+    def test_the_note_is_kept_on_the_request_and_read_back(self):
+        out = self.as_asker(
+            lambda: PortalService.create_request(
+                customer=self.customer,
+                request_type="Add",
+                lines=self.lines(),
+                details="  Please call before coming on site.  ",
+            )
+        )
+        name = self.track("MSP Service Request", out["name"])
+
+        self.assertEqual(out["details"], "Please call before coming on site.")
+        self.assertEqual(
+            frappe.db.get_value("MSP Service Request", name, "details"),
+            "Please call before coming on site.",
+        )
+
+    def test_a_draft_keeps_it_and_sending_it_keeps_it_too(self):
+        draft = self.as_asker(
+            lambda: PortalService.save_draft(
+                customer=self.customer, request_type="Add", lines=self.lines(), details="First word."
+            )
+        )
+        name = self.track("MSP Service Request", draft["name"])
+        self.assertEqual(draft["details"], "First word.")
+
+        sent = self.as_asker(
+            lambda: PortalService.create_request(
+                name=name,
+                customer=self.customer,
+                request_type="Add",
+                lines=self.lines(),
+                details="Final word.",
+            )
+        )
+
+        self.assertEqual(sent["details"], "Final word.")
+
+    def test_no_note_is_nothing_rather_than_an_empty_string(self):
+        out = self.as_asker(
+            lambda: PortalService.create_request(
+                customer=self.customer, request_type="Add", lines=self.lines(), details="   "
+            )
+        )
+        self.track("MSP Service Request", out["name"])
+
+        self.assertIsNone(out["details"])
+
+
 class TestCreatingThePersonARequestAskedFor(MSPTestCase):
     """The customer writes a new person once and asks for several things for them."""
 
@@ -822,6 +882,7 @@ class TestCreatingThePersonARequestAskedFor(MSPTestCase):
             "target_scope": "User",
             "is_new_user": 1,
             "new_user_full_name": full_name,
+            "new_user_department": self.make_department("Sales"),
             "new_user_username": "f.face",
             "requested_service": service,
         }
@@ -914,11 +975,15 @@ class TestNothingClosesOnSomeoneWhoDoesNotExist(MSPTestCase):
         self.as_tech(lambda: RequestService.run_action(name, "approve"))
         self.as_tech(lambda: RequestService.run_action(name, "start_work"))
 
+        # approving wrote the work this request calls for; it goes with the request
+        for order in frappe.get_all(
+            "MSP Service Work Order", filters={"service_request": name}, pluck="name"
+        ):
+            self.track("MSP Service Work Order", order)
+
         return name
 
     def test_a_person_still_to_be_created_blocks_the_closure(self):
-        from nexgen_msp.api.internal.services.user_service import UserService
-
         name = self.in_progress(
             {
                 "request_action": self.action(),
@@ -926,23 +991,15 @@ class TestNothingClosesOnSomeoneWhoDoesNotExist(MSPTestCase):
                 "target_scope": "User",
                 "is_new_user": 1,
                 "new_user_full_name": "Fresh Face",
+                "new_user_department": self.make_department("Sales"),
                 "requested_service": self.service,
             }
         )
 
         with self.assertRaises(ValidationError) as caught:
             self.as_tech(lambda: RequestService.run_action(name, "complete"))
-        self.assertIn("has not been created", str(caught.exception))
 
-        created = self.as_tech(
-            lambda: UserService.create_client_user(
-                full_name="Fresh Face", username="f.face", source_request=name, request_line=1
-            )
-        )
-        self.track("MSP Client User", created["name"])
-
-        self.as_tech(lambda: RequestService.run_action(name, "complete"))
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Completed")
+        self.assertIn("User Setup has not been carried out", str(caught.exception))
 
     def test_a_machine_still_to_be_registered_blocks_the_closure(self):
         person = self.make_person(self.customer, "Holder")
@@ -963,9 +1020,10 @@ class TestNothingClosesOnSomeoneWhoDoesNotExist(MSPTestCase):
 
         with self.assertRaises(ValidationError) as caught:
             self.as_tech(lambda: RequestService.run_action(name, "complete"))
-        self.assertIn("has not been registered", str(caught.exception))
 
-    def test_registering_the_machine_from_the_request_links_the_line_and_lets_it_close(self):
+        self.assertIn("Device Provisioning has not been carried out", str(caught.exception))
+
+    def test_registering_the_machine_from_the_request_links_every_line_that_wanted_it(self):
         from nexgen_msp.api.internal.services.user_service import UserService
 
         person = self.make_person(self.customer, "Holder")
@@ -1019,10 +1077,6 @@ class TestNothingClosesOnSomeoneWhoDoesNotExist(MSPTestCase):
         detail = self.as_tech(lambda: RequestService.get_request(name))
         self.assertEqual(detail["lines"][0]["device_holder"], person)
         self.assertEqual(detail["lines"][0]["device_serial"], "SN-NEWBOX")
-
-        frappe.db.set_value("MSP Client User", person, "username", "h.holder")
-        self.as_tech(lambda: RequestService.run_action(name, "complete"))
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Completed")
 
     def test_the_one_machine_owed_to_a_person_is_theirs_even_under_another_name(self):
         from nexgen_msp.api.internal.services.user_service import UserService

@@ -11,6 +11,7 @@ export const deviceKeys = {
   list: (params: internal.DeviceListParams) => [...deviceKeys.all, 'list', params] as const,
   context: (device: string) => [...deviceKeys.all, 'context', device] as const,
   detail: (device: string) => [...deviceKeys.all, 'detail', device] as const,
+  availability: (device: string) => [...deviceKeys.all, 'availability', device] as const,
 };
 
 export type DeviceFilterState = {
@@ -134,6 +135,14 @@ export const useDeviceContext = (device?: string | null) =>
     staleTime: 0,
   });
 
+export const useDeviceServiceAvailability = (device?: string | null) =>
+  useQuery({
+    queryKey: deviceKeys.availability(device || ''),
+    queryFn: ({ signal }) => internal.deviceServiceAvailability(device as string, signal),
+    enabled: Boolean(device),
+    staleTime: 0,
+  });
+
 export const useAssignDeviceService = () => {
   const queryClient = useQueryClient();
 
@@ -167,6 +176,16 @@ export const useUpdateDevice = () => useDeviceMutation(internal.updateManagedDev
 export const useChangeDeviceStatus = () => useDeviceMutation(internal.changeDeviceStatus);
 
 export const useHandOverDevice = () => useDeviceMutation(internal.handOverDevice);
+
+export const useAssignDevice = () => useDeviceMutation(internal.assignDevice);
+
+export const useTransferDevice = () => useDeviceMutation(internal.transferDevice);
+
+export const useRepossessDevice = () => useDeviceMutation(internal.repossessDevice);
+
+export const useRetireDevice = () => useDeviceMutation(internal.retireDevice);
+
+export const useReinstateDevice = () => useDeviceMutation(internal.reinstateDevice);
 
 export const useCustomerDevices = (customer?: string | null, excludeHolder?: string) =>
   useQuery({

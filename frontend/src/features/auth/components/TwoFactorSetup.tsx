@@ -10,6 +10,8 @@ import {
 } from 'lucide-react';
 import { startTwoFactorSetup, verifyTwoFactorSetup } from '@/lib/api/auth2fa';
 import OtpField from './OtpField';
+import WorkflowStepper from '@/shared/components/WorkflowStepper';
+import { stepsInOrder } from '@/shared/lib/workflowSteps';
 
 type Props = {
   pendingToken?: string;
@@ -78,36 +80,13 @@ const TwoFactorSetup: React.FC<Props> = ({ pendingToken, onDone, onCancel }) => 
 
   return (
     <div>
-      <div className="mb-5 flex items-center gap-2">
-        {steps.map((entry, index) => {
-          const at = steps.findIndex((item) => item.key === step);
-          const done = index < at;
-          const here = index === at;
-
-          return (
-            <React.Fragment key={entry.key}>
-              <span
-                className={`flex items-center gap-1.5 text-xs font-semibold ${
-                  here ? 'text-blue-700' : done ? 'text-emerald-600' : 'text-slate-400'
-                }`}
-              >
-                <span
-                  className={`flex h-6 w-6 items-center justify-center rounded-full border-2 text-xs font-bold ${
-                    here
-                      ? 'border-blue-600 text-blue-700'
-                      : done
-                        ? 'border-emerald-500 bg-emerald-500 text-white'
-                        : 'border-slate-300 text-slate-400'
-                  }`}
-                >
-                  {done ? <CheckIcon className="h-3 w-3" /> : index + 1}
-                </span>
-                {entry.label}
-              </span>
-              {index === 0 && <span className="h-px flex-1 bg-slate-200" />}
-            </React.Fragment>
-          );
-        })}
+      <div className="mb-5">
+        <WorkflowStepper
+          steps={stepsInOrder(
+            steps,
+            steps.findIndex((item) => item.key === step)
+          )}
+        />
       </div>
 
       <p className="text-xs font-bold tracking-widest text-blue-700">ONE LAST STEP</p>

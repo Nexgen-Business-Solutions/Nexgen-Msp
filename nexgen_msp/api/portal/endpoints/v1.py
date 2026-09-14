@@ -30,6 +30,12 @@ def list_device_choices(customer=None):
 
 @frappe.whitelist()
 @handle_errors
+def list_departments(customer=None):
+    return PortalService.list_departments(customer=customer)
+
+
+@frappe.whitelist()
+@handle_errors
 def list_client_users(customer=None, search=None, status=None, service=None, start=0, page_length=20):
     return PortalService.list_client_users(
         customer=customer,
@@ -210,17 +216,31 @@ def get_request(name=None):
 
 @frappe.whitelist()
 @handle_errors
-def create_request(name=None, customer=None, request_type=None, priority=None, lines=None):
+def create_request(
+    name=None, customer=None, request_type=None, priority=None, lines=None, details=None
+):
     return PortalService.create_request(
-        name=name, customer=customer, request_type=request_type, priority=priority, lines=lines
+        name=name,
+        customer=customer,
+        request_type=request_type,
+        priority=priority,
+        lines=lines,
+        details=details,
     )
 
 
 @frappe.whitelist()
 @handle_errors
-def save_request_draft(name=None, customer=None, request_type=None, priority=None, lines=None):
+def save_request_draft(
+    name=None, customer=None, request_type=None, priority=None, lines=None, details=None
+):
     return PortalService.save_draft(
-        name=name, customer=customer, request_type=request_type, priority=priority, lines=lines
+        name=name,
+        customer=customer,
+        request_type=request_type,
+        priority=priority,
+        lines=lines,
+        details=details,
     )
 
 
@@ -351,3 +371,33 @@ def get_service_state(
         managed_device=managed_device,
         customer=customer,
     )
+
+
+def _request_builder():
+    from nexgen_msp.api.portal.services.request_builder_service import RequestBuilderService
+
+    return RequestBuilderService
+
+
+@frappe.whitelist()
+@handle_errors
+def search_request_users(customer=None, search=None, limit=None):
+    return _request_builder().search_users(customer=customer, search=search, limit=limit)
+
+
+@frappe.whitelist()
+@handle_errors
+def get_request_subject_context(client_user=None):
+    return _request_builder().subject_context(client_user=client_user)
+
+
+@frappe.whitelist()
+@handle_errors
+def get_new_user_request_context(customer=None):
+    return _request_builder().new_user_context(customer=customer)
+
+
+@frappe.whitelist()
+@handle_errors
+def get_request_submission_context(customer=None):
+    return _request_builder().submission_context(customer=customer)

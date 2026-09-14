@@ -10,6 +10,7 @@ export const userKeys = {
   stats: () => [...userKeys.all, 'stats'] as const,
   list: (params: internal.UserListParams) => [...userKeys.all, 'list', params] as const,
   detail: (name: string) => [...userKeys.all, 'detail', name] as const,
+  availability: (name: string) => [...userKeys.all, 'availability', name] as const,
 };
 
 export type UserFilterState = {
@@ -144,6 +145,30 @@ export const useUserDetail = (name?: string) =>
     enabled: Boolean(name),
   });
 
+/** The requests a form may cite, asked for by that form rather than carried everywhere. */
+export const useCustomerRequests = (customer?: string | null) =>
+  useQuery({
+    queryKey: ['internal', 'requests', 'ofCustomer', customer] as const,
+    queryFn: ({ signal }) => internal.listCustomerRequests(customer as string, signal),
+    enabled: Boolean(customer),
+    staleTime: 60 * 1000,
+  });
+
+/** The past, fetched only when somebody opens it. */
+export const useUserHistory = (name?: string, enabled = true) =>
+  useQuery({
+    queryKey: [...userKeys.detail(name || ''), 'history'] as const,
+    queryFn: ({ signal }) => internal.getUserHistory(name as string, undefined, signal),
+    enabled: Boolean(name) && enabled,
+  });
+
+export const useUserServiceAvailability = (clientUser?: string) =>
+  useQuery({
+    queryKey: userKeys.availability(clientUser || ''),
+    queryFn: ({ signal }) => internal.userServiceAvailability(clientUser as string, signal),
+    enabled: Boolean(clientUser),
+  });
+
 const useUserMutation = <TVariables>(
   clientUser: string,
   mutationFn: (variables: TVariables) => Promise<internal.UserDetail>
@@ -156,9 +181,12 @@ const useUserMutation = <TVariables>(
       queryClient.setQueryData(userKeys.detail(clientUser), detail);
       queryClient.invalidateQueries({ queryKey: [...userKeys.all, 'list'] });
       queryClient.invalidateQueries({ queryKey: userKeys.stats() });
+      queryClient.invalidateQueries({ queryKey: [...userKeys.all, 'availability'] });
       queryClient.invalidateQueries({ queryKey: ['internal', 'dashboard'] });
       // a service change moves the machine's row too, wherever it is being watched from
       queryClient.invalidateQueries({ queryKey: ['internal', 'devices'] });
+      // the same action may have been launched from a request workflow
+      queryClient.invalidateQueries({ queryKey: ['internal', 'requests'] });
     },
   });
 };
@@ -197,6 +225,24 @@ export const useUpdateClientUser = () => {
 };
 
 
+const useStatusChange = <T,>(mutationFn: (payload: T) => Promise<internal.UserDetail>) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn,
+    onSuccess: (detail) => {
+      queryClient.setQueryData(userKeys.detail(detail.user.name), detail);
+      queryClient.invalidateQueries({ queryKey: [...userKeys.all, 'list'] });
+    },
+  });
+};
+
+export const useDisableClientUser = () => useStatusChange(internal.disableClientUser);
+
+export const useReactivateClientUser = () => useStatusChange(internal.reactivateClientUser);
+
+export const useStopAllServices = () => useStatusChange(internal.stopAllClientUserServices);
+
 export const useDeleteClientUser = () => {
   const queryClient = useQueryClient();
 
@@ -208,5 +254,4 @@ export const useDeleteClientUser = () => {
     },
   });
 };
-
 

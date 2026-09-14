@@ -12,6 +12,7 @@ export type ConfirmModalProps = {
   cancelLabel?: string;
   tone?: ConfirmTone;
   loading?: boolean;
+  error?: string | null;
   onConfirm: () => void;
   onCancel: () => void;
 };
@@ -48,6 +49,7 @@ const ConfirmModal: React.FC<ConfirmModalProps> = ({
   cancelLabel = 'Cancel',
   tone = 'danger',
   loading = false,
+  error,
   onConfirm,
   onCancel,
 }) => {
@@ -100,6 +102,11 @@ const ConfirmModal: React.FC<ConfirmModalProps> = ({
               </h2>
               {description && (
                 <p className="mt-1.5 text-sm leading-relaxed text-slate-500">{description}</p>
+              )}
+              {error && (
+                <p className="mt-3 whitespace-pre-line rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
+                  {error}
+                </p>
               )}
             </div>
           </div>

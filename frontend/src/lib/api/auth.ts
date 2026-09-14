@@ -2,7 +2,7 @@ import { post } from './client';
 
 /** Frappe already rate-limits this and answers the same way whether or not the account exists. */
 export const requestPasswordReset = (user: string) =>
-  post<string>('frappe.core.doctype.user.user.reset_password', { user });
+  post<{ ok: true }>('nexgen_msp.api.auth.endpoints.v1.request_password_reset', { user });
 
 export const updatePassword = (key: string, newPassword: string, logoutAllSessions = 1) =>
   post<string>('frappe.core.doctype.user.user.update_password', {

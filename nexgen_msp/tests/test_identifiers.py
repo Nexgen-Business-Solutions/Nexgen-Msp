@@ -75,52 +75,71 @@ class TestIdentifiersKeepTheirRules(MSPTestCase):
         self.assertEqual(frappe.db.get_value("MSP Managed Device", self.box_b, "serial_number"), "SN-NEW")
 
     # ------------------------------------------------ the customer, when raising
-    def test_the_customer_cannot_hand_a_person_a_colleagues_username(self):
-        with self.assertRaises(ValidationError):
-            self.as_user(
-                self.asker,
-                lambda: PortalService.create_request(
-                    customer=self.customer,
-                    request_type="Add",
-                    lines=[
-                        {
-                            "request_action": self.action(),
-                            "action": "Add",
-                            "target_scope": "User",
-                            "client_user": self.bob,
-                            "new_user_username": "taken",
-                            "requested_service": self.service,
-                        }
-                    ],
-                ),
-            )
+    def test_raising_a_request_writes_no_username_on_the_person(self):
+        """Asking for something is an intention: it changes nothing operational yet.
 
-        self.assertFalse(frappe.db.get_value("MSP Client User", self.bob, "username"))
+        Whatever the customer happens to know about an account name is carried on the line
+        for whoever does the work, and is only written to the person's record then.
+        """
+        person = self.make_person(self.customer, "Ursula")
+        service = self.make_service("IDU", scope="User")
+        self.cover_service(self.customer, service)
 
-    def test_the_customer_cannot_hand_a_machine_another_machines_serial(self):
-        with self.assertRaises(ValidationError):
-            self.as_user(
-                self.asker,
-                lambda: PortalService.create_request(
-                    customer=self.customer,
-                    request_type="Add",
-                    lines=[
-                        {
-                            "request_action": self.action(),
-                            "action": "Add",
-                            "target_scope": "Device",
-                            "managed_device": self.box_b,
-                            "new_device_serial": "SN-TAKEN",
-                            "requested_service": self.service,
-                        }
-                    ],
-                ),
-            )
+        out = self.as_user(
+            self.asker,
+            lambda: PortalService.create_request(
+                customer=self.customer,
+                request_type="Add",
+                lines=[
+                    {
+                        "request_action": self.action(),
+                        "action": "Add",
+                        "target_scope": "User",
+                        "client_user": person,
+                        "new_user_username": "taken",
+                        "requested_service": service,
+                    }
+                ],
+            ),
+        )
+        self.track("MSP Service Request", out["name"])
 
-        self.assertFalse(frappe.db.get_value("MSP Managed Device", self.box_b, "serial_number"))
+        self.assertFalse(frappe.db.get_value("MSP Client User", person, "username"))
 
-    # ------------------------------------------ the technician, when delivering
-    def test_the_technician_is_refused_a_duplicate_username_at_closure(self):
+    def test_raising_a_request_writes_no_serial_on_the_machine(self):
+        machine = self.make_device(self.customer, hostname="BOXID", serial=None)
+        service = self.make_service("IDD", scope="Device")
+        self.cover_service(self.customer, service)
+
+        out = self.as_user(
+            self.asker,
+            lambda: PortalService.create_request(
+                customer=self.customer,
+                request_type="Add",
+                lines=[
+                    {
+                        "request_action": self.action(),
+                        "action": "Add",
+                        "target_scope": "Device",
+                        "managed_device": machine,
+                        "new_device_serial": "SN-TAKEN",
+                        "requested_service": service,
+                    }
+                ],
+            ),
+        )
+        self.track("MSP Service Request", out["name"])
+
+        self.assertFalse(frappe.db.get_value("MSP Managed Device", machine, "serial_number"))
+
+    # ------------------------------------ the technician, while carrying the work out
+    def test_the_technician_is_refused_a_duplicate_username_while_activating(self):
+        """The account name is asked for on the card that opens the service, and checked there."""
+        from nexgen_msp.api.internal.services.request_execution_service import (
+            RequestExecutionService,
+        )
+
+        self.cover_service(self.customer, self.service)
         out = self.as_user(
             self.asker,
             lambda: PortalService.create_request(
@@ -139,13 +158,72 @@ class TestIdentifiersKeepTheirRules(MSPTestCase):
         )
         name = self.track("MSP Service Request", out["name"])
 
+        self.as_user(self.tech, lambda: RequestService.set_line_status(name, 1, "Approved"))
+        self.as_user(self.tech, lambda: RequestService.run_action(name, "approve"))
+        work = frappe.get_all(
+            "MSP Service Work Order", filters={"service_request": name}, pluck="name"
+        )[0]
+        self.track("MSP Service Work Order", work)
+
         with self.assertRaises(ValidationError):
             self.as_user(
-                self.tech, lambda: RequestService.set_delivery_detail(name, 1, username="taken")
+                self.tech,
+                lambda: RequestExecutionService.execute_service_action(
+                    work_order=work, username="taken"
+                ),
             )
 
-        self.as_user(self.tech, lambda: RequestService.set_delivery_detail(name, 1, username="b.bob"))
+        self.as_user(
+            self.tech,
+            lambda: RequestExecutionService.execute_service_action(
+                work_order=work, username="b.bob"
+            ),
+        )
+        self.track(
+            "MSP Service Assignment",
+            frappe.db.get_value("MSP Service Work Order", work, "resulting_assignment"),
+        )
+
         self.assertEqual(frappe.db.get_value("MSP Client User", self.bob, "username"), "b.bob")
+
+    def test_activating_a_user_service_is_refused_when_nobody_has_an_account_name(self):
+        from nexgen_msp.api.internal.services.request_execution_service import (
+            RequestExecutionService,
+        )
+
+        self.cover_service(self.customer, self.service)
+        out = self.as_user(
+            self.asker,
+            lambda: PortalService.create_request(
+                customer=self.customer,
+                request_type="Add",
+                lines=[
+                    {
+                        "request_action": self.action(),
+                        "action": "Add",
+                        "target_scope": "User",
+                        "client_user": self.bob,
+                        "requested_service": self.service,
+                    }
+                ],
+            ),
+        )
+        name = self.track("MSP Service Request", out["name"])
+
+        self.as_user(self.tech, lambda: RequestService.set_line_status(name, 1, "Approved"))
+        self.as_user(self.tech, lambda: RequestService.run_action(name, "approve"))
+        work = frappe.get_all(
+            "MSP Service Work Order", filters={"service_request": name}, pluck="name"
+        )[0]
+        self.track("MSP Service Work Order", work)
+
+        with self.assertRaises(ValidationError) as caught:
+            self.as_user(
+                self.tech,
+                lambda: RequestExecutionService.execute_service_action(work_order=work),
+            )
+
+        self.assertIn("username", str(caught.exception))
 
     def test_delivery_from_the_profile_asks_the_same_rules(self):
         with self.assertRaises(ValidationError):

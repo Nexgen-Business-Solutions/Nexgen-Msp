@@ -111,7 +111,11 @@ export default function PortalRequests() {
         rowCount={rows.length}
         isLoading={list.isLoading}
         error={list.error}
-        emptyLabel="No request matches these filters."
+        emptyLabel={
+          search || Object.values(filters).some(Boolean)
+            ? 'No request matches these filters.'
+            : 'No request yet.'
+        }
         showToolbar={false}
         start={start}
         pageLength={pageLength}
@@ -123,7 +127,7 @@ export default function PortalRequests() {
           setStart(0);
         }}
         action={
-          rights.data?.can_submit === false
+          rights.data?.can_submit !== true
             ? undefined
             : { label: 'New request', icon: FilePlus2, onClick: () => navigate('/msp/requests/new') }
         }

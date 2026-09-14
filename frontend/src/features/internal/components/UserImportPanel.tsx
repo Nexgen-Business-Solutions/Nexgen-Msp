@@ -268,7 +268,6 @@ const UserImportPanel: React.FC = () => {
                   <Th>Company in file</Th>
                   <Th>Customer id</Th>
                   <Th>Create if missing</Th>
-                  <Th>Department prefix</Th>
                   <Th />
                 </tr>
               </thead>
@@ -311,17 +310,6 @@ const UserImportPanel: React.FC = () => {
                       />
                     </td>
                     <td className="px-3 py-2">
-                      <input
-                        type="text"
-                        value={row.department_prefix ?? ''}
-                        placeholder="For a sub-account"
-                        onChange={(event) =>
-                          patchCustomer(index, { department_prefix: event.target.value })
-                        }
-                        className={inputClass}
-                      />
-                    </td>
-                    <td className="px-3 py-2">
                       <button
                         type="button"
                         onClick={() => {
@@ -344,7 +332,7 @@ const UserImportPanel: React.FC = () => {
             onClick={() => {
               setCustomers((rows) => [
                 ...rows,
-                { excel_label: '', customer_id: '', create_as: '', department_prefix: '' },
+                { excel_label: '', customer_id: '', create_as: '' },
               ]);
               setDirty(true);
             }}

@@ -19,6 +19,7 @@
   "column_break_requester",
   "requester_contact",
   "section_lines",
+  "details",
   "lines",
   "section_approval",
   "refused_by_customer",
@@ -117,17 +118,17 @@
    "label": "Approval"
   },
   {
+   "default": "0",
    "fieldname": "refused_by_customer",
    "fieldtype": "Check",
    "label": "Refused By Customer",
-   "read_only": 1,
-   "default": "0"
+   "read_only": 1
   },
   {
    "fieldname": "customer_approved_by",
    "fieldtype": "Link",
-   "options": "User",
    "label": "Customer Approved By",
+   "options": "User",
    "read_only": 1
   },
   {
@@ -190,29 +191,22 @@
    "label": "Disputed Billing Run",
    "options": "MSP Billing Run",
    "read_only": 1
+  },
+  {
+   "fieldname": "details",
+   "fieldtype": "Small Text",
+   "label": "Details"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-08-17 14:11:53.350767",
+ "modified": "2026-09-13 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nexgen MSP",
  "name": "MSP Service Request",
  "owner": "Administrator",
  "permissions": [
-  {
-   "create": 1,
-   "delete": 1,
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "System Manager",
-   "share": 1,
-   "write": 1
-  },
   {
    "create": 1,
    "delete": 1,
@@ -234,30 +228,6 @@
    "read": 1,
    "report": 1,
    "role": "MSP Technician",
-   "share": 1,
-   "write": 1
-  },
-  {
-   "create": 1,
-   "delete": 1,
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "MSP Customer Manager",
-   "share": 1,
-   "write": 1
-  },
-  {
-   "create": 1,
-   "delete": 1,
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "MSP Customer Operator",
    "share": 1,
    "write": 1
   }

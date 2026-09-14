@@ -21,7 +21,6 @@ const asPersonLine = (line: PortalRequestLine): PersonLine => {
     username: isNewUser ? line.new_user_username : line.username,
     department: line.department,
     email: line.new_user_email,
-    needsPortalAccess: Boolean(line.needs_portal_access),
     action: line.action,
     actionLabel: line.action_label,
     service: line.service_name,
@@ -94,10 +93,16 @@ export default function PortalRequestDetail() {
           {data.lines.length > 1 ? 's' : ''}
         </p>
 
+        {data.details && (
+          <p className="mt-3 whitespace-pre-line rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
+            {data.details}
+          </p>
+        )}
+
         {data.rejection_reason && (
           <div className="mt-4 rounded-lg border border-red-100 bg-red-50 p-3.5">
             <p className="text-xs font-semibold uppercase tracking-wider text-red-700">
-              Nexgen's answer
+              {data.refused_by_customer ? 'Refused by your company' : "Nexgen's answer"}
             </p>
             <p className="mt-1.5 text-sm text-red-800">{data.rejection_reason}</p>
           </div>

@@ -50,6 +50,36 @@ def record_username(client_user, username, overwrite=False):
     return True
 
 
+def require_username(client_user, username=None):
+    """A personal service is issued against the username the person uses on it."""
+    held = (frappe.db.get_value("MSP Client User", client_user, "username") or "").strip()
+    given = (username or "").strip()
+
+    if not held and not given:
+        raise ValidationError(
+            "This service needs the username the person uses on it, and none is recorded yet.",
+            "VALIDATION_ERROR",
+        )
+
+    if given and given != held:
+        record_username(client_user, given, overwrite=True)
+
+
+def require_serial(device, serial_number=None):
+    """A machine service is issued against the serial engraved on the machine."""
+    held = (frappe.db.get_value("MSP Managed Device", device, "serial_number") or "").strip()
+    given = (serial_number or "").strip()
+
+    if not held and not given:
+        raise ValidationError(
+            "This service runs on a machine, and this one has no serial number yet.",
+            "VALIDATION_ERROR",
+        )
+
+    if given and given != held:
+        record_serial(device, given, overwrite=True)
+
+
 def _ask(rule):
     try:
         rule()

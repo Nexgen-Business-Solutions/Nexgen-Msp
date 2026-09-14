@@ -24,8 +24,12 @@ const formatAge = (hours: number) => {
   return `${Math.floor(hours / 24)}d`;
 };
 
-const openPath = (row: { name: string; billing_run: string | null }) =>
-  row.billing_run ? `/msp/billing/${row.billing_run}` : `/msp/requests/${row.name}`;
+const openPath = (row: { name: string; billing_run: string | null; status?: string }) =>
+  row.billing_run
+    ? `/msp/billing/${row.billing_run}`
+    : row.status === 'Draft'
+      ? `/msp/requests/new?draft=${encodeURIComponent(row.name)}`
+      : `/msp/requests/${row.name}`;
 
 export default function RequestsList() {
   const navigate = useNavigate();
@@ -166,10 +170,9 @@ export default function RequestsList() {
               { value: 'all', label: 'Everything' },
               { value: 'open', label: 'Open only', description: 'Still awaiting a decision' },
               { value: 'closed', label: 'Closed only', description: 'Already decided' },
-              { value: 'mine', label: 'Assigned to me', description: 'Open and mine' },
               { value: 'attention', label: 'Urgent or high', description: 'Open, needing attention first' },
               { value: 'ageing', label: 'Ageing over 48h', description: 'Open for more than two days' },
-              { value: 'to_execute', label: 'To execute', description: 'Approved work with no assignment yet' },
+              { value: 'to_execute', label: 'To execute', description: 'Approved work still to complete' },
             ],
           },
         ]}

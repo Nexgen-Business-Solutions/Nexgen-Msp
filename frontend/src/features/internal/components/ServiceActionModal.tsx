@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { AlertCircle, CircleX, PauseCircle, PlayCircle } from 'lucide-react';
+import { AlertCircle, CircleX, PauseCircle, PencilLine, PlayCircle } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
 import FieldLabel from '@/shared/components/FieldLabel';
+import Select from '@/shared/components/Select';
 import type { CustomerRequestRef, UserServiceRow } from '@/lib/api/internal';
 import RequestReferenceField from './RequestReferenceField';
-import { useChangeService } from '../hooks/useUsers';
+import { useChangeService, useUserServiceAvailability } from '../hooks/useUsers';
+import { useDeviceServiceAvailability } from '../hooks/useDevices';
 
-export type ServiceAction = 'Suspend' | 'Resume' | 'End';
+export type ServiceAction = 'Suspend' | 'Resume' | 'End' | 'Change';
 
 type Props = {
   clientUser: string;
@@ -21,35 +23,53 @@ const COPY: Record<
   {
     title: string;
     subtitle: string;
+    hint: string;
     confirm: string;
     tone: string;
     icon: typeof CircleX;
     modalTone: 'amber' | 'blue' | 'red';
+    dateLabel: string;
   }
 > = {
   Suspend: {
     title: 'Suspend this service',
     subtitle: 'Billing goes on hold. The service can be resumed later.',
+    hint: 'Billing is paused from the day the service is suspended.',
     confirm: 'Suspend',
     tone: 'bg-amber-600 hover:bg-amber-700',
     icon: PauseCircle,
     modalTone: 'amber',
+    dateLabel: 'Suspend from',
   },
   Resume: {
     title: 'Resume this service',
     subtitle: 'The service becomes active and billable again.',
+    hint: 'Billing resumes from the day the service comes back.',
     confirm: 'Resume',
     tone: 'bg-blue-600 hover:bg-blue-700',
     icon: PlayCircle,
     modalTone: 'blue',
+    dateLabel: 'Resume on',
+  },
+  Change: {
+    title: 'Change this service',
+    subtitle: 'The current period closes the day before, and the new terms start on the date you choose.',
+    hint: 'Move the person or the machine onto another service.',
+    confirm: 'Change service',
+    tone: 'bg-blue-600 hover:bg-blue-700',
+    icon: PencilLine,
+    modalTone: 'blue',
+    dateLabel: 'New terms from',
   },
   End: {
-    title: 'End this service',
+    title: 'Close this service',
     subtitle: 'The assignment is closed on the date you choose. History is kept.',
-    confirm: 'End service',
+    hint: 'This service will remain in history. Re-adding it later creates a new service period.',
+    confirm: 'Close service',
     tone: 'bg-red-600 hover:bg-red-700',
     icon: CircleX,
     modalTone: 'red',
+    dateLabel: 'Close on',
   },
 };
 
@@ -67,15 +87,23 @@ const ServiceActionModal: React.FC<Props> = ({
   onClose,
 }) => {
   const change = useChangeService(clientUser);
-  const [endDate, setEndDate] = useState(today());
+  const [actionDate, setActionDate] = useState(today());
   const [notes, setNotes] = useState('');
   const [sourceRequest, setSourceRequest] = useState('');
+  const [replacement, setReplacement] = useState('');
+
+  const changing = target?.action === 'Change';
+  const onDevice = target?.row.assignment_scope === 'Device';
+  const userOffers = useUserServiceAvailability(changing && !onDevice ? clientUser : undefined);
+  const deviceOffers = useDeviceServiceAvailability(changing && onDevice ? target?.row.managed_device : null);
+  const offers = (onDevice ? deviceOffers.data : userOffers.data)?.available ?? [];
 
   useEffect(() => {
     if (!target) return;
-    setEndDate(today());
+    setActionDate(today());
     setNotes('');
     setSourceRequest(defaultRequest ?? '');
+    setReplacement('');
     change.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target]);
@@ -83,15 +111,19 @@ const ServiceActionModal: React.FC<Props> = ({
   if (!target) return null;
 
   const copy = COPY[target.action];
+  const billedTo = target.row.last_billed_on?.slice(0, 10) ?? null;
+  // closing behind what was already invoiced is allowed; the invoice itself stays as it is
+  const closesBilledDays = target.action === 'End' && Boolean(billedTo) && actionDate <= (billedTo ?? '');
 
   const submit = async () => {
     try {
       await change.mutateAsync({
         assignment: target.row.name,
         action: target.action,
-        effective_date: target.action === 'End' ? endDate : undefined,
+        effective_date: actionDate,
         notes: notes.trim() || undefined,
         source_request: sourceRequest || undefined,
+        service_item: changing && replacement ? replacement : undefined,
       });
       onClose();
     } catch {
@@ -119,8 +151,8 @@ const ServiceActionModal: React.FC<Props> = ({
           </button>
           <button
             type="button"
-            onClick={submit}
-            disabled={change.isLoading}
+            onClick={() => submit()}
+            disabled={change.isLoading || (changing && !replacement)}
             className={`flex min-w-[7rem] items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${copy.tone}`}
           >
             {change.isLoading ? (
@@ -139,16 +171,55 @@ const ServiceActionModal: React.FC<Props> = ({
             {target.row.hostname ? `${target.row.hostname} · ` : ''}
             open since {(target.row.effective_start_date ?? 'N/A').slice(0, 10)}
           </p>
+          {target.row.device_serial_number && (
+            <p className="mt-1 text-xs text-slate-500">Serial: {target.row.device_serial_number}</p>
+          )}
+          {target.row.device_user_name && (
+            <p className="mt-1 text-xs text-slate-500">Current holder: {target.row.device_user_name}</p>
+          )}
         </div>
 
-        {target.action === 'End' && (
+        <div>
+          <FieldLabel required>{copy.dateLabel}</FieldLabel>
+          <input
+            type="date"
+            value={actionDate}
+            onChange={(event) => setActionDate(event.target.value)}
+            className={inputClass}
+          />
+        </div>
+
+        <p className="text-xs leading-relaxed text-slate-500">{copy.hint}</p>
+
+        {target.action === 'End' && billedTo && (
+          <div
+            className={`rounded-lg border p-3 text-sm ${
+              closesBilledDays
+                ? 'border-amber-200 bg-amber-50 text-amber-900'
+                : 'border-slate-200 bg-slate-50 text-slate-600'
+            }`}
+          >
+            <p className="font-medium">Invoiced up to {billedTo}.</p>
+            {closesBilledDays ? (
+              <p className="mt-1">
+                Closing it on {actionDate} is accepted. The invoice already issued stays as it
+                is and no credit note is created.
+              </p>
+            ) : (
+              <p className="mt-1">Nothing after {billedTo} has been invoiced yet.</p>
+            )}
+          </div>
+        )}
+
+        {changing && (
           <div>
-            <FieldLabel required>End date</FieldLabel>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(event) => setEndDate(event.target.value)}
-              className={inputClass}
+            <FieldLabel required>New service</FieldLabel>
+            <Select
+              className="w-full"
+              value={replacement}
+              onChange={setReplacement}
+              placeholder="Select the service that replaces it"
+              options={offers.map((offer) => ({ value: offer.service_item, label: offer.item_name }))}
             />
           </div>
         )}

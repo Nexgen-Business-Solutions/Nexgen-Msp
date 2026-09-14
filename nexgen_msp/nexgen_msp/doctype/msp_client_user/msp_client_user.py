@@ -14,6 +14,7 @@ class MSPClientUser(Document):
 		self.normalize_full_name()
 		self.validate_lifecycle_dates()
 		self.validate_unique_username()
+		self.validate_department()
 
 	def on_trash(self):
 		self.prevent_delete_with_history()
@@ -50,6 +51,24 @@ class MSPClientUser(Document):
 				_("Username {0} already exists for customer {1} on {2}.").format(
 					frappe.bold(self.username), frappe.bold(self.customer), duplicate
 				)
+			)
+
+	def validate_department(self):
+		"""A new choice comes from the live catalogue; a department already borne is kept.
+
+		A request approved last month named a department that has since been retired. That
+		is not a reason to refuse the person it asked for: the choice was valid when it was
+		made, and whoever carries the work out is told so rather than blocked.
+		"""
+		from nexgen_msp.api.internal.services.department_service import DepartmentService
+
+		if self.department:
+			previous = self.get_doc_before_save()
+			unchanged = bool(previous and previous.customer == self.customer and
+				DepartmentService._normalized(previous.department) == DepartmentService._normalized(self.department))
+			settled = bool(self.flags.department_already_agreed)
+			self.department = DepartmentService.validate_department(
+				self.department, allow_disabled=unchanged or settled
 			)
 
 	def prevent_delete_with_history(self):

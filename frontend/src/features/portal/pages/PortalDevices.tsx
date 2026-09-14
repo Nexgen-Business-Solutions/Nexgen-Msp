@@ -230,8 +230,14 @@ export default function PortalDevices() {
                     {
                       label: 'Raise a request for this machine',
                       icon: FilePlus2,
+                      // a request is about a person: whoever holds the machine, or somebody
+                      // new when nobody does — and the first step lets that be changed
                       onClick: () =>
-                        navigate(`/msp/requests/new?device=${encodeURIComponent(row.name)}`),
+                        navigate(
+                          row.assigned_client_user
+                            ? `/msp/requests/new?client_user=${encodeURIComponent(row.assigned_client_user)}`
+                            : '/msp/requests/new?new_user=1'
+                        ),
                     },
                         ]
                       : []),

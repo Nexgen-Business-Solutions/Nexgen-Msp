@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Building2, CircleAlert, Coins, Eye, FileCheck2, Layers } from 'lucide-react';
+import { Building2, CircleAlert, Coins, Eye, FileCheck2, Layers, Plus } from 'lucide-react';
 import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
 import KpiCard from '@/shared/components/KpiCard';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import StatusBadge from '@/shared/components/StatusBadge';
 import { useContractList } from '../hooks/useContracts';
+import CustomerModal from '../components/CustomerModal';
 
 const COLUMNS = ['Customer', 'Contract', 'Frequency', 'Billable services', 'Rates set', 'Last billed', 'Status', ''];
 
@@ -18,6 +19,7 @@ export default function CustomersList() {
   const [filters, setFilters] = useState<FilterState>({ contract_status: '', priced: '', focus: '' });
   const [search, setSearch] = useState('');
   const [liveOnly, setLiveOnly] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   const all = useMemo(() => data ?? [], [data]);
 
@@ -91,6 +93,17 @@ export default function CustomersList() {
           loading={isLoading}
         onView={() => setFilters({ contract_status: '', priced: 'incomplete', focus: '' })}
         />
+      </div>
+
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => setCreating(true)}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
+        >
+          <Plus size={15} />
+          New customer
+        </button>
       </div>
 
       <FilterBar
@@ -184,6 +197,17 @@ export default function CustomersList() {
                 </tr>
               )}
 
+              {!error && !isLoading && rows.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={COLUMNS.length}
+                    className="px-4 py-12 text-center text-sm text-slate-500"
+                  >
+                    No company matches these filters.
+                  </td>
+                </tr>
+              )}
+
               {!error &&
                 !isLoading &&
                 rows.map((row) => {
@@ -269,6 +293,14 @@ export default function CustomersList() {
           </table>
         </div>
       </div>
+
+      <CustomerModal
+        open={creating}
+        customer=""
+        details={null}
+        onClose={() => setCreating(false)}
+        onCreated={(customer) => navigate(`/msp/customers/${encodeURIComponent(customer)}`)}
+      />
     </div>
   );
 }

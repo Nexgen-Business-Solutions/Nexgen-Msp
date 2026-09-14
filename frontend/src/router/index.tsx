@@ -174,6 +174,14 @@ export const router = createBrowserRouter([
         ),
       },
       {
+        path: 'customers/:customer/contract',
+        element: (
+          <AdminGuard>
+            <CustomerContract />
+          </AdminGuard>
+        ),
+      },
+      {
         path: 'billing',
         element: (
           <AdminGuard>

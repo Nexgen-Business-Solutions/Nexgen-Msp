@@ -41,3 +41,13 @@ def complete_login(pending_token=None, otp=None, username=None):
     return AuthService.complete_login(
         pending_token=pending_token, otp=otp, username=username
     )
+
+
+@frappe.whitelist(allow_guest=True, methods=["POST"])
+@request_rate_limit(limit=30, seconds=3600, scope="password_reset_ip")
+@request_rate_limit(key="user", limit=5, seconds=3600, scope="password_reset")
+@handle_errors
+def request_password_reset(user=None):
+    """Send the reset link, or say plainly that no such account exists."""
+    return AuthService.request_password_reset(user=user)
+

@@ -1,21 +1,25 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, UserPen } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
 import FieldLabel from '@/shared/components/FieldLabel';
+import Select from '@/shared/components/Select';
 import type { UserDetail } from '@/lib/api/internal';
 import { useUpdateClientUser } from '../hooks/useUsers';
+import { useDepartmentOptions } from '../hooks/useSettings';
 
 type Props = {
   open: boolean;
   user: UserDetail['user'] | null;
   onClose: () => void;
+  onDone?: () => void;
 };
 
 const inputClass =
   'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
 
-const EditClientUserModal: React.FC<Props> = ({ open, user, onClose }) => {
+const EditClientUserModal: React.FC<Props> = ({ open, user, onClose, onDone }) => {
   const save = useUpdateClientUser();
+  const departmentOptions = useDepartmentOptions(user?.customer ?? null);
 
   const [fullName, setFullName] = useState('');
   const [department, setDepartment] = useState('');
@@ -23,6 +27,14 @@ const EditClientUserModal: React.FC<Props> = ({ open, user, onClose }) => {
   const [username, setUsername] = useState('');
   const [startDate, setStartDate] = useState('');
   const [remarks, setRemarks] = useState('');
+  const departmentChoices = useMemo(() => {
+    const active = departmentOptions.data ?? [];
+    if (!department || active.some((option) => option.value === department)) return active;
+    return [
+      { value: department, label: `${department} (unavailable)`, description: 'Kept for this existing user' },
+      ...active,
+    ];
+  }, [department, departmentOptions.data]);
 
   useEffect(() => {
     if (!open || !user) return;
@@ -48,6 +60,7 @@ const EditClientUserModal: React.FC<Props> = ({ open, user, onClose }) => {
         remarks,
       });
       onClose();
+      onDone?.();
     } catch {
       // surfaced below
     }
@@ -99,12 +112,19 @@ const EditClientUserModal: React.FC<Props> = ({ open, user, onClose }) => {
           </div>
           <div>
             <FieldLabel>Department</FieldLabel>
-            <input
-              type="text"
+            <Select
+              className="w-full"
               value={department}
-              onChange={(event) => setDepartment(event.target.value)}
-              className={inputClass}
+              onChange={setDepartment}
+              placeholder="Select department"
+              options={departmentChoices}
             />
+            {departmentOptions.isLoading && (
+              <p className="mt-1.5 text-xs text-slate-500">Loading departments…</p>
+            )}
+            {departmentOptions.error instanceof Error && (
+              <p className="mt-1.5 text-xs text-red-600">{departmentOptions.error.message}</p>
+            )}
           </div>
           <div>
             <FieldLabel>Email</FieldLabel>
@@ -151,8 +171,8 @@ const EditClientUserModal: React.FC<Props> = ({ open, user, onClose }) => {
         </div>
 
         <p className="text-sm text-slate-500">
-          Their company and their status are not editable here: moving someone would orphan
-          their services, and the status follows the services themselves.
+          Their company is not editable here: moving someone would orphan their services. To
+          record that they left, use Disable on their page.
         </p>
 
         {save.error instanceof Error && (

@@ -1,0 +1,65 @@
+{
+ "actions": [],
+ "creation": "2026-09-11 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "suspended_on",
+  "resumed_on",
+  "suspended_by",
+  "resumed_by",
+  "source_request",
+  "note"
+ ],
+ "fields": [
+  {
+   "fieldname": "suspended_on",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Suspended On",
+   "reqd": 1
+  },
+  {
+   "fieldname": "resumed_on",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Resumed On"
+  },
+  {
+   "fieldname": "suspended_by",
+   "fieldtype": "Link",
+   "label": "Suspended By",
+   "options": "User"
+  },
+  {
+   "fieldname": "resumed_by",
+   "fieldtype": "Link",
+   "label": "Resumed By",
+   "options": "User"
+  },
+  {
+   "fieldname": "source_request",
+   "fieldtype": "Link",
+   "label": "Source Request",
+   "options": "MSP Service Request"
+  },
+  {
+   "fieldname": "note",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Note"
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-11 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nexgen MSP",
+ "name": "MSP Service Suspension",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -12,7 +12,6 @@ export type PersonLine = {
   username: string | null;
   department: string | null;
   email: string | null;
-  needsPortalAccess: boolean;
   action: string;
   actionLabel: string | null;
   service: string;
@@ -95,7 +94,6 @@ export default function RequestLinesByPerson({
         const { first } = group;
         // a machine nobody holds is a card of its own, named after the machine
         const machineOnly = !first.personName && !first.isNewUser && first.onDevice;
-        const wantsPortal = group.lines.some((line) => line.needsPortalAccess);
 
         // what every service of this person has in common is said once, up top
         const action = shared(group.lines, (line) => line.actionLabel || line.action);
@@ -118,7 +116,6 @@ export default function RequestLinesByPerson({
                       {first.isNewUser ? 'New user' : 'Existing user'}
                     </Tag>
                   )}
-                  {wantsPortal && <Tag>Portal access</Tag>}
                 </p>
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
                   {!machineOnly && <Fact label="Username" value={first.username} />}

@@ -8,8 +8,10 @@ import {
 } from 'lucide-react';
 import { FrappeError } from '@/lib/api/client';
 import { completeLogin, preLogin } from '@/lib/api/auth2fa';
+import { mayEnterApplication } from '@/lib/api/session';
 import { AppLogo } from '@/shared/components/appLogo';
 import { useSession } from '@/shared/hooks/useSession';
+import { safeMspRedirect } from '../authRedirect';
 import TwoFactorChallenge from '../components/TwoFactorChallenge';
 import TwoFactorSetup from '../components/TwoFactorSetup';
 
@@ -50,13 +52,12 @@ export default function LoginScreen() {
   const [step, setStep] = useState<'credentials' | 'code' | 'setup'>('credentials');
   const [notice, setNotice] = useState('');
 
-  if (session.data?.authenticated) return <Navigate to="/msp" replace />;
+  if (mayEnterApplication(session.data)) return <Navigate to="/msp" replace />;
 
   const params = new URLSearchParams(location.search);
-  const from =
-    params.get('redirect-to') ||
-    (location.state as { from?: string } | null)?.from ||
-    '/msp';
+  const from = safeMspRedirect(
+    params.get('redirect-to') || (location.state as { from?: string } | null)?.from
+  );
 
   const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = event.target;

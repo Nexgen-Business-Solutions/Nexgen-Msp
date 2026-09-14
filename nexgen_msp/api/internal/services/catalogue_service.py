@@ -69,7 +69,7 @@ class CatalogueService:
             values["search"] = f"%{search}%"
 
         if scope:
-            conditions.append("ifnull(item.msp_service_scope, 'User') = %(scope)s")
+            conditions.append("ifnull(item.msp_service_scope, 'Both') = %(scope)s")
             values["scope"] = scope
 
         if status == "active":

@@ -25,6 +25,8 @@
   "effective_start_date",
   "column_break_period",
   "effective_end_date",
+  "section_suspension",
+  "suspension_log",
   "section_pricing",
   "price_source",
   "agreed_rate",
@@ -95,6 +97,7 @@
    "in_standard_filter": 1,
    "label": "Billing Status",
    "options": "Not Billable\nPending\nBillable\nOn Hold\nEnded",
+   "read_only": 1,
    "reqd": 1
   },
   {
@@ -175,6 +178,17 @@
    "mandatory_depends_on": "eval:doc.operational_status==\"Ended\""
   },
   {
+   "fieldname": "section_suspension",
+   "fieldtype": "Section Break",
+   "label": "Suspension History"
+  },
+  {
+   "fieldname": "suspension_log",
+   "fieldtype": "Table",
+   "label": "Suspension Log",
+   "options": "MSP Service Suspension"
+  },
+  {
    "fieldname": "section_pricing",
    "fieldtype": "Section Break",
    "label": "Pricing"
@@ -184,7 +198,7 @@
    "fieldname": "price_source",
    "fieldtype": "Select",
    "label": "Price Source",
-   "options": "Contract\nItem Price\nManual Override",
+   "options": "Contract\nItem Price\nManual Override\nUnpriced",
    "reqd": 1
   },
   {
@@ -296,18 +310,6 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "System Manager",
-   "share": 1,
-   "write": 1
-  },
-  {
-   "create": 1,
-   "delete": 1,
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
    "role": "MSP System Admin",
    "share": 1,
    "write": 1
@@ -321,30 +323,6 @@
    "read": 1,
    "report": 1,
    "role": "MSP Technician",
-   "share": 1,
-   "write": 1
-  },
-  {
-   "create": 1,
-   "delete": 1,
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "MSP Customer Manager",
-   "share": 1,
-   "write": 1
-  },
-  {
-   "create": 1,
-   "delete": 1,
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "MSP Customer Operator",
    "share": 1,
    "write": 1
   }

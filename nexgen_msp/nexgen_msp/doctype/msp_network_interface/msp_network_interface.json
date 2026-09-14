@@ -15,10 +15,9 @@
   {
    "columns": 2,
    "fieldname": "interface_type",
-   "fieldtype": "Select",
+   "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Interface Type",
-   "options": "Wi-Fi\nLAN\nExtra\nOther",
+   "label": "Interface",
    "reqd": 1
   },
   {

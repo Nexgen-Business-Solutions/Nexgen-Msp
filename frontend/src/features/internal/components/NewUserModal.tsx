@@ -5,6 +5,7 @@ import FieldLabel from '@/shared/components/FieldLabel';
 import Select from '@/shared/components/Select';
 import { useCreateClientUser } from '../hooks/useRequests';
 import { useUserFilterOptions } from '../hooks/useUsers';
+import { useDepartmentOptions } from '../hooks/useSettings';
 
 type Props = { open: boolean; onClose: () => void; onCreated: (clientUser: string) => void };
 
@@ -18,6 +19,8 @@ const NewUserModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
   const create = useCreateClientUser();
 
   const [customer, setCustomer] = useState('');
+  // the shared departments and the chosen customer's own
+  const departmentOptions = useDepartmentOptions(customer || null);
   const [fullName, setFullName] = useState('');
   const [department, setDepartment] = useState('');
   const [email, setEmail] = useState('');
@@ -93,7 +96,11 @@ const NewUserModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
               searchable
               className="w-full"
               value={customer}
-              onChange={setCustomer}
+              onChange={(value) => {
+                // a department of the previous customer is not one this one offers
+                setCustomer(value);
+                setDepartment('');
+              }}
               placeholder="Select a customer"
               options={(options.data?.customers ?? []).map((item) => ({
                 value: item,
@@ -113,12 +120,12 @@ const NewUserModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
           </div>
           <div>
             <FieldLabel>Department</FieldLabel>
-            <input
-              type="text"
+            <Select
+              className="w-full"
               value={department}
-              onChange={(event) => setDepartment(event.target.value)}
-              placeholder="Accounting"
-              className={inputClass}
+              onChange={setDepartment}
+              placeholder="Select department"
+              options={departmentOptions.data ?? []}
             />
           </div>
           <div>
@@ -140,7 +147,7 @@ const NewUserModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
               className={inputClass}
             />
             <p className="mt-1 text-xs text-slate-400">
-              The account name a licence is issued against. It can be filled in later, when the
+              The username the person uses on their services. It can be filled in later, when the
               service is delivered.
             </p>
           </div>

@@ -10,6 +10,7 @@ class MSPApprovalAuthority(Document):
 		self.stamp_names()
 		self.validate_accounts_belong_here()
 		self.validate_no_duplicates()
+		self.validate_departments()
 
 	def stamp_names(self):
 		for row in self.approvers:
@@ -50,3 +51,20 @@ class MSPApprovalAuthority(Document):
 				)
 
 			seen.add(row.user)
+
+	def validate_departments(self):
+		"""An approver limited to a department must be limited to one that actually exists.
+
+		The authority scoping is the customer's own concern; only the department itself is
+		global, so this is the one place its catalogue is checked from here.
+		"""
+		from nexgen_msp.api.internal.services.department_service import DepartmentService
+
+		previous = self.get_doc_before_save()
+		old_rows = {row.name: row for row in previous.approvers} if previous and previous.customer == self.customer else {}
+		for row in self.approvers:
+			if row.department:
+				old = old_rows.get(row.name)
+				unchanged = bool(old and old.user == row.user and
+					DepartmentService._normalized(old.department) == DepartmentService._normalized(row.department))
+				row.department = DepartmentService.validate_department(row.department, allow_disabled=unchanged)

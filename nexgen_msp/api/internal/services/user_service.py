@@ -9,7 +9,6 @@ from nexgen_msp.utils.meta import select_options
 
 from nexgen_msp.api.internal.services.request_service import (
     ADMIN_ROLES,
-    CUSTOMER_STATUS,
     RequestService,
 )
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
@@ -20,8 +19,53 @@ LIFECYCLE_STATUSES = ("Pending", "Active", "Disabled", "Archived")
 
 MAX_PAGE_LENGTH = 200
 
-COVERAGE_FILTERS = ("no_device", "no_service", "disabled_with_services")
+COVERAGE_FILTERS = (
+    "no_device",
+    "no_personal_service",
+    "no_service",
+    "disabled_with_services",
+    "open_requests",
+    "needs_attention",
+)
 
+# what the 360 view flags, said once in SQL so the register and the page agree
+NEEDS_ATTENTION = """(
+    exists (
+        select 1 from `tabMSP Managed Device` device
+        where device.assigned_client_user = cu.name
+          and ifnull(device.serial_number, '') = ''
+    )
+    or (
+        cu.lifecycle_status in ('Disabled', 'Archived')
+        and (
+            exists (
+                select 1 from `tabMSP Service Assignment` sa
+                where sa.client_user = cu.name and sa.operational_status in %(open)s
+            )
+            or exists (
+                select 1 from `tabMSP Managed Device` device
+                where device.assigned_client_user = cu.name
+            )
+        )
+    )
+    or (
+        ifnull(cu.username, '') = ''
+        and exists (
+            select 1 from `tabMSP Service Assignment` sa
+            where sa.client_user = cu.name and sa.assignment_scope = 'User'
+              and sa.operational_status in %(open)s
+        )
+    )
+)"""
+
+# a request still waiting inside the customer's own company has not reached us
+OPEN_REQUEST_FOR = """exists (
+    select 1
+    from `tabMSP Service Request Line` srl
+    join `tabMSP Service Request` sr on sr.name = srl.parent
+    where (srl.client_user = cu.name or srl.requested_for_user = cu.name)
+      and sr.status in ('Submitted', 'Under Review', 'Approved', 'In Progress')
+)"""
 
 class UserService:
     @staticmethod
@@ -177,6 +221,19 @@ class UserService:
                       )
                 )"""
             )
+        elif coverage == "no_personal_service":
+            conditions.append("cu.lifecycle_status = 'Active'")
+            conditions.append(
+                """not exists (
+                    select 1 from `tabMSP Service Assignment` sa
+                    where sa.client_user = cu.name and sa.assignment_scope = 'User'
+                      and sa.operational_status in %(open)s
+                )"""
+            )
+        elif coverage == "open_requests":
+            conditions.append(OPEN_REQUEST_FOR)
+        elif coverage == "needs_attention":
+            conditions.append(NEEDS_ATTENTION)
         elif coverage == "disabled_with_services":
             conditions.append("cu.lifecycle_status in ('Disabled', 'Archived')")
             conditions.append(
@@ -231,6 +288,7 @@ class UserService:
         )
 
         total = frappe.db.sql(f"select count(*) from `tabMSP Client User` cu {where}", params)[0][0]
+        attention = NEEDS_ATTENTION
 
         rows = frappe.db.sql(
             f"""
@@ -260,6 +318,23 @@ class UserService:
                     where sa.operational_status = 'Active'
                       and (sa.client_user = cu.name or sad.assigned_client_user = cu.name))
                     as active_services,
+                -- theirs, and their machines': counted apart, because they are owned apart
+                (select count(*) from `tabMSP Service Assignment` sa
+                    where sa.client_user = cu.name and sa.assignment_scope = 'User'
+                      and sa.operational_status in %(open)s) as personal_services,
+                (select count(*) from `tabMSP Service Assignment` sa
+                    join `tabMSP Managed Device` sad on sad.name = sa.managed_device
+                    where sad.assigned_client_user = cu.name and sa.assignment_scope = 'Device'
+                      and sa.operational_status in %(open)s) as device_services,
+                (select count(*) from `tabMSP Managed Device` device
+                    where device.assigned_client_user = cu.name) as current_devices,
+                (select count(distinct sr.name)
+                    from `tabMSP Service Request Line` srl
+                    join `tabMSP Service Request` sr on sr.name = srl.parent
+                    where (srl.client_user = cu.name or srl.requested_for_user = cu.name)
+                      and sr.status in ('Submitted', 'Under Review', 'Approved', 'In Progress'))
+                    as open_requests,
+                {attention} as needs_attention,
                 (select count(*) from `tabMSP Service Assignment` sa
                     left join `tabMSP Managed Device` sad on sad.name = sa.managed_device
                     where sa.operational_status != 'Active'
@@ -300,169 +375,14 @@ class UserService:
 
     @staticmethod
     def get_user(name=None):
-        """Everything known about one person: devices, services and request history."""
-        RequestService._guard_internal()
+        """One person's whole situation, read through the Phase 5 ownership rule.
 
-        if not name:
-            raise ValidationError("name is required.", "VALIDATION_ERROR")
+        The endpoint stays where it was; what it answers with is a different shape, because
+        the old one said a machine's services belonged to whoever happened to hold it.
+        """
+        from nexgen_msp.api.internal.services.user_360_service import User360Service
 
-        if not frappe.db.exists("MSP Client User", name):
-            raise NotFoundError(f"Client User {name} not found.", "NOT_FOUND")
-
-        user = frappe.db.get_value(
-            "MSP Client User",
-            name,
-            [
-                "name",
-                "full_name",
-                "department",
-                "customer",
-                "email",
-                "username",
-                "lifecycle_status",
-                "start_date",
-                "disabled_date",
-                "remarks",
-                "covered_until",
-                "last_billed_on",
-            ],
-            as_dict=True,
-        )
-
-        user["remark_log"] = remarks_util.log("MSP Client User", name)
-
-        # said before the button is pressed, so the refusal is never a surprise
-        blockers = UserService.deletion_blockers(name)
-        user["delete_blockers"] = blockers
-        user["can_delete"] = not blockers
-
-        # the stored date is what the engine restates on every posted invoice and what the
-        # sheet seeds; the query below only covers records neither has touched yet
-        if not user.get("last_billed_on"):
-            user["last_billed_on"] = frappe.db.sql(
-                """
-                select max(br.billing_period_end)
-                from `tabMSP Billing Run Line` brl
-                join `tabMSP Billing Run` br on br.name = brl.parent
-                left join `tabMSP Managed Device` device on device.name = brl.managed_device
-                where br.docstatus = 1
-                  and (brl.client_user = %(user)s or device.assigned_client_user = %(user)s)
-                """,
-                {"user": name},
-            )[0][0]
-
-        devices = frappe.db.sql(
-            """
-            select name, hostname, device_type, status, serial_number, assigned_date,
-                   retired_date
-            from `tabMSP Managed Device`
-            where assigned_client_user = %(user)s
-            order by field(status, 'Active') desc, hostname asc
-            """,
-            {"user": name},
-            as_dict=True,
-        )
-
-        if devices:
-            interfaces = frappe.get_all(
-                "MSP Network Interface",
-                filters={"parent": ("in", [device.name for device in devices])},
-                fields=["parent", "interface_type", "mac_address"],
-            )
-            grouped = {}
-            for interface in interfaces:
-                grouped.setdefault(interface.parent, []).append(
-                    {
-                        "interface_type": interface.interface_type,
-                        "mac_address": interface.mac_address,
-                    }
-                )
-            for device in devices:
-                device["interfaces"] = grouped.get(device.name, [])
-
-        services = frappe.db.sql(
-            """
-            select
-                sa.name, sa.service_item,
-                coalesce(item.item_name, sa.service_item) as service_name,
-                sa.assignment_scope, sa.managed_device, device.hostname,
-                sa.operational_status, sa.billing_status,
-                sa.effective_start_date, sa.effective_end_date,
-                sa.internal_notes,
-                sa.source_request,
-                (
-                    select max(br.billing_period_end)
-                    from `tabMSP Billing Run Line` brl
-                    join `tabMSP Billing Run` br on br.name = brl.parent
-                    where brl.service_assignment = sa.name and br.docstatus = 1
-                ) as last_billed_on
-            from `tabMSP Service Assignment` sa
-            left join `tabItem` item on item.name = sa.service_item
-            left join `tabMSP Managed Device` device on device.name = sa.managed_device
-            where sa.client_user = %(user)s
-               or device.assigned_client_user = %(user)s
-            order by field(sa.operational_status, 'Ended', 'Cancelled') asc,
-                     sa.effective_start_date desc
-            """,
-            {"user": name},
-            as_dict=True,
-        )
-
-        requests = frappe.db.sql(
-            """
-            select distinct sr.name, sr.status, sr.priority, sr.request_type, sr.creation
-            from `tabMSP Service Request` sr
-            join `tabMSP Service Request Line` srl on srl.parent = sr.name
-            where srl.client_user = %(user)s
-              and sr.status != %(customer_status)s
-            order by sr.creation desc
-            limit 10
-            """,
-            {"user": name, "customer_status": CUSTOMER_STATUS},
-            as_dict=True,
-        )
-
-        return {
-            "user": user,
-            "devices": devices,
-            "services": services,
-            "requests": requests,
-            "customer_requests": frappe.db.sql(
-                """
-                select sr.name, sr.request_type, sr.status, sr.priority, sr.source,
-                       coalesce(requester.full_name, sr.requester) as requester,
-                       sr.creation, sr.customer
-                from `tabMSP Service Request` sr
-                left join `tabUser` requester on requester.name = sr.requester
-                where sr.customer = %(customer)s
-                  and sr.status != %(customer_status)s
-                order by field(sr.status, 'Completed', 'Rejected', 'Cancelled') asc,
-                         sr.creation desc
-                limit 30
-                """,
-                {"customer": user.customer, "customer_status": CUSTOMER_STATUS},
-                as_dict=True,
-            ),
-            "device_types": frappe.get_meta("MSP Managed Device")
-            .get_field("device_type")
-            .options.split("\n"),
-            "interface_types": frappe.get_meta("MSP Network Interface")
-            .get_field("interface_type")
-            .options.split("\n"),
-            "catalogue": [
-                {
-                    "name": item.name,
-                    "item_name": item.item_name,
-                    "scope": RequestService._service_scope(item.name),
-                }
-                for item in frappe.get_all(
-                    "Item",
-                    filters={"disabled": 0, "is_stock_item": 0},
-                    fields=["name", "item_name"],
-                    order_by="item_name asc",
-                )
-            ],
-        }
+        return User360Service.get_user(name=name)
 
     @staticmethod
     def add_device(
@@ -499,14 +419,14 @@ class UserService:
 
     @staticmethod
     def _end_date_for(assignment, effective_date):
-        """The day a service stops, refusing a date that rewrites an issued invoice.
+        """The day a service stops.
 
         A service often stops before anyone gets round to recording it, so the date has to
-        be allowed into the past. What it may not cross is a period already billed: the
-        customer has the invoice, and moving the end date behind it would silently claim
-        back days that were charged.
+        be allowed into the past — even behind a period already invoiced. That invoice is
+        not touched and no credit note is issued: the date records where our own follow-up
+        of the service ends, and the next run simply has nothing more to bill for it.
 
-        Backdating is the administrator's call, since it is the invoice it touches.
+        Backdating is the administrator's call.
         """
         end_on = frappe.utils.getdate(effective_date or frappe.utils.today())
         today = frappe.utils.getdate(frappe.utils.today())
@@ -531,15 +451,6 @@ class UserService:
                     403,
                 )
 
-            billed_to = UserService._billed_to(assignment.name)
-
-            if billed_to and end_on < frappe.utils.getdate(billed_to):
-                raise ValidationError(
-                    f"This service is invoiced up to {frappe.utils.formatdate(billed_to)}. "
-                    "It cannot be ended before that day — issue a credit note instead.",
-                    "VALIDATION_ERROR",
-                )
-
         return end_on
 
     @staticmethod
@@ -550,7 +461,10 @@ class UserService:
             select max(br.billing_period_end)
             from `tabMSP Billing Run Line` brl
             join `tabMSP Billing Run` br on br.name = brl.parent
+            join `tabMSP Service Assignment` sa on sa.name = brl.service_assignment
             where brl.service_assignment = %s
+              -- only that company's own runs can have billed it
+              and br.customer = sa.customer
               and br.docstatus = 1
               and ifnull(br.credit_note_of, '') = ''
             """,
@@ -592,7 +506,16 @@ class UserService:
         source_request=None,
         target_scope=None,
     ):
-        """Open a service for a user directly. The rate stays the contract's business, not ours."""
+        """Open a service from the user's screen: resolve the target, then let the domain open it.
+
+        Everything commercial — the catalogue, the contract, the rate, the duplicate — is the
+        lifecycle service's to ask. This door only works out which machine, if any, the
+        technician meant, and records what they had in front of them.
+        """
+        from nexgen_msp.api.internal.services.service_lifecycle_service import (
+            ServiceLifecycleService,
+        )
+
         RequestService._guard_internal()
 
         if not client_user or not service_item:
@@ -603,27 +526,8 @@ class UserService:
         if not user:
             raise NotFoundError(f"Client User {client_user} not found.", "NOT_FOUND")
 
-        source_request = UserService._checked_request(source_request, user.customer)
         declared = RequestService._service_scope(service_item)
-
-        if declared == "Both":
-            scope = target_scope or "User"
-            if scope not in ("User", "Device"):
-                raise ValidationError(
-                    f"'{scope}' is not a valid target for this service.", "VALIDATION_ERROR"
-                )
-        else:
-            scope = declared
-
-        # a per-device service is unique per machine, not per person: two laptops, two licences
-        if scope != "Device":
-            existing = RequestService._find_open_assignment(user.customer, user.name, service_item)
-
-            if existing:
-                raise ValidationError(
-                    f"This user already holds an open {service_item} assignment ({existing}).",
-                    "VALIDATION_ERROR",
-                )
+        scope = (target_scope or "User") if declared == "Both" else declared
 
         interfaces = frappe.parse_json(interfaces) if isinstance(interfaces, str) else interfaces
         interfaces = [
@@ -643,57 +547,32 @@ class UserService:
             serial_number,
         )
 
-        if scope == "Device":
-            if not device:
-                raise ValidationError(
-                    f"{service_item} is a device service — select or create a device.",
-                    "VALIDATION_ERROR",
-                )
-
-            on_device = frappe.db.exists(
-                "MSP Service Assignment",
-                {
-                    "managed_device": device,
-                    "service_item": service_item,
-                    "operational_status": (
-                        "in",
-                        ("Pending Setup", "Active", "Suspended", "Pending Removal"),
-                    ),
-                },
+        if scope == "Device" and not device:
+            raise ValidationError(
+                f"{service_item} is a device service — select or create a device.",
+                "VALIDATION_ERROR",
             )
 
-            if on_device:
-                raise ValidationError(
-                    f"This device already holds an open {service_item} assignment ({on_device}).",
-                    "VALIDATION_ERROR",
-                )
+        # a licence is issued against a username, a machine service against a serial
+        if scope == "User" or declared == "Both":
+            identifiers.require_username(user.name, username)
+        if scope == "Device":
+            identifiers.require_serial(device, serial_number)
 
-        assignment = frappe.get_doc(
-            {
-                "doctype": "MSP Service Assignment",
-                "customer": user.customer,
-                "service_item": service_item,
-                "assignment_scope": scope,
-                "client_user": user.name if scope == "User" else None,
-                "managed_device": device if scope == "Device" else None,
-                "quantity": 1,
-                "uom": frappe.db.get_value("Item", service_item, "stock_uom") or "Unit",
-                "operational_status": "Active",
-                "billing_status": "Billable",
-                "effective_start_date": effective_date or frappe.utils.today(),
-                "price_source": "Contract",
-                "source_request": source_request,
-                "internal_notes": notes or None,
-            }
-        ).insert()
+        ServiceLifecycleService.activate(
+            customer=user.customer,
+            service_item=service_item,
+            target_scope=scope,
+            client_user=user.name if scope == "User" else None,
+            managed_device=device if scope == "Device" else None,
+            effective_date=effective_date,
+            source_request=source_request,
+            notes=notes,
+        )
 
         # what the service will later be refused a closure for not having, taken while the
         # technician still has the machine and the licence in front of them
         UserService._record_identifiers(user.name, device, serial_number, username)
-
-        reference = f" in reference to {source_request}" if source_request else ""
-        assignment.add_comment("Comment", f"Opened by {frappe.session.user}{reference}.")
-        remarks_util.on_assignment(assignment, "granted", notes)
         frappe.db.commit()
 
         return UserService.get_user(client_user)
@@ -710,58 +589,64 @@ class UserService:
 
     @staticmethod
     def change_service(
-        assignment=None, action=None, effective_date=None, notes=None, source_request=None
+        assignment=None,
+        action=None,
+        effective_date=None,
+        notes=None,
+        source_request=None,
+        confirm_billed=0,
+        quantity=None,
+        service_item=None,
     ):
-        """Suspend, resume or end a running service, leaving a trace of who did it."""
+        """Suspend, resume, change or end a running service, directly from its page.
+
+        The act itself belongs to the lifecycle service: the days a pause covers, the day a
+        service really stopped, and the note left beside it rather than over the assignment's
+        own. This door only says which user's page to show afterwards.
+        """
+        from nexgen_msp.api.internal.services.service_lifecycle_service import (
+            ServiceLifecycleService,
+        )
+
         RequestService._guard_internal()
 
         if not assignment or not action:
             raise ValidationError("assignment and action are required.", "VALIDATION_ERROR")
 
-        if action not in ("Suspend", "Resume", "End"):
+        acts = {
+            "Suspend": ServiceLifecycleService.suspend,
+            "Resume": ServiceLifecycleService.resume,
+            "End": ServiceLifecycleService.end,
+            "Change": ServiceLifecycleService.change,
+        }
+
+        if action not in acts:
             raise ValidationError(f"Unknown action '{action}'.", "VALIDATION_ERROR")
 
         if not frappe.db.exists("MSP Service Assignment", assignment):
             raise NotFoundError(f"Service Assignment {assignment} not found.", "NOT_FOUND")
 
-        doc = frappe.get_doc("MSP Service Assignment", assignment)
+        extra = {"confirm_billed": confirm_billed} if action in ("Suspend", "Resume") else {}
 
-        if doc.operational_status in ("Ended", "Cancelled"):
-            raise ValidationError(
-                f"This service is already {doc.operational_status.lower()}.", "INVALID_TRANSITION"
-            )
+        if action == "Change":
+            extra = {"quantity": quantity, "service_item": service_item or None}
 
-        if action == "Suspend":
-            if doc.operational_status == "Suspended":
-                raise ValidationError("This service is already suspended.", "INVALID_TRANSITION")
-            doc.operational_status = "Suspended"
-            doc.billing_status = "On Hold"
-        elif action == "Resume":
-            if doc.operational_status != "Suspended":
-                raise ValidationError("Only a suspended service can be resumed.", "INVALID_TRANSITION")
-            doc.operational_status = "Active"
-            doc.billing_status = "Billable"
-        else:
-            doc.operational_status = "Ended"
-            doc.billing_status = "Ended"
-            doc.effective_end_date = UserService._end_date_for(doc, effective_date)
-
-        if notes:
-            doc.internal_notes = notes
-
-        source_request = UserService._checked_request(source_request, doc.customer)
-        reference = f" in reference to {source_request}" if source_request else ""
-
-        doc.save()
-        doc.add_comment("Comment", f"{action} applied by {frappe.session.user}{reference}.")
-        remarks_util.on_assignment(doc, action, notes)
-        frappe.db.commit()
-
-        client_user = doc.client_user or frappe.db.get_value(
-            "MSP Managed Device", doc.managed_device, "assigned_client_user"
+        acts[action](
+            assignment=assignment,
+            effective_date=effective_date,
+            source_request=source_request,
+            notes=notes,
+            **extra,
         )
 
-        return UserService.get_user(client_user)
+        client_user, managed_device = frappe.db.get_value(
+            "MSP Service Assignment", assignment, ["client_user", "managed_device"]
+        )
+
+        return UserService.get_user(
+            client_user
+            or frappe.db.get_value("MSP Managed Device", managed_device, "assigned_client_user")
+        )
 
     @staticmethod
     def create_client_user(
@@ -774,6 +659,8 @@ class UserService:
         remarks=None,
         source_request=None,
         request_line=None,
+        department_already_agreed=False,
+        _commit=True,
     ):
         """Create the person a request asked for, and tie the line back to them."""
         RequestService._guard_internal()
@@ -803,10 +690,14 @@ class UserService:
                 "username": (username or "").strip() or None,
                 "lifecycle_status": "Active",
                 "start_date": start_date or frappe.utils.today(),
-                "portal_visible": 1,
                 "remarks": remarks or None,
             }
-        ).insert()
+        )
+
+        # the department was agreed when the request was approved; retiring it since is not
+        # a reason to refuse the person that request asked for
+        doc.flags.department_already_agreed = bool(department_already_agreed)
+        doc.insert()
 
         if source_request and request_line:
             request = frappe.get_doc("MSP Service Request", source_request)
@@ -818,7 +709,7 @@ class UserService:
                 # the customer wrote this person once and asked for several things: every
                 # line describing them is now about the record just created, or the next
                 # line would offer to create them a second time
-                same_person = (row.new_user_full_name or "").strip().lower()
+                same_subject = row.subject_key
                 was_new = bool(row.is_new_user)
 
                 for line in request.lines:
@@ -827,7 +718,7 @@ class UserService:
                     if line.idx == row.idx or (
                         was_new
                         and line.is_new_user
-                        and (line.new_user_full_name or "").strip().lower() == same_person
+                        and line.subject_key == same_subject
                     ):
                         # no longer "new": the request must still save once they exist,
                         # and a line on an existing machine names it, not them
@@ -837,7 +728,8 @@ class UserService:
 
         reference = f" for {source_request}" if source_request else ""
         doc.add_comment("Comment", f"Created by {frappe.session.user}{reference}.")
-        frappe.db.commit()
+        if _commit:
+            frappe.db.commit()
 
         return {"name": doc.name, "full_name": doc.full_name, "customer": doc.customer}
 
@@ -851,10 +743,10 @@ class UserService:
         start_date=None,
         remarks=None,
     ):
-        """Correct what we hold about a person. Their customer and lifecycle never move here.
+        """Correct what we hold about a person. Their customer and status never move here.
 
-        Moving someone between customers would orphan their services, and the lifecycle is
-        driven by the services themselves — both are deliberately out of reach.
+        Moving someone between customers would orphan their services. Their status has its
+        own two doors, disabling and reactivating, so it is never changed in passing.
         """
         RequestService._guard_internal()
 
@@ -885,6 +777,150 @@ class UserService:
         frappe.db.commit()
 
         return UserService.get_user(name)
+
+    @staticmethod
+    def disable_client_user(name=None, effective_date=None, reason=None, end_services=0):
+        """Record that somebody has left, optionally ending the services shown under them."""
+        RequestService._guard_internal()
+
+        doc = UserService._client_user(name)
+
+        if doc.lifecycle_status in ("Disabled", "Archived"):
+            raise ValidationError(
+                f"{doc.full_name} is already {doc.lifecycle_status.lower()}.", "VALIDATION_ERROR"
+            )
+
+        reasons = frappe.get_meta("MSP Client User").get_field("disabled_reason").options.split("\n")
+
+        if reason and reason not in reasons:
+            raise ValidationError(f"'{reason}' is not a reason we record.", "VALIDATION_ERROR")
+
+        on_date = frappe.utils.getdate(effective_date or frappe.utils.today())
+        doc.lifecycle_status = "Disabled"
+        doc.disabled_date = on_date
+        doc.disabled_reason = reason or None
+        doc.save()
+
+        closed = []
+        if frappe.utils.cint(end_services):
+            from nexgen_msp.api.internal.services.service_lifecycle_service import (
+                ServiceLifecycleService,
+            )
+
+            devices = frappe.get_all(
+                "MSP Device Holder",
+                filters={
+                    "client_user": doc.name,
+                    "is_current": 1,
+                    "parenttype": "MSP Managed Device",
+                },
+                pluck="parent",
+            )
+            assignments = set(
+                frappe.get_all(
+                    "MSP Service Assignment",
+                    filters={
+                        "client_user": doc.name,
+                        "operational_status": ("in", ("Active", "Suspended", "Pending Removal")),
+                    },
+                    pluck="name",
+                )
+            )
+            if devices:
+                assignments.update(
+                    frappe.get_all(
+                        "MSP Service Assignment",
+                        filters={
+                            "managed_device": ("in", devices),
+                            "operational_status": ("in", ("Active", "Suspended", "Pending Removal")),
+                        },
+                        pluck="name",
+                    )
+                )
+
+            for assignment in assignments:
+                ServiceLifecycleService.end(
+                    assignment=assignment,
+                    effective_date=on_date,
+                    notes=f"Ended when {doc.full_name} was disabled.",
+                    _commit=False,
+                )
+                closed.append(assignment)
+
+        frappe.db.commit()
+
+        result = UserService.get_user(name)
+        result["closed_assignments"] = closed
+        return result
+
+    @staticmethod
+    def reactivate_client_user(name=None):
+        """Bring back somebody who had left. Nothing they used to have comes back with them."""
+        RequestService._guard_internal()
+
+        doc = UserService._client_user(name)
+
+        if doc.lifecycle_status != "Disabled":
+            raise ValidationError(
+                f"Only a disabled person can be reactivated; {doc.full_name} is "
+                f"{doc.lifecycle_status.lower()}.",
+                "VALIDATION_ERROR",
+            )
+
+        doc.lifecycle_status = "Active"
+        doc.save()
+        frappe.db.commit()
+
+        return UserService.get_user(name)
+
+    @staticmethod
+    def stop_all_services(name=None, effective_date=None, notes=None, source_request=None):
+        """Close every personal service a person still has, from one day, one by one.
+
+        Each one goes through the same door as closing it by hand. What runs on the machines
+        they hold stays with the machines.
+        """
+        from nexgen_msp.api.internal.services.service_lifecycle_service import (
+            ServiceLifecycleService,
+        )
+
+        RequestService._guard_internal()
+        doc = UserService._client_user(name)
+
+        open_services = frappe.get_all(
+            "MSP Service Assignment",
+            filters={
+                "client_user": doc.name,
+                "assignment_scope": "User",
+                "operational_status": ("in", ("Active", "Suspended", "Pending Removal")),
+            },
+            pluck="name",
+        )
+
+        if not open_services:
+            raise ValidationError(
+                f"{doc.full_name} has no personal service to stop.", "VALIDATION_ERROR"
+            )
+
+        for assignment in open_services:
+            ServiceLifecycleService.end(
+                assignment=assignment,
+                effective_date=effective_date,
+                source_request=source_request or None,
+                notes=notes,
+                _commit=False,
+            )
+
+        frappe.db.commit()
+
+        return UserService.get_user(doc.name)
+
+    @staticmethod
+    def _client_user(name):
+        if not name or not frappe.db.exists("MSP Client User", name):
+            raise NotFoundError(f"Client User {name} not found.", "NOT_FOUND")
+
+        return frappe.get_doc("MSP Client User", name)
 
     @staticmethod
     def deletion_blockers(name):

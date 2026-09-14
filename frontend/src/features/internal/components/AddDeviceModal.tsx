@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, ArrowUpRight, Laptop, Plus, Trash2, TriangleAlert } from 'lucide-react';
+import { AlertCircle, ArrowUpRight, Laptop, TriangleAlert } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
+import InterfaceEditor from '@/shared/components/InterfaceEditor';
 import FieldLabel from '@/shared/components/FieldLabel';
 import Select from '@/shared/components/Select';
 import type { CustomerRequestRef, DeviceInterface } from '@/lib/api/internal';
 import RequestReferenceField from './RequestReferenceField';
 import { useAddDevice } from '../hooks/useUsers';
+import { useExecuteDeviceProvisioning } from '../hooks/useRequests';
 import {
   useCustomerDevices,
   useHandOverDevice,
@@ -25,15 +27,13 @@ type Props = {
   defaultRequest?: string;
   /** What the request already says about the machine, so nobody types it twice. */
   initial?: { hostname?: string | null; device_type?: string | null; serial_number?: string | null };
+  /** The request's device line this machine settles, when it is opened from one. */
+  workOrder?: string | null;
+  /** The services on the request that wait for this machine. */
+  needs?: string[];
   onClose: () => void;
 };
 
-const INTERFACE_LABEL: Record<string, string> = {
-  'Wi-Fi': 'MAC WIFI',
-  LAN: 'MAC LAN',
-  Extra: 'EXTRA MAC',
-  Other: 'OTHER MAC',
-};
 
 const labelClass = 'mb-1.5 block text-xs font-semibold text-slate-700';
 const inputClass =
@@ -53,18 +53,23 @@ const AddDeviceModal: React.FC<Props> = ({
   requests,
   defaultRequest,
   initial,
+  workOrder,
+  needs = [],
   onClose,
 }) => {
   const navigate = useNavigate();
   const add = useAddDevice(clientUser);
   const handOver = useHandOverDevice();
+  const provision = useExecuteDeviceProvisioning();
 
   const [mode, setMode] = useState<'new' | 'existing'>('new');
   const [existing, setExisting] = useState('');
   const [handOverDate, setHandOverDate] = useState(today());
   const [handOverNote, setHandOverNote] = useState('');
+  const [existingSerial, setExistingSerial] = useState('');
 
-  const fleet = useCustomerDevices(open ? customer : null, clientUser);
+  // a request line may be settled with a machine this person already holds
+  const fleet = useCustomerDevices(open ? customer : null, workOrder ? undefined : clientUser);
   const [hostname, setHostname] = useState('');
   const [deviceType, setDeviceType] = useState('');
   const [serial, setSerial] = useState('');
@@ -81,7 +86,9 @@ const AddDeviceModal: React.FC<Props> = ({
     setExisting('');
     setHandOverDate(today());
     setHandOverNote('');
+    setExistingSerial('');
     handOver.reset();
+    provision.reset();
     setHostname(initial?.hostname ?? '');
     setDeviceType(initial?.device_type ?? '');
     setSerial(initial?.serial_number ?? '');
@@ -104,7 +111,27 @@ const AddDeviceModal: React.FC<Props> = ({
   const serialClash = useSerialMatch(open && mode === 'new' ? serial.trim() : undefined);
   const serialTaken = serialClash.data?.name ? serialClash.data : null;
 
+  // the machine the customer named, when this customer already has it
+  useEffect(() => {
+    if (!open || !workOrder || existing || !fleet.data) return;
+    const serialAsked = (initial?.serial_number ?? '').trim();
+    const hostAsked = (initial?.hostname ?? '').trim().toLowerCase();
+    const named = fleet.data.find(
+      (item) =>
+        item.status !== 'Retired' &&
+        ((serialAsked && item.serial_number === serialAsked) ||
+          (hostAsked && item.hostname?.toLowerCase() === hostAsked))
+    );
+    if (named) {
+      setMode('existing');
+      setExisting(named.name);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, workOrder, fleet.data]);
+
   const chosen = (fleet.data ?? []).find((item) => item.name === existing) ?? null;
+  // a request line is only settled with a machine whose serial is on file
+  const serialMissing = Boolean(workOrder && chosen && !(chosen.serial_number ?? '').trim());
 
   const openDevice = (name: string) => {
     onClose();
@@ -113,6 +140,20 @@ const AddDeviceModal: React.FC<Props> = ({
 
   const handOverExisting = async () => {
     try {
+      if (workOrder) {
+        await provision.mutateAsync({
+          work_order: workOrder,
+          mode: 'existing',
+          managed_device: existing,
+          serial_number: serialMissing ? existingSerial.trim() : undefined,
+          effective_date: handOverDate,
+          notes: handOverNote.trim() || undefined,
+          // picked knowing who holds it, as on any hand-over
+          confirm_transfer: 1,
+        });
+        onClose();
+        return;
+      }
       await handOver.mutateAsync({
         device: existing,
         client_user: clientUser,
@@ -125,13 +166,21 @@ const AddDeviceModal: React.FC<Props> = ({
     }
   };
 
-  const update = (position: number, patch: Partial<DeviceInterface>) =>
-    setInterfaces((current) =>
-      current.map((item, index) => (index === position ? { ...item, ...patch } : item))
-    );
-
   const submit = async () => {
     try {
+      if (workOrder) {
+        await provision.mutateAsync({
+          work_order: workOrder,
+          mode: 'new',
+          hostname: hostname.trim(),
+          serial_number: serial.trim(),
+          device_type: deviceType || undefined,
+          interfaces: interfaces.filter((item) => item.mac_address.trim()),
+          effective_date: assignedDate || undefined,
+        });
+        onClose();
+        return;
+      }
       await add.mutateAsync({
         client_user: clientUser,
         hostname: hostname.trim(),
@@ -154,9 +203,11 @@ const AddDeviceModal: React.FC<Props> = ({
       onClose={onClose}
       icon={Laptop}
       tone="indigo"
-      title="Add a device"
+      title={workOrder ? 'Assign a device' : 'Add a device'}
       subtitle={
-        mode === 'new'
+        workOrder
+          ? `For ${userName}${needs.length ? ` · needed by ${needs.join(', ')}` : ''}`
+          : mode === 'new'
           ? `Register hardware for ${userName}. Services are attached separately, through a request.`
           : `Hand a machine this customer already owns over to ${userName}. Its services follow it.`
       }
@@ -175,15 +226,21 @@ const AddDeviceModal: React.FC<Props> = ({
             onClick={mode === 'new' ? submit : handOverExisting}
             disabled={
               mode === 'new'
-                ? !hostname.trim() || !serial.trim() || Boolean(serialTaken) || add.isLoading
-                : !existing || !handOverDate || handOver.isLoading
+                ? !hostname.trim() || !serial.trim() || Boolean(serialTaken) || add.isLoading || provision.isLoading
+                : !existing ||
+                  !handOverDate ||
+                  (serialMissing && !existingSerial.trim()) ||
+                  handOver.isLoading ||
+                  provision.isLoading
             }
             className="flex min-w-[7rem] items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {add.isLoading || handOver.isLoading ? (
+            {add.isLoading || handOver.isLoading || provision.isLoading ? (
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
             ) : mode === 'new' ? (
-              'Add device'
+              workOrder ? 'Register & assign' : 'Add device'
+            ) : chosen?.assigned_client_user === clientUser ? (
+              'Use this device'
             ) : (
               'Hand it over'
             )}
@@ -224,13 +281,14 @@ const AddDeviceModal: React.FC<Props> = ({
                 onChange={setExisting}
                 placeholder={
                   (fleet.data ?? []).length
-                    ? 'Search a hostname'
+                    ? 'Search a hostname or a serial'
                     : 'This customer has no other device'
                 }
                 options={(fleet.data ?? []).map((item) => ({
                   value: item.name,
                   label: item.hostname,
                   description: [
+                    item.serial_number,
                     item.holder_name ? `held by ${item.holder_name}` : 'held by nobody',
                     item.status !== 'Active' ? item.status.toLowerCase() : null,
                   ]
@@ -299,6 +357,23 @@ const AddDeviceModal: React.FC<Props> = ({
               </div>
             )}
 
+            {serialMissing && (
+              <div>
+                <FieldLabel required>Serial number</FieldLabel>
+                <input
+                  type="text"
+                  value={existingSerial}
+                  onChange={(event) => setExistingSerial(event.target.value)}
+                  placeholder="What is engraved on the case"
+                  aria-label="Serial number"
+                  className={inputClass}
+                />
+                <p className="mt-1.5 text-xs text-slate-400">
+                  This machine has no serial number on file yet.
+                </p>
+              </div>
+            )}
+
             <div>
               <FieldLabel required>Hand-over date</FieldLabel>
               <input
@@ -324,10 +399,12 @@ const AddDeviceModal: React.FC<Props> = ({
               />
             </div>
 
-            {handOver.error instanceof Error && (
+            {(handOver.error ?? provision.error) instanceof Error && (
               <div className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
                 <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
-                <span className="text-sm font-medium text-red-700">{handOver.error.message}</span>
+                <span className="text-sm font-medium text-red-700">
+                  {((handOver.error ?? provision.error) as Error).message}
+                </span>
               </div>
             )}
           </div>
@@ -436,61 +513,10 @@ const AddDeviceModal: React.FC<Props> = ({
         )}
 
         {mode === 'new' && (
-        <div>
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-700">Network interfaces</span>
-            <button
-              type="button"
-              onClick={() =>
-                setInterfaces((current) => [
-                  ...current,
-                  { interface_type: 'Extra', mac_address: '' },
-                ])
-              }
-              className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 transition-colors hover:text-blue-700"
-            >
-              <Plus size={13} />
-              Add another
-            </button>
-          </div>
-
-          <div className="space-y-2">
-            {interfaces.map((item, position) => (
-              <div key={position} className="flex items-center gap-2">
-                <Select
-                  className="w-36 shrink-0"
-                  value={item.interface_type}
-                  onChange={(value) => update(position, { interface_type: value })}
-                  options={interfaceTypes.map((type) => ({
-                    value: type,
-                    label: INTERFACE_LABEL[type] ?? type,
-                  }))}
-                />
-                <input
-                  type="text"
-                  value={item.mac_address}
-                  onChange={(event) => update(position, { mac_address: event.target.value })}
-                  placeholder="AA-BB-CC-DD-EE-FF"
-                  className={`${inputClass} font-mono uppercase`}
-                />
-                <button
-                  type="button"
-                  onClick={() =>
-                    setInterfaces((current) => current.filter((_, index) => index !== position))
-                  }
-                  aria-label="Remove interface"
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
-                >
-                  <Trash2 size={15} />
-                </button>
-              </div>
-            ))}
-          </div>
-
-        </div>
+          <InterfaceEditor value={interfaces} onChange={setInterfaces} suggestions={interfaceTypes} />
         )}
 
-        {mode === 'new' && (
+        {mode === 'new' && !workOrder && (
           <RequestReferenceField
             requests={requests}
             value={sourceRequest}
@@ -498,10 +524,12 @@ const AddDeviceModal: React.FC<Props> = ({
           />
         )}
 
-        {mode === 'new' && add.error instanceof Error && (
+        {mode === 'new' && (add.error ?? provision.error) instanceof Error && (
           <div className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
             <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
-            <span className="text-sm font-medium text-red-700">{add.error.message}</span>
+            <span className="text-sm font-medium text-red-700">
+              {((add.error ?? provision.error) as Error).message}
+            </span>
           </div>
         )}
       </div>

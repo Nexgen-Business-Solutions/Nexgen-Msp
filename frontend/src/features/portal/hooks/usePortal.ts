@@ -376,6 +376,13 @@ export const useDeviceChoices = () => {
   });
 };
 
+export const useDepartments = () =>
+  useQuery({
+    queryKey: [...portalKeys.all, 'departments'] as const,
+    queryFn: ({ signal }) => portal.listDepartments(signal),
+    staleTime: 5 * 60 * 1000,
+  });
+
 export const useMyApprovalRights = (enabled = true) =>
   useQuery({
     queryKey: ['portal', 'approvalRights'] as const,
@@ -393,5 +400,56 @@ export const useDecideRequest = () => {
         ? portal.approveRequest(variables.name, variables.reason)
         : portal.rejectRequest(variables.name, variables.reason ?? ''),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['portal'] }),
+  });
+};
+
+// ---------------------------------------------------------------- request builder
+
+export const requestBuilderKeys = {
+  all: ['portal', 'request-builder'] as const,
+  users: (customer?: string | null, search?: string) =>
+    [...requestBuilderKeys.all, 'users', customer ?? '', search ?? ''] as const,
+  subject: (clientUser?: string) =>
+    [...requestBuilderKeys.all, 'subject', clientUser ?? ''] as const,
+  newUser: (customer?: string | null) =>
+    [...requestBuilderKeys.all, 'new-user', customer ?? ''] as const,
+  submission: (customer?: string | null) =>
+    [...requestBuilderKeys.all, 'submission', customer ?? ''] as const,
+};
+
+export const useRequestUserSearch = (search?: string) => {
+  const customer = usePortalFilters((state) => state.customer);
+
+  return useQuery({
+    queryKey: requestBuilderKeys.users(customer, search),
+    queryFn: ({ signal }) =>
+      portal.searchRequestUsers({ customer: customer ?? undefined, search }, signal),
+    keepPreviousData: true,
+  });
+};
+
+export const useRequestSubjectContext = (clientUser?: string) =>
+  useQuery({
+    queryKey: requestBuilderKeys.subject(clientUser),
+    queryFn: ({ signal }) => portal.getRequestSubjectContext(clientUser as string, signal),
+    enabled: Boolean(clientUser),
+  });
+
+export const useNewUserRequestContext = (enabled = true) => {
+  const customer = usePortalFilters((state) => state.customer);
+
+  return useQuery({
+    queryKey: requestBuilderKeys.newUser(customer),
+    queryFn: ({ signal }) => portal.getNewUserRequestContext(customer ?? undefined, signal),
+    enabled,
+  });
+};
+
+export const useRequestSubmissionContext = () => {
+  const customer = usePortalFilters((state) => state.customer);
+
+  return useQuery({
+    queryKey: requestBuilderKeys.submission(customer),
+    queryFn: ({ signal }) => portal.getRequestSubmissionContext(customer ?? undefined, signal),
   });
 };

@@ -32,3 +32,27 @@ export const useSaveCustomerDetails = () => {
     },
   });
 };
+
+/** What this account may do, asked once and shared by every screen that has to decide. */
+export const useCapabilities = () =>
+  useQuery({
+    queryKey: ['internal', 'capabilities'] as const,
+    queryFn: ({ signal }) => internal.getMyCapabilities(signal),
+    staleTime: 10 * 60 * 1000,
+  });
+
+export const useCustomerDirectory = (search?: string) =>
+  useQuery({
+    queryKey: [...customerKeys.all, 'directory', search ?? ''] as const,
+    queryFn: ({ signal }) => internal.listCustomers(search, signal),
+    keepPreviousData: true,
+  });
+
+export const useCreateCustomer = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: internal.createCustomer,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: customerKeys.all }),
+  });
+};

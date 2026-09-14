@@ -55,13 +55,14 @@ export type RequestDetailLine = {
   service_scope: string;
   is_new_user: number;
   client_user: string | null;
+  /** the person a machine still to be prepared is for, when the line names no person itself */
+  requested_for_user?: string | null;
   client_user_name: string | null;
   client_user_department: string | null;
   new_user_full_name: string | null;
   new_user_department: string | null;
   new_user_email: string | null;
   new_user_username: string | null;
-  needs_portal_access: number;
   is_new_device: number;
   new_device_label: string | null;
   new_device_type: string | null;
@@ -90,6 +91,7 @@ export type RequestDetail = {
   request_type: string;
   status: string;
   priority: string;
+  details?: string | null;
   source: string;
   requester: string | null;
   requester_name: string | null;
@@ -102,6 +104,28 @@ export type RequestDetail = {
   available_actions: RequestAction[];
   can_decide_lines: boolean;
   review: RequestReview | null;
+  people?: Record<string, PersonFacts>;
+};
+
+export type PersonFacts = {
+  name: string;
+  full_name: string;
+  department: string | null;
+  email: string | null;
+  username: string | null;
+  lifecycle_status: string;
+  start_date: string | null;
+  disabled_date: string | null;
+  devices: { name: string; hostname: string | null; serial_number: string | null; device_type: string | null; from_date: string | null }[];
+  services: {
+    name: string;
+    service_name: string;
+    status: string;
+    assignment_scope?: string;
+    managed_device?: string | null;
+    hostname?: string | null;
+  }[];
+  open_requests: { name: string; status: string }[];
 };
 
 export type RequestReview = {
@@ -133,13 +157,6 @@ export const getRequestStats = (params: RequestListParams = {}, signal?: AbortSi
 export const listRequests = (params: RequestListParams = {}, signal?: AbortSignal) =>
   get<Paginated<RequestRow>>(`${BASE}.list_requests`, params, signal);
 
-export const setRequestDeliveryDetail = (payload: {
-  name: string;
-  idx: number;
-  serial_number?: string;
-  username?: string;
-}) => post<RequestDetail>(`${BASE}.set_request_delivery_detail`, payload);
-
 export const getRequest = (name: string, signal?: AbortSignal) =>
   get<RequestDetail>(`${BASE}.get_request`, { name }, signal);
 
@@ -152,6 +169,278 @@ export const setRequestLineStatus = (payload: {
   line_status: string;
   reason?: string;
 }) => post<RequestDetail>(`${BASE}.set_request_line_status`, payload);
+
+export type GroupOutcome<T> = {
+  results: { ok: boolean; message: string | null; idx?: number; work_order?: string; code?: string | null }[];
+  failed: number;
+} & T;
+
+export const setRequestLineStatuses = (payload: {
+  name: string;
+  idxs: number[];
+  line_status: string;
+  reason?: string;
+}) =>
+  post<GroupOutcome<{ decided: number; request: RequestDetail }>>(
+    `${BASE}.set_request_line_statuses`,
+    { ...payload, idxs: JSON.stringify(payload.idxs) }
+  );
+
+// ---------------------------------------------------------------- the technician's workbench
+
+export type WorkChecklistItem = {
+  name: string;
+  idx: number;
+  step: string;
+  is_done: number;
+  note: string | null;
+};
+
+export type WorkDeviceCard = {
+  name: string;
+  hostname: string | null;
+  serial_number: string | null;
+  device_type: string | null;
+  status: string;
+  assigned_client_user: string | null;
+  holder_name?: string | null;
+};
+
+export type WorkPersonCard = {
+  name: string | null;
+  full_name: string | null;
+  department: string | null;
+  department_retired?: boolean;
+  email: string | null;
+  username: string | null;
+  lifecycle_status: string | null;
+  is_new: boolean;
+};
+
+export type WorkCard = {
+  name: string;
+  plan_key: string;
+  work_type: 'Service Action' | 'User Setup' | 'Device Provisioning';
+  action: string;
+  request_action?: string | null;
+  status: string;
+  target_scope: string | null;
+  subject_key: string | null;
+  device_requirement_key: string | null;
+  request_line_name: string | null;
+  request_line_idx: number;
+  client_user: string | null;
+  managed_device: string | null;
+  service_item: string | null;
+  service_name: string | null;
+  source_service_assignment: string | null;
+  effective_date: string | null;
+  execution_notes: string | null;
+  customer_visible_note: string | null;
+  failure_reason: string | null;
+  completed_by: string | null;
+  completed_at: string | null;
+  resulting_assignment: string | null;
+  resulting_client_user: string | null;
+  resulting_device: string | null;
+  origin?: 'Request' | 'Technician' | null;
+  technician_reason?: string | null;
+  action_label?: string | null;
+  service_scope?: string | null;
+  checklist: WorkChecklistItem[];
+  ready: boolean;
+  waiting_on: string | null;
+  comment?: string | null;
+  requested_quantity?: number | null;
+  asked_hostname?: string | null;
+  asked_serial?: string | null;
+  asked_device_type?: string | null;
+  device: WorkDeviceCard | null;
+  current: {
+    name: string;
+    operational_status: string;
+    quantity: number;
+    effective_start_date: string | null;
+    effective_end_date: string | null;
+  } | null;
+};
+
+export type WorkStage = {
+  key: 'review' | 'execute' | 'verify' | 'complete';
+  label: string;
+  done: boolean;
+  needed: boolean;
+  state: 'done' | 'current' | 'todo' | 'skipped';
+};
+
+export type SubjectWorkGroup = {
+  subject_key: string;
+  person: WorkPersonCard | null;
+  user_setup: WorkCard | null;
+  devices: {
+    device_requirement_key: string;
+    device: WorkDeviceCard | null;
+    work: WorkCard;
+  }[];
+  services: WorkCard[];
+};
+
+export type RequestContext = {
+  customer: string;
+  requester: string | null;
+  requester_name: string | null;
+  raised_at: string;
+  requested_date: string | null;
+  priority: string;
+  people: number;
+  lines: number;
+  details: string | null;
+  customer_approved: boolean;
+};
+
+export type RecapEntry = {
+  work_order: string;
+  subject_key: string | null;
+  subject: string | null;
+  department: string | null;
+  kind: 'requested' | 'technician' | 'object';
+  title: string;
+  detail: string;
+  reason: string | null;
+  at: string | null;
+  by: string | null;
+};
+
+export type FulfilmentOutcome = {
+  accepted: number;
+  rejected: number;
+  requested_done: number;
+  technician_added: number;
+  technician_done: number;
+  prepared: number;
+  context_done?: number;
+};
+
+export type TechnicianOption = {
+  key: string;
+  service_item: string;
+  service_name: string;
+  action: string;
+  request_action: string;
+  action_label: string;
+  description?: string | null;
+  target_scope: 'User' | 'Device';
+  managed_device: string | null;
+  device_label: string | null;
+  source_service_assignment: string | null;
+  current_state: string;
+};
+
+export type ExecutionPlan = {
+  request: string;
+  customer: string;
+  status: string;
+  context: RequestContext;
+  recap: RecapEntry[];
+  outcome: FulfilmentOutcome;
+  stages: { stages: WorkStage[]; current: WorkStage['key'] };
+  groups: SubjectWorkGroup[];
+  rejected: { idx: number; service: string; reason: string | null }[];
+  summary: {
+    people: number;
+    devices: number;
+    services: number;
+    open: number;
+    blocked: number;
+    failed: number;
+  };
+  activity: { at: string; who: string; about: string | null; said: string }[];
+};
+
+export const getRequestExecutionPlan = (name: string, signal?: AbortSignal) =>
+  get<ExecutionPlan>(`${BASE}.get_request_execution_plan`, { name }, signal);
+
+export const executeUserSetup = (payload: {
+  work_order: string;
+  username?: string;
+  email?: string;
+  department?: string;
+  notes?: string;
+}) => post<ExecutionPlan>(`${BASE}.execute_user_setup`, payload);
+
+export const executeDeviceProvisioning = (payload: {
+  work_order: string;
+  mode: 'new' | 'existing';
+  managed_device?: string;
+  hostname?: string;
+  serial_number?: string;
+  device_type?: string;
+  interfaces?: DeviceInterface[];
+  effective_date?: string;
+  confirm_transfer?: number;
+  notes?: string;
+}) => post<ExecutionPlan>(`${BASE}.execute_device_provisioning`, payload);
+
+export const executeServiceAction = (payload: {
+  work_order: string;
+  effective_date?: string;
+  quantity?: number;
+  username?: string;
+  serial_number?: string;
+  notes?: string;
+  customer_note?: string;
+  confirm_billed?: number;
+  action?: string;
+  service_item?: string;
+}) => post<ExecutionPlan>(`${BASE}.execute_service_action`, payload);
+
+export const executeServiceActions = (payload: {
+  work_orders: string[];
+  effective_date?: string;
+  confirm_billed?: number;
+}) =>
+  post<GroupOutcome<{ completed: number; plan: ExecutionPlan }>>(`${BASE}.execute_service_actions`, {
+    ...payload,
+    work_orders: JSON.stringify(payload.work_orders),
+  });
+
+export const getTechnicianOptions = (name: string, subjectKey: string, signal?: AbortSignal) =>
+  get<{ subject_key: string; options: TechnicianOption[]; reason: string | null }>(
+    `${BASE}.get_technician_options`,
+    { name, subject_key: subjectKey },
+    signal
+  );
+
+export const addTechnicianAction = (payload: {
+  name: string;
+  subject_key: string;
+  option: TechnicianOption;
+  reason: string;
+}) =>
+  post<ExecutionPlan>(`${BASE}.add_technician_action`, {
+    ...payload,
+    option: JSON.stringify(payload.option),
+  });
+
+export const settleWorkDoneElsewhere = (name: string) =>
+  post<ExecutionPlan>(`${BASE}.settle_request_work_done_elsewhere`, { name });
+
+export const recordRequestActivity = (payload: {
+  name: string;
+  subject_key: string;
+  label: string;
+  detail?: string;
+}) => post<ExecutionPlan>(`${BASE}.record_request_activity`, payload);
+
+export const verifyWorkItem = (payload: {
+  work_order: string;
+  checklist?: Record<string, number>;
+  customer_note?: string;
+  notes?: string;
+}) => post<ExecutionPlan>(`${BASE}.verify_work_item`, payload);
+
+export const completeRequest = (payload: { name: string }) =>
+  post<ExecutionPlan>(`${BASE}.complete_request`, payload);
 
 export type DeviceInterface = {
   interface_type: string;
@@ -272,6 +561,11 @@ export type UserRow = {
   device_type: string | null;
   active_services: number;
   inactive_services: number;
+  personal_services: number;
+  device_services: number;
+  current_devices: number;
+  open_requests: number;
+  needs_attention: number;
 };
 
 export type UserDevice = {
@@ -282,8 +576,17 @@ export type UserDevice = {
   serial_number: string | null;
   assigned_date: string | null;
   retired_date: string | null;
+  assigned_client_user: string | null;
+  held_from?: string | null;
+  held_until?: string | null;
+  is_current?: boolean;
   interfaces?: DeviceInterface[];
 };
+
+export type UserDeviceHistory = Pick<
+  UserDevice,
+  'name' | 'hostname' | 'device_type' | 'status' | 'serial_number' | 'held_from' | 'held_until' | 'is_current'
+> & { holder_record: string };
 
 export type UserServiceRow = {
   name: string;
@@ -297,6 +600,10 @@ export type UserServiceRow = {
   effective_start_date: string | null;
   effective_end_date: string | null;
   source_request: string | null;
+  device_serial_number?: string | null;
+  device_user_name?: string | null;
+  last_billed_on?: string | null;
+  quantity?: number | null;
 };
 
 export type CustomerRequestRef = {
@@ -317,6 +624,86 @@ export type RemarkEntry = {
   idx: number;
 };
 
+export type UserServiceEntry = {
+  name: string;
+  service_item: string;
+  service_name: string;
+  operational_status: string;
+  billing_status: string | null;
+  quantity: number | null;
+  effective_start_date: string | null;
+  effective_end_date: string | null;
+  source_request: string | null;
+  allowed_actions: string[];
+  pending_request: string | null;
+  last_billed_on?: string | null;
+};
+
+export type ServiceHistoryEntry = Omit<
+  UserServiceEntry,
+  'allowed_actions' | 'pending_request' | 'last_billed_on'
+>;
+
+export type ServiceOffer = {
+  service_item: string;
+  item_name: string;
+  service_scope: string;
+  reason?: string;
+  warning?: string;
+};
+
+export type HeldDevice = {
+  device: {
+    name: string;
+    hostname: string;
+    device_type: string | null;
+    status: string;
+    serial_number: string | null;
+    in_service_since: string | null;
+  };
+  holder_since: string | null;
+  interfaces: DeviceInterface[];
+  services: {
+    current: UserServiceEntry[];
+    history?: ServiceHistoryEntry[];
+    available: ServiceOffer[];
+  };
+};
+
+export type AttentionSignal = {
+  code: string;
+  severity: 'warning' | 'info';
+  entity_type: 'User' | 'Device' | 'Request';
+  entity: string;
+  message: string;
+};
+
+export type UserOpenRequest = {
+  name: string;
+  status: string;
+  priority: string;
+  request_type: string;
+  creation: string;
+  modified: string;
+  lines: {
+    idx: number;
+    action: string;
+    service_name: string;
+    line_status: string;
+    hostname: string | null;
+  }[];
+  work_total: number;
+  work_done: number;
+};
+
+export type UserActivityEvent = {
+  on: string;
+  kind: 'device' | 'service' | 'device-service' | 'request';
+  entity: string;
+  what: string;
+  via?: string | null;
+};
+
 export type UserDetail = {
   user: {
     name: string;
@@ -328,21 +715,45 @@ export type UserDetail = {
     lifecycle_status: string;
     start_date: string | null;
     disabled_date: string | null;
-    portal_user: string | null;
-    remarks: string | null;
-    remark_log: RemarkEntry[];
-    covered_until: string | null;
-    last_billed_on: string | null;
-    can_delete: boolean;
-    delete_blockers: string[];
+    disabled_reason?: string | null;
   };
-  devices: UserDevice[];
-  services: UserServiceRow[];
-  requests: { name: string; status: string; priority: string; request_type: string; creation: string }[];
-  customer_requests: CustomerRequestRef[];
-  device_types: string[];
-  interface_types: string[];
-  catalogue: { name: string; item_name: string; scope: string }[];
+  summary: {
+    current_devices: number;
+    active_personal_services: number;
+    active_device_services: number;
+    open_requests: number;
+    attention_count: number;
+  };
+  personal_services: {
+    current: UserServiceEntry[];
+    available: ServiceOffer[];
+    blocked: ServiceOffer[];
+    target_reason: string | null;
+  };
+  devices: HeldDevice[];
+  open_requests: UserOpenRequest[];
+  attention: AttentionSignal[];
+  recent_activity: UserActivityEvent[];
+  can_delete: boolean;
+  delete_blockers: string[];
+  billing: { covered_until: string | null; last_billed_on: string | null };
+  notes: { latest: RemarkEntry | null; count: number; log: RemarkEntry[] };
+};
+
+export type UserHistory = {
+  past_devices: {
+    period: string;
+    name: string;
+    hostname: string;
+    device_type: string | null;
+    serial_number: string | null;
+    status: string;
+    held_from: string | null;
+    held_until: string | null;
+  }[];
+  past_personal_services: UserServiceEntry[];
+  past_requests: UserOpenRequest[];
+  activity: UserActivityEvent[];
 };
 
 export type DeviceDetail = {
@@ -354,6 +765,7 @@ export type DeviceDetail = {
     customer: string;
     assigned_client_user: string | null;
     user_name: string | null;
+    user_department: string | null;
     assigned_date: string | null;
     retired_date: string | null;
     serial_number: string | null;
@@ -420,6 +832,12 @@ export const listUsers = (params: UserListParams = {}, signal?: AbortSignal) =>
 export const getUser = (name: string, signal?: AbortSignal) =>
   get<UserDetail>(`${BASE}.get_user`, { name }, signal);
 
+export const getUserHistory = (name: string, limit?: number, signal?: AbortSignal) =>
+  get<UserHistory>(`${BASE}.get_user_history`, { name, limit }, signal);
+
+export const listCustomerRequests = (customer: string, signal?: AbortSignal) =>
+  get<CustomerRequestRef[]>(`${BASE}.list_customer_requests`, { customer }, signal);
+
 export const deleteClientUser = (name: string) =>
   post<{ deleted: string }>(`${BASE}.delete_client_user`, { name });
 
@@ -445,11 +863,56 @@ export const assignUserService = (payload: {
 
 export const changeUserService = (payload: {
   assignment: string;
-  action: 'Suspend' | 'Resume' | 'End';
+  action: 'Suspend' | 'Resume' | 'End' | 'Change';
   effective_date?: string;
   notes?: string;
   source_request?: string;
+  confirm_billed?: number;
+  quantity?: number;
+  service_item?: string;
 }) => post<UserDetail>(`${BASE}.change_user_service`, payload);
+
+export type ServiceAvailabilityTarget = {
+  scope: 'User' | 'Device';
+  name: string;
+  label: string;
+  customer: string;
+};
+
+export type ServiceAvailabilityCurrent = {
+  name: string;
+  service_item: string;
+  item_name: string;
+  service_scope: string;
+  operational_status: string;
+  billing_status: string;
+  quantity: number;
+  effective_start_date: string | null;
+};
+
+export type ServiceAvailabilityOffer = {
+  service_item: string;
+  item_name: string;
+  service_scope: string;
+  warning?: string;
+};
+
+export type ServiceAvailabilityBlocked = ServiceAvailabilityOffer & { reason: string };
+
+export type ServiceAvailability = {
+  target: ServiceAvailabilityTarget;
+  is_admin: boolean;
+  target_reason: string | null;
+  current: ServiceAvailabilityCurrent[];
+  available: ServiceAvailabilityOffer[];
+  blocked: ServiceAvailabilityBlocked[];
+};
+
+export const userServiceAvailability = (client_user: string, signal?: AbortSignal) =>
+  get<ServiceAvailability>(`${BASE}.user_service_availability`, { client_user }, signal);
+
+export const deviceServiceAvailability = (managed_device: string, signal?: AbortSignal) =>
+  get<ServiceAvailability>(`${BASE}.device_service_availability`, { managed_device }, signal);
 
 export type ContractOptions = {
   contract_statuses: string[];
@@ -598,11 +1061,25 @@ export type BillingRunLine = {
   exception_code: string | null;
   exception_detail: string | null;
   line_comment: string | null;
+  /** on a stored run: what was written when it was drawn, not what the records say today */
+  line?: string;
+  managed_device?: string | null;
+  serial_number?: string | null;
+  holder_context?: string | null;
+  segments?: { from: string; to: string }[];
+};
+
+export type BillingIdentity = {
+  customer_name_snapshot: string | null;
+  tax_id_snapshot: string | null;
+  billing_address_snapshot: string | null;
+  billing_contact_snapshot: string | null;
 };
 
 export type BillingRunDetail = {
   name: string;
   customer: string;
+  billing_identity: BillingIdentity;
   contract: string | null;
   contract_title: string | null;
   period_label: string;
@@ -817,6 +1294,12 @@ export const getBillingPeriodStatus = (
 export const getBillingRun = (name: string, signal?: AbortSignal) =>
   get<BillingRunDetail>(`${BASE}.get_billing_run`, { name }, signal);
 
+export const removeFromBillingRun = (payload: { name: string; service_assignment: string }) =>
+  post<BillingRunDetail>(`${BASE}.remove_from_billing_run`, payload);
+
+export const addToBillingRun = (payload: { name: string; service_assignment: string }) =>
+  post<BillingRunDetail>(`${BASE}.add_to_billing_run`, payload);
+
 const BILLING_ENDPOINTS: Record<string, string> = {
   finalise: `${BASE}.finalise_billing_run`,
   submit_invoice: `${BASE}.submit_invoice_billing_run`,
@@ -893,6 +1376,7 @@ export type DeviceFilterOptions = {
   device_types: string[];
   statuses: string[];
   coverage: string[];
+  interface_types: string[];
 };
 
 export type DeviceStats = {
@@ -900,6 +1384,7 @@ export type DeviceStats = {
   devices_without_services: number;
   unassigned_devices: number;
   devices_without_mac: number;
+  devices_in_stock: number;
 };
 
 export type DeviceRow = {
@@ -924,12 +1409,14 @@ export type DeviceContext = {
   device: {
     name: string;
     hostname: string;
+    serial_number?: string | null;
     device_type: string;
     status: string;
     customer: string;
     assigned_client_user: string | null;
   };
   user_name: string | null;
+  holder_username?: string | null;
   catalogue: { name: string; item_name: string; scope: string; already_open: boolean }[];
   customer_requests: CustomerRequestRef[];
 };
@@ -962,6 +1449,8 @@ export const assignDeviceService = (payload: {
   effective_date?: string;
   notes?: string;
   source_request?: string;
+  serial_number?: string;
+  username?: string;
 }) => post<DeviceContext>(`${BASE}.assign_device_service`, payload);
 
 export const updateManagedDevice = (payload: {
@@ -1047,11 +1536,52 @@ export const changeDeviceStatus = (payload: {
   effective_date?: string;
   assigned_client_user?: string;
   notes?: string;
+  end_services?: number;
 }) =>
   post<{ name: string; hostname: string; status: string; closed_assignments: string[] }>(
     `${BASE}.change_device_status`,
     payload
   );
+
+export type DeviceLifecycleOutcome = {
+  name: string;
+  hostname: string;
+  status: string;
+  assigned_client_user: string | null;
+  closed_assignments?: string[];
+};
+
+export const assignDevice = (payload: {
+  device: string;
+  client_user: string;
+  effective_date?: string;
+  note?: string;
+}) => post<DeviceLifecycleOutcome>(`${BASE}.assign_device`, payload);
+
+export const transferDevice = (payload: {
+  device: string;
+  client_user: string;
+  effective_date?: string;
+  note?: string;
+}) => post<DeviceLifecycleOutcome>(`${BASE}.transfer_device`, payload);
+
+export const repossessDevice = (payload: { device: string; effective_date?: string; note?: string }) =>
+  post<DeviceLifecycleOutcome>(`${BASE}.repossess_device`, payload);
+
+export const retireDevice = (payload: {
+  device: string;
+  effective_date?: string;
+  note?: string;
+  end_services?: number;
+}) =>
+  post<DeviceLifecycleOutcome>(`${BASE}.retire_device`, payload);
+
+export const reinstateDevice = (payload: {
+  device: string;
+  effective_date?: string;
+  client_user?: string;
+  note?: string;
+}) => post<DeviceLifecycleOutcome>(`${BASE}.reinstate_device`, payload);
 
 export type CustomerUserRef = { name: string; full_name: string; department: string | null };
 
@@ -1425,7 +1955,46 @@ export type CustomerDetails = {
   msp_free_of_charge: number;
   last_billed_on: string | null;
   address: CustomerAddress | null;
+  contact: CustomerContact | null;
   counts: { users: number; devices: number; contracts: number };
+  /** what this reader may do here, so the page never works it out from roles */
+  can: {
+    edit_commercial: boolean;
+    edit_profile: boolean;
+    manage_contracts: boolean;
+    manage_pricing: boolean;
+  };
+  shared: { address: boolean };
+};
+
+export type CustomerContact = {
+  name: string;
+  first_name: string | null;
+  last_name: string | null;
+  email_id: string | null;
+  phone: string | null;
+  shared: boolean;
+};
+
+export type CustomerRow = {
+  name: string;
+  customer_name: string | null;
+  customer_group: string | null;
+  territory: string | null;
+  website: string | null;
+  users: number;
+  devices: number;
+  active_contracts: number;
+};
+
+export type Capabilities = {
+  view_all_customers: boolean;
+  create_customer: boolean;
+  edit_customer_commercial: boolean;
+  manage_contracts: boolean;
+  manage_pricing: boolean;
+  execute_requests: boolean;
+  manage_settings: boolean;
 };
 
 export type CustomerOptions = {
@@ -1448,12 +2017,31 @@ export const saveCustomerDetails = (payload: {
   customer: string;
   details: Partial<CustomerDetails>;
   address?: Partial<CustomerAddress>;
+  contact?: Partial<CustomerContact>;
 }) =>
   post<CustomerDetails>(`${BASE}.save_customer_details`, {
     customer: payload.customer,
     details: JSON.stringify(payload.details),
     address: payload.address ? JSON.stringify(payload.address) : undefined,
+    contact: payload.contact ? JSON.stringify(payload.contact) : undefined,
   });
+
+export const listCustomers = (search?: string, signal?: AbortSignal) =>
+  get<CustomerRow[]>(`${BASE}.list_customers`, { search }, signal);
+
+export const createCustomer = (payload: {
+  customer_name: string;
+  details?: Partial<CustomerDetails>;
+  address?: Partial<CustomerAddress>;
+}) =>
+  post<CustomerDetails>(`${BASE}.create_customer`, {
+    customer_name: payload.customer_name,
+    details: payload.details ? JSON.stringify(payload.details) : undefined,
+    address: payload.address ? JSON.stringify(payload.address) : undefined,
+  });
+
+export const getMyCapabilities = (signal?: AbortSignal) =>
+  get<Capabilities>(`${BASE}.my_capabilities`, undefined, signal);
 
 export const salesInvoiceDeskUrl = (invoice: string) =>
   `/app/sales-invoice/${encodeURIComponent(invoice)}`;
@@ -1517,6 +2105,7 @@ export type RequestActionRow = {
   action_type: string;
   description: string | null;
   enabled: number;
+  sort_order: number | null;
   used: number;
 };
 
@@ -1539,6 +2128,53 @@ export const saveRequestAction = (payload: {
 
 export const deleteRequestAction = (name: string) =>
   post<RequestActionRow[]>(`${BASE}.delete_request_action`, { name });
+
+export type DepartmentRow = {
+  name: string;
+  department_name: string;
+  enabled: number;
+  description: string | null;
+  sort_order: number | null;
+  customer?: string | null;
+  used?: number;
+  users?: number;
+  approvers?: number;
+  open_requests?: number;
+};
+
+export type DepartmentOption = { value: string; label: string };
+
+export const listDepartments = (enabledOnly = true, signal?: AbortSignal, customer?: string | null) =>
+  get<DepartmentRow[]>(
+    `${BASE}.list_departments`,
+    { enabled_only: enabledOnly ? 1 : 0, customer: customer || undefined },
+    signal
+  );
+
+/** The departments a person at this customer may be put in: the shared ones and their own. */
+export const listDepartmentOptions = async (
+  customer?: string | null,
+  signal?: AbortSignal
+): Promise<DepartmentOption[]> =>
+  (await listDepartments(true, signal, customer)).map((row) => ({
+    value: row.department_name,
+    label: row.department_name,
+  }));
+
+export const saveDepartment = (payload: {
+  name?: string;
+  department: Partial<DepartmentRow>;
+}) =>
+  post<DepartmentRow[]>(`${BASE}.save_department`, {
+    name: payload.name,
+    department: JSON.stringify(payload.department),
+  });
+
+export const disableDepartment = (name: string) =>
+  post<DepartmentRow[]>(`${BASE}.disable_department`, { name });
+
+export const deleteDepartment = (name: string) =>
+  post<DepartmentRow[]>(`${BASE}.delete_department`, { name });
 
 export type InvoiceSettings = {
   issuer_name: string | null;
@@ -1605,7 +2241,6 @@ export type CustomerMapping = {
   excel_label: string;
   customer_id: string;
   create_as: string | null;
-  department_prefix: string | null;
   exists?: boolean;
 };
 
@@ -1786,10 +2421,25 @@ export const updateClientUser = (payload: {
   remarks?: string;
 }) => post<UserDetail>(`${BASE}.update_client_user`, payload);
 
+export const disableClientUser = (payload: {
+  name: string;
+  effective_date?: string;
+  reason?: string;
+  end_services?: number;
+}) => post<UserDetail>(`${BASE}.disable_client_user`, payload);
+
+export const stopAllClientUserServices = (payload: {
+  name: string;
+  effective_date?: string;
+  notes?: string;
+  source_request?: string;
+}) => post<UserDetail>(`${BASE}.stop_all_client_user_services`, payload);
+
+export const reactivateClientUser = (name: string) =>
+  post<UserDetail>(`${BASE}.reactivate_client_user`, { name });
+
 export const setBillingLineDiscount = (payload: {
   name: string;
   service_assignment: string;
   discount_percent: number;
 }) => post<BillingRunDetail>(`${BASE}.set_billing_line_discount`, payload);
-
-

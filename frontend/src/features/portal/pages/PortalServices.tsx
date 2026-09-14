@@ -16,7 +16,7 @@ import { useMyApprovalRights } from '../hooks/usePortal';
  */
 export default function PortalServices() {
   const rights = useMyApprovalRights();
-  const canSubmit = rights.data?.can_submit !== false;
+  const canSubmit = rights.data?.can_submit === true;
   const navigate = useNavigate();
   const catalogue = useCatalogue();
   const subscribed = useSubscribedServices();
@@ -127,6 +127,7 @@ export default function PortalServices() {
             : 'Your contract covers no service yet.'
         }
         showToolbar={false}
+        showPagination={false}
       >
         {rows.map((item) => {
           const scope = item.scope || 'User';

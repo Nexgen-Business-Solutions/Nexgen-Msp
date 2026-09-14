@@ -24,7 +24,7 @@ const EMPTY: Partial<MspContract> = {
   end_date: null,
   billing_frequency: 'Quarterly',
   billing_timing: 'In Arrears',
-  proration_method: 'Daily Actual Days',
+  proration_method: '30-Day Convention',
   invoice_grouping: 'One Invoice',
   price_list: undefined,
   price_list_valid_upto: null,

@@ -21,5 +21,10 @@ export type SessionContext = {
   is_internal_user?: boolean;
 };
 
+/** A password-authenticated session is not an application session until its 2FA gate passed. */
+export const mayEnterApplication = (
+  session?: Pick<SessionContext, 'authenticated' | 'two_factor_passed'> | null
+) => Boolean(session?.authenticated && session.two_factor_passed);
+
 export const getSessionContext = (signal?: AbortSignal) =>
   get<SessionContext>(`${BASE}.get_session_context`, undefined, signal);

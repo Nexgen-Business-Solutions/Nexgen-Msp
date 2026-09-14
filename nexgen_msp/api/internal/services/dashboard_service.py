@@ -36,7 +36,7 @@ KPI_SOURCES = {
         ],
         "body": ASSIGNMENT_JOIN
         + """
-            where sa.operational_status not in ('Ended', 'Cancelled')
+            where sa.operational_status in ('Pending Setup', 'Active', 'Suspended', 'Pending Removal')
               and coalesce(holder.lifecycle_status, device_holder.lifecycle_status)
                   in ('Disabled', 'Archived')
         """,
@@ -291,7 +291,7 @@ class DashboardService:
               and not exists (
                   select 1 from `tabMSP Service Assignment` sa
                   where sa.managed_device = device.name
-                    and sa.operational_status not in ('Ended', 'Cancelled')
+                    and sa.operational_status in ('Pending Setup', 'Active', 'Suspended', 'Pending Removal')
               )
             """,
             {},
@@ -304,7 +304,7 @@ class DashboardService:
             left join `tabMSP Client User` holder on holder.name = sa.client_user
             left join `tabMSP Managed Device` device on device.name = sa.managed_device
             left join `tabMSP Client User` device_holder on device_holder.name = device.assigned_client_user
-            where sa.operational_status not in ('Ended', 'Cancelled')
+            where sa.operational_status in ('Pending Setup', 'Active', 'Suspended', 'Pending Removal')
               and coalesce(holder.lifecycle_status, device_holder.lifecycle_status)
                   in ('Disabled', 'Archived')
             """

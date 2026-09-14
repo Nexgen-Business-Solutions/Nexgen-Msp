@@ -26,6 +26,7 @@ class TestWhoSeesWhatAndMayDoWhat(MSPTestCase):
         self.person = self.make_person(self.customer, "Subject")
         frappe.db.set_value("MSP Client User", self.person, "username", "s.subject")
         self.service = self.make_service("WV", scope="User")
+        self.cover_service(self.customer, self.service)
 
         self.author = self.make_account("customer", "MSP Customer Operator", self.customer, suffix="wva")
         self.decider = self.make_account("customer", "MSP Customer Manager", self.customer, suffix="wvd")
@@ -241,6 +242,26 @@ class TestWhoSeesWhatAndMayDoWhat(MSPTestCase):
         self.act(self.tech, name, "start_work")
         self.assertEqual(self.status(name), "In Progress")
 
+        # the file closes on the work being seen through, never on the say-so of a button
+        from nexgen_msp.api.internal.services.request_execution_service import (
+            RequestExecutionService,
+        )
+
+        work = frappe.get_all(
+            "MSP Service Work Order", filters={"service_request": name}, pluck="name"
+        )[0]
+        self.track("MSP Service Work Order", work)
+
+        self.refused(lambda: self.act(self.tech, name, "complete"))
+
+        self.as_user(
+            self.tech,
+            lambda: RequestExecutionService.execute_service_action(work_order=work),
+        )
+        self.track(
+            "MSP Service Assignment",
+            frappe.db.get_value("MSP Service Work Order", work, "resulting_assignment"),
+        )
         self.act(self.tech, name, "complete")
         self.assertEqual(self.status(name), "Completed")
 

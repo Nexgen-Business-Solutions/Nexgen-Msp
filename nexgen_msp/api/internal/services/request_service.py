@@ -2,10 +2,11 @@ import frappe
 
 from nexgen_msp.utils.meta import select_options
 
-from nexgen_msp.utils import identifiers, permissions
+from nexgen_msp.utils import permissions
+from nexgen_msp.utils.assignments import OPEN_ASSIGNMENT_STATUSES
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
-ADMIN_ROLES = ("MSP System Admin", "System Manager", "Administrator")
+ADMIN_ROLES = ("MSP System Admin", "Administrator")
 
 DISPUTE_TYPE = "Billing Dispute"
 # everyone who works the floor: everything but the money
@@ -48,6 +49,7 @@ ACTIONS = {
         "roles": TECHNICIAN_ROLES,
         "stamp": "review",
         "requires_decided_lines": True,
+        "builds_plan": True,
     },
     "start_work": {
         "label": "Start work",
@@ -58,11 +60,11 @@ ACTIONS = {
     },
     "complete": {
         "label": "Mark completed",
-        "from": ("In Progress",),
+        "from": ("Approved", "In Progress"),
         "to": "Completed",
         "roles": TECHNICIAN_ROLES,
         "stamp": None,
-        "requires_delivery_details": True,
+        "requires_finished_work": True,
     },
     "reject": {
         "label": "Reject",
@@ -211,13 +213,6 @@ class RequestService:
                          )
                    )"""
             )
-
-        if scope == "mine":
-            conditions.append(
-                "sr.status in %(open_statuses)s and %(user)s in (sr.technical_approved_by, sr.owner)"
-            )
-            params["open_statuses"] = OPEN_STATUSES
-            params["user"] = frappe.session.user
 
         if priority:
             conditions.append("sr.priority = %(priority)s")
@@ -391,24 +386,25 @@ class RequestService:
                 coalesce(ra.title, srl.action) as action_label,
                 ra.description as action_description,
                 srl.target_scope, srl.is_new_user,
-                srl.client_user,
-                coalesce(cu.full_name, holder.full_name) as client_user_name,
-                coalesce(cu.department, holder.department) as client_user_department,
+                srl.client_user, srl.requested_for_user,
+                coalesce(cu.full_name, rfu.full_name, holder.full_name) as client_user_name,
+                coalesce(cu.department, rfu.department, holder.department) as client_user_department,
                 srl.new_user_full_name, srl.new_user_department, srl.new_user_email,
                 srl.new_user_username,
-                srl.needs_portal_access,
                 srl.is_new_device, srl.new_device_label, srl.new_device_type,
                 srl.new_device_serial,
                 srl.managed_device, device.hostname as device_hostname,
                 device.serial_number as device_serial, device.device_type as device_type,
                 -- the person a device line is really about, so their profile stays one click away
                 device.assigned_client_user as device_holder,
-                coalesce(cu.username, holder.username) as client_username,
+                coalesce(cu.username, rfu.username, holder.username) as client_username,
                 srl.requested_service, item.item_name as requested_service_name,
                 srl.requested_quantity, srl.requested_effective_date,
                 srl.comment, srl.line_status, srl.rejection_reason
             from `tabMSP Service Request Line` srl
             left join `tabMSP Client User` cu on cu.name = srl.client_user
+            -- a machine still to be prepared names its person here rather than as the line's own
+            left join `tabMSP Client User` rfu on rfu.name = srl.requested_for_user
             left join `tabMSP Managed Device` device on device.name = srl.managed_device
             left join `tabMSP Client User` holder on holder.name = device.assigned_client_user
             left join `tabItem` item on item.name = srl.requested_service
@@ -424,18 +420,25 @@ class RequestService:
             line["line_status"] = effective_line_status(line.get("line_status"), doc.status)
 
             # said per line so the technician sees what is still owed before being refused
-            # a closure for it
-            scope = RequestService._service_scope(line.get("requested_service"))
-            line["service_scope"] = scope
+            # a closure for it. A personal service is owed a username, a machine service a
+            # serial, and a 'Both' service landing on a machine somebody holds is owed both.
+            line["service_scope"] = RequestService._service_scope(line.get("requested_service"))
+            target_scope = line.get("target_scope")
             line["needs_serial"] = bool(
-                scope in ("Device", "Both")
+                target_scope == "Device"
                 and line.get("managed_device")
                 and not (line.get("device_serial") or "").strip()
             )
             line["needs_username"] = bool(
-                scope in ("User", "Both")
-                and line.get("client_user")
-                and not (line.get("client_username") or "").strip()
+                not (line.get("client_username") or "").strip()
+                and (
+                    (target_scope == "User" and line.get("client_user"))
+                    or (
+                        target_scope == "Device"
+                        and line["service_scope"] == "Both"
+                        and line.get("device_holder")
+                    )
+                )
             )
 
         return {
@@ -445,6 +448,7 @@ class RequestService:
             "request_type": doc.request_type,
             "status": doc.status,
             "priority": doc.priority,
+            "details": doc.details,
             "source": doc.source,
             "requester": doc.requester,
             "requester_name": frappe.db.get_value("User", doc.requester, "full_name")
@@ -459,9 +463,108 @@ class RequestService:
             "rejection_reason": doc.rejection_reason,
             "lines": lines,
             "available_actions": RequestService._allowed_actions(doc.status),
-            "can_decide_lines": doc.status == "Under Review" and RequestService._can("approve"),
+            "can_decide_lines": doc.status in ("Submitted", "Under Review")
+            and RequestService._can("approve"),
             "review": RequestService._review_checks(doc),
+            "people": RequestService._people_facts(
+                doc.name,
+                {
+                    line.get("client_user") or line.get("requested_for_user") or line.get("device_holder")
+                    for line in lines
+                }
+                - {None},
+            ),
         }
+
+    @staticmethod
+    def _people_facts(request, people):
+        """What is worth knowing about each person a request speaks of, read once for all of them.
+
+        Their record, the machines in their hands, the services they already hold and any other
+        request still open about them — so a decision on a line is taken knowing who it is for.
+        """
+        if not people:
+            return {}
+
+        people = tuple(people)
+        facts = {
+            row.name: {**row, "devices": [], "services": [], "open_requests": []}
+            for row in frappe.get_all(
+                "MSP Client User",
+                filters={"name": ("in", people)},
+                fields=[
+                    "name", "full_name", "department", "email", "username",
+                    "lifecycle_status", "start_date", "disabled_date",
+                ],
+            )
+        }
+
+        for row in frappe.db.sql(
+            """
+            select holder.client_user, device.name, device.hostname, device.serial_number,
+                   device.device_type, holder.from_date
+            from `tabMSP Device Holder` holder
+            join `tabMSP Managed Device` device on device.name = holder.parent
+            where holder.parenttype = 'MSP Managed Device' and holder.is_current = 1
+              and holder.client_user in %(people)s
+            order by device.hostname
+            """,
+            {"people": people},
+            as_dict=True,
+        ):
+            if row.client_user in facts:
+                facts[row.client_user]["devices"].append(
+                    {k: row[k] for k in ("name", "hostname", "serial_number", "device_type", "from_date")}
+                )
+
+        for row in frappe.db.sql(
+            """
+            select coalesce(sa.client_user, holder.client_user) as client_user,
+                   sa.name, sa.assignment_scope, sa.managed_device, device.hostname,
+                   sa.operational_status,
+                   coalesce(item.item_name, sa.service_item) as service_name
+            from `tabMSP Service Assignment` sa
+            left join `tabItem` item on item.name = sa.service_item
+            left join `tabMSP Managed Device` device on device.name = sa.managed_device
+            left join `tabMSP Device Holder` holder
+              on holder.parent = sa.managed_device
+             and holder.parenttype = 'MSP Managed Device'
+             and holder.is_current = 1
+            where coalesce(sa.client_user, holder.client_user) in %(people)s
+              and sa.operational_status in ('Active', 'Suspended', 'Pending Removal', 'Pending Setup')
+            order by service_name
+            """,
+            {"people": people},
+            as_dict=True,
+        ):
+            if row.client_user in facts:
+                facts[row.client_user]["services"].append(
+                    {
+                        "name": row.name,
+                        "service_name": row.service_name,
+                        "status": row.operational_status,
+                        "assignment_scope": row.assignment_scope,
+                        "managed_device": row.managed_device,
+                        "hostname": row.hostname,
+                    }
+                )
+
+        for row in frappe.db.sql(
+            """
+            select distinct coalesce(srl.client_user, srl.requested_for_user) as person, sr.name, sr.status
+            from `tabMSP Service Request Line` srl
+            join `tabMSP Service Request` sr on sr.name = srl.parent
+            where coalesce(srl.client_user, srl.requested_for_user) in %(people)s
+              and sr.name != %(request)s
+              and sr.status in ('Submitted', 'Under Review', 'Approved', 'In Progress')
+            """,
+            {"people": people, "request": request},
+            as_dict=True,
+        ):
+            if row.person in facts:
+                facts[row.person]["open_requests"].append({"name": row.name, "status": row.status})
+
+        return facts
 
     @staticmethod
     def run_action(name=None, action=None, reason=None):
@@ -503,8 +606,12 @@ class RequestService:
                     "VALIDATION_ERROR",
                 )
 
-        if spec.get("requires_delivery_details"):
-            RequestService._guard_delivery_details(doc)
+        if spec.get("requires_finished_work"):
+            from nexgen_msp.api.internal.services.request_execution_service import (
+                RequestExecutionService,
+            )
+
+            RequestExecutionService.guard_completion(doc)
 
         doc.status = spec["to"]
 
@@ -526,6 +633,15 @@ class RequestService:
         doc.save()
         doc.add_comment("Comment", f"{spec['label']}{': ' + reason if reason else ''}")
         frappe.db.commit()
+
+        # approving is not a paper decision: the work it calls for exists from that moment,
+        # and the technician finds it waiting rather than having to ask for it
+        if spec.get("builds_plan"):
+            from nexgen_msp.api.internal.services.request_execution_service import (
+                RequestExecutionService,
+            )
+
+            RequestExecutionService.build_execution_plan(doc.name)
 
         RequestService._notify_requester(doc, action, reason)
 
@@ -572,55 +688,124 @@ class RequestService:
         row.line_status = line_status
         row.rejection_reason = reason or None
 
+        # ruling on a line is the review: nobody has to announce they are starting one
+        if doc.status == "Submitted":
+            doc.status = "Under Review"
+
         doc.save()
         frappe.db.commit()
 
         return RequestService.get_request(name)
 
     @staticmethod
-    def _service_scope(service_item):
-        """Declared on the Item; older services fall back to how they are already assigned."""
-        declared = frappe.db.get_value("Item", service_item, "msp_service_scope")
+    def set_line_statuses(name=None, idxs=None, line_status=None, reason=None):
+        """The same decision for several lines, still written line by line.
 
-        if declared:
-            return declared
+        Each line is decided on its own and can be refused on its own, so the answer says,
+        line by line, which ones took the decision and why any did not.
+        """
+        RequestService._guard_internal()
 
-        row = frappe.db.sql(
-            """
-            select assignment_scope, count(*) as total
-            from `tabMSP Service Assignment`
-            where service_item = %(item)s
-            group by assignment_scope
-            order by total desc
-            limit 1
-            """,
-            {"item": service_item},
-            as_dict=True,
-        )
-        return row[0].assignment_scope if row else "User"
+        idxs = frappe.parse_json(idxs) if isinstance(idxs, str) else (idxs or [])
+
+        if not idxs:
+            raise ValidationError("Name the lines to decide.", "VALIDATION_ERROR")
+
+        results = []
+
+        for idx in idxs:
+            try:
+                RequestService.set_line_status(
+                    name=name, idx=idx, line_status=line_status, reason=reason
+                )
+                results.append({"idx": frappe.utils.cint(idx), "ok": True, "message": None})
+            except (ValidationError, NotFoundError) as error:
+                frappe.db.rollback()
+                results.append(
+                    {"idx": frappe.utils.cint(idx), "ok": False, "message": error.message}
+                )
+
+        return {
+            "results": results,
+            "decided": len([row for row in results if row["ok"]]),
+            "failed": len([row for row in results if not row["ok"]]),
+            "request": RequestService.get_request(name),
+        }
 
     @staticmethod
-    def _find_open_assignment(customer, client_user, service_item):
-        """The assignment a Change/Suspend/Resume/Remove line acts upon."""
-        found = frappe.db.sql(
+    def list_customer_requests(customer=None, limit=30):
+        """The recent requests of one company, for a form that wants to cite one.
+
+        Asked for by the screens that need it rather than carried along with every reading
+        of a person or a machine that has nothing to do with them.
+        """
+        RequestService._guard_internal()
+
+        if not customer:
+            raise ValidationError("customer is required.", "VALIDATION_ERROR")
+
+        return frappe.db.sql(
             """
-            select sa.name
-            from `tabMSP Service Assignment` sa
-            left join `tabMSP Managed Device` device on device.name = sa.managed_device
-            where sa.customer = %(customer)s
-              and sa.service_item = %(service_item)s
-              and sa.operational_status in ('Pending Setup', 'Active', 'Suspended', 'Pending Removal')
-              and (sa.client_user = %(client_user)s or device.assigned_client_user = %(client_user)s)
-            order by sa.effective_start_date desc
-            limit 1
+            select sr.name, sr.request_type, sr.status, sr.priority, sr.source,
+                   coalesce(requester.full_name, sr.requester) as requester,
+                   sr.creation, sr.customer
+            from `tabMSP Service Request` sr
+            left join `tabUser` requester on requester.name = sr.requester
+            where sr.customer = %(customer)s and sr.status != %(customer_status)s
+            order by field(sr.status, 'Completed', 'Rejected', 'Cancelled') asc,
+                     sr.creation desc
+            limit %(limit)s
             """,
             {
                 "customer": customer,
-                "service_item": service_item,
-                "client_user": client_user or "",
+                "customer_status": CUSTOMER_STATUS,
+                "limit": min(max(frappe.utils.cint(limit) or 30, 1), 100),
             },
+            as_dict=True,
         )
-        return found[0][0] if found else None
+
+    @staticmethod
+    def _service_scope(service_item):
+        """Declared on the Item; left empty, the service may go to a person or a machine."""
+        declared = frappe.db.get_value("Item", service_item, "msp_service_scope")
+
+        # a service that does not say where it is sold is sold to both
+        return declared or "Both"
+
+    @staticmethod
+    def _find_open_assignment(
+        customer, service_item, assignment_scope, client_user=None, managed_device=None
+    ):
+        """The open assignment a Change/Suspend/Resume/Remove line acts upon.
+
+        A period belongs to exactly one target, and is looked up by that target alone: the
+        person a user service was issued to, or the machine a device service runs on. The
+        person who happens to hold the machine today owns nothing of it.
+        """
+        if assignment_scope not in ("User", "Device"):
+            return None
+
+        field = "client_user" if assignment_scope == "User" else "managed_device"
+        target = client_user if assignment_scope == "User" else managed_device
+
+        if not target:
+            return None
+
+        found = frappe.get_all(
+            "MSP Service Assignment",
+            filters={
+                "customer": customer,
+                "service_item": service_item,
+                "assignment_scope": assignment_scope,
+                field: target,
+                "operational_status": ("in", OPEN_ASSIGNMENT_STATUSES),
+            },
+            order_by="effective_start_date desc",
+            pluck="name",
+            limit=1,
+        )
+
+        return found[0] if found else None
 
     @staticmethod
     def _resolve_device(
@@ -644,8 +829,13 @@ class RequestService:
                     f"Device {managed_device} does not belong to {customer}.", "VALIDATION_ERROR"
                 )
 
-            if client_user and not device.assigned_client_user:
-                device.assigned_client_user = client_user
+            if client_user and device.assigned_client_user != client_user:
+                from nexgen_msp.api.internal.services.device_lifecycle_service import (
+                    DeviceLifecycleService,
+                )
+
+                DeviceLifecycleService.assign(device=device.name, client_user=client_user)
+                device.reload()
 
             if device_type:
                 device.device_type = device_type
@@ -700,12 +890,22 @@ class RequestService:
                 {
                     "doctype": "MSP Managed Device",
                     "customer": customer,
-                    "holder_log": [{"client_user": client_user}] if client_user else [],
+                    "holder_log": (
+                        [{
+                            "client_user": client_user,
+                            "full_name": frappe.db.get_value(
+                                "MSP Client User", client_user, "full_name"
+                            ),
+                            "from_date": frappe.utils.today(),
+                        }]
+                        if client_user
+                        else []
+                    ),
                     "hostname": hostname.strip().upper(),
                     "serial_number": serial_number,
                     "device_type": device_type or "Other",
-                    "status": "Active",
-                    "assigned_date": frappe.utils.today(),
+                    "status": "Active" if client_user else "Stock",
+                    "assigned_date": frappe.utils.today() if client_user else None,
                     "network_interfaces": [
                         {
                             "interface_type": interface.get("interface_type") or "Other",
@@ -720,113 +920,6 @@ class RequestService:
 
         return None
 
-
-    @staticmethod
-    def set_delivery_detail(name=None, idx=None, serial_number=None, username=None):
-        """Record, from the request itself, what the technician found on the bench.
-
-        The closure is refused without these two facts, so they are collected where the
-        work is being done rather than on another screen.
-        """
-        RequestService._guard_internal()
-
-        if not name or not idx:
-            raise ValidationError("name and idx are required.", "VALIDATION_ERROR")
-
-        if not frappe.db.exists("MSP Service Request", name):
-            raise NotFoundError(f"Service Request {name} not found.", "NOT_FOUND")
-
-        doc = frappe.get_doc("MSP Service Request", name)
-
-        if doc.status in CLOSED_STATUSES or doc.status == CUSTOMER_STATUS:
-            raise ValidationError(
-                f"Request {name} is {doc.status.lower()} and can no longer be edited.",
-                "INVALID_TRANSITION",
-            )
-
-        row = next((line for line in doc.lines if line.idx == frappe.utils.cint(idx)), None)
-
-        if not row:
-            raise NotFoundError(f"Line {idx} does not exist on {name}.", "NOT_FOUND")
-
-        serial = (serial_number or "").strip()
-        account = (username or "").strip()
-
-        if serial:
-            device = row.managed_device
-
-            if not device:
-                raise ValidationError("This line carries no machine.", "VALIDATION_ERROR")
-
-            identifiers.record_serial(device, serial, overwrite=True)
-
-        if account:
-            person = row.client_user
-
-            if not person:
-                raise ValidationError("This line carries no person.", "VALIDATION_ERROR")
-
-            identifiers.record_username(person, account, overwrite=True)
-
-        frappe.db.commit()
-
-        return RequestService.get_request(name)
-
-    @staticmethod
-    def _guard_delivery_details(doc):
-        """What a technician must hold before a request can be called done.
-
-        The customer is not asked for either of these when they raise the request — they
-        rarely know them. They are collected while the work is carried out, and this is the
-        gate that stops a request being closed without them.
-
-        What is required follows the scope the service is sold under. A service that lands
-        on a machine needs that machine's serial number; one that licenses a person needs
-        their account name; one sold against both needs both. The scope is a catalogue
-        fact, so the rule reads it there rather than from a list written here.
-        """
-        missing = []
-
-        for row in doc.lines:
-            if row.line_status in ("Rejected", "Cancelled"):
-                continue
-
-            # a person or a machine the customer asked us to create has to exist before the
-            # request that asked for them can be called done
-            if row.is_new_user and not row.client_user:
-                missing.append(f"line {row.idx}: {row.new_user_full_name} has not been created")
-                continue
-
-            if row.is_new_device and not row.managed_device:
-                missing.append(f"line {row.idx}: {row.new_device_label} has not been registered")
-                continue
-
-            scope = RequestService._service_scope(row.requested_service)
-            service = frappe.db.get_value("Item", row.requested_service, "item_name")
-
-            if scope in ("Device", "Both"):
-                device = row.managed_device
-
-                if device and not (
-                    frappe.db.get_value("MSP Managed Device", device, "serial_number") or ""
-                ).strip():
-                    hostname = frappe.db.get_value("MSP Managed Device", device, "hostname")
-                    missing.append(f"line {row.idx}: {hostname} has no serial number for {service}")
-
-            if scope in ("User", "Both"):
-                person = row.client_user
-
-                if person and not (
-                    frappe.db.get_value("MSP Client User", person, "username") or ""
-                ).strip():
-                    full_name = frappe.db.get_value("MSP Client User", person, "full_name")
-                    missing.append(f"line {row.idx}: {full_name} has no username for {service}")
-
-        if missing:
-            raise ValidationError(
-                "This request cannot be closed yet — " + "; ".join(missing) + ".",
-                "VALIDATION_ERROR",
-            )
 
     @staticmethod
     def _review_checks(doc):
@@ -844,10 +937,12 @@ class RequestService:
             select name, title, status, currency
             from `tabMSP Contract`
             where customer = %(customer)s and status in ('Active', 'Suspended')
-            order by (status = 'Active') desc, start_date desc
+            order by
+                (start_date <= %(today)s and ifnull(end_date, '9999-12-31') >= %(today)s) desc,
+                (status = 'Active') desc, start_date desc
             limit 1
             """,
-            {"customer": doc.customer},
+            {"customer": doc.customer, "today": frappe.utils.today()},
             as_dict=True,
         )
         contract = contract[0] if contract else None
@@ -888,7 +983,7 @@ class RequestService:
                     )
                 elif row.client_user:
                     duplicate = RequestService._find_open_assignment(
-                        doc.customer, row.client_user, row.requested_service
+                        doc.customer, row.requested_service, "User", client_user=row.client_user
                     )
 
             lines.append(

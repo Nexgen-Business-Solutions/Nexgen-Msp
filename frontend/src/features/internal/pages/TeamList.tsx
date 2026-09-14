@@ -16,7 +16,7 @@ import {
   useTeamOptions,
 } from '../hooks/useTeam';
 
-const COLUMNS = ['Account', 'Kind', 'Scope', 'Desk', '2FA', 'Last seen', 'Status', ''];
+const COLUMNS = ['Account', 'Kind',  '2FA', 'Last seen', 'Status', ''];
 
 
 
@@ -124,9 +124,8 @@ export default function TeamList() {
                 {COLUMNS.map((column, index) => (
                   <th
                     key={column || index}
-                    className={`whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 ${
-                      index === 0 ? 'rounded-l-lg' : ''
-                    } ${index === COLUMNS.length - 1 ? 'rounded-r-lg' : ''}`}
+                    className={`whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 ${index === 0 ? 'rounded-l-lg' : ''
+                      } ${index === COLUMNS.length - 1 ? 'rounded-r-lg' : ''}`}
                   >
                     {column}
                   </th>
@@ -171,24 +170,15 @@ export default function TeamList() {
                     <p className="text-xs text-slate-400">{member.name}</p>
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                    {member.kind}
+                    <p className="text-sm font-semibold text-slate-900">
+                      {member.kind}
+                    </p>
+                    <p className="text-xs text-slate-400">{member.customers.join(', ')}</p>
+
+
                   </td>
-                  <td className="px-4 py-3 text-sm text-slate-600">
-                    {member.customers.length > 0 ? (
-                      member.customers.join(', ')
-                    ) : member.roles.some((role) => role.startsWith('MSP Customer')) ? (
-                      <span className="text-amber-600">No customer linked</span>
-                    ) : (
-                      <span className="text-slate-400">All customers</span>
-                    )}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm">
-                    {member.user_type === 'System User' ? (
-                      <span className="text-slate-600">Frappe desk</span>
-                    ) : (
-                      <span className="text-slate-400">App only</span>
-                    )}
-                  </td>
+                  
+                 
                   <td className="whitespace-nowrap px-4 py-3 text-sm">
                     {member.two_factor ? (
                       <span className="inline-flex items-center gap-1 text-emerald-600">
@@ -204,11 +194,10 @@ export default function TeamList() {
                   </td>
                   <td className="whitespace-nowrap px-4 py-3">
                     <span
-                      className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-                        member.enabled
+                      className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${member.enabled
                           ? 'bg-emerald-100 text-emerald-700'
                           : 'bg-slate-100 text-slate-500'
-                      }`}
+                        }`}
                     >
                       {member.enabled ? 'ACTIVE' : 'DISABLED'}
                     </span>
@@ -221,30 +210,30 @@ export default function TeamList() {
                             // the menu offers what applies to this account and nothing else
                             ...(member.enabled
                               ? [
-                                  {
-                                    label: 'Resend the invitation',
-                                    icon: KeyRound,
-                                    onClick: () => resend.mutate(member.name),
-                                  },
-                                ]
+                                {
+                                  label: 'Resend the invitation',
+                                  icon: KeyRound,
+                                  onClick: () => resend.mutate(member.name),
+                                },
+                              ]
                               : []),
                             ...(member.role
                               ? (options.data?.roles ?? [])
-                                  .filter((role) => role !== member.role)
-                                  .map((role) => ({
-                                    label: `Make ${labels[role] ?? role}`,
-                                    icon: ShieldCheck,
-                                    onClick: () => setRole.mutate({ email: member.name, role }),
-                                  }))
+                                .filter((role) => role !== member.role)
+                                .map((role) => ({
+                                  label: `Make ${labels[role] ?? role}`,
+                                  icon: ShieldCheck,
+                                  onClick: () => setRole.mutate({ email: member.name, role }),
+                                }))
                               : []),
                             ...(member.two_factor
                               ? [
-                                  {
-                                    label: 'Reset two-factor',
-                                    icon: KeyRound,
-                                    onClick: () => setTarget({ member, action: 'reset2fa' }),
-                                  },
-                                ]
+                                {
+                                  label: 'Reset two-factor',
+                                  icon: KeyRound,
+                                  onClick: () => setTarget({ member, action: 'reset2fa' }),
+                                },
+                              ]
                               : []),
                             {
                               label: member.enabled ? 'Disable the account' : 'Enable the account',

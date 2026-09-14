@@ -103,6 +103,9 @@ export type ServiceRequestLine = {
   new_user_username?: string | null;
   client_user: string | null;
   managed_device: string | null;
+  /** the exact service period this line acts on, and who it was raised for */
+  source_service_assignment?: string | null;
+  requested_for_user?: string | null;
   is_new_device?: number;
   new_device_label?: string | null;
   new_device_type?: string | null;
@@ -154,15 +157,24 @@ export type NewRequestLine = {
   action?: string;
   target_scope: string;
   is_new_user?: number;
+  /** opaque builder group: keeps two future colleagues with the same name distinct */
+  subject_key?: string;
   client_user?: string;
   new_user_full_name?: string;
   new_user_department?: string;
   new_user_email?: string;
+  /** never required of the customer, but kept when they happen to know it */
+  new_user_username?: string;
   is_new_device?: number;
   new_device_label?: string;
   new_device_type?: string;
+  new_device_serial?: string;
   managed_device?: string;
   customer_site?: string;
+  /** the exact service period this line acts on — required for anything but Add */
+  source_service_assignment?: string;
+  /** who the line was raised for, kept even when it targets a machine */
+  requested_for_user?: string;
   requested_service: string;
   requested_quantity?: number;
   requested_effective_date?: string;
@@ -247,6 +259,13 @@ export const listDeviceChoices = (customer?: string, signal?: AbortSignal) =>
 export const listClientUsers = (params: ListParams = {}, signal?: AbortSignal) =>
   get<Paginated<ClientUser>>(`${BASE}.list_client_users`, params, signal);
 
+export type DepartmentOption = { value: string; label: string };
+
+/** The one global department catalogue. No Customer context: it is the same list for
+ * everyone. */
+export const listDepartments = (signal?: AbortSignal) =>
+  get<DepartmentOption[]>(`${BASE}.list_departments`, undefined, signal);
+
 export const listDevices = (params: ListParams = {}, signal?: AbortSignal) =>
   get<Paginated<ManagedDevice>>(`${BASE}.list_devices`, params, signal);
 
@@ -266,6 +285,7 @@ export type PortalRequestLine = {
   line_status: string;
   rejection_reason: string | null;
   is_new_user: number;
+  subject_key?: string | null;
   new_user_full_name: string | null;
   new_user_department: string | null;
   is_new_device: number;
@@ -289,12 +309,15 @@ export type PortalRequestLine = {
   service_scope: string;
   client_user: string | null;
   managed_device: string | null;
+  /** the exact service period this line acts on, and who it was raised for */
+  source_service_assignment: string | null;
+  requested_for_user: string | null;
+  requested_quantity: number | null;
   requested_service: string | null;
   new_user_email: string | null;
   new_user_username: string | null;
   new_device_type: string | null;
   new_device_serial: string | null;
-  needs_portal_access: number;
 };
 
 export type PortalRequestDetail = {
@@ -303,10 +326,12 @@ export type PortalRequestDetail = {
   request_type: string;
   status: string;
   priority: string;
+  details?: string | null;
   source: string;
   creation: string;
   modified: string;
   rejection_reason: string | null;
+  refused_by_customer?: boolean;
   reviewed_on: string | null;
   can_decide: boolean;
   has_approver: boolean;
@@ -314,22 +339,32 @@ export type PortalRequestDetail = {
 };
 
 export type PortalUserDevice = {
+  name?: string;
   hostname: string;
   device_type: string;
   status: string;
-  assigned_date: string | null;
+  assigned_date?: string | null;
+  held_from?: string | null;
+  held_until?: string | null;
+  is_current?: boolean;
 };
 
+export type PortalUserDeviceHistory = PortalUserDevice & { holder_record: string };
+
 export type PortalUserService = {
+  name: string;
+  service_item: string;
   service_name: string;
-  hostname: string | null;
   operational_status: string;
+  quantity: number | null;
   effective_start_date: string | null;
   effective_end_date: string | null;
-  customer_visible_notes: string | null;
   source_request: string | null;
-  last_billed_on: string | null;
+  allowed_actions: string[];
+  pending_request: string | null;
 };
+
+export type PortalServiceHistory = Omit<PortalUserService, 'allowed_actions' | 'pending_request'>;
 
 export type PortalUserDetail = {
   user: {
@@ -337,19 +372,49 @@ export type PortalUserDetail = {
     full_name: string;
     department: string | null;
     customer: string;
+    email: string | null;
+    username: string | null;
     lifecycle_status: string;
     start_date: string | null;
     disabled_date: string | null;
   };
-  devices: PortalUserDevice[];
-  services: PortalUserService[];
-  requests: {
+  summary: {
+    current_devices: number;
+    active_personal_services: number;
+    active_device_services: number;
+    open_requests: number;
+    attention_count: number;
+  };
+  personal_services: { current: PortalUserService[]; available: []; blocked: []; target_reason: null };
+  devices: {
+    device: {
+      name: string;
+      hostname: string;
+      device_type: string | null;
+      status: string;
+      serial_number: string | null;
+      in_service_since: string | null;
+    };
+    holder_since: string | null;
+    interfaces: { interface_type: string; mac_address: string }[];
+    services: { current: PortalUserService[]; history?: PortalServiceHistory[]; available: [] };
+  }[];
+  open_requests: {
     name: string;
     status: string;
     priority: string;
     request_type: string;
     creation: string;
+    lines: { idx: number; action: string; service_name: string; hostname: string | null }[];
   }[];
+  attention: {
+    code: string;
+    severity: 'warning' | 'info';
+    entity_type: string;
+    entity: string;
+    message: string;
+  }[];
+  recent_activity: { on: string; kind: string; entity: string; what: string; via?: string | null }[];
 };
 
 export const getRequest = (name: string, signal?: AbortSignal) =>
@@ -370,6 +435,7 @@ export type RequestPayload = {
   customer?: string;
   request_type?: string;
   priority?: string;
+  details?: string;
   lines: NewRequestLine[];
 };
 
@@ -634,3 +700,109 @@ export const getServiceState = (
   params: { service_item: string; client_user?: string; managed_device?: string },
   signal?: AbortSignal
 ) => get<ServiceState>(`${BASE}.get_service_state`, params, signal);
+
+// ---------------------------------------------------------------- request builder
+
+export type RequestUserResult = {
+  name: string;
+  full_name: string;
+  email: string | null;
+  department: string | null;
+  lifecycle_status: string;
+};
+
+export type RequestServiceOffer = {
+  service_item: string;
+  item_name: string;
+  service_scope: string | null;
+  warning?: string | null;
+  allowed_request_actions: RequestAction[];
+};
+
+export type RequestCurrentService = {
+  assignment: string;
+  service_item: string;
+  label: string;
+  status: string;
+  since: string | null;
+  quantity: number | null;
+  managed_device: string | null;
+  hostname: string | null;
+  pending_request: string | null;
+  allowed_request_actions: RequestAction[];
+};
+
+export type RequestDeviceContext = {
+  name: string;
+  hostname: string;
+  serial_number: string | null;
+  device_type: string | null;
+  status: string;
+  assigned_date: string | null;
+  target_reason: string | null;
+  services: {
+    current: RequestCurrentService[];
+    available: RequestServiceOffer[];
+  };
+};
+
+export type RequestSubjectContext = {
+  user: {
+    name: string;
+    customer: string;
+    full_name: string;
+    email: string | null;
+    department: string | null;
+    lifecycle_status: string;
+    username?: string | null;
+    start_date?: string | null;
+  };
+  personal_services: {
+    current: RequestCurrentService[];
+    available: RequestServiceOffer[];
+  };
+  target_reason: string | null;
+  devices: RequestDeviceContext[];
+  new_device_services?: RequestServiceOffer[];
+  assignable_devices?: {
+    name: string;
+    hostname: string;
+    serial_number: string | null;
+    device_type: string | null;
+    status: string;
+    assigned_client_user: string | null;
+    holder_name: string | null;
+  }[];
+};
+
+export type NewUserRequestContext = {
+  customer: string;
+  departments: { value: string; label: string }[];
+  available_user_services: RequestServiceOffer[];
+  available_device_services: RequestServiceOffer[];
+};
+
+export type RequestSubmissionContext = {
+  customer: string;
+  may_submit: boolean;
+  needs_customer_approval: boolean;
+  message: string;
+};
+
+export const searchRequestUsers = (
+  params: { customer?: string; search?: string; limit?: number } = {},
+  signal?: AbortSignal
+) => get<RequestUserResult[]>(`${BASE}.search_request_users`, params, signal);
+
+export const getRequestSubjectContext = (clientUser: string, signal?: AbortSignal) =>
+  get<RequestSubjectContext>(
+    `${BASE}.get_request_subject_context`,
+    { client_user: clientUser },
+    signal
+  );
+
+export const getNewUserRequestContext = (customer?: string, signal?: AbortSignal) =>
+  get<NewUserRequestContext>(`${BASE}.get_new_user_request_context`, { customer }, signal);
+
+export const getRequestSubmissionContext = (customer?: string, signal?: AbortSignal) =>
+  get<RequestSubmissionContext>(`${BASE}.get_request_submission_context`, { customer }, signal);

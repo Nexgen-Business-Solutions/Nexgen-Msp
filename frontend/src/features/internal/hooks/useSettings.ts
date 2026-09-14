@@ -5,6 +5,7 @@ export const settingsKeys = {
   all: ['internal', 'settings'] as const,
   options: () => [...settingsKeys.all, 'options'] as const,
   actions: () => [...settingsKeys.all, 'requestActions'] as const,
+  departments: (enabledOnly: boolean) => [...settingsKeys.all, 'departments', enabledOnly] as const,
 };
 
 export const useSettingsOptions = () =>
@@ -39,6 +40,43 @@ export const useSaveRequestAction = () => useActionMutation(internal.saveRequest
 
 export const useDeleteRequestAction = () =>
   useActionMutation((name: string) => internal.deleteRequestAction(name));
+
+export const useDepartmentList = (enabledOnly = false) =>
+  useQuery({
+    queryKey: settingsKeys.departments(enabledOnly),
+    queryFn: ({ signal }) => internal.listDepartments(enabledOnly, signal),
+  });
+
+export const useDepartmentOptions = (customer?: string | null) =>
+  useQuery({
+    queryKey: [...settingsKeys.departments(true), customer ?? ''] as const,
+    queryFn: ({ signal }) => internal.listDepartmentOptions(customer, signal),
+    staleTime: 5 * 60 * 1000,
+  });
+
+const useDepartmentMutation = <TVariables>(
+  mutationFn: (variables: TVariables) => Promise<internal.DepartmentRow[]>
+) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn,
+    onSuccess: (rows) => {
+      queryClient.setQueryData(settingsKeys.departments(false), rows);
+      queryClient.invalidateQueries({ queryKey: settingsKeys.departments(true) });
+      // the request form and the internal forms all read from the same catalogue
+      queryClient.invalidateQueries({ queryKey: ['portal'] });
+    },
+  });
+};
+
+export const useSaveDepartment = () => useDepartmentMutation(internal.saveDepartment);
+
+export const useDisableDepartment = () =>
+  useDepartmentMutation((name: string) => internal.disableDepartment(name));
+
+export const useDeleteDepartment = () =>
+  useDepartmentMutation((name: string) => internal.deleteDepartment(name));
 
 export const usePortalSettings = () =>
   useQuery({

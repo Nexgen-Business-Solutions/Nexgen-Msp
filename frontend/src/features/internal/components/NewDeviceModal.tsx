@@ -1,19 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { AlertCircle, Laptop, Plus, Trash2 } from 'lucide-react';
+import { AlertCircle, Laptop } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
+import InterfaceEditor from '@/shared/components/InterfaceEditor';
 import FieldLabel from '@/shared/components/FieldLabel';
 import Select from '@/shared/components/Select';
 import type { DeviceInterface } from '@/lib/api/internal';
 import { useCreateDevice, useCustomerUsers, useDeviceFilterOptions } from '../hooks/useDevices';
 
 type Props = { open: boolean; onClose: () => void };
-
-const INTERFACE_LABEL: Record<string, string> = {
-  'Wi-Fi': 'MAC WIFI',
-  LAN: 'MAC LAN',
-  Extra: 'EXTRA MAC',
-  Other: 'OTHER MAC',
-};
 
 const INTERFACE_TYPES = ['Wi-Fi', 'LAN', 'Extra', 'Other'];
 
@@ -54,11 +48,6 @@ const NewDeviceModal: React.FC<Props> = ({ open, onClose }) => {
     create.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
-
-  const change = (position: number, patch: Partial<DeviceInterface>) =>
-    setInterfaces((current) =>
-      current.map((item, index) => (index === position ? { ...item, ...patch } : item))
-    );
 
   const submit = async () => {
     try {
@@ -189,54 +178,11 @@ const NewDeviceModal: React.FC<Props> = ({ open, onClose }) => {
           </div>
         </div>
 
-        <div>
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-700">Network interfaces</span>
-            <button
-              type="button"
-              onClick={() =>
-                setInterfaces((current) => [...current, { interface_type: 'Extra', mac_address: '' }])
-              }
-              className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 transition-colors hover:text-blue-700"
-            >
-              <Plus size={13} />
-              Add another
-            </button>
-          </div>
-
-          <div className="space-y-2">
-            {interfaces.map((item, position) => (
-              <div key={position} className="flex items-center gap-2">
-                <Select
-                  className="w-36 shrink-0"
-                  value={item.interface_type}
-                  onChange={(value) => change(position, { interface_type: value })}
-                  options={INTERFACE_TYPES.map((type) => ({
-                    value: type,
-                    label: INTERFACE_LABEL[type] ?? type,
-                  }))}
-                />
-                <input
-                  type="text"
-                  value={item.mac_address}
-                  onChange={(event) => change(position, { mac_address: event.target.value })}
-                  placeholder="AA-BB-CC-DD-EE-FF"
-                  className={`${inputClass} font-mono uppercase`}
-                />
-                <button
-                  type="button"
-                  onClick={() =>
-                    setInterfaces((current) => current.filter((_, index) => index !== position))
-                  }
-                  aria-label="Remove interface"
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
-                >
-                  <Trash2 size={15} />
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
+        <InterfaceEditor
+          value={interfaces}
+          onChange={setInterfaces}
+          suggestions={INTERFACE_TYPES}
+        />
 
         {create.error instanceof Error && (
           <div className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">

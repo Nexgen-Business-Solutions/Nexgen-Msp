@@ -4,13 +4,16 @@ import Modal from '@/shared/components/Modal';
 import FieldLabel from '@/shared/components/FieldLabel';
 import Select from '@/shared/components/Select';
 import type { CustomerAddress, CustomerDetails } from '@/lib/api/internal';
-import { useCustomerOptions, useSaveCustomerDetails } from '../hooks/useCustomerDetails';
+import { useCreateCustomer, useCustomerOptions, useSaveCustomerDetails } from '../hooks/useCustomerDetails';
+import { editableCustomerDetails } from './customerFields';
 
 type Props = {
   open: boolean;
+  /** empty to put a new company on file */
   customer: string;
   details: CustomerDetails | null;
   onClose: () => void;
+  onCreated?: (customer: string) => void;
 };
 
 const inputClass =
@@ -29,16 +32,19 @@ const EMPTY_ADDRESS: CustomerAddress = {
 
 const toOptions = (values: string[] = []) => values.map((value) => ({ value, label: value }));
 
-const CustomerModal: React.FC<Props> = ({ open, customer, details, onClose }) => {
+const CustomerModal: React.FC<Props> = ({ open, customer, details, onClose, onCreated }) => {
   const options = useCustomerOptions();
-  const save = useSaveCustomerDetails();
+  const creating = !customer;
+  const update = useSaveCustomerDetails();
+  const create = useCreateCustomer();
+  const save = creating ? create : update;
 
   const [form, setForm] = useState<Partial<CustomerDetails>>({});
   const [address, setAddress] = useState<CustomerAddress>(EMPTY_ADDRESS);
 
   useEffect(() => {
     if (!open) return;
-    setForm({ ...(details ?? {}) });
+    setForm(creating ? { customer_type: 'Company' } : editableCustomerDetails(details ?? {}));
     setAddress({ ...EMPTY_ADDRESS, ...(details?.address ?? {}) });
     save.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -55,9 +61,19 @@ const CustomerModal: React.FC<Props> = ({ open, customer, details, onClose }) =>
 
   const submit = async () => {
     try {
-      await save.mutateAsync({
+      if (creating) {
+        const created = await create.mutateAsync({
+          customer_name: (form.customer_name ?? '').trim(),
+          details: editableCustomerDetails(form),
+          address: wantsAddress ? address : undefined,
+        });
+        onClose();
+        onCreated?.(created.name);
+        return;
+      }
+      await update.mutateAsync({
         customer,
-        details: form,
+        details: editableCustomerDetails(form),
         address: wantsAddress ? address : undefined,
       });
       onClose();
@@ -72,8 +88,8 @@ const CustomerModal: React.FC<Props> = ({ open, customer, details, onClose }) =>
       onClose={onClose}
       icon={Building2}
       tone="blue"
-      title="Customer details"
-      subtitle={`${customer} — what appears on their invoices.`}
+      title={creating ? 'New customer' : 'Customer details'}
+      subtitle={creating ? 'What appears on their invoices.' : `${customer} — what appears on their invoices.`}
       widthClass="max-w-3xl"
       footer={
         <div className="flex items-center justify-end gap-2">
@@ -87,11 +103,13 @@ const CustomerModal: React.FC<Props> = ({ open, customer, details, onClose }) =>
           <button
             type="button"
             onClick={submit}
-            disabled={addressIncomplete || save.isLoading}
+            disabled={addressIncomplete || save.isLoading || (creating && !form.customer_name?.trim())}
             className="flex min-w-[7rem] items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {save.isLoading ? (
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+            ) : creating ? (
+              'Create customer'
             ) : (
               'Save'
             )}

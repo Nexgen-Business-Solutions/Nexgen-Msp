@@ -6,6 +6,7 @@ from nexgen_msp.utils.catalogue import BILLING_UOM
 
 from nexgen_msp.api.excel_import.services import excel_parser
 from nexgen_msp.utils import device_holders as holders
+from nexgen_msp.utils.device_status import AVAILABLE_STATUSES, DEPLOYED_STATUSES
 
 FIELD_HOLDERS = "holder_log"
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
@@ -77,6 +78,9 @@ class ExcelImportService:
                 "assignments_existing": 0,
                 "invalid_macs": 0,
                 "inconsistent_dates": 0,
+                # a legacy sheet with an empty column: the person is imported without one,
+                # and the figure says how many so nobody discovers it months later
+                "users_without_department": 0,
             },
             "exceptions": [],
         }
@@ -122,9 +126,8 @@ class ExcelImportService:
 
                 try:
                     customer = customers.get(record["company"].lower())
-                    prefix = customer_map[record["company"].lower()].department_prefix
                     client_user = ExcelImportService._create_client_user(
-                        record, customer, report, prefix
+                        record, customer, report
                     )
                     device = ExcelImportService._create_device(
                         record, customer, client_user, hostname_seen, report
@@ -340,29 +343,35 @@ class ExcelImportService:
         return None
 
     @staticmethod
-    def _department(record, prefix):
-        """A sub-account keeps its own department behind the entity it belongs to.
+    def _department(record, report):
+        """What the sheet wrote, matched against the catalogue and never added to it.
 
-        Its people are billed on the parent's contract, so the company they answer to would
-        otherwise be lost the moment the two are merged under one customer.
+        One company's "Accounting" and another's are the same department: there is one
+        catalogue and the file only has to name it, whatever its casing. A word nobody has
+        configured refuses the row rather than quietly creating a thirteenth department.
         """
-        department = (record["department"] or "").strip()
+        from nexgen_msp.api.internal.services.department_service import DepartmentService
 
-        if not prefix:
-            return department or None
+        written = (record["department"] or "").strip()
 
-        return f"{prefix} — {department}" if department else prefix
+        if not written:
+            report["skipped"]["users_without_department"] += 1
+
+            return None
+
+        return DepartmentService.resolve_department(written)
 
     @staticmethod
-    def _create_client_user(record, customer, report, prefix=None):
+    def _create_client_user(record, customer, report):
         status = ExcelImportService._lifecycle_status(record)
         start_date, disabled_date = ExcelImportService._lifecycle_dates(record, status)
+        department = ExcelImportService._department(record, report)
 
         values = {
                 "doctype": "MSP Client User",
                 "full_name": record["full_name"],
                 "customer": customer,
-                "department": ExcelImportService._department(record, prefix),
+                "department": department,
                 "email": record["email"],
                 "username": record.get("username"),
                 "lifecycle_status": status,
@@ -371,7 +380,6 @@ class ExcelImportService:
                 ),
                 "disabled_date": disabled_date,
                 "ad_status": "Active" if record["ad_marked_active"] else "Not Managed",
-                "portal_visible": 1,
                 "remark_log": (
                     [{"note": record["remarks"].strip(), "noted_on": frappe.utils.now(),
                       "noted_by": frappe.session.user}]
@@ -413,7 +421,8 @@ class ExcelImportService:
             # a machine that changed hands closes the previous spell instead of
             # overwriting who held it
             if field == "holder_log":
-                wanted = value[0]["client_user"] if value else None
+                spell = value[0] if value else None
+                wanted = spell["client_user"] if spell and not spell.get("to_date") else None
 
                 # filling gaps only: a machine that already has a holder keeps the one the
                 # application recorded. The sheet is a photograph of one day, and a
@@ -421,7 +430,11 @@ class ExcelImportService:
                 if ExcelImportService._fill_blanks_only and doc.get(FIELD_HOLDERS):
                     continue
 
-                if holders.hand_over(doc, wanted, wanted and value[0].get("from_date")):
+                if not wanted or doc.status not in AVAILABLE_STATUSES + DEPLOYED_STATUSES:
+                    continue
+
+                if holders.hand_over(doc, wanted, spell.get("from_date")):
+                    doc.status = "Active"
                     touched = True
 
                 continue
@@ -500,8 +513,14 @@ class ExcelImportService:
                 }
             )
 
-        status = "Retired" if record["device_disabled"] else "Active"
+        status = "Retired" if record["device_disabled"] else ("Active" if client_user else "Stock")
         retired_date = record["device_disabled"] if status == "Retired" else None
+        held_from = record["device_created"] or record.get("start_date") or retired_date
+        held_to = (
+            max(frappe.utils.getdate(retired_date), frappe.utils.getdate(held_from))
+            if retired_date and held_from
+            else retired_date
+        )
 
         values = {
                 "doctype": "MSP Managed Device",
@@ -510,7 +529,8 @@ class ExcelImportService:
                     [{
                         "client_user": client_user,
                         "full_name": record["full_name"],
-                        "from_date": record["device_created"] or record.get("start_date"),
+                        "from_date": held_from,
+                        "to_date": held_to,
                     }]
                     if client_user
                     else []
@@ -609,7 +629,7 @@ class ExcelImportService:
                 report["skipped"]["assignments_existing"] += 1
                 continue
 
-            frappe.get_doc(
+            assignment = frappe.get_doc(
                 {
                     "doctype": "MSP Service Assignment",
                     "customer": customer,
@@ -625,7 +645,12 @@ class ExcelImportService:
                     "effective_end_date": lifecycle["end"],
                     "price_source": "Contract",
                 }
-            ).insert()
+            )
+            # The importer is a controlled history reconstruction path. It must still
+            # pass every DocType invariant, but it is intentionally allowed through the
+            # lifecycle entry-point guard used to reject arbitrary direct writes.
+            assignment.flags.via_service_lifecycle = True
+            assignment.insert()
 
             report["created"]["service_assignments"] += 1
             report["created"][f"assignments_{lifecycle['status'].lower()}"] += 1

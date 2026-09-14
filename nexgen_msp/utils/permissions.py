@@ -109,54 +109,28 @@ def is_customer_contact(user=None):
     This is the fact a staff role must never override: a contact who is also given an
     internal role would otherwise reach every customer in the book.
     """
-    user = user or frappe.session.user
+    from nexgen_msp.utils import access
 
-    if not user or user in ("Administrator", "Guest"):
-        return False
-
-    return bool(frappe.db.exists("User Permission", {"user": user, "allow": "Customer"}))
+    return access.is_customer_account(user)
 
 
 def is_internal(user=None):
     """Nexgen staff, who serve every customer rather than belonging to one."""
-    user = user or frappe.session.user
+    from nexgen_msp.utils import access
 
-    if user == "Administrator":
-        return True
-
-    if is_customer_contact(user):
-        return False
-
-    return bool(set(frappe.get_roles(user)).intersection(INTERNAL_ROLES + MANAGE_ACCESS_ROLES))
+    return access.is_staff(user)
 
 
 def get_allowed_customers(user=None):
     """Which customers this account may act for.
 
-    A permission on a customer is what makes an account that customer's contact, and it
-    wins over anything else the account carries. A staff role added to such an account —
-    by hand in the desk, or by a mis-click on the account page — must not turn a customer's
-    contact into someone who sees the whole book.
-
-    Staff hold no such permission, and that absence is what gives them every customer: it
-    is what lets a technician raise a request on a customer's behalf.
+    Answered in one place, because it decides what every screen and every service may see.
+    A customer's person reaches a company only where the contact and the permission agree;
+    our own people hold neither and reach them all.
     """
-    user = user or frappe.session.user
+    from nexgen_msp.utils import access
 
-    permitted = frappe.db.get_all(
-        "User Permission",
-        filters={"user": user, "allow": "Customer"},
-        pluck="for_value",
-        order_by="for_value asc",
-    )
-
-    if permitted:
-        return permitted
-
-    if is_internal(user):
-        return frappe.db.get_all("Customer", pluck="name")
-
-    return []
+    return access.allowed_customers(user)
 
 
 def contact_profile(user=None, allowed=None):
@@ -347,6 +321,34 @@ def reconcile_customer_permissions(user):
         frappe.delete_doc("User Permission", name, ignore_permissions=True)
 
     return added, len(stale)
+
+
+def revoke_undeclared_customer_permissions(user):
+    """Take away every permission no contact stands behind.
+
+    Stricter than the reconciliation: that one leaves an account with no contact at all
+    alone, because nothing declares it either way. This one is used when something has just
+    linked an account by accident, and the leftover has to go whether or not the account has
+    contacts elsewhere.
+    """
+    if not user:
+        return 0
+
+    declared = customers_from_contacts(user)
+    stale = [
+        row.name
+        for row in frappe.db.get_all(
+            "User Permission",
+            filters={"user": user, "allow": "Customer"},
+            fields=["name", "for_value"],
+        )
+        if row.for_value not in declared
+    ]
+
+    for name in stale:
+        frappe.delete_doc("User Permission", name, ignore_permissions=True)
+
+    return len(stale)
 
 
 def sync_contact_user_permission(doc, method=None):

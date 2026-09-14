@@ -6,11 +6,14 @@ import {
   CircleX,
   PauseCircle,
   Pencil,
+  PencilLine,
   PlayCircle,
   Plus,
   PowerOff,
   RotateCcw,
   Trash2,
+  Undo2,
+  UserPlus,
 } from 'lucide-react';
 import StatusBadge from '@/shared/components/StatusBadge';
 import RemarkLog from '@/shared/components/RemarkLog';
@@ -18,15 +21,15 @@ import RowActionsMenu, { type RowAction } from '@/shared/components/RowActionsMe
 import ConfirmModal from '@/shared/components/ConfirmModal';
 import DeviceServiceModal from '../components/DeviceServiceModal';
 import EditDeviceModal from '../components/EditDeviceModal';
-import HandOverModal from '../components/HandOverModal';
+import AssignDeviceModal from '../components/AssignDeviceModal';
+import TransferDeviceModal from '../components/TransferDeviceModal';
+import RepossessDeviceModal from '../components/RepossessDeviceModal';
+import RetireDeviceModal from '../components/RetireDeviceModal';
+import ReinstateDeviceModal from '../components/ReinstateDeviceModal';
 import ServiceActionModal, { type ServiceAction } from '../components/ServiceActionModal';
 import type { DeviceDetail as DeviceDetailData, DeviceRow, UserServiceRow } from '@/lib/api/internal';
-import {
-  deviceKeys,
-  useChangeDeviceStatus,
-  useDeleteDevice,
-  useDeviceDetail,
-} from '../hooks/useDevices';
+import { deviceKeys, useDeleteDevice, useDeviceDetail } from '../hooks/useDevices';
+import { isAvailable, isDeployed, isOutOfService, canRetire } from '../utils/deviceStatus';
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
 
@@ -36,6 +39,8 @@ const INTERFACE_LABEL: Record<string, string> = {
   Extra: 'EXTRA MAC',
   Other: 'OTHER MAC',
 };
+
+type LifecycleModal = 'assign' | 'transfer' | 'repossess' | 'retire' | 'reinstate' | null;
 
 const Panel = ({
   title,
@@ -106,13 +111,11 @@ export default function DeviceDetail() {
   const referencedRequest = searchParams.get('ref') ?? undefined;
 
   const detail = useDeviceDetail(name);
-  const changeStatus = useChangeDeviceStatus();
   const remove = useDeleteDevice();
 
   const [addingService, setAddingService] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [handingOver, setHandingOver] = useState(false);
-  const [statusAction, setStatusAction] = useState<'Retire' | 'Reinstate' | null>(null);
+  const [lifecycleModal, setLifecycleModal] = useState<LifecycleModal>(null);
   const [deleting, setDeleting] = useState(false);
   const [target, setTarget] = useState<{ row: UserServiceRow; action: ServiceAction } | null>(null);
 
@@ -135,8 +138,8 @@ export default function DeviceDetail() {
   }
 
   const { device, interfaces, services, requests, customer_requests, holder_log } = detail.data;
-  const retired = device.status !== 'Active';
-  const holder = (holder_log ?? []).find((spell) => spell.is_current);
+  const currentSpell = (holder_log ?? []).find((spell) => spell.is_current);
+  const lastSpell = (holder_log ?? []).length > 0 ? holder_log[holder_log.length - 1] : null;
   const openServices = services.filter(
     (row) => !['Ended', 'Cancelled'].includes(row.operational_status)
   );
@@ -166,28 +169,62 @@ export default function DeviceDetail() {
                 <Pencil size={13} />
                 Edit device
               </button>
-              <button
-                type="button"
-                onClick={() => setHandingOver(true)}
-                disabled={retired}
-                title={
-                  retired
-                    ? 'A retired device is held by nobody.'
-                    : 'Record that it changed hands, on the day it did'
-                }
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
-              >
-                <ArrowRightLeft size={13} />
-                Hand over
-              </button>
-              <button
-                type="button"
-                onClick={() => setStatusAction(retired ? 'Reinstate' : 'Retire')}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
-              >
-                {retired ? <RotateCcw size={13} /> : <PowerOff size={13} />}
-                {retired ? 'Put back in service' : 'Retire device'}
-              </button>
+
+              {isAvailable(device.status) && (
+                <button
+                  type="button"
+                  onClick={() => setLifecycleModal('assign')}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+                >
+                  <UserPlus size={13} />
+                  Assign to user
+                </button>
+              )}
+
+              {isDeployed(device.status) && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setLifecycleModal('transfer')}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+                  >
+                    <ArrowRightLeft size={13} />
+                    Transfer
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLifecycleModal('repossess')}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+                  >
+                    <Undo2 size={13} />
+                    Return to stock
+                  </button>
+                </>
+              )}
+
+              {isOutOfService(device.status) && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setLifecycleModal('reinstate')}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+                  >
+                    <RotateCcw size={13} />
+                    Reinstate
+                  </button>
+                  {canRetire(device.status) && (
+                    <button
+                      type="button"
+                      onClick={() => setLifecycleModal('retire')}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+                    >
+                      <PowerOff size={13} />
+                      Retire
+                    </button>
+                  )}
+                </>
+              )}
+
               <button
                 type="button"
                 onClick={() => setDeleting(true)}
@@ -206,30 +243,48 @@ export default function DeviceDetail() {
 
             <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-4">
               <Fact label="Customer" value={device.customer} />
-              <Fact
-                label={retired ? 'Last held by' : 'Held by'}
-                value={
-                  device.assigned_client_user ? (
+
+              <div>
+                <p className="text-xs font-medium text-slate-400">CURRENT HOLDER</p>
+                {isDeployed(device.status) ? (
+                  <div className="mt-0.5">
                     <span className="inline-flex flex-wrap items-center gap-1.5">
                       <button
                         type="button"
                         onClick={() => navigate(`/msp/users/${device.assigned_client_user}`)}
-                        className="font-medium text-blue-600 transition-colors hover:text-blue-700"
+                        className="text-sm font-medium text-blue-600 transition-colors hover:text-blue-700"
                       >
                         {device.user_name || device.assigned_client_user}
                       </button>
-                      {holder && holder.lifecycle_status && holder.lifecycle_status !== 'Active' && (
+                      {currentSpell?.lifecycle_status && currentSpell.lifecycle_status !== 'Active' && (
                         <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
-                          {holder.lifecycle_status.toUpperCase()}
-                          {holder.disabled_date ? ` · ${fmtDate(holder.disabled_date)}` : ''}
+                          {currentSpell.lifecycle_status.toUpperCase()}
+                          {currentSpell.disabled_date ? ` · ${fmtDate(currentSpell.disabled_date)}` : ''}
                         </span>
                       )}
                     </span>
-                  ) : (
-                    'Nobody'
-                  )
-                }
-              />
+                    <p className="text-xs text-slate-500">
+                      {device.user_department ? `${device.user_department} · ` : ''}since{' '}
+                      {fmtDate(currentSpell?.from_date)}
+                    </p>
+                  </div>
+                ) : isAvailable(device.status) ? (
+                  <p className="mt-0.5 text-sm text-slate-700">Available in stock</p>
+                ) : (
+                  <div className="mt-0.5">
+                    <p className="text-sm text-slate-700">Nobody</p>
+                    {lastSpell ? (
+                      <p className="text-xs text-slate-500">
+                        Last holder: {lastSpell.full_name || lastSpell.client_user} · until{' '}
+                        {fmtDate(lastSpell.to_date)}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-slate-500">Nobody has ever held it.</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
               <Fact label="Type" value={device.device_type || 'N/A'} />
               <Fact label="In service since" value={fmtDate(device.assigned_date)} />
               <Fact label="Serial number" value={device.serial_number || 'N/A'} />
@@ -246,7 +301,9 @@ export default function DeviceDetail() {
                 label="Last billed on"
                 value={device.last_billed_on ? fmtDate(device.last_billed_on) : 'Never'}
               />
-              {retired && <Fact label="Retired on" value={fmtDate(device.retired_date)} />}
+              {isOutOfService(device.status) && (
+                <Fact label="Out of service" value={fmtDate(device.retired_date)} />
+              )}
             </div>
 
 
@@ -255,7 +312,7 @@ export default function DeviceDetail() {
           <button
             type="button"
             onClick={() => setAddingService(true)}
-            disabled={retired}
+            disabled={!isDeployed(device.status)}
             className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Plus size={15} />
@@ -264,13 +321,7 @@ export default function DeviceDetail() {
         </div>
       </div>
 
-      <Panel title="Remarks">
-        <RemarkLog
-          entries={device.remark_log}
-          target={{ doctype: 'MSP Managed Device', name: device.name }}
-          invalidate={deviceKeys.detail(device.name)}
-        />
-      </Panel>
+      
 
       <Panel title={`Services (${openServices.length} running)`}>
         <table className="w-full">
@@ -290,8 +341,6 @@ export default function DeviceDetail() {
               <Empty span={7}>Nothing runs on this machine, so it is billed for nothing.</Empty>
             )}
             {services.map((row) => {
-              const open = !['Ended', 'Cancelled'].includes(row.operational_status);
-
               return (
                 <tr key={row.name} className="transition-colors hover:bg-slate-50">
                   <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
@@ -320,21 +369,57 @@ export default function DeviceDetail() {
                             {
                               label: 'Suspend service',
                               icon: PauseCircle,
-                              onClick: () => setTarget({ row, action: 'Suspend' }),
-                              disabled: !open || row.operational_status === 'Suspended',
+                              onClick: () => setTarget({
+                                row: {
+                                  ...row,
+                                  device_serial_number: device.serial_number,
+                                  device_user_name: device.user_name,
+                                },
+                                action: 'Suspend',
+                              }),
+                              disabled: row.operational_status !== 'Active',
                             },
                             {
                               label: 'Resume service',
                               icon: PlayCircle,
-                              onClick: () => setTarget({ row, action: 'Resume' }),
+                              onClick: () => setTarget({
+                                row: {
+                                  ...row,
+                                  device_serial_number: device.serial_number,
+                                  device_user_name: device.user_name,
+                                },
+                                action: 'Resume',
+                              }),
                               disabled: row.operational_status !== 'Suspended',
                             },
                             {
-                              label: 'End service',
+                              label: 'Change service',
+                              icon: PencilLine,
+                              onClick: () => setTarget({
+                                row: {
+                                  ...row,
+                                  device_serial_number: device.serial_number,
+                                  device_user_name: device.user_name,
+                                },
+                                action: 'Change',
+                              }),
+                              disabled: !['Active', 'Suspended'].includes(row.operational_status),
+                            },
+                            {
+                              label: 'Close service',
                               icon: CircleX,
-                              onClick: () => setTarget({ row, action: 'End' }),
+                              onClick: () => setTarget({
+                                row: {
+                                  ...row,
+                                  device_serial_number: device.serial_number,
+                                  device_user_name: device.user_name,
+                                },
+                                action: 'End',
+                              }),
                               danger: true,
-                              disabled: !open,
+                              disabled: !['Active', 'Suspended', 'Pending Removal'].includes(
+                                row.operational_status
+                              ),
                             },
                           ] as RowAction[]
                         }
@@ -373,20 +458,7 @@ export default function DeviceDetail() {
           </table>
         </Panel>
 
-        <Panel
-          title="Who has held it"
-          action={
-            <button
-              type="button"
-              onClick={() => setHandingOver(true)}
-              disabled={retired}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
-            >
-              <ArrowRightLeft size={15} />
-              Hand over
-            </button>
-          }
-        >
+        <Panel title="Who has held it">
           <table className="w-full">
             <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
               <tr>
@@ -397,7 +469,8 @@ export default function DeviceDetail() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {(holder_log ?? []).length === 0 && <Empty span={3}>Never assigned to anyone.</Empty>}
-              {(holder_log ?? []).map((spell) => (
+              {/* the latest holder first */}
+              {[...(holder_log ?? [])].reverse().map((spell) => (
                 <tr key={spell.idx} className={spell.is_current ? 'bg-emerald-50/40' : ''}>
                   <td className="whitespace-nowrap px-4 py-3 text-sm">
                     <button
@@ -408,7 +481,7 @@ export default function DeviceDetail() {
                       {spell.full_name || spell.client_user}
                     </button>
                     {Boolean(spell.is_current) &&
-                      (retired ? (
+                      (!isDeployed(device.status) ? (
                         <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">
                           LAST HOLDER
                         </span>
@@ -481,6 +554,13 @@ export default function DeviceDetail() {
             </tbody>
           </table>
         </Panel>
+        <Panel title="Remarks">
+        <RemarkLog
+          entries={device.remark_log}
+          target={{ doctype: 'MSP Managed Device', name: device.name }}
+          invalidate={deviceKeys.detail(device.name)}
+        />
+      </Panel>
       </div>
 
       <DeviceServiceModal
@@ -501,15 +581,56 @@ export default function DeviceDetail() {
         onClose={() => setTarget(null)}
       />
 
-      <HandOverModal
-        open={handingOver}
+      <AssignDeviceModal
+        open={lifecycleModal === 'assign'}
         device={device.name}
         hostname={device.hostname}
+        serialNumber={device.serial_number}
+        status={device.status}
+        customer={device.customer}
+        onClose={() => setLifecycleModal(null)}
+      />
+
+      <TransferDeviceModal
+        open={lifecycleModal === 'transfer'}
+        device={device.name}
+        hostname={device.hostname}
+        serialNumber={device.serial_number}
         customer={device.customer}
         currentHolder={device.assigned_client_user}
         currentHolderName={device.user_name}
-        heldSince={(holder_log ?? []).find((spell) => spell.is_current)?.from_date}
-        onClose={() => setHandingOver(false)}
+        heldSince={currentSpell?.from_date}
+        onClose={() => setLifecycleModal(null)}
+      />
+
+      <RepossessDeviceModal
+        open={lifecycleModal === 'repossess'}
+        device={device.name}
+        hostname={device.hostname}
+        serialNumber={device.serial_number}
+        currentHolder={device.assigned_client_user}
+        currentHolderName={device.user_name}
+        onClose={() => setLifecycleModal(null)}
+      />
+
+      <RetireDeviceModal
+        open={lifecycleModal === 'retire'}
+        device={device.name}
+        hostname={device.hostname}
+        serialNumber={device.serial_number}
+        currentHolder={device.assigned_client_user}
+        currentHolderName={device.user_name}
+        openServiceCount={openServices.length}
+        onClose={() => setLifecycleModal(null)}
+      />
+
+      <ReinstateDeviceModal
+        open={lifecycleModal === 'reinstate'}
+        device={device.name}
+        hostname={device.hostname}
+        serialNumber={device.serial_number}
+        customer={device.customer}
+        onClose={() => setLifecycleModal(null)}
       />
 
       <ConfirmModal
@@ -523,27 +644,6 @@ export default function DeviceDetail() {
         onConfirm={async () => {
           await remove.mutateAsync(device.name);
           navigate('/msp/devices');
-        }}
-      />
-
-      <ConfirmModal
-        open={Boolean(statusAction)}
-        tone={statusAction === 'Retire' ? 'danger' : 'info'}
-        title={statusAction === 'Retire' ? 'Retire this device?' : 'Put this device back in service?'}
-        description={
-          statusAction === 'Retire'
-            ? `Every service still running on ${device.hostname} is ended with it, so it stops being billed.`
-            : `${device.hostname} becomes available again. Services are not reopened on their own.`
-        }
-        confirmLabel={statusAction === 'Retire' ? 'Retire' : 'Reinstate'}
-        loading={changeStatus.isLoading}
-        onCancel={() => setStatusAction(null)}
-        onConfirm={async () => {
-          await changeStatus.mutateAsync({
-            device: device.name,
-            action: statusAction as 'Retire' | 'Reinstate',
-          });
-          setStatusAction(null);
         }}
       />
     </div>

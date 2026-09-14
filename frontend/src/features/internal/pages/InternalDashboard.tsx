@@ -118,7 +118,7 @@ export default function InternalDashboard() {
             accent="emerald"
             label="Requests to execute"
             value={requests?.requests_to_execute ?? 0}
-            caption={`${requests?.lines_to_execute ?? 0} approved line(s) with no assignment yet`}
+            caption={`${requests?.lines_to_execute ?? 0} approved line(s) still to complete`}
             loading={isLoading}
             onView={() => navigate('/msp/requests?scope=to_execute')}
           />

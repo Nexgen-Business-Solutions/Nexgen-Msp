@@ -5,7 +5,6 @@ from nexgen_msp.utils import permissions
 INTERNAL_ROLES = (
     "MSP System Admin",
     "MSP Technician",
-    "System Manager",
     "Administrator",
 )
 

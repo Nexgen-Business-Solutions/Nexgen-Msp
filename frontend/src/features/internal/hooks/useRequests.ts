@@ -10,6 +10,7 @@ export const requestKeys = {
   stats: () => [...requestKeys.all, 'stats'] as const,
   list: (params: internal.RequestListParams) => [...requestKeys.all, 'list', params] as const,
   detail: (name: string) => [...requestKeys.all, 'detail', name] as const,
+  plan: (name: string) => [...requestKeys.all, 'plan', name] as const,
 };
 
 export type RequestFilterState = {
@@ -162,17 +163,84 @@ export const useRunRequestAction = () =>
     internal.runRequestAction(variables)
   );
 
+/** One decision for several lines; the answer says how each line took it. */
+export const useSetLineStatuses = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: internal.setRequestLineStatuses,
+    onSuccess: (outcome) => {
+      queryClient.setQueryData(requestKeys.detail(outcome.request.name), outcome.request);
+      queryClient.invalidateQueries({ queryKey: [...requestKeys.all, 'list'] });
+    },
+  });
+};
+
 export const useSetLineStatus = () =>
   useDetailMutation(
     (variables: { name: string; idx: number; line_status: string; reason?: string }) =>
       internal.setRequestLineStatus(variables)
   );
 
-export const useSetDeliveryDetail = () =>
-  useDetailMutation(
-    (variables: { name: string; idx: number; serial_number?: string; username?: string }) =>
-      internal.setRequestDeliveryDetail(variables)
-  );
+/** The work an approved request turned into, as the technician's screen reads it. */
+export const useRequestExecutionPlan = (name?: string) =>
+  useQuery({
+    queryKey: requestKeys.plan(name || ''),
+    queryFn: ({ signal }) => internal.getRequestExecutionPlan(name as string, signal),
+    enabled: Boolean(name),
+  });
+
+/** Every act on the plan gives the whole plan back, and the request itself has moved with it. */
+const usePlanMutation = <TVariables>(
+  mutationFn: (variables: TVariables) => Promise<internal.ExecutionPlan>
+) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn,
+    onSuccess: (plan) => {
+      queryClient.setQueryData(requestKeys.plan(plan.request), plan);
+      queryClient.invalidateQueries({ queryKey: requestKeys.detail(plan.request) });
+      queryClient.invalidateQueries({ queryKey: [...requestKeys.all, 'list'] });
+      queryClient.invalidateQueries({ queryKey: requestKeys.stats() });
+      queryClient.invalidateQueries({ queryKey: ['internal', 'users'] });
+      queryClient.invalidateQueries({ queryKey: ['internal', 'devices'] });
+    },
+  });
+};
+
+export const useExecuteUserSetup = () => usePlanMutation(internal.executeUserSetup);
+export const useExecuteDeviceProvisioning = () =>
+  usePlanMutation(internal.executeDeviceProvisioning);
+export const useExecuteServiceAction = () => usePlanMutation(internal.executeServiceAction);
+export const useVerifyWorkItem = () => usePlanMutation(internal.verifyWorkItem);
+export const useCompleteRequest = () => usePlanMutation(internal.completeRequest);
+export const useAddTechnicianAction = () => usePlanMutation(internal.addTechnicianAction);
+export const useRecordRequestActivity = () => usePlanMutation(internal.recordRequestActivity);
+export const useSettleWorkDoneElsewhere = () => usePlanMutation(internal.settleWorkDoneElsewhere);
+
+/** The same act for several people, run one by one; the outcome names each of them. */
+export const useExecuteServiceActions = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: internal.executeServiceActions,
+    onSuccess: (outcome) => {
+      queryClient.setQueryData(requestKeys.plan(outcome.plan.request), outcome.plan);
+      queryClient.invalidateQueries({ queryKey: requestKeys.detail(outcome.plan.request) });
+      queryClient.invalidateQueries({ queryKey: ['internal', 'users'] });
+      queryClient.invalidateQueries({ queryKey: ['internal', 'devices'] });
+    },
+  });
+};
+
+export const useTechnicianOptions = (name: string, subjectKey: string | null) =>
+  useQuery({
+    queryKey: [...requestKeys.plan(name), 'options', subjectKey ?? ''] as const,
+    queryFn: ({ signal }) => internal.getTechnicianOptions(name, subjectKey as string, signal),
+    enabled: Boolean(name && subjectKey),
+    staleTime: 0,
+  });
 
 
 

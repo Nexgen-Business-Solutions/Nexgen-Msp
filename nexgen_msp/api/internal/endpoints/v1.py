@@ -61,16 +61,14 @@ def get_request(name=None):
 
 @frappe.whitelist()
 @handle_errors
-def run_request_action(name=None, action=None, reason=None):
-    return RequestService.run_action(name=name, action=action, reason=reason)
+def list_customer_requests(customer=None, limit=30):
+    return RequestService.list_customer_requests(customer=customer, limit=limit)
 
 
 @frappe.whitelist()
 @handle_errors
-def set_request_delivery_detail(name=None, idx=None, serial_number=None, username=None):
-    return RequestService.set_delivery_detail(
-        name=name, idx=idx, serial_number=serial_number, username=username
-    )
+def run_request_action(name=None, action=None, reason=None):
+    return RequestService.run_action(name=name, action=action, reason=reason)
 
 
 @frappe.whitelist()
@@ -79,6 +77,151 @@ def set_request_line_status(name=None, idx=None, line_status=None, reason=None):
     return RequestService.set_line_status(
         name=name, idx=idx, line_status=line_status, reason=reason
     )
+
+
+@frappe.whitelist()
+@handle_errors
+def set_request_line_statuses(name=None, idxs=None, line_status=None, reason=None):
+    return RequestService.set_line_statuses(
+        name=name, idxs=idxs, line_status=line_status, reason=reason
+    )
+
+
+def _execution():
+    from nexgen_msp.api.internal.services.request_execution_service import (
+        RequestExecutionService,
+    )
+
+    return RequestExecutionService
+
+
+@frappe.whitelist()
+@handle_errors
+def get_request_execution_plan(name=None):
+    return _execution().get_execution_plan(request=name)
+
+
+@frappe.whitelist()
+@handle_errors
+def build_request_execution_plan(name=None):
+    return _execution().build_execution_plan(request=name)
+
+
+@frappe.whitelist()
+@handle_errors
+def execute_user_setup(work_order=None, username=None, email=None, department=None, notes=None):
+    return _execution().execute_user_setup(
+        work_order=work_order, username=username, email=email, department=department, notes=notes
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def execute_device_provisioning(
+    work_order=None,
+    mode=None,
+    managed_device=None,
+    hostname=None,
+    serial_number=None,
+    device_type=None,
+    interfaces=None,
+    effective_date=None,
+    confirm_transfer=None,
+    notes=None,
+):
+    return _execution().execute_device_provisioning(
+        work_order=work_order,
+        mode=mode,
+        managed_device=managed_device,
+        hostname=hostname,
+        serial_number=serial_number,
+        device_type=device_type,
+        interfaces=interfaces,
+        effective_date=effective_date,
+        confirm_transfer=confirm_transfer,
+        notes=notes,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def execute_service_action(
+    work_order=None,
+    effective_date=None,
+    quantity=None,
+    username=None,
+    serial_number=None,
+    notes=None,
+    customer_note=None,
+    confirm_billed=0,
+    action=None,
+    service_item=None,
+):
+    return _execution().execute_service_action(
+        work_order=work_order,
+        effective_date=effective_date,
+        quantity=quantity,
+        username=username,
+        serial_number=serial_number,
+        notes=notes,
+        customer_note=customer_note,
+        confirm_billed=confirm_billed,
+        action=action,
+        service_item=service_item,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def execute_service_actions(work_orders=None, effective_date=None, confirm_billed=0):
+    return _execution().execute_service_actions(
+        work_orders=work_orders, effective_date=effective_date, confirm_billed=confirm_billed
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def get_technician_options(name=None, subject_key=None):
+    return _execution().technician_options(request=name, subject_key=subject_key)
+
+
+@frappe.whitelist()
+@handle_errors
+def add_technician_action(name=None, subject_key=None, option=None, reason=None):
+    return _execution().add_technician_action(
+        request=name, subject_key=subject_key, option=option, reason=reason
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def settle_request_work_done_elsewhere(name=None):
+    return _execution().settle_work_done_elsewhere(request=name)
+
+
+@frappe.whitelist()
+@handle_errors
+def record_request_activity(name=None, subject_key=None, label=None, detail=None):
+    return _execution().record_context_action(
+        request=name,
+        subject_key=subject_key,
+        label=label,
+        detail=detail,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def verify_work_item(work_order=None, checklist=None, customer_note=None, notes=None):
+    return _execution().verify_work_item(
+        work_order=work_order, checklist=checklist, customer_note=customer_note, notes=notes
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def complete_request(name=None):
+    return _execution().complete_request(request=name)
 
 
 @frappe.whitelist()
@@ -302,6 +445,14 @@ def get_user(name=None):
 
 @frappe.whitelist()
 @handle_errors
+def get_user_history(name=None, limit=50):
+    from nexgen_msp.api.internal.services.user_360_service import User360Service
+
+    return User360Service.get_user_history(name=name, limit=limit)
+
+
+@frappe.whitelist()
+@handle_errors
 def assign_user_service(
     client_user=None,
     service_item=None,
@@ -339,7 +490,14 @@ def assign_user_service(
 @frappe.whitelist()
 @handle_errors
 def change_user_service(
-    assignment=None, action=None, effective_date=None, notes=None, source_request=None
+    assignment=None,
+    action=None,
+    effective_date=None,
+    notes=None,
+    source_request=None,
+    confirm_billed=0,
+    quantity=None,
+    service_item=None,
 ):
     from nexgen_msp.api.internal.services.user_service import UserService
 
@@ -349,6 +507,9 @@ def change_user_service(
         effective_date=effective_date,
         notes=notes,
         source_request=source_request,
+        confirm_billed=confirm_billed,
+        quantity=quantity,
+        service_item=service_item,
     )
 
 
@@ -474,6 +635,18 @@ def get_billing_run(name=None):
 @handle_errors
 def revalidate_billing_run(name=None):
     return _billing().revalidate(name=name)
+
+
+@frappe.whitelist()
+@handle_errors
+def remove_from_billing_run(name=None, service_assignment=None):
+    return _billing().remove_from_run(name=name, service_assignment=service_assignment)
+
+
+@frappe.whitelist()
+@handle_errors
+def add_to_billing_run(name=None, service_assignment=None):
+    return _billing().add_to_run(name=name, service_assignment=service_assignment)
 
 
 @frappe.whitelist()
@@ -663,7 +836,13 @@ def get_device(device=None):
 @frappe.whitelist()
 @handle_errors
 def assign_device_service(
-    device=None, service_item=None, effective_date=None, notes=None, source_request=None
+    device=None,
+    service_item=None,
+    effective_date=None,
+    notes=None,
+    source_request=None,
+    serial_number=None,
+    username=None,
 ):
     return _devices().assign_device_service(
         device=device,
@@ -671,6 +850,8 @@ def assign_device_service(
         effective_date=effective_date,
         notes=notes,
         source_request=source_request,
+        serial_number=serial_number,
+        username=username,
     )
 
 
@@ -755,7 +936,13 @@ def hand_over_device(device=None, client_user=None, on_date=None, note=None):
 @frappe.whitelist()
 @handle_errors
 def change_device_status(
-    device=None, action=None, status=None, effective_date=None, assigned_client_user=None, notes=None
+    device=None,
+    action=None,
+    status=None,
+    effective_date=None,
+    assigned_client_user=None,
+    notes=None,
+    end_services=0,
 ):
     return _devices().change_device_status(
         device=device,
@@ -764,6 +951,7 @@ def change_device_status(
         effective_date=effective_date,
         assigned_client_user=assigned_client_user,
         notes=notes,
+        end_services=end_services,
     )
 
 
@@ -797,6 +985,73 @@ def create_managed_device(
 @handle_errors
 def list_customer_users(customer=None):
     return _devices().list_customer_users(customer=customer)
+
+
+def _device_lifecycle():
+    from nexgen_msp.api.internal.services.device_lifecycle_service import DeviceLifecycleService
+
+    return DeviceLifecycleService
+
+
+@frappe.whitelist()
+@handle_errors
+def assign_device(device=None, client_user=None, effective_date=None, note=None):
+    return _device_lifecycle().assign(
+        device=device, client_user=client_user, effective_date=effective_date, note=note
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def transfer_device(device=None, client_user=None, effective_date=None, note=None):
+    return _device_lifecycle().transfer(
+        device=device, client_user=client_user, effective_date=effective_date, note=note
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def repossess_device(device=None, effective_date=None, note=None):
+    return _device_lifecycle().repossess(device=device, effective_date=effective_date, note=note)
+
+
+@frappe.whitelist()
+@handle_errors
+def retire_device(device=None, effective_date=None, note=None, end_services=0):
+    return _device_lifecycle().retire(
+        device=device,
+        effective_date=effective_date,
+        note=note,
+        end_services=end_services,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def reinstate_device(device=None, effective_date=None, client_user=None, note=None):
+    return _device_lifecycle().reinstate(
+        device=device, effective_date=effective_date, client_user=client_user, note=note
+    )
+
+
+def _service_availability():
+    from nexgen_msp.api.internal.services.service_availability_service import (
+        ServiceAvailabilityService,
+    )
+
+    return ServiceAvailabilityService
+
+
+@frappe.whitelist()
+@handle_errors
+def user_service_availability(client_user=None):
+    return _service_availability().for_user(client_user=client_user)
+
+
+@frappe.whitelist()
+@handle_errors
+def device_service_availability(managed_device=None):
+    return _service_availability().for_device(managed_device=managed_device)
 
 
 @frappe.whitelist()
@@ -1055,8 +1310,32 @@ def get_customer_details(customer=None):
 
 @frappe.whitelist()
 @handle_errors
-def save_customer_details(customer=None, details=None, address=None):
-    return _customers().save_customer(customer=customer, details=details, address=address)
+def save_customer_details(customer=None, details=None, address=None, contact=None):
+    return _customers().save_customer(
+        customer=customer, details=details, address=address, contact=contact
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def list_customers(search=None):
+    return _customers().list_customers(search=search)
+
+
+@frappe.whitelist()
+@handle_errors
+def create_customer(customer_name=None, details=None, address=None):
+    return _customers().create_customer(
+        customer_name=customer_name, details=details, address=address
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def my_capabilities():
+    from nexgen_msp.utils import access
+
+    return access.capabilities()
 
 
 @frappe.whitelist()
@@ -1120,6 +1399,36 @@ def save_request_action(name=None, action=None):
 @handle_errors
 def delete_request_action(name=None):
     return _settings().delete_request_action(name=name)
+
+
+def _departments():
+    from nexgen_msp.api.internal.services.department_service import DepartmentService
+
+    return DepartmentService
+
+
+@frappe.whitelist()
+@handle_errors
+def list_departments(enabled_only=1, customer=None):
+    return _departments().list_departments(enabled_only=enabled_only, customer=customer)
+
+
+@frappe.whitelist()
+@handle_errors
+def save_department(name=None, department=None):
+    return _departments().save_department(name=name, department=department)
+
+
+@frappe.whitelist()
+@handle_errors
+def disable_department(name=None):
+    return _departments().disable_department(name=name)
+
+
+@frappe.whitelist()
+@handle_errors
+def delete_department(name=None):
+    return _departments().delete_department(name=name)
 
 
 def _team():
@@ -1272,6 +1581,37 @@ def update_client_user(
         start_date=start_date,
         remarks=remarks,
     )
+
+
+@frappe.whitelist()
+@handle_errors
+def disable_client_user(name=None, effective_date=None, reason=None, end_services=0):
+    from nexgen_msp.api.internal.services.user_service import UserService
+
+    return UserService.disable_client_user(
+        name=name,
+        effective_date=effective_date,
+        reason=reason,
+        end_services=end_services,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def stop_all_client_user_services(name=None, effective_date=None, notes=None, source_request=None):
+    from nexgen_msp.api.internal.services.user_service import UserService
+
+    return UserService.stop_all_services(
+        name=name, effective_date=effective_date, notes=notes, source_request=source_request
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def reactivate_client_user(name=None):
+    from nexgen_msp.api.internal.services.user_service import UserService
+
+    return UserService.reactivate_client_user(name=name)
 
 
 @frappe.whitelist()

@@ -6,11 +6,17 @@ import KpiCard from '@/shared/components/KpiCard';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import TablePagination from '@/shared/components/TablePagination';
 import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
+import StatusBadge from '@/shared/components/StatusBadge';
 import NewUserModal from '../components/NewUserModal';
 import { useUserFilterOptions, useUserFilters, useUserList, useUserStats } from '../hooks/useUsers';
 
 const COVERAGE_OPTIONS = [
   { value: 'no_device', label: 'No device', description: 'Active users with no active device' },
+  {
+    value: 'no_personal_service',
+    label: 'No personal service',
+    description: 'Active users holding nothing of their own',
+  },
   {
     value: 'no_service',
     label: 'Device without services',
@@ -21,9 +27,28 @@ const COVERAGE_OPTIONS = [
     label: 'Disabled with open services',
     description: 'Offboarding never completed',
   },
+  {
+    value: 'open_requests',
+    label: 'Open requests',
+    description: 'Somebody is already working on them',
+  },
+  {
+    value: 'needs_attention',
+    label: 'Needs attention',
+    description: 'A missing serial, a missing username, or an unfinished offboarding',
+  },
 ];
 
-const COLUMNS = ['User', 'Department', 'Customer', 'Device', 'Active services', 'Inactive services', ''];
+const COLUMNS = [
+  'User',
+  'Department',
+  'Status',
+  'Devices',
+  'Active services',
+  'Inactive services',
+  'Open requests',
+  '',
+];
 
 export default function UsersList() {
   const navigate = useNavigate();
@@ -106,7 +131,7 @@ export default function UsersList() {
       <FilterBar
         values={filters as unknown as FilterState}
         search={filters.search}
-        searchPlaceholder="Search name, username, email, department or hostname…"
+        searchPlaceholder="Search name, username, email, department, hostname or serial…"
         subtitle="Narrow the user register."
         onSearch={(value) => patch({ search: value })}
         onApply={(values) =>
@@ -218,8 +243,8 @@ export default function UsersList() {
                     <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
                       {row.department || 'N/A'}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                      {row.customer}
+                    <td className="whitespace-nowrap px-4 py-3">
+                      <StatusBadge value={row.lifecycle_status} />
                     </td>
                     <td className="max-w-[14rem] px-4 py-3">
                       {row.hostnames ? (
@@ -232,7 +257,7 @@ export default function UsersList() {
                           )}
                         </>
                       ) : (
-                        <span className="text-sm text-slate-400">N/A</span>
+                        <span className="text-sm text-slate-400">None</span>
                       )}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3">
@@ -242,12 +267,24 @@ export default function UsersList() {
                     </td>
                     <td className="whitespace-nowrap px-4 py-3">
                       <span
-                        className={`inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-1 text-xs font-semibold tabular-nums ${row.inactive_services
+                        className={`inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-1 text-xs font-semibold tabular-nums ${
+                          row.inactive_services
                             ? 'bg-slate-100 text-slate-600'
                             : 'bg-transparent text-slate-300'
-                          }`}
+                        }`}
                       >
                         {row.inactive_services}
+                      </span>
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3">
+                      <span
+                        className={`inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-1 text-xs font-semibold tabular-nums ${
+                          row.open_requests
+                            ? 'bg-blue-50 text-blue-700'
+                            : 'bg-transparent text-slate-300'
+                        }`}
+                      >
+                        {row.open_requests}
                       </span>
                     </td>
                     <td className="whitespace-nowrap px-4 py-3">

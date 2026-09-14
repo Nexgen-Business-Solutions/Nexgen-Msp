@@ -17,6 +17,8 @@ class MSPBillingRun(Document):
 	def before_submit(self):
 		self.validate_no_blocking_exception()
 		self.status = "Approved"
+		# reviewing and approving are the same gesture unless somebody separated them
+		self.reviewed_by = self.reviewed_by or frappe.session.user
 		self.approved_by = frappe.session.user
 		self.approved_at = now_datetime()
 

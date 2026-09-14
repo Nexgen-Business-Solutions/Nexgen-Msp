@@ -29,6 +29,9 @@ class TestTheDraft(MSPTestCase):
         self.colleague = self.make_account("customer", "MSP Customer Operator", self.customer, suffix="col")
         self.decider = self.make_account("customer", "MSP Customer Manager", self.customer, suffix="dec")
         self.tech = self.make_account("internal", "MSP Technician", suffix="tec")
+        # only an account the matrix names may start a request, a draft included
+        for raiser in (self.author, self.colleague):
+            AuthorityService.set_account_rights(raiser, {"can_submit": 1, "can_approve": 0})
 
     # ------------------------------------------------------------- helpers
     def as_user(self, email, fn):
@@ -242,8 +245,8 @@ class TestTheDraft(MSPTestCase):
 
     def test_someone_who_may_not_raise_one_cannot_send_their_draft(self):
         self.rights_of_decider()
-        AuthorityService.set_account_rights(self.author, {"can_submit": 0, "can_approve": 1})
         name, _ = self.draft_of(self.author)
+        AuthorityService.set_account_rights(self.author, {"can_submit": 0, "can_approve": 1})
 
         with self.assertRaises(ValidationError):
             self.as_user(

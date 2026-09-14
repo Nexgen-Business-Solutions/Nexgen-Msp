@@ -2,7 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { AlertCircle, UserPlus } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
 import FieldLabel from '@/shared/components/FieldLabel';
+import Select from '@/shared/components/Select';
 import { useCreateClientUser } from '../hooks/useRequests';
+import { useDepartmentOptions } from '../hooks/useSettings';
 
 type Props = {
   open: boolean;
@@ -34,6 +36,7 @@ const CreateUserModal: React.FC<Props> = ({
   onClose,
 }) => {
   const create = useCreateClientUser();
+  const departmentOptions = useDepartmentOptions(customer || null);
 
   const [fullName, setFullName] = useState('');
   const [department, setDepartment] = useState('');
@@ -119,12 +122,12 @@ const CreateUserModal: React.FC<Props> = ({
           </div>
           <div>
             <span className={labelClass}>Department</span>
-            <input
-              type="text"
+            <Select
+              className="w-full"
               value={department}
-              onChange={(event) => setDepartment(event.target.value)}
-              placeholder="Accounting"
-              className={inputClass}
+              onChange={setDepartment}
+              placeholder="Select department"
+              options={departmentOptions.data ?? []}
             />
           </div>
           <div>

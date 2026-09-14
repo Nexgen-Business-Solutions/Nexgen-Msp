@@ -9,6 +9,7 @@
  "field_order": [
   "title",
   "action_type",
+  "sort_order",
   "enabled",
   "column_break_action",
   "description"
@@ -46,6 +47,12 @@
    "fieldname": "description",
    "fieldtype": "Small Text",
    "label": "Description"
+  },
+  {
+   "fieldname": "sort_order",
+   "fieldtype": "Int",
+   "label": "Display Order",
+   "in_list_view": 1
   }
  ],
  "links": [],

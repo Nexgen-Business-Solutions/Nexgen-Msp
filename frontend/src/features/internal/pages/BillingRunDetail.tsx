@@ -3,7 +3,6 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
   AlertCircle,
   ArrowLeft,
-  Eye,
   FileCheck2,
   FileSpreadsheet,
   Printer,
@@ -19,12 +18,19 @@ import {
 import Modal from '@/shared/components/Modal';
 import FieldLabel from '@/shared/components/FieldLabel';
 import StatusBadge from '@/shared/components/StatusBadge';
-import RowActionsMenu from '@/shared/components/RowActionsMenu';
+import BillingProgressStepper from '../components/BillingProgressStepper';
+import BillingExceptionGroup from '../components/BillingExceptionGroup';
+import { stageOf } from '../lib/billingStage';
 import CreditNoteModal from '../components/CreditNoteModal';
 import InvoiceAccountingModal from '../components/InvoiceAccountingModal';
 import InvoicePanel from '../components/InvoicePanel';
 import { downloadBreakdownFile, downloadInvoicePdf, salesInvoiceDeskUrl } from '@/lib/api/internal';
-import { useBillingRun, useRunAction, useSetLineDiscount } from '../hooks/useBilling';
+import {
+  useBillingRun,
+  useRemoveFromBillingRun,
+  useRunAction,
+  useSetLineDiscount,
+} from '../hooks/useBilling';
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
 
@@ -76,6 +82,7 @@ export default function BillingRunDetail() {
   const [invoicing, setInvoicing] = useState(false);
   const [outcome, setOutcome] = useState('');
   const setDiscount = useSetLineDiscount();
+  const drop = useRemoveFromBillingRun();
 
   const data = detail.data;
 
@@ -153,6 +160,13 @@ export default function BillingRunDetail() {
         Back to billing runs
       </button>
 
+      <div className="rounded-xl border border-slate-200 bg-white px-6 py-3 shadow-sm">
+        <BillingProgressStepper
+          current={stageOf(data.status, Boolean(data.sales_invoice))}
+          attention={data.exception_count > 0 ? 'validation' : null}
+        />
+      </div>
+
       <div className="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -211,6 +225,30 @@ export default function BillingRunDetail() {
           </div>
         </div>
 
+        {/* who the run was billed to on the day it was drawn: a company that moves office
+            later does not rewrite what was invoiced */}
+        <div className="mt-5 border-t border-slate-100 pt-4">
+          <p className="text-xs font-medium text-slate-400">Billed to</p>
+          <p className="mt-1 text-sm font-medium text-slate-800">
+            {data.billing_identity?.customer_name_snapshot || data.customer}
+            {data.billing_identity?.tax_id_snapshot && (
+              <span className="ml-2 font-normal text-slate-500">
+                {data.billing_identity.tax_id_snapshot}
+              </span>
+            )}
+          </p>
+          {data.billing_identity?.billing_address_snapshot && (
+            <p className="mt-0.5 whitespace-pre-line text-xs text-slate-500">
+              {data.billing_identity.billing_address_snapshot}
+            </p>
+          )}
+          {data.billing_identity?.billing_contact_snapshot && (
+            <p className="mt-0.5 whitespace-pre-line text-xs text-slate-400">
+              {data.billing_identity.billing_contact_snapshot}
+            </p>
+          )}
+        </div>
+
         <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-4 border-t border-slate-100 pt-4 sm:grid-cols-3 lg:grid-cols-6">
           <Stat label="Billed lines" value={stats.billable} hint={`of ${data.lines.length}`} />
           <Stat label="People" value={stats.people} hint="distinct users" />
@@ -265,15 +303,6 @@ export default function BillingRunDetail() {
           </div>
         )}
 
-        {data.exception_count > 0 && (
-          <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
-            <TriangleAlert size={16} className="mt-0.5 shrink-0 text-amber-600" />
-            <p className="text-sm text-amber-800">
-              <span className="font-semibold">{data.exception_count} line(s) blocked.</span> Fix the
-              underlying data, then revalidate — this run cannot be approved until they clear.
-            </p>
-          </div>
-        )}
 
         <div className="mt-5 flex flex-wrap items-center gap-2">
           {data.can_revalidate && (
@@ -413,6 +442,12 @@ export default function BillingRunDetail() {
         )}
       </div>
 
+      <BillingExceptionGroup
+        run={data.name}
+        lines={data.lines}
+        canEdit={Boolean(data.can_revalidate)}
+      />
+
       {data.sales_invoice && <InvoicePanel run={data.name} isAdmin />}
 
       <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
@@ -455,12 +490,34 @@ export default function BillingRunDetail() {
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
                     {line.hostname || 'N/A'}
+                    {line.serial_number && (
+                      <p className="text-xs text-slate-400">{line.serial_number}</p>
+                    )}
+                    {line.holder_context && (
+                      <p
+                        className="text-xs text-slate-400"
+                        title={`Held during the period by ${line.holder_context}`}
+                      >
+                        held by {line.holder_context.split(':')[0]}
+                      </p>
+                    )}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-sm font-medium text-slate-700 tabular-nums">
                     {line.billable_months}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-500">
-                    {line.covered_from ? (
+                    {line.segments && line.segments.length > 1 ? (
+                      <div className="space-y-0.5">
+                        {line.segments.map((segment) => (
+                          <p key={segment.from}>
+                            {segment.from}
+                            <span className="text-slate-300"> → </span>
+                            {segment.to}
+                          </p>
+                        ))}
+                        <p className="text-amber-600">paused in between</p>
+                      </div>
+                    ) : line.covered_from ? (
                       <>
                         {line.covered_from.slice(0, 10)}
                         <span className="text-slate-300"> → </span>
@@ -528,16 +585,23 @@ export default function BillingRunDetail() {
                   </td>
                   <td className="whitespace-nowrap px-4 py-3">
                     <div className="flex justify-end">
-                      <RowActionsMenu
-                        actions={[
-                          {
-                            label: 'View profile',
-                            icon: Eye,
-                            onClick: () => navigate(`/msp/users/${line.client_user}`),
-                            disabled: !line.client_user,
-                          },
-                        ]}
-                      />
+                      {data.can_revalidate && (
+                        <button
+                          type="button"
+                          disabled={drop.isLoading}
+                          onClick={() =>
+                            drop.mutate({
+                              name: data.name,
+                              service_assignment: line.service_assignment,
+                            })
+                          }
+                          title="Take this off the run. The service itself is untouched."
+                          aria-label={`Remove ${line.service_name} from this run`}
+                          className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
