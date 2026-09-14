@@ -553,7 +553,7 @@ const RequestChangesStep: React.FC<{ builder: Builder }> = ({ builder }) => {
   };
 
   const detail = (
-    <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+    <div className="min-w-0">
       <div className="flex items-baseline gap-2 px-4 py-3">
         <h2 className="text-base font-bold text-slate-900">{subject.fullName || 'New person'}</h2>
         {subject.department && <span className="text-sm text-slate-500">{subject.department}</span>}
@@ -600,11 +600,17 @@ const RequestChangesStep: React.FC<{ builder: Builder }> = ({ builder }) => {
     </div>
   );
 
-  if (subjects.length === 1) return detail;
+  const card = 'overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm';
 
+  if (subjects.length === 1) return <div className={card}>{detail}</div>;
+
+  // the people and the chosen one's changes are one card: the list is its left column
   return (
-    <div className="grid items-start gap-4 lg:grid-cols-[15rem_1fr]">
-      <nav aria-label="People" className="space-y-1.5 lg:sticky lg:top-4">
+    <div className={`${card} lg:grid lg:grid-cols-[15rem_1fr]`}>
+      <nav
+        aria-label="People"
+        className="space-y-1.5 border-b border-slate-100 bg-slate-50/60 p-2 lg:border-b-0 lg:border-r"
+      >
         {subjects.map((row, position) => {
           const count = changes(row.key);
           const active = row.key === subject.key;
