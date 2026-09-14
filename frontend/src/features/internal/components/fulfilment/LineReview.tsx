@@ -4,6 +4,7 @@ import Modal from '@/shared/components/Modal';
 import type { RequestDetail, RequestDetailLine } from '@/lib/api/internal';
 import { useSetLineStatus, useSetLineStatuses } from '../../hooks/useRequests';
 import PersonHeader from './PersonHeader';
+import PeopleWorkspace from '@/shared/components/PeopleWorkspace';
 import {
   btnAccept,
   btnPrimary,
@@ -12,7 +13,6 @@ import {
   lineRow,
   nextBar,
   pill,
-  subjectCard,
   warnBar,
 } from '../../lib/fulfilmentStyles';
 
@@ -200,8 +200,21 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
         </p>
       )}
 
-      {people.map((person) => (
-        <div key={person.key} className={subjectCard}>
+      <PeopleWorkspace
+        people={people.map((person) => {
+          const open = person.lines.filter((line) => line.line_status === 'Pending').length;
+          return {
+            key: person.key,
+            name: person.name,
+            hint: open ? `${open} decision${open > 1 ? 's' : ''} remaining` : 'Decided',
+            done: open === 0,
+          };
+        })}
+      >
+        {(key) => {
+          const person = people.find((row) => row.key === key) as (typeof people)[number];
+          return (
+        <div>
           <PersonHeader
             fullName={person.name}
             isNew={person.isNew}
@@ -317,7 +330,9 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
             );
           })}
         </div>
-      ))}
+          );
+        }}
+      </PeopleWorkspace>
 
       {decidable &&
         (pending.length === 0 ? (

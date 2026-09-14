@@ -324,7 +324,10 @@ describe('step 1 — review lines', () => {
   it('executes nothing and asks for a decision on every line', async () => {
     await renderPage(reviewing());
 
-    expect(await screen.findAllByText('Decision required')).toHaveLength(2);
+    // one person at a time: the list says what is left for each, the chosen one is shown
+    expect(await screen.findAllByText('Decision required')).toHaveLength(1);
+    const people = screen.getByRole('navigation', { name: 'People' });
+    expect(within(people).getAllByText('1 decision remaining')).toHaveLength(2);
     expect(screen.getByText(/every request line needs a decision/i)).toBeInTheDocument();
     expect(internal.getRequestExecutionPlan).not.toHaveBeenCalled();
   });
@@ -448,7 +451,7 @@ describe('step 2 — execute', () => {
 
     for (const label of [
       'Add service',
-      'Assign device',
+      'Assign a device',
       'Add service on KV-JDOE',
       'Return KV-JDOE to stock',
       'Disable user',
@@ -541,15 +544,53 @@ describe('step 2 — execute', () => {
     await renderPage(request(), owed);
 
     expect(await screen.findByText(/device required/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /prepare device/i }));
+    fireEvent.click(screen.getByRole('button', { name: /assign a device/i }));
     const dialog = await screen.findByRole('dialog');
-    fireEvent.click(await within(dialog).findByText('LAPTOP-STOCK-14'));
-    fireEvent.click(within(dialog).getByRole('button', { name: /assign device/i }));
+    fireEvent.click(within(dialog).getByRole('button', { name: /existing device/i }));
+    fireEvent.click(await within(dialog).findByRole('button', { name: /search a hostname or a serial/i }));
+    fireEvent.click(await screen.findByRole('option', { name: /LAPTOP-STOCK-14/ }));
+    fireEvent.click(within(dialog).getByRole('button', { name: /hand it over/i }));
 
     await waitFor(() =>
       expect(vi.mocked(internal.executeDeviceProvisioning).mock.calls[0][0]).toMatchObject({
         work_order: 'WO-DEV',
         mode: 'existing',
+        managed_device: 'DEV-STOCK',
+      })
+    );
+  });
+
+  it('settles the owed machine when it is given from the person menu', async () => {
+    const owed = plan({
+      groups: [
+        group({
+          devices: [
+            {
+              device_requirement_key: 'new-device:user:CU-1',
+              device: null,
+              work: card({ name: 'WO-DEV', work_type: 'Device Provisioning', action: 'Assign Device', service_item: null, service_name: null, device_requirement_key: 'new-device:user:CU-1' }),
+            },
+          ],
+          services: [card({ name: 'WO-SOPHOS', target_scope: 'Device', service_name: 'Sophos', device_requirement_key: 'new-device:user:CU-1', ready: false, waiting_on: 'the machine to be prepared' })],
+        }),
+      ],
+    });
+    vi.mocked(internal.executeDeviceProvisioning).mockResolvedValue(owed);
+    await renderPage(request(), owed);
+
+    fireEvent.click((await screen.findAllByTitle('More options'))[0]);
+    // the menu entry, not the line's own button
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Assign a device' })).at(-1) as HTMLElement);
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(/needed by sophos/i)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: /existing device/i }));
+    fireEvent.click(await within(dialog).findByRole('button', { name: /search a hostname or a serial/i }));
+    fireEvent.click(await screen.findByRole('option', { name: /LAPTOP-STOCK-14/ }));
+    fireEvent.click(within(dialog).getByRole('button', { name: /hand it over/i }));
+
+    await waitFor(() =>
+      expect(vi.mocked(internal.executeDeviceProvisioning).mock.calls[0][0]).toMatchObject({
+        work_order: 'WO-DEV',
         managed_device: 'DEV-STOCK',
       })
     );
@@ -582,9 +623,9 @@ describe('step 2 — execute', () => {
     vi.mocked(internal.executeDeviceProvisioning).mockResolvedValue(owed);
     await renderPage(request(), owed);
 
-    fireEvent.click(await screen.findByRole('button', { name: /prepare device/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /assign a device/i }));
     const dialog = await screen.findByRole('dialog');
-    const assign = within(dialog).getByRole('button', { name: /assign device/i });
+    const assign = await within(dialog).findByRole('button', { name: /hand it over/i });
     await waitFor(() => expect(assign).toBeEnabled());
     fireEvent.click(assign);
 

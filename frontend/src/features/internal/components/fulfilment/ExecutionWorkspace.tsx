@@ -30,13 +30,12 @@ import {
   lineRow,
   nextBar,
   pill,
-  subjectCard,
   warnBar,
 } from '../../lib/fulfilmentStyles';
 import ApplyActionModal from './ApplyActionModal';
 import ClientUserModal from './ClientUserModal';
-import DeviceModal from './DeviceModal';
 import PersonHeader from './PersonHeader';
+import PeopleWorkspace from '@/shared/components/PeopleWorkspace';
 import AddDeviceModal from '../AddDeviceModal';
 import AddUserServiceModal from '../AddUserServiceModal';
 import DeviceServiceModal from '../DeviceServiceModal';
@@ -163,10 +162,13 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
     const hasServices = (facts?.services ?? []).some(
       (service) => service.assignment_scope !== 'Device' && OPEN.includes(service.status)
     );
+    // a machine the request is still waiting for is given through its line, so the line is settled
+    const slot = group.devices.find((row) => !settled(row.work) && row.work.ready);
+    const assignDevice = slot ? () => setPreparing({ card: slot.work, group }) : open('device');
 
     return [
       { label: 'Add service', icon: Layers, onClick: open('service'), disabled },
-      { label: 'Assign device', icon: Laptop, onClick: open('device'), disabled },
+      { label: 'Assign a device', icon: Laptop, onClick: assignDevice, disabled },
       ...(facts?.devices ?? []).flatMap((machine) => {
         const label = machine.hostname ?? machine.serial_number ?? machine.name;
         return [
@@ -251,6 +253,18 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
 
   const executed = plan.stages.current !== 'execute';
 
+  const workPeople = plan.groups.map((group) => {
+    const open = [group.user_setup, ...group.devices.map((slot) => slot.work), ...group.services].filter(
+      (card) => card && !settled(card)
+    ).length;
+    return {
+      key: group.subject_key,
+      name: group.person?.full_name ?? 'Unnamed person',
+      hint: open ? `${open} item${open > 1 ? 's' : ''} remaining` : 'Done',
+      done: open === 0,
+    };
+  });
+
   return (
     <div className="space-y-4">
       {/* <div className={banner}>
@@ -289,7 +303,9 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
         </p>
       )}
 
-      {plan.groups.map((group) => {
+      <PeopleWorkspace people={workPeople}>
+        {(key) => {
+        const group = plan.groups.find((row) => row.subject_key === key) as SubjectWorkGroup;
         const person = group.person;
         const facts = person?.name ? people?.[person.name] ?? null : null;
         const userReady = Boolean(person?.name);
@@ -299,7 +315,7 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
         const added = group.services.filter((card) => card.origin === 'Technician');
 
         return (
-          <div key={group.subject_key} className={subjectCard}>
+          <div>
             <PersonHeader
               fullName={person?.full_name ?? 'Unnamed person'}
               isNew={!person?.name}
@@ -376,7 +392,7 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
                   {!done && slot.work.ready && (
                     <div className="col-start-2 flex gap-2 sm:col-start-auto">
                       <button type="button" onClick={() => setPreparing({ card: slot.work, group })} className={btn}>
-                        Prepare Device
+                        Assign a device
                       </button>
                     </div>
                   )}
@@ -471,7 +487,8 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
             )}
           </div>
         );
-      })}
+        }}
+      </PeopleWorkspace>
 
       {plan.rejected.length > 0 && (
         <p className="text-xs text-slate-500">
@@ -497,11 +514,21 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
       )}
 
       <ClientUserModal card={creating?.card ?? null} person={creating?.person ?? null} onClose={() => setCreating(null)} />
-      <DeviceModal
-        card={preparing?.card ?? null}
+      <AddDeviceModal
+        open={Boolean(preparing)}
+        clientUser={(preparing?.group.person?.name as string) ?? ''}
+        userName={preparing?.group.person?.full_name ?? 'this person'}
         customer={plan.customer}
-        person={preparing?.group.person ?? null}
+        deviceTypes={deviceOptions.data?.device_types ?? []}
+        interfaceTypes={deviceOptions.data?.interface_types ?? []}
+        requests={[]}
+        workOrder={preparing?.card.name ?? null}
         needs={preparing ? needsOf(preparing.group, preparing.card.device_requirement_key ?? '') : []}
+        initial={{
+          hostname: preparing?.card.asked_hostname,
+          serial_number: preparing?.card.asked_serial,
+          device_type: preparing?.card.asked_device_type,
+        }}
         onClose={() => setPreparing(null)}
       />
       <ApplyActionModal
@@ -515,6 +542,9 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
           <AddUserServiceModal
             open={acting.kind === 'service'}
             user={userRecord(acting.person, acting.facts, plan.customer)}
+            pending={(plan.groups.find((row) => row.subject_key === acting.key)?.services ?? [])
+              .filter((card) => !settled(card) && card.action === 'Add')
+              .map((card) => card.service_item ?? '')}
             requests={customerRequests.data ?? []}
             defaultRequest={plan.request}
             onClose={closeActing}

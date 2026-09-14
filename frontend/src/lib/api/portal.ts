@@ -331,6 +331,7 @@ export type PortalRequestDetail = {
   creation: string;
   modified: string;
   rejection_reason: string | null;
+  refused_by_customer?: boolean;
   reviewed_on: string | null;
   can_decide: boolean;
   has_approver: boolean;

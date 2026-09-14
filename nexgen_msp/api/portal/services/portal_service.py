@@ -787,6 +787,7 @@ class PortalService:
             "creation": doc.creation,
             "modified": doc.modified,
             "rejection_reason": doc.rejection_reason,
+            "refused_by_customer": bool(doc.get("refused_by_customer")),
             "reviewed_on": doc.technical_approved_at,
             "can_decide": PortalService._may_decide(doc),
             # a request waiting on an accord nobody at the company can yet give is stuck, and
@@ -1186,6 +1187,17 @@ class PortalService:
     @staticmethod
     def my_approval_rights(customer=None):
         """What the signed-in person may do, so the portal knows what to offer."""
+        # our own team, before it has said which customer it acts for
+        if not customer and permissions.is_internal():
+            return {
+                "customer": None,
+                "has_authority": False,
+                "can_submit": True,
+                "can_approve": False,
+                "department": None,
+                "awaiting": 0,
+            }
+
         customer = PortalService._resolve_customer(customer)
         rights = approval.rights_of(customer)
 

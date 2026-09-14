@@ -32,6 +32,10 @@ class RequestBuilderService:
         """
         from nexgen_msp.api.portal.services.portal_service import PortalService
 
+        # our own team lists nobody until it has said which customer it acts for
+        if not customer and permissions.is_internal():
+            return []
+
         customer = PortalService._resolve_customer(customer)
         limit = min(frappe.utils.cint(limit) or MAX_SEARCH_RESULTS, MAX_SEARCH_RESULTS)
 

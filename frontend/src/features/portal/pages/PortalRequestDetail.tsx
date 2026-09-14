@@ -102,7 +102,7 @@ export default function PortalRequestDetail() {
         {data.rejection_reason && (
           <div className="mt-4 rounded-lg border border-red-100 bg-red-50 p-3.5">
             <p className="text-xs font-semibold uppercase tracking-wider text-red-700">
-              Nexgen's answer
+              {data.refused_by_customer ? 'Refused by your company' : "Nexgen's answer"}
             </p>
             <p className="mt-1.5 text-sm text-red-800">{data.rejection_reason}</p>
           </div>
