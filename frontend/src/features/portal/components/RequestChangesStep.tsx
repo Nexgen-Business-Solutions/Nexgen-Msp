@@ -14,7 +14,7 @@ const Section: React.FC<{ title: string; hint?: string; children: React.ReactNod
   hint,
   children,
 }) => (
-  <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+  <div className="border-t border-slate-100">
     <div className="flex flex-wrap items-baseline gap-x-2 border-b border-slate-100 bg-slate-50/70 px-4 py-2">
       <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">{title}</h3>
       {hint && <p className="text-xs text-slate-500">{hint}</p>}
@@ -269,11 +269,15 @@ const ExistingSubjectChanges: React.FC<{ subject: RequestSubject; builder: Build
   // an intention written earlier may no longer make sense: somebody else may have moved
   // the very service it was about while the draft sat there
   return (
-    <div className="space-y-4">
-      {data.target_reason && <Note>{data.target_reason}</Note>}
+    <div>
+      {data.target_reason && (
+        <div className="px-4 py-3">
+          <Note>{data.target_reason}</Note>
+        </div>
+      )}
 
       {stale.length > 0 && (
-        <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
+        <div className="m-4 space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
           {stale.map(({ intent, reason }) => (
             <div key={intent.key} className="flex items-start justify-between gap-3">
               <p className="text-sm text-amber-900">
@@ -459,7 +463,7 @@ const NewSubjectChanges: React.FC<{ subject: RequestSubject; builder: Builder }>
     });
 
   return (
-    <div className="space-y-4">
+    <div>
       <Section title="Personal services" hint="Granted to this person once they are created.">
         <div className="flex flex-wrap gap-2 px-4 py-3">
           {offer('User').length === 0 && (
@@ -549,8 +553,8 @@ const RequestChangesStep: React.FC<{ builder: Builder }> = ({ builder }) => {
   };
 
   const detail = (
-    <div className="min-w-0 space-y-3">
-      <div className="flex items-baseline gap-2">
+    <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex items-baseline gap-2 px-4 py-3">
         <h2 className="text-base font-bold text-slate-900">{subject.fullName || 'New person'}</h2>
         {subject.department && <span className="text-sm text-slate-500">{subject.department}</span>}
         {subject.kind === 'new' && (
@@ -567,7 +571,7 @@ const RequestChangesStep: React.FC<{ builder: Builder }> = ({ builder }) => {
       )}
 
       {subjects.length > 1 && (
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2">
+        <div className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/60 px-3 py-2">
           <button
             type="button"
             onClick={() => previous && go(previous.key)}
