@@ -613,7 +613,7 @@ describe('what the screen must never hide', () => {
     await goToChanges();
 
     expect(
-      await screen.findByText(/No device currently assigned to John Doe/i)
+      await screen.findByText('No device')
     ).toBeInTheDocument();
   });
 });
@@ -738,13 +738,14 @@ describe('a person with no machine', () => {
 
     expect(await screen.findByRole('radio', { name: /a new machine/i })).toBeInTheDocument();
     expect(screen.queryByRole('radio', { name: /not specified/i })).not.toBeInTheDocument();
-    expect(screen.getByText('A technician will prepare or identify the device.')).toBeInTheDocument();
+    const fresh = screen.getByRole('radio', { name: /a new machine/i });
+    expect(fresh).toHaveAttribute('aria-checked', 'false');
 
-    fireEvent.click(screen.getByRole('radio', { name: /a new machine/i }));
-    expect(screen.getByText(/prepare a new device/i)).toBeInTheDocument();
+    fireEvent.click(fresh);
+    expect(fresh).toHaveAttribute('aria-checked', 'true');
 
-    fireEvent.click(screen.getByRole('radio', { name: /a new machine/i }));
-    expect(screen.getByText('A technician will prepare or identify the device.')).toBeInTheDocument();
+    fireEvent.click(fresh);
+    expect(fresh).toHaveAttribute('aria-checked', 'false');
   });
 
   it('left unsaid, the machine is one the technician prepares', async () => {
@@ -817,7 +818,7 @@ describe('a person with no machine', () => {
 
     expect(await screen.findByText(/LAPTOP-JANE is held by Jane Roe/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /confirm transfer/i }));
-    expect(await screen.findByText(/transfer LAPTOP-JANE from Jane Roe/)).toBeInTheDocument();
+    expect(await screen.findByText('Transfer from Jane Roe')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Sophos Endpoint/ }));
 
     const line = await submitted();
@@ -876,15 +877,15 @@ describe('the changes are made one person at a time', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Adobe Acrobat/ }));
     expect(within(people).getByText('1 change')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /next: marie dupont/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^next$/i }));
 
-    expect(await screen.findByText('Granted to this person once they are created.')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Sophos Endpoint/ })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Adobe Acrobat/ })).not.toBeInTheDocument();
     expect(within(people).getByRole('button', { name: /Marie Dupont/ })).toHaveAttribute('aria-current', 'true');
     expect(screen.getByText('Person 2 of 2')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^next$/i })).toBeDisabled();
 
-    fireEvent.click(screen.getByRole('button', { name: /previous: john doe/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^previous$/i }));
 
     expect(await screen.findByRole('button', { name: /Adobe Acrobat/ })).toBeInTheDocument();
     expect(screen.getByText('Person 1 of 2')).toBeInTheDocument();

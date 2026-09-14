@@ -107,14 +107,8 @@ const NoDeviceSection: React.FC<{
       ...described(),
     });
 
-  const hint =
-    choice === 'stock' && picked
-      ? picked.holder_name
-        ? `A technician will transfer ${picked.hostname} from ${picked.holder_name} with the device services below.`
-        : `A technician will hand ${picked.hostname} over with the device services below.`
-      : choice === 'new'
-        ? 'A technician will prepare a new device. You can give its details at the next step.'
-        : 'A technician will prepare or identify the device.';
+  // only what the customer needs to know: a machine somebody else holds is to be transferred
+  const hint = choice === 'stock' && picked?.holder_name ? `Transfer from ${picked.holder_name}` : null;
 
   return (
     <Section title="Devices">
@@ -124,10 +118,8 @@ const NoDeviceSection: React.FC<{
             <Laptop size={16} />
           </span>
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-slate-900">
-              No device currently assigned to {subject.fullName}.
-            </p>
-            <p className="text-xs text-slate-500">{hint}</p>
+            <p className="text-sm font-semibold text-slate-900">No device</p>
+            {hint && <p className="text-xs text-amber-700">{hint}</p>}
           </div>
         </div>
 
@@ -295,9 +287,9 @@ const ExistingSubjectChanges: React.FC<{ subject: RequestSubject; builder: Build
         </div>
       )}
 
-      <Section title="Personal services" hint="Services this person holds in their own name.">
+      <Section title="Personal services">
         {data.personal_services.current.length === 0 && (
-          <p className="px-4 py-2 text-xs text-slate-500">No personal service yet.</p>
+          <p className="px-4 py-2 text-xs text-slate-500">No service yet</p>
         )}
         {data.personal_services.current.map((service) => {
           const asked = builder.askedOn(service.assignment);
@@ -369,7 +361,7 @@ const ExistingSubjectChanges: React.FC<{ subject: RequestSubject; builder: Build
             {device.services.current.length === 0 && (
               <p className="px-4 py-2 text-xs text-slate-500">
                 <Laptop size={14} className="mr-1.5 inline text-slate-400" />
-                Nothing runs on this machine yet.
+                No service yet
               </p>
             )}
             {device.services.current.map((service) => {
@@ -464,7 +456,7 @@ const NewSubjectChanges: React.FC<{ subject: RequestSubject; builder: Builder }>
 
   return (
     <div>
-      <Section title="Personal services" hint="Granted to this person once they are created.">
+      <Section title="Personal services">
         <div className="flex flex-wrap gap-2 px-4 py-3">
           {offer('User').length === 0 && (
             <p className="text-sm text-slate-500">Nothing is available under your contract.</p>
@@ -490,10 +482,7 @@ const NewSubjectChanges: React.FC<{ subject: RequestSubject; builder: Builder }>
         </div>
       </Section>
 
-      <Section
-        title="Device services"
-        hint="A technician will prepare or identify the machine these run on."
-      >
+      <Section title="Device services">
         <div className="flex flex-wrap gap-2 px-4 py-3">
           {offer('Device').map((item) => {
             const asked = builder
@@ -579,7 +568,7 @@ const RequestChangesStep: React.FC<{ builder: Builder }> = ({ builder }) => {
             className="inline-flex min-w-0 items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
           >
             <ArrowLeft size={14} className="shrink-0" />
-            <span className="truncate">{previous ? `Previous: ${nameOf(previous)}` : 'Previous'}</span>
+            Previous
           </button>
 
           <span className="shrink-0 text-xs font-medium text-slate-500">
@@ -592,7 +581,7 @@ const RequestChangesStep: React.FC<{ builder: Builder }> = ({ builder }) => {
             disabled={!next}
             className="inline-flex min-w-0 items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none"
           >
-            <span className="truncate">{next ? `Next: ${nameOf(next)}` : 'Next'}</span>
+            Next
             <ArrowRight size={14} className="shrink-0" />
           </button>
         </div>
