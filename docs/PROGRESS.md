@@ -696,5 +696,6 @@ champs commerciaux, aucun département en texte libre, le workbench n'exige aucu
 | 2026-09-14 | agent principal | Étape Changes : la liste des personnes fait partie de la même carte (colonne de gauche grisée), la personne choisie à droite. |
 | 2026-09-14 | agent principal | Étape Changes allégée : Previous / Next sans nom, plus de sous-titres de rubrique, « No service yet », « No device » ; seul message restant pour la machine : « Transfer from … » quand une machine détenue est choisie. |
 | 2026-09-14 | agent principal | « A new machine » affiche Serial Number, Hostname et Device Type, facultatifs : gardés sur la personne (`machineSerial`, `machineHostname`, `machineType`) et reportés sur chaque service machine en `new_device_serial` / `new_device_label` / `new_device_type` ; le client continue qu'il les remplisse ou non. |
+| 2026-09-14 | agent principal | Étape When & details : plus de champs Hostname / Serial / Device type à remplir ; ils se saisissent une seule fois à l'étape Changes (personne sans appareil → A new machine ; nouvelle personne → sous « Device required »). Chaque service machine dit sa machine (`machineSource`) : « · PRIMS-PC » pour un appareil existant, « · new device … » pour une nouvelle machine, « · device to be identified » sinon ; même chose à l'étape Review. |
 
 > Ajoute ta ligne ici quand tu termines quelque chose.

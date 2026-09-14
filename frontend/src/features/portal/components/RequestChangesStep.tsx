@@ -39,6 +39,7 @@ const fromSubject = (subject: RequestSubject) => ({
   deviceHostname: subject.machineHostname?.trim() || undefined,
   deviceSerial: subject.machineSerial?.trim() || undefined,
   deviceType: subject.machineType || undefined,
+  machineSource: 'new' as const,
 });
 
 // left alone, the machine is one the technician prepares: that is the default, not a choice
@@ -76,10 +77,16 @@ const NoDeviceSection: React.FC<{
           deviceHostname: device.hostname,
           deviceSerial: device.serial_number ?? undefined,
           deviceType: device.device_type ?? undefined,
+          machineSource: 'existing' as const,
         }
       : mode === 'new'
         ? fromSubject(subject)
-        : { deviceHostname: undefined, deviceSerial: undefined, deviceType: undefined };
+        : {
+            deviceHostname: undefined,
+            deviceSerial: undefined,
+            deviceType: undefined,
+            machineSource: undefined,
+          };
 
   // what the customer typed about a new machine travels on every service asked for it
   const describeNew = (patch: Partial<RequestSubject>) => {
@@ -474,6 +481,15 @@ const NewSubjectChanges: React.FC<{ subject: RequestSubject; builder: Builder }>
   builder,
 }) => {
   const context = useNewUserRequestContext();
+  const options = usePortalFilterOptions();
+  const machineIntents = builder.intentsOf(subject.key).filter((intent) => intent.isNewDevice);
+
+  // a newcomer's machine is always a new one; what the customer knows of it travels with it
+  const describeNew = (patch: Partial<RequestSubject>) => {
+    builder.updateSubject(subject.key, patch);
+    const stamp = fromSubject({ ...subject, ...patch });
+    machineIntents.forEach((intent) => builder.updateIntent(intent.key, stamp));
+  };
 
   if (context.isLoading) {
     return <p className="py-8 text-center text-sm text-slate-500">Loading…</p>;
@@ -496,6 +512,7 @@ const NewSubjectChanges: React.FC<{ subject: RequestSubject; builder: Builder }>
       serviceLabel: item.item_name,
       targetScope: scope,
       isNewDevice: scope === 'Device',
+      ...(scope === 'Device' ? fromSubject(subject) : {}),
     });
 
   return (
@@ -556,6 +573,29 @@ const NewSubjectChanges: React.FC<{ subject: RequestSubject; builder: Builder }>
               <Wrench size={13} className="text-slate-400" />
               Device required — a technician will prepare or identify it.
             </p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              <input
+                className={fieldClass}
+                value={subject.machineSerial ?? ''}
+                onChange={(event) => describeNew({ machineSerial: event.target.value })}
+                placeholder="Serial Number"
+                aria-label="Serial Number"
+              />
+              <input
+                className={fieldClass}
+                value={subject.machineHostname ?? ''}
+                onChange={(event) => describeNew({ machineHostname: event.target.value })}
+                placeholder="Hostname"
+                aria-label="Hostname"
+              />
+              <Select
+                className="w-full"
+                value={subject.machineType ?? ''}
+                onChange={(value) => describeNew({ machineType: value })}
+                placeholder="Device Type"
+                options={(options.data?.device_types ?? []).map((type) => ({ value: type, label: type }))}
+              />
+            </div>
           </div>
         )}
       </Section>

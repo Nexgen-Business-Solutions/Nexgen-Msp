@@ -85,7 +85,12 @@ const RequestReviewStep: React.FC<{ builder: Builder }> = ({ builder }) => {
                   {toProvision.map((intent) => (
                     <li key={intent.key} className="text-sm text-slate-700">
                       <Wrench size={13} className="mr-1.5 inline text-slate-400" />
-                      {intent.serviceLabel} — a technician will prepare or identify the device
+                      {intent.serviceLabel} —{' '}
+                      {intent.machineSource === 'existing'
+                        ? `on ${intent.deviceHostname ?? 'an existing device'}`
+                        : intent.machineSource === 'new'
+                          ? `on a new device${intent.deviceHostname ? ` (${intent.deviceHostname})` : ''}`
+                          : 'device to be identified'}
                     </li>
                   ))}
                 </ul>

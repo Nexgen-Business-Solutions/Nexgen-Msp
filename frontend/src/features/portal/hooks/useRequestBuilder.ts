@@ -33,6 +33,8 @@ export type RequestIntent = {
   deviceHostname?: string;
   deviceSerial?: string;
   deviceType?: string;
+  /** a machine to settle: one the company already has, a new one, or left to the technician */
+  machineSource?: 'existing' | 'new';
 };
 
 /** The person a group of intentions is about, whether or not they exist yet. */

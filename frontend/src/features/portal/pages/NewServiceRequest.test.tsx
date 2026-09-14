@@ -676,15 +676,17 @@ describe('technical details are offered, never demanded', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: /continue/i }));
     fireEvent.click(await screen.findByRole('button', { name: /Sophos Endpoint/ }));
-    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
 
-    fireEvent.change(await screen.findByLabelText(/hostname \(optional\)/i), {
+    // said once, where the machine is asked for
+    fireEvent.change(await screen.findByLabelText('Hostname'), {
       target: { value: 'LAPTOP-MDUPONT' },
     });
-    fireEvent.change(screen.getByLabelText(/serial number \(optional\)/i), {
+    fireEvent.change(screen.getByLabelText('Serial Number'), {
       target: { value: 'SN-9912' },
     });
 
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+    await screen.findByText(/what you are asking for/i);
     fireEvent.click(screen.getByRole('button', { name: /continue/i }));
     await screen.findByText(/after submission/i);
     fireEvent.click(screen.getByRole('button', { name: /submit request/i }));
@@ -777,6 +779,36 @@ describe('a person with no machine', () => {
     const line = await submitted();
 
     expect(line).toMatchObject({ is_new_device: 1, new_device_serial: 'SN-NEW', new_device_label: 'LAPTOP-NEW' });
+  });
+
+  it('names the existing device at the next step instead of asking for it again', async () => {
+    await renderPage(
+      noMachine({
+        assignable_devices: [
+          {
+            name: 'DEV-9',
+            hostname: 'LAPTOP-STOCK',
+            serial_number: 'SN-9',
+            device_type: 'Laptop',
+            status: 'Stock',
+            assigned_client_user: null,
+            holder_name: null,
+          },
+        ],
+      })
+    );
+    await goToChanges();
+
+    fireEvent.click(await screen.findByRole('radio', { name: /existing device/i }));
+    fireEvent.click(screen.getByRole('button', { name: /search a hostname or a serial/i }));
+    fireEvent.click(await screen.findByRole('option', { name: /LAPTOP-STOCK/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Sophos Endpoint/ }));
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+    await screen.findByText(/what you are asking for/i);
+
+    expect(screen.getByText(/· LAPTOP-STOCK/)).toBeInTheDocument();
+    expect(screen.queryByText(/device to be identified/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/hostname/i)).not.toBeInTheDocument();
   });
 
   it('a new machine needs none of its details to go on', async () => {
