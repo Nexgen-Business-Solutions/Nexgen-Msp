@@ -689,5 +689,6 @@ champs commerciaux, aucun département en texte libre, le workbench n'exige aucu
 | 2026-09-14 | agent principal | Portail, étape Person : la personne choisie est décrite en libellé / valeur (Department, Email, Username, Lifecycle Status, Start Date), avec ses services personnels et leur date, ses appareils (Serial Number, Device Type, In Service Since, services qui y tournent) et ses demandes ouvertes (`open_requests` : statuts ouverts hors Draft + Awaiting Customer Approval). |
 | 2026-09-14 | agent principal | Étape Person condensée : cartes en grille (2 à 3 par ligne), faits en petit sur deux colonnes, services et appareils en lignes courtes. Partie « Open requests » retirée à la demande d'Idriss (`open_requests` supprimé du contexte). |
 | 2026-09-14 | agent principal | Portail, étape Changes condensée : pour un service existant, l'action de retrait est le seul bouton visible, les autres (Change, Suspend, Resume) passent dans le menu ⋯ ; nom et statut sur une ligne, en-têtes de section sur une ligne. |
+| 2026-09-14 | agent principal | Choix de machine (personne sans appareil) : seules « Existing device » et « A new machine » sont présentées ; sans choix, le défaut reste la machine préparée par le technicien, et recliquer le choix sélectionné y revient. |
 
 > Ajoute ta ligne ici quand tu termines quelque chose.

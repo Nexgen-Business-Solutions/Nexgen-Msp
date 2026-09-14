@@ -729,7 +729,22 @@ describe('a person with no machine', () => {
     await goToChanges();
 
     expect(await screen.findByRole('button', { name: /Sophos Endpoint/ })).toBeInTheDocument();
-    expect(screen.queryByRole('radio', { name: /one of our machines/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: /existing device/i })).not.toBeInTheDocument();
+  });
+
+  it('offers two choices, and leaving both alone is the default', async () => {
+    await renderPage(noMachine());
+    await goToChanges();
+
+    expect(await screen.findByRole('radio', { name: /a new machine/i })).toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: /not specified/i })).not.toBeInTheDocument();
+    expect(screen.getByText('A technician will prepare or identify the device.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('radio', { name: /a new machine/i }));
+    expect(screen.getByText(/prepare a new device/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('radio', { name: /a new machine/i }));
+    expect(screen.getByText('A technician will prepare or identify the device.')).toBeInTheDocument();
   });
 
   it('left unsaid, the machine is one the technician prepares', async () => {
@@ -767,7 +782,7 @@ describe('a person with no machine', () => {
     );
     await goToChanges();
 
-    fireEvent.click(await screen.findByRole('radio', { name: /one of our machines/i }));
+    fireEvent.click(await screen.findByRole('radio', { name: /existing device/i }));
     fireEvent.click(screen.getByRole('button', { name: /search a hostname or a serial/i }));
     fireEvent.click(await screen.findByRole('option', { name: /LAPTOP-STOCK/ }));
     fireEvent.click(screen.getByRole('button', { name: /Sophos Endpoint/ }));
@@ -796,7 +811,7 @@ describe('a person with no machine', () => {
     await renderPage(noMachine({ assignable_devices: [held] }));
     await goToChanges();
 
-    fireEvent.click(await screen.findByRole('radio', { name: /one of our machines/i }));
+    fireEvent.click(await screen.findByRole('radio', { name: /existing device/i }));
     fireEvent.click(screen.getByRole('button', { name: /search a hostname or a serial/i }));
     fireEvent.click(await screen.findByRole('option', { name: /LAPTOP-JANE/ }));
 
@@ -815,7 +830,7 @@ describe('a person with no machine', () => {
     await renderPage(noMachine({ assignable_devices: [held] }));
     await goToChanges();
 
-    fireEvent.click(await screen.findByRole('radio', { name: /one of our machines/i }));
+    fireEvent.click(await screen.findByRole('radio', { name: /existing device/i }));
     fireEvent.click(screen.getByRole('button', { name: /search a hostname or a serial/i }));
     fireEvent.click(await screen.findByRole('option', { name: /LAPTOP-JANE/ }));
     // the close cross and the button both say Cancel, and both leave the machine unsuggested

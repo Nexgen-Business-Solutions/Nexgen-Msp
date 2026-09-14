@@ -32,9 +32,9 @@ const Note: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 
 type MachineChoice = 'unspecified' | 'stock' | 'new';
 
+// left alone, the machine is one the technician prepares: that is the default, not a choice
 const MACHINE_CHOICES: { value: MachineChoice; label: string }[] = [
-  { value: 'unspecified', label: 'Not specified' },
-  { value: 'stock', label: 'One of our machines' },
+  { value: 'stock', label: 'Existing device' },
   { value: 'new', label: 'A new machine' },
 ];
 
@@ -71,7 +71,9 @@ const NoDeviceSection: React.FC<{
   const restamp = (patch: ReturnType<typeof described>) =>
     machineIntents.forEach((intent) => builder.updateIntent(intent.key, patch));
 
-  const choose = (mode: MachineChoice) => {
+  // picking the chosen one again goes back to leaving it to the technician
+  const choose = (option: MachineChoice) => {
+    const mode = choice === option ? 'unspecified' : option;
     setChoice(mode);
     restamp(described(picked, mode));
   };
