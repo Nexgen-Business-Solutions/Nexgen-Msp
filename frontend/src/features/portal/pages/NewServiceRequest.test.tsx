@@ -881,6 +881,13 @@ describe('the changes are made one person at a time', () => {
     expect(await screen.findByText('Granted to this person once they are created.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Adobe Acrobat/ })).not.toBeInTheDocument();
     expect(within(people).getByRole('button', { name: /Marie Dupont/ })).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByText('Person 2 of 2')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^next$/i })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: /previous: john doe/i }));
+
+    expect(await screen.findByRole('button', { name: /Adobe Acrobat/ })).toBeInTheDocument();
+    expect(screen.getByText('Person 1 of 2')).toBeInTheDocument();
   });
 });
 

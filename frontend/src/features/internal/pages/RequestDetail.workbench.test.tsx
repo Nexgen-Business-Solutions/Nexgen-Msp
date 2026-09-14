@@ -450,7 +450,7 @@ describe('step 2 — execute', () => {
       'Add service',
       'Assign device',
       'Add service on KV-JDOE',
-      'Repossess KV-JDOE',
+      'Return KV-JDOE to stock',
       'Disable user',
       'Stop all services',
     ]) {

@@ -66,7 +66,7 @@ const RepossessDeviceModal: React.FC<Props> = ({
       onClose={onClose}
       icon={Undo2}
       tone="indigo"
-      title="Repossess device"
+      title="Return device to stock"
       subtitle="Closes the current holder period. The device goes back to stock."
       widthClass="max-w-lg"
       footer={
@@ -87,7 +87,7 @@ const RepossessDeviceModal: React.FC<Props> = ({
             {repossess.isLoading ? (
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
             ) : (
-              'Repossess device'
+              'Return to stock'
             )}
           </button>
         </div>

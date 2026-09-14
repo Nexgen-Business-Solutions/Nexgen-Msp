@@ -197,7 +197,7 @@ export default function DeviceDetail() {
                     className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
                   >
                     <Undo2 size={13} />
-                    Repossess
+                    Return to stock
                   </button>
                 </>
               )}
@@ -321,13 +321,7 @@ export default function DeviceDetail() {
         </div>
       </div>
 
-      <Panel title="Remarks">
-        <RemarkLog
-          entries={device.remark_log}
-          target={{ doctype: 'MSP Managed Device', name: device.name }}
-          invalidate={deviceKeys.detail(device.name)}
-        />
-      </Panel>
+      
 
       <Panel title={`Services (${openServices.length} running)`}>
         <table className="w-full">
@@ -475,7 +469,8 @@ export default function DeviceDetail() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {(holder_log ?? []).length === 0 && <Empty span={3}>Never assigned to anyone.</Empty>}
-              {(holder_log ?? []).map((spell) => (
+              {/* the latest holder first */}
+              {[...(holder_log ?? [])].reverse().map((spell) => (
                 <tr key={spell.idx} className={spell.is_current ? 'bg-emerald-50/40' : ''}>
                   <td className="whitespace-nowrap px-4 py-3 text-sm">
                     <button
@@ -559,6 +554,13 @@ export default function DeviceDetail() {
             </tbody>
           </table>
         </Panel>
+        <Panel title="Remarks">
+        <RemarkLog
+          entries={device.remark_log}
+          target={{ doctype: 'MSP Managed Device', name: device.name }}
+          invalidate={deviceKeys.detail(device.name)}
+        />
+      </Panel>
       </div>
 
       <DeviceServiceModal

@@ -250,14 +250,14 @@ describe('Nexgen acts directly from here', () => {
     expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
   });
 
-  it('offers transfer and repossess in the row menu of a machine', async () => {
+  it('offers transfer and return to stock in the row menu of a machine', async () => {
     await renderPage(detail());
 
     const row = screen.getAllByText('LAPTOP-JDOE').map((cell) => cell.closest('tr') as HTMLElement).find((tr) => within(tr).queryByText(/DELL-93821/)) as HTMLElement;
     fireEvent.click(within(row).getByTitle('More options'));
 
     expect(await screen.findByRole('button', { name: /transfer to someone else/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /repossess/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /return to stock/i })).toBeInTheDocument();
   });
 
   it('opens no request from Nexgen\'s side', async () => {

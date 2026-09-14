@@ -172,7 +172,7 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
         const label = machine.hostname ?? machine.serial_number ?? machine.name;
         return [
           { label: `Add service on ${label}`, icon: Layers, onClick: open('deviceService', machine) },
-          { label: `Repossess ${label}`, icon: Undo2, onClick: open('repossess', machine), danger: true },
+          { label: `Return ${label} to stock`, icon: Undo2, onClick: open('repossess', machine), danger: true },
         ];
       }),
       { label: 'Edit', icon: PencilLine, onClick: open('edit') },

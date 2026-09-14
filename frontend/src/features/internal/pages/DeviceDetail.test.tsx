@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as internal from '@/lib/api/internal';
@@ -91,7 +91,7 @@ describe('which lifecycle actions a device offers', () => {
 
     expect(screen.getByRole('button', { name: /assign to user/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^transfer$/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^repossess$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^return to stock$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^retire$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^reinstate$/i })).not.toBeInTheDocument();
   });
@@ -104,13 +104,13 @@ describe('which lifecycle actions a device offers', () => {
     expect(screen.queryByRole('button', { name: /^reinstate$/i })).not.toBeInTheDocument();
   });
 
-  it('offers Transfer and Repossess to a deployed device, and neither Assign nor Reinstate', async () => {
+  it('offers Transfer and Return to stock to a deployed device, and neither Assign nor Reinstate', async () => {
     await renderDetail(
       buildDetail('Active', { assigned_client_user: 'USR-002', user_name: 'Jane Doe' })
     );
 
     expect(screen.getByRole('button', { name: /^transfer$/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^repossess$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^return to stock$/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /assign to user/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^reinstate$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^retire$/i })).not.toBeInTheDocument();
@@ -137,3 +137,43 @@ describe('which lifecycle actions a device offers', () => {
     expect(screen.getByRole('button', { name: /^retire$/i })).toBeInTheDocument();
   });
 });
+
+describe('who has held it', () => {
+  it('shows the latest holder first', async () => {
+    await renderDetail({
+      ...buildDetail('Active', { assigned_client_user: 'USR-002' }),
+      holder_log: [
+        {
+          client_user: 'USR-001',
+          full_name: 'Alice First',
+          from_date: '2025-01-01',
+          to_date: '2025-06-01',
+          note: null,
+          is_current: 0,
+          idx: 1,
+          lifecycle_status: 'Active',
+          disabled_date: null,
+        },
+        {
+          client_user: 'USR-002',
+          full_name: 'Bob Latest',
+          from_date: '2025-06-01',
+          to_date: null,
+          note: null,
+          is_current: 1,
+          idx: 2,
+          lifecycle_status: 'Active',
+          disabled_date: null,
+        },
+      ],
+    });
+
+    const table = screen.getByText('Held by').closest('table') as HTMLElement;
+    const holders = within(table)
+      .getAllByRole('button')
+      .map((button) => button.textContent);
+
+    expect(holders).toEqual(['Bob Latest', 'Alice First']);
+  });
+});
+

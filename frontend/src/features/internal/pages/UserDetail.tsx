@@ -322,7 +322,7 @@ export default function UserDetail() {
                         actions={[
                           { label: 'Add service', icon: ShieldCheck, onClick: () => setDeviceService(slot.device.name) },
                           { label: 'Transfer to someone else', icon: ArrowRightLeft, onClick: () => setMoving({ device: slot, kind: 'transfer' }) },
-                          { label: 'Repossess', icon: Undo2, onClick: () => setMoving({ device: slot, kind: 'repossess' }) },
+                          { label: 'Return to stock', icon: Undo2, onClick: () => setMoving({ device: slot, kind: 'repossess' }) },
                           { label: 'Open device', icon: Laptop, onClick: () => navigate(`/msp/devices/${slot.device.name}`) },
                         ]}
                       />

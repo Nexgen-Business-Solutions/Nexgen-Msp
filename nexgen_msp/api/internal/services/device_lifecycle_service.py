@@ -137,7 +137,7 @@ class DeviceLifecycleService:
 
         DeviceLifecycleService._write(
             doc,
-            "Repossessed",
+            "Returned to stock",
             f"Taken back from {current.full_name or current.client_user} on "
             f"{frappe.utils.formatdate(on_date)}",
             note,

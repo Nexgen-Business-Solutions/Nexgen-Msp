@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { AlertCircle, ArrowRight, Laptop, Wrench } from 'lucide-react';
+import { AlertCircle, ArrowLeft, ArrowRight, Check, Laptop, Wrench } from 'lucide-react';
 import type { RequestAction, RequestSubjectContext } from '@/lib/api/portal';
 import Select from '@/shared/components/Select';
 import ConfirmModal from '@/shared/components/ConfirmModal';
@@ -107,12 +107,31 @@ const NoDeviceSection: React.FC<{
       ...described(),
     });
 
+  const hint =
+    choice === 'stock' && picked
+      ? picked.holder_name
+        ? `A technician will transfer ${picked.hostname} from ${picked.holder_name} with the device services below.`
+        : `A technician will hand ${picked.hostname} over with the device services below.`
+      : choice === 'new'
+        ? 'A technician will prepare a new device. You can give its details at the next step.'
+        : 'A technician will prepare or identify the device.';
+
   return (
     <Section title="Devices">
-      <div className="space-y-3 px-4 py-4">
-        <p className="text-sm text-slate-500">No device currently assigned to {subject.fullName}.</p>
+      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
+            <Laptop size={16} />
+          </span>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-slate-900">
+              No device currently assigned to {subject.fullName}.
+            </p>
+            <p className="text-xs text-slate-500">{hint}</p>
+          </div>
+        </div>
 
-        <div className="inline-flex flex-wrap gap-1 rounded-lg bg-slate-100 p-1" role="radiogroup" aria-label="Device">
+        <div className="inline-flex shrink-0 gap-1 rounded-lg bg-slate-100 p-1" role="radiogroup" aria-label="Device">
           {MACHINE_CHOICES.filter((row) => row.value !== 'stock' || stock.length > 0).map((row) => (
             <button
               key={row.value}
@@ -120,16 +139,18 @@ const NoDeviceSection: React.FC<{
               role="radio"
               aria-checked={choice === row.value}
               onClick={() => choose(row.value)}
-              className={`rounded-md px-3 py-2 text-xs font-semibold transition-all ${
-                choice === row.value ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
+                choice === row.value ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
               }`}
             >
               {row.label}
             </button>
           ))}
         </div>
+      </div>
 
-        {choice === 'stock' && (
+      {choice === 'stock' && (
+        <div className="px-4 pb-3 sm:pl-16">
           <div className="max-w-md">
             <Select
               searchable
@@ -150,22 +171,12 @@ const NoDeviceSection: React.FC<{
               }))}
             />
           </div>
-        )}
-
-        <p className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600">
-          <Wrench size={13} className="text-slate-400" />
-          {choice === 'stock' && picked
-            ? picked.holder_name
-              ? `A technician will transfer ${picked.hostname} from ${picked.holder_name} with the device services below.`
-              : `A technician will hand ${picked.hostname} over with the device services below.`
-            : choice === 'new'
-              ? 'A technician will prepare a new device. You can give its details at the next step.'
-              : 'A technician will prepare or identify the device.'}
-        </p>
-      </div>
+        </div>
+      )}
 
       {offers.length > 0 && (
-        <div className="flex flex-wrap gap-2 border-t border-slate-100 px-4 py-2">
+        <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 px-4 py-2">
+          <span className="text-xs font-medium text-slate-500">Device services</span>
           {offers.map((offer) => {
             const asked = machineIntents.find((intent) => intent.serviceItem === offer.service_item);
 
@@ -527,8 +538,15 @@ const RequestChangesStep: React.FC<{ builder: Builder }> = ({ builder }) => {
 
   if (!subject) return null;
 
+  const previous = index > 0 ? subjects[index - 1] : undefined;
   const next = subjects[index + 1];
   const changes = (key: string) => builder.intentsOf(key).length;
+  const nameOf = (row: { fullName?: string }) => row.fullName || 'New person';
+
+  const go = (key: string) => {
+    setActiveKey(key);
+    window.scrollTo?.({ top: 0, behavior: 'smooth' });
+  };
 
   const detail = (
     <div className="min-w-0 space-y-3">
@@ -548,15 +566,30 @@ const RequestChangesStep: React.FC<{ builder: Builder }> = ({ builder }) => {
         <NewSubjectChanges key={subject.key} subject={subject} builder={builder} />
       )}
 
-      {next && (
-        <div className="flex justify-end">
+      {subjects.length > 1 && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2">
           <button
             type="button"
-            onClick={() => setActiveKey(next.key)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+            onClick={() => previous && go(previous.key)}
+            disabled={!previous}
+            className="inline-flex min-w-0 items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
           >
-            Next: {next.fullName || 'New person'}
-            <ArrowRight size={14} />
+            <ArrowLeft size={14} className="shrink-0" />
+            <span className="truncate">{previous ? `Previous: ${nameOf(previous)}` : 'Previous'}</span>
+          </button>
+
+          <span className="shrink-0 text-xs font-medium text-slate-500">
+            Person {index + 1} of {subjects.length}
+          </span>
+
+          <button
+            type="button"
+            onClick={() => next && go(next.key)}
+            disabled={!next}
+            className="inline-flex min-w-0 items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none"
+          >
+            <span className="truncate">{next ? `Next: ${nameOf(next)}` : 'Next'}</span>
+            <ArrowRight size={14} className="shrink-0" />
           </button>
         </div>
       )}
@@ -568,7 +601,7 @@ const RequestChangesStep: React.FC<{ builder: Builder }> = ({ builder }) => {
   return (
     <div className="grid items-start gap-4 lg:grid-cols-[15rem_1fr]">
       <nav aria-label="People" className="space-y-1.5 lg:sticky lg:top-4">
-        {subjects.map((row) => {
+        {subjects.map((row, position) => {
           const count = changes(row.key);
           const active = row.key === subject.key;
 
@@ -576,19 +609,30 @@ const RequestChangesStep: React.FC<{ builder: Builder }> = ({ builder }) => {
             <button
               key={row.key}
               type="button"
-              onClick={() => setActiveKey(row.key)}
+              onClick={() => go(row.key)}
               aria-current={active ? 'true' : undefined}
-              className={`block w-full rounded-lg border px-3 py-2 text-left transition-colors ${
+              className={`flex w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition-colors ${
                 active
-                  ? 'border-blue-300 bg-blue-50'
+                  ? 'border-blue-300 bg-blue-50 ring-2 ring-blue-100'
                   : 'border-slate-200 bg-white hover:bg-slate-50'
               }`}
             >
-              <span className="block truncate text-sm font-semibold text-slate-900">
-                {row.fullName || 'New person'}
+              <span
+                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+                  count
+                    ? 'bg-emerald-100 text-emerald-700'
+                    : active
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-slate-100 text-slate-500'
+                }`}
+              >
+                {count ? <Check size={12} /> : position + 1}
               </span>
-              <span className={`block text-xs ${count ? 'text-emerald-700' : 'text-slate-500'}`}>
-                {count ? `${count} change${count > 1 ? 's' : ''}` : 'No change yet'}
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-semibold text-slate-900">{nameOf(row)}</span>
+                <span className={`block text-xs ${count ? 'text-emerald-700' : 'text-slate-500'}`}>
+                  {count ? `${count} change${count > 1 ? 's' : ''}` : 'No change yet'}
+                </span>
               </span>
             </button>
           );
