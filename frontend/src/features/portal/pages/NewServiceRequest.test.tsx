@@ -858,3 +858,29 @@ describe('starting from a machine', () => {
     expect(screen.getByText(/Person/)).toBeInTheDocument();
   });
 });
+
+describe('the changes are made one person at a time', () => {
+  it('lists the people on one side, shows the chosen one, and moves on to the next', async () => {
+    await renderPage();
+    await pickJohn();
+    fireEvent.click(screen.getByRole('button', { name: /new user/i }));
+    fireEvent.change(await screen.findByPlaceholderText('Marie Dupont'), {
+      target: { value: 'Marie Dupont' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }));
+
+    const people = await screen.findByRole('navigation', { name: 'People' });
+    expect(within(people).getByRole('button', { name: /John Doe/ })).toHaveAttribute('aria-current', 'true');
+    expect(within(people).getByRole('button', { name: /Marie Dupont/ })).toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Adobe Acrobat/ }));
+    expect(within(people).getByText('1 change')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /next: marie dupont/i }));
+
+    expect(await screen.findByText('Granted to this person once they are created.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Adobe Acrobat/ })).not.toBeInTheDocument();
+    expect(within(people).getByRole('button', { name: /Marie Dupont/ })).toHaveAttribute('aria-current', 'true');
+  });
+});
+

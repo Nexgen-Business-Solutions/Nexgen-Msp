@@ -45,6 +45,9 @@ export type RequestSubject = {
   email?: string;
   /** optional: some customers know the account name they want, most do not */
   username?: string;
+  /** for somebody with no machine: which one the customer suggests, if any */
+  machineChoice?: 'unspecified' | 'stock' | 'new';
+  machineDevice?: string;
 };
 
 const newKey = () => Math.random().toString(36).slice(2, 10);

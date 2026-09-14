@@ -690,5 +690,6 @@ champs commerciaux, aucun département en texte libre, le workbench n'exige aucu
 | 2026-09-14 | agent principal | Étape Person condensée : cartes en grille (2 à 3 par ligne), faits en petit sur deux colonnes, services et appareils en lignes courtes. Partie « Open requests » retirée à la demande d'Idriss (`open_requests` supprimé du contexte). |
 | 2026-09-14 | agent principal | Portail, étape Changes condensée : pour un service existant, l'action de retrait est le seul bouton visible, les autres (Change, Suspend, Resume) passent dans le menu ⋯ ; nom et statut sur une ligne, en-têtes de section sur une ligne. |
 | 2026-09-14 | agent principal | Choix de machine (personne sans appareil) : seules « Existing device » et « A new machine » sont présentées ; sans choix, le défaut reste la machine préparée par le technicien, et recliquer le choix sélectionné y revient. |
+| 2026-09-14 | agent principal | Portail, étape Changes : une personne à la fois. Liste des personnes à gauche (nom, nombre de changements), la personne choisie à droite, bouton « Next: … » pour passer à la suivante ; sans liste quand il n'y a qu'une personne. Le choix de machine est gardé sur la personne (`machineChoice`, `machineDevice`). Lignes encore resserrées. |
 
 > Ajoute ta ligne ici quand tu termines quelque chose.

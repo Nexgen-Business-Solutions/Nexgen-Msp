@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { AlertCircle, Laptop, Wrench } from 'lucide-react';
+import { AlertCircle, ArrowRight, Laptop, Wrench } from 'lucide-react';
 import type { RequestAction, RequestSubjectContext } from '@/lib/api/portal';
 import Select from '@/shared/components/Select';
 import ConfirmModal from '@/shared/components/ConfirmModal';
@@ -49,8 +49,9 @@ const NoDeviceSection: React.FC<{
   builder: Builder;
   data: RequestSubjectContext;
 }> = ({ subject, builder, data }) => {
-  const [choice, setChoice] = useState<MachineChoice>('unspecified');
-  const [stockDevice, setStockDevice] = useState('');
+  // kept on the person, so it survives moving on to somebody else and back
+  const choice: MachineChoice = subject.machineChoice ?? 'unspecified';
+  const stockDevice = subject.machineDevice ?? '';
   const [confirming, setConfirming] = useState<string | null>(null);
 
   const stock = data.assignable_devices ?? [];
@@ -74,12 +75,12 @@ const NoDeviceSection: React.FC<{
   // picking the chosen one again goes back to leaving it to the technician
   const choose = (option: MachineChoice) => {
     const mode = choice === option ? 'unspecified' : option;
-    setChoice(mode);
+    builder.updateSubject(subject.key, { machineChoice: mode });
     restamp(described(picked, mode));
   };
 
   const takeStock = (name: string) => {
-    setStockDevice(name);
+    builder.updateSubject(subject.key, { machineDevice: name });
     restamp(described(stock.find((device) => device.name === name), 'stock'));
   };
 
@@ -164,7 +165,7 @@ const NoDeviceSection: React.FC<{
       </div>
 
       {offers.length > 0 && (
-        <div className="flex flex-wrap gap-2 border-t border-slate-100 px-4 py-3">
+        <div className="flex flex-wrap gap-2 border-t border-slate-100 px-4 py-2">
           {offers.map((offer) => {
             const asked = machineIntents.find((intent) => intent.serviceItem === offer.service_item);
 
@@ -281,7 +282,7 @@ const ExistingSubjectChanges: React.FC<{ subject: RequestSubject; builder: Build
 
       <Section title="Personal services" hint="Services this person holds in their own name.">
         {data.personal_services.current.length === 0 && (
-          <p className="px-4 py-5 text-sm text-slate-500">No personal service yet.</p>
+          <p className="px-4 py-2 text-xs text-slate-500">No personal service yet.</p>
         )}
         {data.personal_services.current.map((service) => {
           const asked = builder.askedOn(service.assignment);
@@ -304,7 +305,7 @@ const ExistingSubjectChanges: React.FC<{ subject: RequestSubject; builder: Build
         })}
 
         {data.personal_services.available.length > 0 && (
-          <div className="flex flex-wrap gap-2 border-t border-slate-100 px-4 py-3">
+          <div className="flex flex-wrap gap-2 border-t border-slate-100 px-4 py-2">
             {data.personal_services.available.map((offer) => {
               const asked = builder
                 .intentsOf(subject.key)
@@ -351,7 +352,7 @@ const ExistingSubjectChanges: React.FC<{ subject: RequestSubject; builder: Build
             )}
 
             {device.services.current.length === 0 && (
-              <p className="px-4 py-5 text-sm text-slate-500">
+              <p className="px-4 py-2 text-xs text-slate-500">
                 <Laptop size={14} className="mr-1.5 inline text-slate-400" />
                 Nothing runs on this machine yet.
               </p>
@@ -381,7 +382,7 @@ const ExistingSubjectChanges: React.FC<{ subject: RequestSubject; builder: Build
             })}
 
             {device.services.available.length > 0 && (
-              <div className="flex flex-wrap gap-2 border-t border-slate-100 px-4 py-3">
+              <div className="flex flex-wrap gap-2 border-t border-slate-100 px-4 py-2">
                 {device.services.available.map((offer) => {
                   const asked = builder
                     .intentsOf(subject.key)
@@ -514,32 +515,89 @@ const NewSubjectChanges: React.FC<{ subject: RequestSubject; builder: Builder }>
   );
 };
 
-const RequestChangesStep: React.FC<{ builder: Builder }> = ({ builder }) => (
-  <div className="space-y-6">
-    {builder.subjects.map((subject) => (
-      <div key={subject.key} className="space-y-3">
-        <div className="flex items-baseline gap-2">
-          <h2 className="text-base font-bold text-slate-900">
-            {subject.fullName || 'New person'}
-          </h2>
-          {subject.department && (
-            <span className="text-sm text-slate-500">{subject.department}</span>
-          )}
-          {subject.kind === 'new' && (
-            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">
-              NEW
-            </span>
-          )}
-        </div>
+/**
+ * One person at a time: the people on the left, what to change for the chosen one on the
+ * right, and the next one a click away once this one is done.
+ */
+const RequestChangesStep: React.FC<{ builder: Builder }> = ({ builder }) => {
+  const [activeKey, setActiveKey] = useState<string | null>(null);
+  const subjects = builder.subjects;
+  const index = Math.max(0, subjects.findIndex((row) => row.key === activeKey));
+  const subject = subjects[index];
 
-        {subject.kind === 'existing' ? (
-          <ExistingSubjectChanges subject={subject} builder={builder} />
-        ) : (
-          <NewSubjectChanges subject={subject} builder={builder} />
+  if (!subject) return null;
+
+  const next = subjects[index + 1];
+  const changes = (key: string) => builder.intentsOf(key).length;
+
+  const detail = (
+    <div className="min-w-0 space-y-3">
+      <div className="flex items-baseline gap-2">
+        <h2 className="text-base font-bold text-slate-900">{subject.fullName || 'New person'}</h2>
+        {subject.department && <span className="text-sm text-slate-500">{subject.department}</span>}
+        {subject.kind === 'new' && (
+          <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">
+            NEW
+          </span>
         )}
       </div>
-    ))}
-  </div>
-);
+
+      {subject.kind === 'existing' ? (
+        <ExistingSubjectChanges key={subject.key} subject={subject} builder={builder} />
+      ) : (
+        <NewSubjectChanges key={subject.key} subject={subject} builder={builder} />
+      )}
+
+      {next && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => setActiveKey(next.key)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+          >
+            Next: {next.fullName || 'New person'}
+            <ArrowRight size={14} />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
+  if (subjects.length === 1) return detail;
+
+  return (
+    <div className="grid items-start gap-4 lg:grid-cols-[15rem_1fr]">
+      <nav aria-label="People" className="space-y-1.5 lg:sticky lg:top-4">
+        {subjects.map((row) => {
+          const count = changes(row.key);
+          const active = row.key === subject.key;
+
+          return (
+            <button
+              key={row.key}
+              type="button"
+              onClick={() => setActiveKey(row.key)}
+              aria-current={active ? 'true' : undefined}
+              className={`block w-full rounded-lg border px-3 py-2 text-left transition-colors ${
+                active
+                  ? 'border-blue-300 bg-blue-50'
+                  : 'border-slate-200 bg-white hover:bg-slate-50'
+              }`}
+            >
+              <span className="block truncate text-sm font-semibold text-slate-900">
+                {row.fullName || 'New person'}
+              </span>
+              <span className={`block text-xs ${count ? 'text-emerald-700' : 'text-slate-500'}`}>
+                {count ? `${count} change${count > 1 ? 's' : ''}` : 'No change yet'}
+              </span>
+            </button>
+          );
+        })}
+      </nav>
+
+      {detail}
+    </div>
+  );
+};
 
 export default RequestChangesStep;
