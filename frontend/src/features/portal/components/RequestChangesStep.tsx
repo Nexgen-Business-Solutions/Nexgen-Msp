@@ -15,9 +15,9 @@ const Section: React.FC<{ title: string; hint?: string; children: React.ReactNod
   children,
 }) => (
   <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-    <div className="border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+    <div className="flex flex-wrap items-baseline gap-x-2 border-b border-slate-100 bg-slate-50/70 px-4 py-2">
       <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">{title}</h3>
-      {hint && <p className="mt-0.5 text-xs text-slate-500">{hint}</p>}
+      {hint && <p className="text-xs text-slate-500">{hint}</p>}
     </div>
     {children}
   </div>

@@ -278,8 +278,13 @@ describe('acts are embedded with the service they belong to', () => {
 
     const row = screen.getByText('Microsoft 365').closest('div')?.parentElement as HTMLElement;
 
-    expect(within(row).getByRole('button', { name: 'Temporarily suspend' })).toBeInTheDocument();
+    // removing it is on show, the rest waits behind the dots
     expect(within(row).getByRole('button', { name: 'Terminate service' })).toBeInTheDocument();
+    expect(within(row).queryByRole('button', { name: 'Temporarily suspend' })).not.toBeInTheDocument();
+
+    fireEvent.click(within(row).getByTitle('More options'));
+
+    expect(await screen.findByRole('button', { name: 'Temporarily suspend' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^resume/i })).not.toBeInTheDocument();
   });
 
@@ -315,7 +320,8 @@ describe('sending what was asked for', () => {
     const m365 = screen.getByText('Microsoft 365').closest('div')?.parentElement as HTMLElement;
 
     fireEvent.click(screen.getByRole('button', { name: /Adobe Acrobat/ }));
-    fireEvent.click(within(m365).getByRole('button', { name: 'Temporarily suspend' }));
+    fireEvent.click(within(m365).getByTitle('More options'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Temporarily suspend' }));
     fireEvent.click(screen.getByRole('button', { name: /RMM/ }));
 
     fireEvent.click(screen.getByRole('button', { name: /continue/i }));
