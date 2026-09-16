@@ -10,6 +10,7 @@ import KpiCard from '@/shared/components/KpiCard';
 import * as portal from '@/lib/api/portal';
 import { useDevicePage, usePortalFilterOptions, usePortalSummary, useSubscribedServices } from '../hooks/usePortal';
 import { useMyApprovalRights } from '../hooks/usePortal';
+import { usePortalFilters } from '../store/usePortalFilters';
 
 const COLUMNS = ['Device', 'Network interfaces', 'Active services', 'Inactive services', ''];
 
@@ -40,6 +41,8 @@ export default function PortalDevices() {
 
   const summary = usePortalSummary();
   const services = useSubscribedServices();
+  // staff read a customer's fleet through the portal: the sheet is that customer's too
+  const customer = usePortalFilters((state) => state.customer);
   const filterOptions = usePortalFilterOptions();
   const list = useDevicePage({
     search: search || undefined,
@@ -252,6 +255,7 @@ export default function PortalDevices() {
         onExport={(picks) =>
           portal.exportMyMachines(
             {
+              customer: customer || undefined,
               search: search || undefined,
               status: (filters.status as string) || undefined,
               service: (filters.service as string) || undefined,

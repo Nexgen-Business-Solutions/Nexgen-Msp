@@ -310,7 +310,15 @@ export default function DeviceDetail() {
 
           </div>
 
-          <button
+          
+        </div>
+      </div>
+
+      
+
+      <Panel title={`Services (${openServices.length} running)`}
+      action={
+        <button
             type="button"
             onClick={() => setAddingService(true)}
             disabled={!isDeployed(device.status)}
@@ -319,12 +327,8 @@ export default function DeviceDetail() {
             <Plus size={15} />
             Add service
           </button>
-        </div>
-      </div>
-
-      
-
-      <Panel title={`Services (${openServices.length} running)`}>
+      }
+      >
         <table className="w-full">
           <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
             <tr>

@@ -5,8 +5,8 @@ catalogue does not know is dropped rather than refused, so a selection saved in 
 months ago still opens a file.
 
 Services are written side by side rather than crammed into one cell: each service gets its
-own consecutive columns, so a spreadsheet can sort and filter on the day one started or the
-day it was last invoiced.
+own consecutive columns, headed by its own name, so a spreadsheet can sort and filter on the
+day one started or the day it was last invoiced.
 """
 
 import frappe
@@ -30,7 +30,7 @@ SERVICE_FIELDS = [
 SERVICE_LABELS = dict(SERVICE_FIELDS)
 
 # a sheet nobody can open is worse than a wide one, so the blocks stop somewhere
-MAX_BLOCKS = 12
+MAX_BLOCKS = 25
 
 
 def parse(value):
@@ -45,52 +45,85 @@ def parse(value):
 
 
 def chosen(catalogue, requested):
-    """The columns to write, in the order the catalogue names them.
+    """The columns to write, in the order they were asked for.
 
-    Nothing asked for, everything written: an export that never opened the picker stays
-    exactly what it was.
+    The picker hands them over in the order it lists them, so the sheet reads like the modal
+    rather than like whatever was ticked first. Nothing asked for, everything written: an
+    export that never opened the picker stays exactly what it was.
     """
     keys = parse(requested)
 
     if not keys:
         return list(catalogue)
 
-    wanted = set(keys)
-    picked = [(key, label) for key, label in catalogue if key in wanted]
+    labels = dict(catalogue)
+    picked = [(key, labels[key]) for key in keys if key in labels]
 
     return picked or list(catalogue)
 
 
+def _named(service):
+    return service.get("service_name") or service.get("service_item") or "Service"
+
+
+def _by_name(held):
+    """The services of one row, gathered under the name they are read by."""
+    grouped = {}
+
+    for service in held:
+        grouped.setdefault(_named(service), []).append(service)
+
+    return grouped
+
+
 def service_columns(rows, services, fields):
-    """Fill one block of columns per service and say what those columns are called."""
+    """One block of columns per service, each headed by the name of that service.
+
+    A column has one heading for the whole sheet, so the blocks are the services the sheet
+    covers rather than a numbered slot per row: everyone's Microsoft 365 is read down the
+    same column. Somebody holding the same service twice gets a second block beside it.
+    """
     fields = [key for key in parse(fields) if key in SERVICE_LABELS]
 
     if not fields:
         return []
 
-    blocks = min(max((len(services.get(row.get("name")) or []) for row in rows), default=0), MAX_BLOCKS)
+    # how many times one service can appear on a single row
+    most = {}
+
+    for row in rows:
+        for name, held in _by_name(services.get(row.get("name")) or []).items():
+            most[name] = max(most.get(name, 0), len(held))
+
+    blocks = [(name, index) for name in sorted(most) for index in range(1, most[name] + 1)][:MAX_BLOCKS]
 
     if not blocks:
         return []
 
     columns = []
 
-    for index in range(1, blocks + 1):
+    for name, index in blocks:
+        head = name if index == 1 else f"{name} ({index})"
+
         for key in fields:
-            label = SERVICE_LABELS[key]
             columns.append(
                 (
-                    f"service_{index}_{key}",
-                    f"Service {index}" if key == "service_name" else f"Service {index} · {label}",
+                    f"service::{name}::{index}::{key}",
+                    head if key == "service_name" else f"{head} · {SERVICE_LABELS[key]}",
                 )
             )
 
     for row in rows:
-        held = (services.get(row.get("name")) or [])[:blocks]
+        held = _by_name(services.get(row.get("name")) or [])
 
-        for index, service in enumerate(held, start=1):
+        for name, index in blocks:
+            theirs = held.get(name) or []
+
+            if len(theirs) < index:
+                continue
+
             for key in fields:
-                row[f"service_{index}_{key}"] = service.get(key)
+                row[f"service::{name}::{index}::{key}"] = theirs[index - 1].get(key)
 
     return columns
 

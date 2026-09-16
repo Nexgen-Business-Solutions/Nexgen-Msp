@@ -15,7 +15,8 @@ type Props = {
   open: boolean;
   catalogue: ExportCatalogue;
   onClose: () => void;
-  onExport: (choice: ExportChoice) => void;
+  /** The file is fetched here; the picker waits for it before it closes. */
+  onExport: (choice: ExportChoice) => void | Promise<unknown>;
 };
 
 const tick =
@@ -24,9 +25,15 @@ const tick =
 /** Which columns the sheet comes out with, and what each service carries with it. */
 const ExportColumnsModal: React.FC<Props> = ({ open, catalogue, onClose, onExport }) => {
   const [choice, setChoice] = useState<ExportChoice>(() => defaultChoice(catalogue));
+  const [working, setWorking] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
 
   useEffect(() => {
-    if (open) setChoice(loadChoice(catalogue));
+    if (!open) return;
+
+    setChoice(loadChoice(catalogue));
+    setWorking(false);
+    setFailed(null);
   }, [open, catalogue]);
 
   const toggle = (key: string) =>
@@ -52,16 +59,30 @@ const ExportColumnsModal: React.FC<Props> = ({ open, catalogue, onClose, onExpor
         ),
     }));
 
-  const start = () => {
-    saveChoice(catalogue, choice);
-    onExport(choice);
-    onClose();
+  // the sheet is built on the server: the picker stays put, and says so, until the file is here
+  const start = async () => {
+    setWorking(true);
+    setFailed(null);
+
+    try {
+      await onExport(choice);
+      saveChoice(catalogue, choice);
+      onClose();
+    } catch (error) {
+      setFailed(error instanceof Error ? error.message : 'The export did not come through.');
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const leave = () => {
+    if (!working) onClose();
   };
 
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={leave}
       icon={Columns3}
       tone="blue"
       title="Columns to export"
@@ -72,7 +93,8 @@ const ExportColumnsModal: React.FC<Props> = ({ open, catalogue, onClose, onExpor
           <button
             type="button"
             onClick={() => setChoice(defaultChoice(catalogue))}
-            className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition-colors hover:text-slate-900"
+            disabled={working}
+            className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition-colors hover:text-slate-900 disabled:opacity-50"
           >
             <RotateCcw size={15} />
             Reset to default
@@ -80,23 +102,40 @@ const ExportColumnsModal: React.FC<Props> = ({ open, catalogue, onClose, onExpor
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={onClose}
-              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+              onClick={leave}
+              disabled={working}
+              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               type="button"
               onClick={start}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+              disabled={working}
+              className="inline-flex min-w-[9rem] items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70"
             >
-              <Download size={15} />
-              Export
+              {working ? (
+                <>
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                  Preparing…
+                </>
+              ) : (
+                <>
+                  <Download size={15} />
+                  Export
+                </>
+              )}
             </button>
           </div>
         </div>
       }
     >
+      {failed && (
+        <p className="mb-4 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
+          {failed}
+        </p>
+      )}
+
       <div className="max-h-[60vh] space-y-5 overflow-y-auto pr-1">
         {sectionsOf(catalogue.columns).map((section) => (
           <div key={section} role="group" aria-label={section}>
@@ -133,8 +172,8 @@ const ExportColumnsModal: React.FC<Props> = ({ open, catalogue, onClose, onExpor
               Per service
             </p>
             <p className="mb-2 text-xs text-slate-500">
-              Every service gets its own columns, side by side: Service 1, Service 2, and so on.
-              Pick what each of them says.
+              Every service gets its own columns, side by side, under its own name. Pick what
+              each of them says.
             </p>
             <div className="grid gap-1 sm:grid-cols-2 sm:gap-2">
               {catalogue.serviceFields.map((field) => (

@@ -18,10 +18,10 @@ CATALOGUE = [
 
 
 class TestTheColumnsThatWerePicked(MSPTestCase):
-    def test_only_what_was_picked_comes_out_in_the_catalogue_order(self):
+    def test_the_sheet_reads_in_the_order_the_picker_asked_for(self):
         picked = export_columns.chosen(CATALOGUE, ["department", "full_name", "nothing_like_it"])
 
-        self.assertEqual(picked, [("full_name", "User"), ("department", "Department")])
+        self.assertEqual(picked, [("department", "Department"), ("full_name", "User")])
 
     def test_picking_nothing_leaves_the_sheet_as_it_has_always_been(self):
         self.assertEqual(export_columns.chosen(CATALOGUE, None), CATALOGUE)
@@ -69,44 +69,65 @@ class TestOneBlockPerService(MSPTestCase):
 
         return self.track("MSP Service Assignment", out["name"])
 
-    def test_each_service_gets_its_own_consecutive_columns(self):
+    def test_each_service_gets_its_own_consecutive_columns_under_its_own_name(self):
         rows = [{"name": self.john}]
         held = export_columns.of_people([self.john])
+        first = frappe.db.get_value("Item", self.first, "item_name")
 
         columns = export_columns.service_columns(
             rows, held, ["service_name", "effective_start_date", "last_billed_on"]
         )
+        labels = [label for _key, label in columns]
 
+        self.assertIn(first, labels)
         self.assertEqual(
-            [key for key, _label in columns][:3],
-            ["service_1_service_name", "service_1_effective_start_date", "service_1_last_billed_on"],
-        )
-        self.assertEqual(
-            [label for _key, label in columns][:3],
-            ["Service 1", "Service 1 · Since", "Service 1 · Last billed on"],
+            labels[labels.index(first) : labels.index(first) + 3],
+            [first, f"{first} · Since", f"{first} · Last billed on"],
         )
         # their machine's service is theirs to read too: three services, three blocks
         self.assertEqual(len(columns), 9)
-        self.assertEqual(rows[0]["service_1_service_name"], frappe.db.get_value("Item", self.first, "item_name"))
+        self.assertEqual(labels, sorted(labels, key=lambda label: label.split(" · ")[0]))
+
+        key = next(key for key, label in columns if label == f"{first} · Since")
         self.assertEqual(
-            str(rows[0]["service_1_effective_start_date"]),
-            str(frappe.utils.add_days(frappe.utils.today(), -40)),
+            str(rows[0][key]), str(frappe.utils.add_days(frappe.utils.today(), -40))
         )
+
+    def test_the_same_service_is_read_down_one_column_for_everyone(self):
+        mary = self.make_person(self.customer, "Mary")
+        self.open_on(self.first, client_user=mary)
+        rows = [{"name": self.john}, {"name": mary}]
+        first = frappe.db.get_value("Item", self.first, "item_name")
+
+        columns = export_columns.service_columns(
+            rows, export_columns.of_people([self.john, mary]), ["service_name"]
+        )
+
+        self.assertEqual([label for _key, label in columns].count(first), 1)
+        key = next(key for key, label in columns if label == first)
+        self.assertEqual(rows[0][key], first)
+        self.assertEqual(rows[1][key], first)
+        # what Mary does not hold stays empty rather than shifting her row along
+        second = frappe.db.get_value("Item", self.second, "item_name")
+        theirs = next(key for key, label in columns if label == second)
+        self.assertNotIn(theirs, rows[1])
 
     def test_a_machine_reads_the_services_running_on_it(self):
         rows = [{"name": self.laptop}]
         running = export_columns.of_devices([self.laptop])
 
         columns = export_columns.service_columns(rows, running, ["service_name", "holder_name"])
+        name = frappe.db.get_value("Item", self.on_machine, "item_name")
 
-        self.assertEqual([key for key, _label in columns], ["service_1_service_name", "service_1_holder_name"])
-        self.assertEqual(rows[0]["service_1_holder_name"], frappe.db.get_value("MSP Client User", self.john, "full_name"))
+        self.assertEqual([label for _key, label in columns], [name, f"{name} · Held by"])
+        held_by = next(key for key, label in columns if label == f"{name} · Held by")
+        self.assertEqual(rows[0][held_by], frappe.db.get_value("MSP Client User", self.john, "full_name"))
 
     def test_a_sheet_that_asked_for_no_service_carries_none(self):
         rows = [{"name": self.john}]
 
         self.assertEqual(export_columns.service_columns(rows, export_columns.of_people([self.john]), []), [])
-        self.assertNotIn("service_1_service_name", rows[0])
+        self.assertEqual([key for key in rows[0] if key.startswith("service::")], [])
 
     def test_the_file_comes_out_with_the_picked_headers(self):
         from nexgen_msp.api.internal.endpoints import v1
@@ -120,8 +141,10 @@ class TestOneBlockPerService(MSPTestCase):
         sheet = load_workbook(io.BytesIO(frappe.local.response.filecontent)).active
         headers = [cell.value for cell in sheet[1]]
 
+        first = frappe.db.get_value("Item", self.first, "item_name")
+
         self.assertEqual(headers[:2], ["User", "Department"])
-        self.assertEqual(headers[2:4], ["Service 1", "Service 1 · Since"])
+        self.assertEqual(headers[2:4], [first, f"{first} · Since"])
         self.assertNotIn("Username", headers)
 
 
@@ -173,7 +196,8 @@ class TestWhatACustomerTakesAway(MSPTestCase):
             )
         )
 
-        self.assertEqual(self.headers(), ["Name", "Devices", "Serial numbers", "Device type", "Devices held"])
+        # the sheet reads in the order the picker handed over
+        self.assertEqual(self.headers(), ["Name", "Serial numbers", "Device type", "Devices", "Devices held"])
         self.assertEqual(self.row("Serial numbers"), f"CU-{self.tag}")
         self.assertEqual(self.row("Devices held"), 1)
 
@@ -196,3 +220,50 @@ class TestWhatACustomerTakesAway(MSPTestCase):
 
         self.assertNotIn("remarks", offered)
         self.assertNotIn("customer", offered)
+
+
+class TestTheSheetIsTheListYouWereLookingAt(MSPTestCase):
+    """An export is the filtered list, not the whole register."""
+
+    def setUp(self):
+        super().setUp()
+        self.tag = frappe.generate_hash(length=6)
+        self.customer = self.make_customer(self.tag)
+        self.track("MSP Approval Authority", self.customer)
+        self.here = self.make_person(self.customer, "Here")
+        self.gone = self.make_person(self.customer, "Gone")
+        frappe.db.set_value("MSP Client User", self.gone, "lifecycle_status", "Disabled")
+        frappe.db.commit()
+        self.manager = self.make_account(
+            "customer", "MSP Customer Manager", self.customer, suffix=f"fl{self.tag[:3]}"
+        )
+
+    def written(self):
+        sheet = load_workbook(io.BytesIO(frappe.local.response.filecontent)).active
+
+        return [row[0].value for row in sheet.iter_rows(min_row=2)]
+
+    def test_our_own_sheet_carries_the_filtered_rows_only(self):
+        from nexgen_msp.api.internal.endpoints import v1
+
+        v1.export_users(customer=self.customer, status="Disabled", columns=["full_name"])
+
+        self.assertEqual(self.written(), [frappe.db.get_value("MSP Client User", self.gone, "full_name")])
+
+    def test_a_search_narrows_the_sheet_the_way_it_narrows_the_list(self):
+        from nexgen_msp.api.internal.endpoints import v1
+
+        v1.export_users(customer=self.customer, search="Here", columns=["full_name"])
+
+        self.assertEqual(self.written(), [frappe.db.get_value("MSP Client User", self.here, "full_name")])
+
+    def test_the_customer_sheet_is_filtered_too(self):
+        from nexgen_msp.api.portal.endpoints import v1
+
+        frappe.set_user(self.manager)
+        try:
+            v1.export_client_users(status="Disabled", columns=["full_name"])
+        finally:
+            frappe.set_user("Administrator")
+
+        self.assertEqual(self.written(), [frappe.db.get_value("MSP Client User", self.gone, "full_name")])

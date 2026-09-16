@@ -291,14 +291,26 @@ export const PORTAL_DEVICES: ExportCatalogue = {
 
 export type ExportChoice = { columns: string[]; serviceColumns: string[] };
 
+/** The sections, in the order the picker lays them out. */
+export const sectionsOf = (columns: ExportColumn[]): string[] => [
+  ...new Set(columns.map((column) => column.section)),
+];
+
 const required = (catalogue: ExportCatalogue) =>
   catalogue.columns.filter((column) => column.required).map((column) => column.key);
 
-/** The picks in the order the catalogue names them, with what is always written kept in. */
+/**
+ * The picks in the order the picker shows them — section by section, and inside a section the
+ * order they are listed — so the sheet reads like the modal. What is always written stays in.
+ */
 export const ordered = (catalogue: ExportCatalogue, keys: string[]): string[] => {
   const wanted = new Set([...keys, ...required(catalogue)]);
 
-  return catalogue.columns.filter((column) => wanted.has(column.key)).map((column) => column.key);
+  return sectionsOf(catalogue.columns).flatMap((section) =>
+    catalogue.columns
+      .filter((column) => column.section === section && wanted.has(column.key))
+      .map((column) => column.key)
+  );
 };
 
 export const defaultChoice = (catalogue: ExportCatalogue): ExportChoice => ({
@@ -333,7 +345,3 @@ export const saveChoice = (catalogue: ExportCatalogue, choice: ExportChoice): vo
     /* a browser that refuses to remember still exports */
   }
 };
-
-export const sectionsOf = (columns: ExportColumn[]): string[] => [
-  ...new Set(columns.map((column) => column.section)),
-];

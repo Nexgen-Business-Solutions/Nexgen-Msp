@@ -10,6 +10,7 @@ import KpiCard from '@/shared/components/KpiCard';
 import * as portal from '@/lib/api/portal';
 import { useClientUserPage, usePortalFilterOptions, usePortalSummary, useSubscribedServices } from '../hooks/usePortal';
 import { useMyApprovalRights } from '../hooks/usePortal';
+import { usePortalFilters } from '../store/usePortalFilters';
 
 const COLUMNS = ['User', 'Department', 'Device', 'Active services', 'Inactive services', ''];
 
@@ -31,6 +32,8 @@ export default function PortalUsers() {
 
   const summary = usePortalSummary();
   const services = useSubscribedServices();
+  // staff read a customer's register through the portal: the sheet is that customer's too
+  const customer = usePortalFilters((state) => state.customer);
   const filterOptions = usePortalFilterOptions();
   const list = useClientUserPage({
     search: search || undefined,
@@ -213,6 +216,7 @@ export default function PortalUsers() {
         onExport={(picks) =>
           portal.exportMyPeople(
             {
+              customer: customer || undefined,
               search: search || undefined,
               status: (filters.status as string) || undefined,
               service: (filters.service as string) || undefined,
