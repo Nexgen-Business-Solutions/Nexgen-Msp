@@ -108,24 +108,45 @@ EXPORT_COLUMNS = {
         ("email", "Email"),
         ("department", "Department"),
         ("lifecycle_status", "Status"),
-        ("active_services", "Active services"),
-        ("services", "Services"),
-        ("inactive_services", "Inactive services"),
-        ("hostnames", "Devices"),
         ("start_date", "In service since"),
         ("disabled_date", "Disabled on"),
+        ("open_requests", "Open requests"),
+        ("hostnames", "Devices"),
+        ("serial_numbers", "Serial numbers"),
+        ("device_type", "Device type"),
+        ("current_devices", "Devices held"),
+        ("active_services", "Active services"),
+        ("services", "Services"),
+        ("personal_services", "Personal services"),
+        ("device_services", "Device services"),
+        ("inactive_services", "Inactive services"),
+        ("inactive_service_names", "Ended services"),
+        ("last_billed_on", "Last billed on"),
+        ("covered_until", "Billed up to"),
+        ("name", "Reference"),
     ],
     "devices": [
         ("hostname", "Machine"),
-        ("serial_number", "Serial number"),
         ("device_type", "Type"),
+        ("serial_number", "Serial number"),
+        ("manufacturer", "Manufacturer"),
+        ("model", "Model"),
+        ("operating_system", "Operating system"),
         ("assigned_user_name", "Held by"),
+        ("holder_username", "Username"),
+        ("user_department", "Department"),
+        ("user_status", "Holder status"),
+        ("previous_holders", "Previous holders"),
         ("status", "Status"),
+        ("assigned_date", "Held since"),
+        ("retired_date", "Retired on"),
         ("active_services", "Active services"),
         ("services", "Services"),
         ("inactive_services", "Inactive services"),
-        ("assigned_date", "Held since"),
-        ("retired_date", "Retired on"),
+        ("inactive_service_names", "Ended services"),
+        ("last_billed_on", "Last billed on"),
+        ("covered_until", "Billed up to"),
+        ("name", "Reference"),
     ],
 }
 
@@ -162,6 +183,7 @@ def export_client_users(
         service=service,
     )
 
+    export_columns.fill_people_extras(rows)
     chosen = export_columns.chosen(EXPORT_COLUMNS["users"], columns)
     # one block of columns per service, only when the sheet was asked to carry them
     if export_columns.parse(service_columns):
@@ -187,6 +209,7 @@ def export_devices(
         service=service, coverage=coverage
     )
 
+    export_columns.fill_device_extras(rows)
     chosen = export_columns.chosen(EXPORT_COLUMNS["devices"], columns)
     if export_columns.parse(service_columns):
         running = export_columns.of_devices([row["name"] for row in rows])

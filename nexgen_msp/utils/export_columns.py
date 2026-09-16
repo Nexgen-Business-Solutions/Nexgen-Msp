@@ -95,6 +95,110 @@ def service_columns(rows, services, fields):
     return columns
 
 
+def fill_people_extras(rows):
+    """The facts a person's register does not need on screen, but a sheet is asked for.
+
+    The portal listing stays as light as the page that reads it; an export is read next to
+    a vendor's own list, so it carries the serials, the counts and the billing dates too.
+    """
+    names = [row.get("name") for row in rows if row.get("name")]
+
+    if not names:
+        return
+
+    facts = frappe.db.sql(
+        """
+        select
+            cu.name,
+            cu.last_billed_on, cu.covered_until,
+            (select group_concat(device.serial_number separator ', ')
+                from `tabMSP Managed Device` device
+                where device.assigned_client_user = cu.name and device.status = 'Active'
+                  and ifnull(device.serial_number, '') != '') as serial_numbers,
+            (select count(*) from `tabMSP Managed Device` device
+                where device.assigned_client_user = cu.name) as current_devices,
+            (select count(*) from `tabMSP Service Assignment` sa
+                where sa.client_user = cu.name and sa.assignment_scope = 'User'
+                  and sa.operational_status in %(open)s) as personal_services,
+            (select count(*) from `tabMSP Service Assignment` sa
+                join `tabMSP Managed Device` sad on sad.name = sa.managed_device
+                where sad.assigned_client_user = cu.name and sa.assignment_scope = 'Device'
+                  and sa.operational_status in %(open)s) as device_services,
+            (select group_concat(distinct coalesce(item.item_name, sa.service_item)
+                    order by item.item_name separator ', ')
+                from `tabMSP Service Assignment` sa
+                left join `tabItem` item on item.name = sa.service_item
+                left join `tabMSP Managed Device` sad on sad.name = sa.managed_device
+                where sa.operational_status not in %(open)s
+                  and (sa.client_user = cu.name or sad.assigned_client_user = cu.name))
+                as inactive_service_names,
+            (select count(distinct sr.name)
+                from `tabMSP Service Request Line` srl
+                join `tabMSP Service Request` sr on sr.name = srl.parent
+                where (srl.client_user = cu.name or srl.requested_for_user = cu.name)
+                  and sr.status in ('Submitted', 'Under Review', 'Approved', 'In Progress'))
+                as open_requests
+        from `tabMSP Client User` cu
+        where cu.name in %(people)s
+        """,
+        {"people": names, "open": OPEN_ASSIGNMENT_STATUSES},
+        as_dict=True,
+    )
+    known = {row.name: row for row in facts}
+
+    for row in rows:
+        found = known.get(row.get("name"))
+
+        if found:
+            row.update({key: value for key, value in found.items() if key != "name"})
+
+
+def fill_device_extras(rows):
+    """The same, for machines: who holds one, who held it before, and up to when it is billed."""
+    from nexgen_msp.utils import device_holders
+
+    names = [row.get("name") for row in rows if row.get("name")]
+
+    if not names:
+        return
+
+    facts = frappe.db.sql(
+        """
+        select
+            device.name, device.last_billed_on, device.covered_until,
+            holder.username as holder_username,
+            holder.department as user_department,
+            holder.lifecycle_status as user_status,
+            holder.full_name as user_name,
+            (select group_concat(distinct coalesce(item.item_name, sa.service_item)
+                    order by item.item_name separator ', ')
+                from `tabMSP Service Assignment` sa
+                left join `tabItem` item on item.name = sa.service_item
+                where sa.managed_device = device.name
+                  and sa.operational_status not in %(open)s) as inactive_service_names
+        from `tabMSP Managed Device` device
+        left join `tabMSP Client User` holder on holder.name = device.assigned_client_user
+        where device.name in %(devices)s
+        """,
+        {"devices": names, "open": OPEN_ASSIGNMENT_STATUSES},
+        as_dict=True,
+    )
+    known = {row.name: row for row in facts}
+
+    for row in rows:
+        found = known.get(row.get("name"))
+
+        if found:
+            row.update({key: value for key, value in found.items() if key != "name"})
+
+        # who held it before, so a sheet tells the whole story of the machine
+        row["previous_holders"] = " | ".join(
+            f"{spell.full_name or spell.client_user}"
+            f" ({spell.from_date or '?'} → {spell.to_date or 'now'})"
+            for spell in device_holders.history(row["name"])
+        )
+
+
 def _billed_through(assignments):
     """The last day each of these services was invoiced for, in one query."""
     from nexgen_msp.api.internal.services.user_360_service import User360Service

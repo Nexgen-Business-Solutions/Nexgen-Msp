@@ -123,3 +123,76 @@ class TestOneBlockPerService(MSPTestCase):
         self.assertEqual(headers[:2], ["User", "Department"])
         self.assertEqual(headers[2:4], ["Service 1", "Service 1 · Since"])
         self.assertNotIn("Username", headers)
+
+
+class TestWhatACustomerTakesAway(MSPTestCase):
+    """Their own people and machines, read as fully as we read them — bar our own notes."""
+
+    def setUp(self):
+        super().setUp()
+        self.tag = frappe.generate_hash(length=6)
+        self.customer = self.make_customer(self.tag)
+        self.track("MSP Approval Authority", self.customer)
+        self.john = self.make_person(self.customer, "John")
+        self.laptop = self.make_device(
+            self.customer,
+            hostname=f"CUS{self.tag[:3]}",
+            holder=self.john,
+            serial=f"CU-{self.tag}",
+        )
+        frappe.db.set_value(
+            "MSP Managed Device", self.laptop, {"model": "ThinkPad T14", "operating_system": "Windows 11"}
+        )
+        frappe.db.commit()
+        self.manager = self.make_account("customer", "MSP Customer Manager", self.customer, suffix=f"ex{self.tag[:3]}")
+
+    def as_manager(self, fn):
+        frappe.set_user(self.manager)
+        try:
+            return fn()
+        finally:
+            frappe.set_user("Administrator")
+
+    def headers(self):
+        sheet = load_workbook(io.BytesIO(frappe.local.response.filecontent)).active
+
+        return [cell.value for cell in sheet[1]]
+
+    def row(self, header):
+        sheet = load_workbook(io.BytesIO(frappe.local.response.filecontent)).active
+        titles = [cell.value for cell in sheet[1]]
+
+        return sheet.cell(row=2, column=titles.index(header) + 1).value
+
+    def test_a_customer_reads_the_serials_and_types_of_the_machines_they_hold(self):
+        from nexgen_msp.api.portal.endpoints import v1
+
+        self.as_manager(
+            lambda: v1.export_client_users(
+                columns=["full_name", "serial_numbers", "device_type", "hostnames", "current_devices"]
+            )
+        )
+
+        self.assertEqual(self.headers(), ["Name", "Devices", "Serial numbers", "Device type", "Devices held"])
+        self.assertEqual(self.row("Serial numbers"), f"CU-{self.tag}")
+        self.assertEqual(self.row("Devices held"), 1)
+
+    def test_a_machine_sheet_carries_what_the_machine_is(self):
+        from nexgen_msp.api.portal.endpoints import v1
+
+        self.as_manager(
+            lambda: v1.export_devices(columns=["hostname", "model", "operating_system", "previous_holders"])
+        )
+
+        self.assertEqual(self.row("Model"), "ThinkPad T14")
+        self.assertEqual(self.row("Operating system"), "Windows 11")
+        self.assertIn("John", self.row("Previous holders") or "")
+
+    def test_our_own_notes_and_their_own_name_are_not_on_offer(self):
+        from nexgen_msp.api.portal.endpoints import v1
+
+        offered = {key for key, _label in v1.EXPORT_COLUMNS["users"]}
+        offered |= {key for key, _label in v1.EXPORT_COLUMNS["devices"]}
+
+        self.assertNotIn("remarks", offered)
+        self.assertNotIn("customer", offered)

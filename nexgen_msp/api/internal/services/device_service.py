@@ -158,7 +158,8 @@ class DeviceService:
             select
                 device.name, device.hostname, device.device_type, device.status,
                 device.assigned_date, device.serial_number, device.customer,
-                device.model, device.operating_system,
+                device.model, device.operating_system, device.manufacturer,
+                device.retired_date,
                 device.last_billed_on, device.covered_until,
                 device.assigned_client_user,
                 holder.full_name as user_name,
