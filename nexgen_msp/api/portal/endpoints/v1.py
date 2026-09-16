@@ -111,6 +111,7 @@ EXPORT_COLUMNS = {
         ("active_services", "Active services"),
         ("services", "Services"),
         ("inactive_services", "Inactive services"),
+        ("hostnames", "Devices"),
         ("start_date", "In service since"),
         ("disabled_date", "Disabled on"),
     ],
@@ -148,8 +149,10 @@ def _all_rows(lister, **filters):
 
 @frappe.whitelist()
 @handle_errors
-def export_client_users(customer=None, search=None, status=None, service=None):
-    from nexgen_msp.utils import listing_export
+def export_client_users(
+    customer=None, search=None, status=None, service=None, columns=None, service_columns=None
+):
+    from nexgen_msp.utils import export_columns, listing_export
 
     rows = _all_rows(
         PortalService.list_client_users,
@@ -159,13 +162,22 @@ def export_client_users(customer=None, search=None, status=None, service=None):
         service=service,
     )
 
-    return listing_export.respond("users.xlsx", "Users", EXPORT_COLUMNS["users"], rows)
+    chosen = export_columns.chosen(EXPORT_COLUMNS["users"], columns)
+    # one block of columns per service, only when the sheet was asked to carry them
+    if export_columns.parse(service_columns):
+        held = export_columns.of_people([row["name"] for row in rows])
+        chosen += export_columns.service_columns(rows, held, service_columns)
+
+    return listing_export.respond("users.xlsx", "Users", chosen, rows)
 
 
 @frappe.whitelist()
 @handle_errors
-def export_devices(customer=None, search=None, status=None, service=None, coverage=None):
-    from nexgen_msp.utils import listing_export
+def export_devices(
+    customer=None, search=None, status=None, service=None, coverage=None,
+    columns=None, service_columns=None,
+):
+    from nexgen_msp.utils import export_columns, listing_export
 
     rows = _all_rows(
         PortalService.list_devices,
@@ -175,7 +187,12 @@ def export_devices(customer=None, search=None, status=None, service=None, covera
         service=service, coverage=coverage
     )
 
-    return listing_export.respond("devices.xlsx", "Devices", EXPORT_COLUMNS["devices"], rows)
+    chosen = export_columns.chosen(EXPORT_COLUMNS["devices"], columns)
+    if export_columns.parse(service_columns):
+        running = export_columns.of_devices([row["name"] for row in rows])
+        chosen += export_columns.service_columns(rows, running, service_columns)
+
+    return listing_export.respond("devices.xlsx", "Devices", chosen, rows)
 
 
 @frappe.whitelist()

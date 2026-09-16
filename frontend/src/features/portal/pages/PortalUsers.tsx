@@ -3,6 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Eye, FilePlus2, UserCheck, UserX, Users } from 'lucide-react';
 import DataTable from '@/shared/components/DataTable';
 import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
+import ExportColumnsModal from '@/shared/components/ExportColumnsModal';
+import { PORTAL_USERS } from '@/shared/exportColumns';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import KpiCard from '@/shared/components/KpiCard';
 import * as portal from '@/lib/api/portal';
@@ -14,6 +16,7 @@ const COLUMNS = ['User', 'Department', 'Device', 'Active services', 'Inactive se
 const EMPTY: FilterState = { status: '', service: '' };
 
 export default function PortalUsers() {
+  const [picking, setPicking] = useState(false);
   const rights = useMyApprovalRights();
   const canSubmit = rights.data?.can_submit !== false;
   const navigate = useNavigate();
@@ -89,13 +92,7 @@ export default function PortalUsers() {
         onApply={apply}
         onClear={() => apply(EMPTY)}
         onRefresh={() => list.refetch()}
-        onExport={() =>
-          portal.exportMyPeople({
-            search: search || undefined,
-            status: (filters.status as string) || undefined,
-            service: (filters.service as string) || undefined,
-          })
-        }
+        onExport={() => setPicking(true)}
         fields={[
           {
             key: 'service',
@@ -208,6 +205,22 @@ export default function PortalUsers() {
           </tr>
         ))}
       </DataTable>
+
+      <ExportColumnsModal
+        open={picking}
+        catalogue={PORTAL_USERS}
+        onClose={() => setPicking(false)}
+        onExport={(picks) =>
+          portal.exportMyPeople(
+            {
+              search: search || undefined,
+              status: (filters.status as string) || undefined,
+              service: (filters.service as string) || undefined,
+            },
+            picks
+          )
+        }
+      />
     </div>
   );
 }

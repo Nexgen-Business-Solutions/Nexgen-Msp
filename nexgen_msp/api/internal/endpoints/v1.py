@@ -248,19 +248,24 @@ EXPORT_COLUMNS = {
         ("department", "Department"),
         ("customer", "Customer"),
         ("lifecycle_status", "Status"),
+        ("start_date", "In service since"),
+        ("disabled_date", "Disabled on"),
         ("hostnames", "Devices"),
         ("serial_numbers", "Serial numbers"),
         ("device_type", "Device type"),
+        ("current_devices", "Devices held"),
         # each side reads count, then names, then the date it started or ended
         ("active_services", "Active services"),
         ("services", "Services"),
-        ("start_date", "In service since"),
-        ("last_billed_on", "Last billed on"),
-        ("covered_until", "Billed up to"),
+        ("personal_services", "Personal services"),
+        ("device_services", "Device services"),
         ("inactive_services", "Inactive services"),
         ("inactive_service_names", "Ended services"),
-        ("disabled_date", "Disabled on"),
+        ("open_requests", "Open requests"),
+        ("last_billed_on", "Last billed on"),
+        ("covered_until", "Billed up to"),
         ("remarks", "Remarks"),
+        ("name", "Reference"),
     ],
     "services": [
         ("item_name", "Service"),
@@ -281,8 +286,11 @@ EXPORT_COLUMNS = {
         ("user_name", "Held by"),
         ("holder_username", "Username"),
         ("user_department", "Department"),
+        ("user_status", "Holder status"),
         ("status", "Status"),
         ("serial_number", "Serial number"),
+        ("model", "Model"),
+        ("operating_system", "Operating system"),
         ("assigned_date", "In service since"),
         ("last_billed_on", "Last billed on"),
         ("covered_until", "Billed up to"),
@@ -292,6 +300,7 @@ EXPORT_COLUMNS = {
         ("active_services", "Active services"),
         ("inactive_services", "Inactive services"),
         ("remarks", "Remarks"),
+        ("name", "Reference"),
     ],
     "requests": [
         ("name", "Request"),
@@ -305,6 +314,8 @@ EXPORT_COLUMNS = {
         ("line_count", "Lines"),
         ("pending_lines", "Pending"),
         ("creation", "Raised on"),
+        ("modified", "Last updated"),
+        ("billing_run", "Billing run"),
     ],
 }
 
@@ -333,9 +344,10 @@ def _collect(fetch, **filters):
 @handle_errors
 def export_users(
     search=None, customer=None, status=None, department=None, service=None, coverage=None,
+    columns=None, service_columns=None,
 ):
     from nexgen_msp.api.internal.services.user_service import UserService
-    from nexgen_msp.utils import listing_export
+    from nexgen_msp.utils import export_columns, listing_export
 
     rows = _collect(
         UserService.list_users, search=search, customer=customer, status=status,
@@ -345,15 +357,22 @@ def export_users(
     for row in rows:
         row["remarks"] = remarks_util.joined("MSP Client User", row["name"])
 
-    return listing_export.respond(
-        "users.xlsx", "Users", EXPORT_COLUMNS["users"], rows
-    )
+    chosen = export_columns.chosen(EXPORT_COLUMNS["users"], columns)
+    # one block of columns per service, only when the sheet was asked to carry them
+    if export_columns.parse(service_columns):
+        held = export_columns.of_people([row["name"] for row in rows])
+        chosen += export_columns.service_columns(rows, held, service_columns)
+
+    return listing_export.respond("users.xlsx", "Users", chosen, rows)
 
 
 @frappe.whitelist()
 @handle_errors
-def export_devices(search=None, customer=None, status=None, device_type=None, coverage=None):
-    from nexgen_msp.utils import listing_export
+def export_devices(
+    search=None, customer=None, status=None, device_type=None, coverage=None,
+    columns=None, service_columns=None,
+):
+    from nexgen_msp.utils import export_columns, listing_export
 
     rows = _collect(
         _devices().list_devices, search=search, customer=customer, status=status,
@@ -369,17 +388,21 @@ def export_devices(search=None, customer=None, status=None, device_type=None, co
             for spell in holders.history(row["name"])
         )
 
-    return listing_export.respond(
-        "devices.xlsx", "Devices", EXPORT_COLUMNS["devices"], rows
-    )
+    chosen = export_columns.chosen(EXPORT_COLUMNS["devices"], columns)
+    if export_columns.parse(service_columns):
+        running = export_columns.of_devices([row["name"] for row in rows])
+        chosen += export_columns.service_columns(rows, running, service_columns)
+
+    return listing_export.respond("devices.xlsx", "Devices", chosen, rows)
 
 
 @frappe.whitelist()
 @handle_errors
 def export_requests(
-    search=None, status=None, priority=None, request_type=None, customer=None, scope=None
+    search=None, status=None, priority=None, request_type=None, customer=None, scope=None,
+    columns=None,
 ):
-    from nexgen_msp.utils import listing_export
+    from nexgen_msp.utils import export_columns, listing_export
 
     rows = _collect(
         RequestService.list_requests, search=search, status=status, priority=priority,
@@ -387,7 +410,7 @@ def export_requests(
     )
 
     return listing_export.respond(
-        "requests.xlsx", "Requests", EXPORT_COLUMNS["requests"], rows
+        "requests.xlsx", "Requests", export_columns.chosen(EXPORT_COLUMNS["requests"], columns), rows
     )
 
 
@@ -865,6 +888,8 @@ def update_managed_device(
     assigned_date=None,
     interfaces=None,
     remarks=None,
+    model=None,
+    operating_system=None,
 ):
     return _devices().update_device(
         device=device,
@@ -874,6 +899,8 @@ def update_managed_device(
         assigned_date=assigned_date,
         interfaces=interfaces,
         remarks=remarks,
+        model=model,
+        operating_system=operating_system,
     )
 
 
@@ -1082,8 +1109,8 @@ def list_services(search=None, scope=None, status=None):
 
 @frappe.whitelist()
 @handle_errors
-def export_services(search=None, scope=None, status=None):
-    from nexgen_msp.utils import listing_export
+def export_services(search=None, scope=None, status=None, columns=None):
+    from nexgen_msp.utils import export_columns, listing_export
 
     rows = _catalogue().list_services(search=search, scope=scope, status=status)
 
@@ -1091,7 +1118,7 @@ def export_services(search=None, scope=None, status=None):
         row["state"] = "Disabled" if row.get("disabled") else "Active"
 
     return listing_export.respond(
-        "services.xlsx", "Services", EXPORT_COLUMNS["services"], rows
+        "services.xlsx", "Services", export_columns.chosen(EXPORT_COLUMNS["services"], columns), rows
     )
 
 

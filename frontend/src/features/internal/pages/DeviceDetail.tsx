@@ -101,6 +101,8 @@ const asDeviceRow = (data: DeviceDetailData): DeviceRow => ({
     ['Ended', 'Cancelled'].includes(row.operational_status)
   ).length,
   has_services: 0,
+  model: data.device.model,
+  operating_system: data.device.operating_system,
   interfaces: data.interfaces,
 });
 
@@ -203,26 +205,25 @@ export default function DeviceDetail() {
               )}
 
               {isOutOfService(device.status) && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setLifecycleModal('reinstate')}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
-                  >
-                    <RotateCcw size={13} />
-                    Reinstate
-                  </button>
-                  {canRetire(device.status) && (
-                    <button
-                      type="button"
-                      onClick={() => setLifecycleModal('retire')}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
-                    >
-                      <PowerOff size={13} />
-                      Retire
-                    </button>
-                  )}
-                </>
+                <button
+                  type="button"
+                  onClick={() => setLifecycleModal('reinstate')}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+                >
+                  <RotateCcw size={13} />
+                  Reinstate
+                </button>
+              )}
+
+              {canRetire(device.status) && (
+                <button
+                  type="button"
+                  onClick={() => setLifecycleModal('retire')}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+                >
+                  <PowerOff size={13} />
+                  Retire
+                </button>
               )}
 
               <button

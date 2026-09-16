@@ -6,6 +6,8 @@ import KpiCard from '@/shared/components/KpiCard';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import TablePagination from '@/shared/components/TablePagination';
 import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
+import ExportColumnsModal from '@/shared/components/ExportColumnsModal';
+import { INTERNAL_USERS } from '@/shared/exportColumns';
 import StatusBadge from '@/shared/components/StatusBadge';
 import NewUserModal from '../components/NewUserModal';
 import { useUserFilterOptions, useUserFilters, useUserList, useUserStats } from '../hooks/useUsers';
@@ -51,6 +53,7 @@ const COLUMNS = [
 ];
 
 export default function UsersList() {
+  const [picking, setPicking] = useState(false);
   const navigate = useNavigate();
   const [newUserOpen, setNewUserOpen] = useState(false);
   const { filters, patch, clear } = useUserFilters();
@@ -145,7 +148,7 @@ export default function UsersList() {
         }
         onClear={clear}
         onRefresh={() => list.refetch()}
-        onExport={() => internal.exportUsers(listParams)}
+        onExport={() => setPicking(true)}
         fields={[
           {
             key: 'customer',
@@ -332,6 +335,13 @@ export default function UsersList() {
           setNewUserOpen(false);
           navigate(`/msp/users/${clientUser}`);
         }}
+      />
+
+      <ExportColumnsModal
+        open={picking}
+        catalogue={INTERNAL_USERS}
+        onClose={() => setPicking(false)}
+        onExport={(picks) => internal.exportUsers(listParams, picks)}
       />
     </div>
   );

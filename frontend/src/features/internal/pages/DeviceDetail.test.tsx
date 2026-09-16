@@ -86,13 +86,14 @@ afterEach(() => {
 });
 
 describe('which lifecycle actions a device offers', () => {
-  it('offers only Assign to a device sitting in stock', async () => {
+  it('offers Assign and Retire to a device sitting in stock', async () => {
     await renderDetail(buildDetail('Stock'));
 
     expect(screen.getByRole('button', { name: /assign to user/i })).toBeInTheDocument();
+    // a machine can be retired straight off the shelf, as it can from the listing
+    expect(screen.getByRole('button', { name: /^retire$/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^transfer$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^return to stock$/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^retire$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^reinstate$/i })).not.toBeInTheDocument();
   });
 
@@ -104,16 +105,16 @@ describe('which lifecycle actions a device offers', () => {
     expect(screen.queryByRole('button', { name: /^reinstate$/i })).not.toBeInTheDocument();
   });
 
-  it('offers Transfer and Return to stock to a deployed device, and neither Assign nor Reinstate', async () => {
+  it('offers Transfer, Return to stock and Retire to a deployed device, and neither Assign nor Reinstate', async () => {
     await renderDetail(
       buildDetail('Active', { assigned_client_user: 'USR-002', user_name: 'Jane Doe' })
     );
 
     expect(screen.getByRole('button', { name: /^transfer$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^return to stock$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^retire$/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /assign to user/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^reinstate$/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^retire$/i })).not.toBeInTheDocument();
   });
 
   it('offers Reinstate but not Retire for a retired device', async () => {

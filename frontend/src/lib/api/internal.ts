@@ -1402,6 +1402,8 @@ export type DeviceRow = {
   active_services: number;
   inactive_services: number;
   has_services: number;
+  model?: string | null;
+  operating_system?: string | null;
   interfaces?: DeviceInterface[];
 };
 
@@ -1461,6 +1463,8 @@ export const updateManagedDevice = (payload: {
   assigned_date?: string;
   interfaces?: DeviceInterface[];
   remarks?: string;
+  model?: string;
+  operating_system?: string;
 }) =>
   post<{ name: string; hostname: string }>(`${BASE}.update_managed_device`, {
     ...payload,
@@ -1685,8 +1689,8 @@ export type ServiceListParams = { search?: string; scope?: string; status?: stri
 export const listServices = (params: ServiceListParams = {}, signal?: AbortSignal) =>
   get<CatalogueRow[]>(`${BASE}.list_services`, params, signal);
 
-export const exportServices = (params: ServiceListParams = {}) =>
-  exportSheet('export_services', params as Record<string, unknown>, 'services.xlsx');
+export const exportServices = (params: ServiceListParams = {}, picks?: ExportPicks) =>
+  exportSheet('export_services', { ...params, ...picked(picks) }, 'services.xlsx');
 
 export const saveService = (payload: {
   name?: string;
@@ -1858,18 +1862,26 @@ export const getBillingBreakdown = (name: string, signal?: AbortSignal) =>
 export const downloadBreakdownFile = (run: string) =>
   download(`${BASE}.download_billing_breakdown`, { name: run }, `${run}-breakdown.xlsx`);
 
+/** What the sheet is to carry, as the columns picker left it. */
+export type ExportPicks = { columns?: string[]; serviceColumns?: string[] };
+
+const picked = (picks?: ExportPicks) => ({
+  columns: picks?.columns?.length ? picks.columns : undefined,
+  service_columns: picks?.serviceColumns?.length ? picks.serviceColumns : undefined,
+});
+
 /** The sheet is streamed by the server, and travels through the client like anything else. */
 const exportSheet = (method: string, params: Record<string, unknown>, name: string) =>
   download(`${BASE}.${method}`, params, name);
 
-export const exportUsers = (params: UserListParams = {}) =>
-  exportSheet('export_users', params as Record<string, unknown>, 'users.xlsx');
+export const exportUsers = (params: UserListParams = {}, picks?: ExportPicks) =>
+  exportSheet('export_users', { ...params, ...picked(picks) }, 'users.xlsx');
 
-export const exportDevices = (params: DeviceListParams = {}) =>
-  exportSheet('export_devices', params as Record<string, unknown>, 'devices.xlsx');
+export const exportDevices = (params: DeviceListParams = {}, picks?: ExportPicks) =>
+  exportSheet('export_devices', { ...params, ...picked(picks) }, 'devices.xlsx');
 
-export const exportRequests = (params: RequestListParams = {}) =>
-  exportSheet('export_requests', params as Record<string, unknown>, 'requests.xlsx');
+export const exportRequests = (params: RequestListParams = {}, picks?: ExportPicks) =>
+  exportSheet('export_requests', { ...params, ...picked(picks) }, 'requests.xlsx');
 
 export const downloadInvoicePdf = (run: string) =>
   download(`${BASE}.download_billing_invoice`, { name: run }, `${run}.pdf`);

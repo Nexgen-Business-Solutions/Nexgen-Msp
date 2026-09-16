@@ -13,12 +13,15 @@ import {
   Wifi,
 } from 'lucide-react';
 import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
+import ExportColumnsModal from '@/shared/components/ExportColumnsModal';
+import { INTERNAL_DEVICES } from '@/shared/exportColumns';
 import KpiCard from '@/shared/components/KpiCard';
 import TablePagination from '@/shared/components/TablePagination';
 import RowActionsMenu, { type RowAction } from '@/shared/components/RowActionsMenu';
-import ConfirmModal from '@/shared/components/ConfirmModal';
 import DeviceServiceModal from '../components/DeviceServiceModal';
 import EditDeviceModal from '../components/EditDeviceModal';
+import RetireDeviceModal from '../components/RetireDeviceModal';
+import ReinstateDeviceModal from '../components/ReinstateDeviceModal';
 import NewDeviceModal from '../components/NewDeviceModal';
 import type { DeviceRow } from '@/lib/api/internal';
 import {
@@ -26,7 +29,6 @@ import {
   useDeviceFilters,
   useDeviceList,
   useDeviceStats,
-  useChangeDeviceStatus,
 } from '../hooks/useDevices';
 import { canReinstate, canRetire } from '../utils/deviceStatus';
 
@@ -48,6 +50,7 @@ const COVERAGE_OPTIONS = [
 ];
 
 export default function DevicesList() {
+  const [picking, setPicking] = useState(false);
   const navigate = useNavigate();
   const { filters, patch, clear } = useDeviceFilters();
   const options = useDeviceFilterOptions();
@@ -70,7 +73,6 @@ export default function DevicesList() {
     row: DeviceRow;
     action: 'Retire' | 'Reinstate';
   } | null>(null);
-  const changeStatus = useChangeDeviceStatus();
 
   const rows = list.data?.rows ?? [];
 
@@ -133,7 +135,7 @@ export default function DevicesList() {
         }
         onClear={clear}
         onRefresh={() => list.refetch()}
-        onExport={() => internal.exportDevices(listParams)}
+        onExport={() => setPicking(true)}
         fields={[
           {
             key: 'customer',
@@ -349,44 +351,33 @@ export default function DevicesList() {
 
       <NewDeviceModal open={newDeviceOpen} onClose={() => setNewDeviceOpen(false)} />
 
-      <ConfirmModal
-        open={Boolean(statusTarget)}
-        tone={statusTarget?.action === 'Retire' ? 'danger' : 'info'}
-        title={
-          statusTarget?.action === 'Retire'
-            ? `Retire ${statusTarget.row.hostname}?`
-            : `Put ${statusTarget?.row.hostname} back in service?`
-        }
-        description={
-          statusTarget?.action === 'Retire'
-            ? statusTarget.row.active_services > 0
-              ? `Its ${statusTarget.row.active_services} active service(s) will be closed on the same day, so nothing keeps being billed.`
-              : 'The machine leaves the active fleet. Its history is kept.'
-            : 'The machine returns to the active fleet. Its services stay closed until you add them again.'
-        }
-        confirmLabel={statusTarget?.action === 'Retire' ? 'Retire' : 'Put back in service'}
-        loading={changeStatus.isLoading}
-        onCancel={() => setStatusTarget(null)}
-        onConfirm={async () => {
-          if (!statusTarget) return;
-          try {
-            await changeStatus.mutateAsync({
-              device: statusTarget.row.name,
-              action: statusTarget.action,
-            });
-            setStatusTarget(null);
-          } catch {
-            // the list surfaces nothing here; keep the dialog open on failure
-          }
-        }}
+      {/* the same act asks the same questions here as on the machine's own page */}
+      <RetireDeviceModal
+        open={statusTarget?.action === 'Retire'}
+        device={statusTarget?.row.name ?? ''}
+        hostname={statusTarget?.row.hostname ?? ''}
+        serialNumber={statusTarget?.row.serial_number}
+        currentHolder={statusTarget?.row.assigned_client_user}
+        currentHolderName={statusTarget?.row.user_name}
+        openServiceCount={statusTarget?.row.active_services ?? 0}
+        onClose={() => setStatusTarget(null)}
       />
 
-      {changeStatus.error instanceof Error && (
-        <div className="rounded-lg border border-red-100 bg-red-50 p-3 text-sm font-medium text-red-700">
-          {changeStatus.error.message}
-        </div>
-      )}
+      <ReinstateDeviceModal
+        open={statusTarget?.action === 'Reinstate'}
+        device={statusTarget?.row.name ?? ''}
+        hostname={statusTarget?.row.hostname ?? ''}
+        serialNumber={statusTarget?.row.serial_number}
+        customer={statusTarget?.row.customer ?? ''}
+        onClose={() => setStatusTarget(null)}
+      />
 
+      <ExportColumnsModal
+        open={picking}
+        catalogue={INTERNAL_DEVICES}
+        onClose={() => setPicking(false)}
+        onExport={(picks) => internal.exportDevices(listParams, picks)}
+      />
     </div>
   );
 }

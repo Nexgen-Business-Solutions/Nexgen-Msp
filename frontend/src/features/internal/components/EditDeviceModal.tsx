@@ -33,6 +33,8 @@ const EditDeviceModal: React.FC<Props> = ({ device, onClose }) => {
   const [deviceType, setDeviceType] = useState('');
   const [serial, setSerial] = useState('');
   const [assignedDate, setAssignedDate] = useState('');
+  const [model, setModel] = useState('');
+  const [operatingSystem, setOperatingSystem] = useState('');
   const [interfaces, setInterfaces] = useState<DeviceInterface[]>([]);
 
   useEffect(() => {
@@ -41,6 +43,8 @@ const EditDeviceModal: React.FC<Props> = ({ device, onClose }) => {
     setDeviceType(device.device_type);
     setSerial(device.serial_number ?? '');
     setAssignedDate((device.assigned_date ?? '').slice(0, 10));
+    setModel(device.model ?? '');
+    setOperatingSystem(device.operating_system ?? '');
     setInterfaces(device.interfaces ?? []);
     update.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -63,6 +67,8 @@ const EditDeviceModal: React.FC<Props> = ({ device, onClose }) => {
         device_type: deviceType || undefined,
         serial_number: serial.trim() || undefined,
         assigned_date: assignedDate || undefined,
+        model: model.trim(),
+        operating_system: operatingSystem.trim(),
         interfaces: interfaces.filter((item) => item.mac_address.trim()),
       });
       onClose();
@@ -169,6 +175,26 @@ const EditDeviceModal: React.FC<Props> = ({ device, onClose }) => {
               type="date"
               value={assignedDate}
               onChange={(event) => setAssignedDate(event.target.value)}
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <FieldLabel>Model</FieldLabel>
+            <input
+              type="text"
+              value={model}
+              onChange={(event) => setModel(event.target.value)}
+              placeholder="What the case says"
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <FieldLabel>Operating system</FieldLabel>
+            <input
+              type="text"
+              value={operatingSystem}
+              onChange={(event) => setOperatingSystem(event.target.value)}
+              placeholder="Windows 11 Pro"
               className={inputClass}
             />
           </div>

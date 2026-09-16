@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
+import ExportColumnsModal from '@/shared/components/ExportColumnsModal';
+import { INTERNAL_SERVICES } from '@/shared/exportColumns';
 import * as internal from '@/lib/api/internal';
 import { Ban, CircleCheck, Package, Pencil, Plus, Users } from 'lucide-react';
 import KpiCard from '@/shared/components/KpiCard';
@@ -21,6 +23,7 @@ const SCOPE_LABEL: Record<string, string> = {
 const EMPTY: FilterState = { scope: '', status: '', focus: '' };
 
 export default function ServicesList() {
+  const [picking, setPicking] = useState(false);
   const navigate = useNavigate();
   const [filters, setFilters] = useState<FilterState>(EMPTY);
   const [search, setSearch] = useState('');
@@ -116,7 +119,7 @@ export default function ServicesList() {
           setSearch('');
         }}
         onRefresh={() => refetch()}
-        onExport={() => internal.exportServices(query)}
+        onExport={() => setPicking(true)}
         fields={[
           {
             key: 'scope',
@@ -324,6 +327,13 @@ export default function ServicesList() {
           {save.error.message}
         </div>
       )}
+
+      <ExportColumnsModal
+        open={picking}
+        catalogue={INTERNAL_SERVICES}
+        onClose={() => setPicking(false)}
+        onExport={(picks) => internal.exportServices(query, picks)}
+      />
     </div>
   );
 }

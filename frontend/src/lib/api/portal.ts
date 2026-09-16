@@ -234,11 +234,18 @@ export type MyExportParams = {
   service?: string;
 };
 
-export const exportMyPeople = (params: MyExportParams = {}) =>
-  download(`${BASE}.export_client_users`, params, 'users.xlsx');
+export type ExportPicks = { columns?: string[]; serviceColumns?: string[] };
 
-export const exportMyMachines = (params: MyExportParams = {}) =>
-  download(`${BASE}.export_devices`, params, 'devices.xlsx');
+const picked = (picks?: ExportPicks) => ({
+  columns: picks?.columns?.length ? picks.columns : undefined,
+  service_columns: picks?.serviceColumns?.length ? picks.serviceColumns : undefined,
+});
+
+export const exportMyPeople = (params: MyExportParams = {}, picks?: ExportPicks) =>
+  download(`${BASE}.export_client_users`, { ...params, ...picked(picks) }, 'users.xlsx');
+
+export const exportMyMachines = (params: MyExportParams = {}, picks?: ExportPicks) =>
+  download(`${BASE}.export_devices`, { ...params, ...picked(picks) }, 'devices.xlsx');
 
 export const listUserChoices = (customer?: string, signal?: AbortSignal) =>
   get<UserChoice[]>(`${BASE}.list_user_choices`, { customer }, signal);

@@ -3,6 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { FilePlus2, Laptop, ShieldAlert, UserX } from 'lucide-react';
 import DataTable from '@/shared/components/DataTable';
 import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
+import ExportColumnsModal from '@/shared/components/ExportColumnsModal';
+import { PORTAL_DEVICES } from '@/shared/exportColumns';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import KpiCard from '@/shared/components/KpiCard';
 import * as portal from '@/lib/api/portal';
@@ -23,6 +25,7 @@ const INTERFACE_ORDER = ['Wi-Fi', 'LAN', 'Extra', 'Other'];
 const EMPTY: FilterState = { status: '', service: '', coverage: '' };
 
 export default function PortalDevices() {
+  const [picking, setPicking] = useState(false);
   const rights = useMyApprovalRights();
   const canSubmit = rights.data?.can_submit !== false;
   const navigate = useNavigate();
@@ -99,14 +102,7 @@ export default function PortalDevices() {
         onApply={apply}
         onClear={() => apply(EMPTY)}
         onRefresh={() => list.refetch()}
-        onExport={() =>
-          portal.exportMyMachines({
-            search: search || undefined,
-            status: (filters.status as string) || undefined,
-            service: (filters.service as string) || undefined,
-            coverage: (filters.coverage as string) || undefined,
-          })
-        }
+        onExport={() => setPicking(true)}
         fields={[
           {
             key: 'service',
@@ -248,6 +244,23 @@ export default function PortalDevices() {
           </tr>
         ))}
       </DataTable>
+
+      <ExportColumnsModal
+        open={picking}
+        catalogue={PORTAL_DEVICES}
+        onClose={() => setPicking(false)}
+        onExport={(picks) =>
+          portal.exportMyMachines(
+            {
+              search: search || undefined,
+              status: (filters.status as string) || undefined,
+              service: (filters.service as string) || undefined,
+              coverage: (filters.coverage as string) || undefined,
+            },
+            picks
+          )
+        }
+      />
     </div>
   );
 }

@@ -158,6 +158,7 @@ class DeviceService:
             select
                 device.name, device.hostname, device.device_type, device.status,
                 device.assigned_date, device.serial_number, device.customer,
+                device.model, device.operating_system,
                 device.last_billed_on, device.covered_until,
                 device.assigned_client_user,
                 holder.full_name as user_name,
@@ -568,6 +569,8 @@ class DeviceService:
         assigned_date=None,
         interfaces=None,
         remarks=None,
+        model=None,
+        operating_system=None,
     ):
         """Edit the machine itself. Its holder and its services are handed over separately."""
         RequestService._guard_internal()
@@ -586,6 +589,13 @@ class DeviceService:
             doc.device_type = device_type
 
         doc.serial_number = serial_number or None
+
+        # left out entirely means unchanged; sent empty means cleared
+        if model is not None:
+            doc.model = model.strip() or None
+        if operating_system is not None:
+            doc.operating_system = operating_system.strip() or None
+
         remarks_util.add(doc, remarks)
 
         if assigned_date:

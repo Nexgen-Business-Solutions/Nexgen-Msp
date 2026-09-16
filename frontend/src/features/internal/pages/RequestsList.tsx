@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as internal from '@/lib/api/internal';
 import { AlertTriangle, Clock, Eye, Inbox, Plus, Wrench } from 'lucide-react';
@@ -6,6 +7,8 @@ import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import StatusBadge from '@/shared/components/StatusBadge';
 import TablePagination from '@/shared/components/TablePagination';
 import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
+import ExportColumnsModal from '@/shared/components/ExportColumnsModal';
+import { INTERNAL_REQUESTS } from '@/shared/exportColumns';
 import {
   useRequestFilterOptions,
   useRequestFilters,
@@ -32,6 +35,7 @@ const openPath = (row: { name: string; billing_run: string | null; status?: stri
       : `/msp/requests/${row.name}`;
 
 export default function RequestsList() {
+  const [picking, setPicking] = useState(false);
   const navigate = useNavigate();
   const { filters, patch, clear } = useRequestFilters();
   const options = useRequestFilterOptions();
@@ -125,7 +129,7 @@ export default function RequestsList() {
         }
         onClear={clear}
         onRefresh={() => list.refetch()}
-        onExport={() => internal.exportRequests(listParams)}
+        onExport={() => setPicking(true)}
         fields={[
           {
             key: 'customer',
@@ -295,6 +299,13 @@ export default function RequestsList() {
           onPageLengthChange={(size) => patch({ pageLength: size, start: 0 })}
         />
       </div>
+
+      <ExportColumnsModal
+        open={picking}
+        catalogue={INTERNAL_REQUESTS}
+        onClose={() => setPicking(false)}
+        onExport={(picks) => internal.exportRequests(listParams, picks)}
+      />
     </div>
   );
 }
