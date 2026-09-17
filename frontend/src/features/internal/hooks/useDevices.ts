@@ -93,11 +93,12 @@ export const useDeviceFilters = () => {
   return { filters, patch, clear, activeCount };
 };
 
-export const useDeviceFilterOptions = () =>
+export const useDeviceFilterOptions = (enabled = true) =>
   useQuery({
     queryKey: deviceKeys.options(),
     queryFn: ({ signal }) => internal.getDeviceFilterOptions(signal),
     staleTime: 5 * 60 * 1000,
+    enabled,
   });
 
 export const useDeviceStats = (params: internal.DeviceListParams = {}) =>

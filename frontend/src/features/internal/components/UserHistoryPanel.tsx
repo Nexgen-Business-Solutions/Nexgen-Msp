@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ChevronDown, History } from 'lucide-react';
 import type { UserActivityEvent } from '@/lib/api/internal';
 import { useUserHistory } from '../hooks/useUsers';
+import { usePortalUserFileHistory } from '@/features/portal/hooks/usePortal';
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
 
@@ -21,12 +22,16 @@ const Timeline: React.FC<{ events: UserActivityEvent[] }> = ({ events }) => (
  * What happened before now. It is not carried with the page: the first reading holds the
  * last handful of events, and the rest is fetched the moment somebody asks for it.
  */
-const UserHistoryPanel: React.FC<{ name: string; recent: UserActivityEvent[] }> = ({
-  name,
-  recent,
-}) => {
+const UserHistoryPanel: React.FC<{
+  name: string;
+  recent: UserActivityEvent[];
+  /** read through the customer's own door */
+  portal?: boolean;
+}> = ({ name, recent, portal = false }) => {
   const [open, setOpen] = useState(false);
-  const history = useUserHistory(name, open);
+  const ours = useUserHistory(portal ? undefined : name, open);
+  const theirs = usePortalUserFileHistory(portal ? name : undefined, open);
+  const history = portal ? theirs : ours;
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-4">

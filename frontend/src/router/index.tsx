@@ -26,7 +26,6 @@ import DevicesList from '@/features/internal/pages/DevicesList';
 import ActivityLog from '@/features/internal/pages/ActivityLog';
 import Settings from '@/features/internal/pages/Settings';
 import PortalRequestDetail from '@/features/portal/pages/PortalRequestDetail';
-import PortalUserDetail from '@/features/portal/pages/PortalUserDetail';
 import RoleDetail from './RoleDetail';
 import InvoiceGuard from './guards/InvoiceGuard';
 import AdminGuard from './guards/AdminGuard';
@@ -90,7 +89,7 @@ export const router = createBrowserRouter([
       },
       {
         path: 'users/:name',
-        element: <RoleDetail portal={<PortalUserDetail />} internal={<UserDetail />} />,
+        element: <RoleDetail portal={<UserDetail portal />} internal={<UserDetail />} />,
       },
       {
         path: 'devices',
@@ -98,11 +97,7 @@ export const router = createBrowserRouter([
       },
       {
         path: 'devices/:name',
-        element: (
-          <InternalGuard>
-            <DeviceDetail />
-          </InternalGuard>
-        ),
+        element: <RoleDetail portal={<DeviceDetail portal />} internal={<DeviceDetail />} />,
       },
       {
         path: 'activity',

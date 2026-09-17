@@ -8,6 +8,9 @@ const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) :
 type Props = {
   detail: UserDetail;
   isAdmin: boolean;
+  /** what the customer sees: the same card, with nothing to act on */
+  actions?: React.ReactNode;
+  readOnly?: boolean;
   onEdit: () => void;
   onDelete: () => void;
   onStatus: () => void;
@@ -20,6 +23,8 @@ const UserIdentityCard: React.FC<Props> = ({
   onEdit,
   onDelete,
   onStatus,
+  actions,
+  readOnly = false,
 }) => {
   const { user, summary } = detail;
   const archived = user.lifecycle_status === 'Archived';
@@ -71,6 +76,8 @@ const UserIdentityCard: React.FC<Props> = ({
         </div>
 
         <div className="flex flex-wrap items-start gap-2">
+          {actions}
+          {!readOnly && (
           <button
             type="button"
             onClick={onEdit}
@@ -79,7 +86,8 @@ const UserIdentityCard: React.FC<Props> = ({
             <Pencil size={14} />
             Edit
           </button>
-          {!archived && (
+          )}
+          {!readOnly && !archived && (
             <button
               type="button"
               onClick={onStatus}
@@ -89,7 +97,7 @@ const UserIdentityCard: React.FC<Props> = ({
               {disabled ? 'Reactivate' : 'Disable'}
             </button>
           )}
-          {isAdmin && (
+          {!readOnly && isAdmin && (
             <button
               type="button"
               onClick={onDelete}
@@ -97,7 +105,7 @@ const UserIdentityCard: React.FC<Props> = ({
               title={
                 detail.can_delete
                   ? 'Erase this person'
-                  : `Cannot be deleted: ${detail.delete_blockers.join(', ')}`
+                  : `Cannot be deleted: ${(detail.delete_blockers ?? []).join(', ')}`
               }
               className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
             >

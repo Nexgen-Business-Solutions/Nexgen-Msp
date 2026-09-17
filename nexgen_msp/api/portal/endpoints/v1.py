@@ -354,6 +354,18 @@ def list_users_with_services(customer=None, search=None, status=None, start=0, p
 
 @frappe.whitelist()
 @handle_errors
+def get_user_history(client_user=None, limit=None):
+    return PortalService.get_user_history(client_user=client_user, limit=limit or 50)
+
+
+@frappe.whitelist()
+@handle_errors
+def get_device_detail(device=None):
+    return PortalService.get_device_detail(device=device)
+
+
+@frappe.whitelist()
+@handle_errors
 def get_user_detail(client_user=None):
     return PortalService.get_user_detail(client_user=client_user)
 

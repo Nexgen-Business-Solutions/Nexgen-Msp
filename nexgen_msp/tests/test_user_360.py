@@ -435,10 +435,17 @@ class TestTheCustomerReadsTheSameThing(User360Case):
     def test_the_customer_is_shown_nothing_that_is_ours(self):
         reading = self.portal()
 
-        for internal_only in ("notes", "billing", "delete_blockers", "can_delete"):
+        for internal_only in ("notes", "delete_blockers", "can_delete"):
             self.assertNotIn(internal_only, reading)
 
         self.assertNotIn("portal_access", reading["user"])
+
+        # what they are billed for is their own fact: the dates, never our notes
+        self.assertEqual(set(reading["billing"]), {"covered_until", "last_billed_on"})
+
+        # the signals are ours to act on: a missing serial number is not their business
+        self.assertEqual(reading["attention"], [])
+        self.assertEqual(reading["summary"]["attention_count"], 0)
 
     def test_the_customer_is_offered_no_catalogue_of_their_own(self):
         self.laptop("P2", holder=self.john, serial=f"P2-{self.tag}")

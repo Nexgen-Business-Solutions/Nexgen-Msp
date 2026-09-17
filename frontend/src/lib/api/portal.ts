@@ -1,3 +1,8 @@
+import type {
+  DeviceDetail as DeviceFile,
+  UserDetail as UserFile,
+  UserHistory as UserFileHistory,
+} from './internal';
 import { download, get, post } from './client';
 
 const BASE = 'nexgen_msp.api.portal.endpoints.v1';
@@ -383,62 +388,19 @@ export type PortalUserService = {
 
 export type PortalServiceHistory = Omit<PortalUserService, 'allowed_actions' | 'pending_request'>;
 
-export type PortalUserDetail = {
-  user: {
-    name: string;
-    full_name: string;
-    department: string | null;
-    customer: string;
-    email: string | null;
-    username: string | null;
-    lifecycle_status: string;
-    start_date: string | null;
-    disabled_date: string | null;
-  };
-  summary: {
-    current_devices: number;
-    active_personal_services: number;
-    active_device_services: number;
-    open_requests: number;
-    attention_count: number;
-  };
-  personal_services: { current: PortalUserService[]; available: []; blocked: []; target_reason: null };
-  devices: {
-    device: {
-      name: string;
-      hostname: string;
-      device_type: string | null;
-      status: string;
-      serial_number: string | null;
-      in_service_since: string | null;
-    };
-    holder_since: string | null;
-    interfaces: { interface_type: string; mac_address: string }[];
-    services: { current: PortalUserService[]; history?: PortalServiceHistory[]; available: [] };
-  }[];
-  open_requests: {
-    name: string;
-    status: string;
-    priority: string;
-    request_type: string;
-    creation: string;
-    lines: { idx: number; action: string; service_name: string; hostname: string | null }[];
-  }[];
-  attention: {
-    code: string;
-    severity: 'warning' | 'info';
-    entity_type: string;
-    entity: string;
-    message: string;
-  }[];
-  recent_activity: { on: string; kind: string; entity: string; what: string; via?: string | null }[];
-};
 
 export const getRequest = (name: string, signal?: AbortSignal) =>
   get<PortalRequestDetail>(`${BASE}.get_request`, { name }, signal);
 
-export const getUserDetail = (clientUser: string, signal?: AbortSignal) =>
-  get<PortalUserDetail>(`${BASE}.get_user_detail`, { client_user: clientUser }, signal);
+/** The same file our own team reads, bar what we wrote for ourselves. */
+export const getUserFile = (clientUser: string, signal?: AbortSignal) =>
+  get<UserFile>(`${BASE}.get_user_detail`, { client_user: clientUser }, signal);
+
+export const getUserFileHistory = (clientUser: string, limit?: number, signal?: AbortSignal) =>
+  get<UserFileHistory>(`${BASE}.get_user_history`, { client_user: clientUser, limit }, signal);
+
+export const getDeviceFile = (device: string, signal?: AbortSignal) =>
+  get<DeviceFile>(`${BASE}.get_device_detail`, { device }, signal);
 
 export const listCatalogue = (customer?: string, signal?: AbortSignal) =>
   get<{ items: CatalogueItem[]; count: number; has_contract: boolean }>(

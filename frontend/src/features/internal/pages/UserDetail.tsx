@@ -37,6 +37,7 @@ import {
   useDeleteClientUser,
   useUserDetail,
 } from '../hooks/useUsers';
+import { useMyApprovalRights, usePortalUserFile } from '@/features/portal/hooks/usePortal';
 import { useDeviceFilterOptions } from '../hooks/useDevices';
 import type { HeldDevice, UserServiceEntry } from '@/lib/api/internal';
 
@@ -79,10 +80,15 @@ const Empty = ({ span, children }: { span: number; children: React.ReactNode }) 
  * their machines as tables, each with its direct actions. Opening a request is the customer's
  * way in; Nexgen acts.
  */
-export default function UserDetail() {
+export default function UserDetail({ portal = false }: { portal?: boolean } = {}) {
   const { name = '' } = useParams();
   const navigate = useNavigate();
-  const detail = useUserDetail(name);
+  const ours = useUserDetail(portal ? undefined : name);
+  const theirs = usePortalUserFile(portal ? name : undefined);
+  const detail = portal ? theirs : ours;
+  const canAct = !portal;
+  const rights = useMyApprovalRights(portal);
+  const mayAsk = rights.data?.can_submit !== false;
   const remove = useDeleteClientUser();
 
   const [editing, setEditing] = useState(false);
@@ -99,11 +105,13 @@ export default function UserDetail() {
   const [moving, setMoving] = useState<{ device: HeldDevice; kind: 'transfer' | 'repossess' } | null>(null);
 
   // the request list a citation field offers, fetched by the forms that want it
-  const customerRequests = useCustomerRequests(detail.data?.user.customer);
-  const deviceOptions = useDeviceFilterOptions();
+  const customerRequests = useCustomerRequests(portal ? null : detail.data?.user.customer);
+  const deviceOptions = useDeviceFilterOptions(canAct);
 
   const { data: session } = useSession();
-  const isAdmin = hasAdminRole(session?.roles);
+  const isAdmin = canAct && hasAdminRole(session?.roles);
+  // a contact who is kept away from invoices is kept away from billing dates too
+  const seesBilling = canAct || session?.can_see_invoices !== false;
 
   if (detail.isLoading) {
     return (
@@ -165,18 +173,32 @@ export default function UserDetail() {
       <UserIdentityCard
         detail={data}
         isAdmin={isAdmin}
+        readOnly={portal}
+        actions={
+          portal && mayAsk ? (
+            <button
+              type="button"
+              onClick={() => navigate(`/msp/requests/new?client_user=${encodeURIComponent(user.name)}`)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
+            >
+              <Plus size={14} />
+              Raise a request
+            </button>
+          ) : undefined
+        }
         onEdit={() => setEditing(true)}
         onDelete={() => setDeleting(true)}
         onStatus={() => setChangingStatus(true)}
       />
 
-      <UserAttentionPanel signals={data.attention} />
+      {canAct && <UserAttentionPanel signals={data.attention} />}
 
       <UserOpenRequests requests={data.open_requests} onOpen={openRequest} />
 
       <Panel
         title={`Services · ${services.length} open`}
         action={
+          canAct ? (
           <button
             type="button"
             onClick={() => setAddingService(true)}
@@ -185,6 +207,7 @@ export default function UserDetail() {
             <Plus size={13} />
             Add service
           </button>
+          ) : undefined
         }
       >
         <div className="overflow-x-auto">
@@ -194,14 +217,16 @@ export default function UserDetail() {
                 <Th>Service</Th>
                 <Th>Device</Th>
                 <Th>Since</Th>
-                <Th>Last billed</Th>
-                <Th>Billing</Th>
+                {seesBilling && <Th>Last billed</Th>}
+                {seesBilling && <Th>Billing</Th>}
                 <Th>Status</Th>
                 <Th />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {services.length === 0 && <Empty span={7}>No open service for {user.full_name}.</Empty>}
+              {services.length === 0 && (
+                <Empty span={seesBilling ? 7 : 5}>No open service for {user.full_name}.</Empty>
+              )}
               {services.map(({ service, device }) => (
                 <tr key={service.name} className="transition-colors hover:bg-slate-50">
                   <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
@@ -223,18 +248,22 @@ export default function UserDetail() {
                   <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
                     {fmtDate(service.effective_start_date)}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                    {service.last_billed_on ? fmtDate(service.last_billed_on) : 'Never'}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                    {service.billing_status || 'N/A'}
-                  </td>
+                  {seesBilling && (
+                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                      {service.last_billed_on ? fmtDate(service.last_billed_on) : 'Never'}
+                    </td>
+                  )}
+                  {seesBilling && (
+                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                      {service.billing_status || 'N/A'}
+                    </td>
+                  )}
                   <td className="whitespace-nowrap px-4 py-3">
                     <StatusBadge value={service.operational_status} />
                   </td>
                   <td className="whitespace-nowrap px-4 py-3">
                     <div className="flex justify-end">
-                      <RowActionsMenu actions={serviceActions(service, device)} />
+                      {canAct && <RowActionsMenu actions={serviceActions(service, device)} />}
                     </div>
                   </td>
                 </tr>
@@ -247,6 +276,7 @@ export default function UserDetail() {
       <Panel
         title={`Devices · ${data.devices.length}`}
         action={
+          canAct ? (
           <button
             type="button"
             onClick={() => setAddingDevice(true)}
@@ -255,6 +285,7 @@ export default function UserDetail() {
             <Plus size={13} />
             Assign a device
           </button>
+          ) : undefined
         }
       >
         <div className="overflow-x-auto">
@@ -320,9 +351,13 @@ export default function UserDetail() {
                     <div className="flex justify-end">
                       <RowActionsMenu
                         actions={[
-                          { label: 'Add service', icon: ShieldCheck, onClick: () => setDeviceService(slot.device.name) },
-                          { label: 'Transfer to someone else', icon: ArrowRightLeft, onClick: () => setMoving({ device: slot, kind: 'transfer' }) },
-                          { label: 'Return to stock', icon: Undo2, onClick: () => setMoving({ device: slot, kind: 'repossess' }) },
+                          ...(canAct
+                            ? [
+                                { label: 'Add service', icon: ShieldCheck, onClick: () => setDeviceService(slot.device.name) },
+                                { label: 'Transfer to someone else', icon: ArrowRightLeft, onClick: () => setMoving({ device: slot, kind: 'transfer' }) },
+                                { label: 'Return to stock', icon: Undo2, onClick: () => setMoving({ device: slot, kind: 'repossess' }) },
+                              ]
+                            : []),
                           { label: 'Open device', icon: Laptop, onClick: () => navigate(`/msp/devices/${slot.device.name}`) },
                         ]}
                       />
@@ -338,6 +373,7 @@ export default function UserDetail() {
       
 
       <div className="grid gap-4 lg:grid-cols-2">
+        {seesBilling && (
         <Panel title="Billing & coverage">
           <dl className="grid grid-cols-2 gap-3 text-sm">
             <div>
@@ -350,17 +386,22 @@ export default function UserDetail() {
             </div>
           </dl>
         </Panel>
+        )}
 
+        {canAct && (
         <Panel title="Internal notes">
           <RemarkLog
-            entries={data.notes.log}
+            entries={data.notes?.log ?? []}
             target={{ doctype: 'MSP Client User', name: user.name }}
             invalidate={userKeys.detail(user.name)}
           />
         </Panel>
+        )}
       </div>
-      <UserHistoryPanel name={user.name} recent={data.recent_activity} />
+      <UserHistoryPanel name={user.name} recent={data.recent_activity} portal={portal} />
 
+      {canAct && (
+      <>
       <AddUserServiceModal
         open={addingService}
         user={user}
@@ -454,6 +495,8 @@ export default function UserDetail() {
           navigate('/msp/users');
         }}
       />
+      </>
+      )}
     </div>
   );
 }

@@ -740,10 +740,11 @@ export type UserDetail = {
   open_requests: UserOpenRequest[];
   attention: AttentionSignal[];
   recent_activity: UserActivityEvent[];
-  can_delete: boolean;
-  delete_blockers: string[];
   billing: { covered_until: string | null; last_billed_on: string | null };
-  notes: { latest: RemarkEntry | null; count: number; log: RemarkEntry[] };
+  /** ours to know: what would stand in the way of erasing them, and our own notes */
+  can_delete?: boolean;
+  delete_blockers?: string[];
+  notes?: { latest: RemarkEntry | null; count: number; log: RemarkEntry[] };
 };
 
 export type UserHistory = {
@@ -779,12 +780,13 @@ export type DeviceDetail = {
     manufacturer: string | null;
     model: string | null;
     operating_system: string | null;
-    remarks: string | null;
-    remark_log: RemarkEntry[];
     last_billed_on: string | null;
     covered_until: string | null;
-    can_delete: boolean;
-    delete_blockers: string[];
+    /** ours to know */
+    remarks?: string | null;
+    remark_log?: RemarkEntry[];
+    can_delete?: boolean;
+    delete_blockers?: string[];
   };
   holder_log: {
     client_user: string;
@@ -800,10 +802,11 @@ export type DeviceDetail = {
   interfaces: DeviceInterface[];
   services: (UserServiceRow & { last_billed_on: string | null; internal_notes: string | null })[];
   requests: { name: string; status: string; priority: string; request_type: string; creation: string }[];
-  catalogue: { name: string; item_name: string; scope: string; already_open: boolean }[];
-  customer_requests: CustomerRequestRef[];
-  device_types: string[];
-  interface_types: string[];
+  /** what the forms on our side need; a customer's reading carries none of it */
+  catalogue?: { name: string; item_name: string; scope: string; already_open: boolean }[];
+  customer_requests?: CustomerRequestRef[];
+  device_types?: string[];
+  interface_types?: string[];
 };
 
 export const addRemark = (payload: { doctype: string; name: string; note: string }) =>

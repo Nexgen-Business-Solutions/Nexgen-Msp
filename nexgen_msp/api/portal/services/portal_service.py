@@ -844,6 +844,40 @@ class PortalService:
         return User360Service.read_user(client_user, internal=False)
 
     @staticmethod
+    def get_user_history(client_user=None, limit=50):
+        """The same past our own team reads, for one of their own people."""
+        from nexgen_msp.api.internal.services.user_360_service import User360Service
+
+        if not client_user:
+            raise ValidationError("client_user is required.", "VALIDATION_ERROR")
+
+        customer = frappe.db.get_value("MSP Client User", client_user, "customer")
+
+        if not customer:
+            raise NotFoundError(f"Client User {client_user} does not exist.", "NOT_FOUND")
+
+        PortalService._resolve_customer(customer)
+
+        return User360Service.read_history(client_user, limit=limit)
+
+    @staticmethod
+    def get_device_detail(device=None):
+        """One of their machines, read the same way our own team reads it, bar our notes."""
+        from nexgen_msp.api.internal.services.device_service import DeviceService
+
+        if not device:
+            raise ValidationError("device is required.", "VALIDATION_ERROR")
+
+        customer = frappe.db.get_value("MSP Managed Device", device, "customer")
+
+        if not customer:
+            raise NotFoundError(f"Managed Device {device} does not exist.", "NOT_FOUND")
+
+        PortalService._resolve_customer(customer)
+
+        return DeviceService.read_device(device, internal=False)
+
+    @staticmethod
     def _acknowledge(doc):
         from nexgen_msp.utils import notifications
 

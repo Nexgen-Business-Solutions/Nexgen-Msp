@@ -70,23 +70,25 @@ class User360Service:
                     len(slot["services"]["current"]) for slot in devices
                 ),
                 "open_requests": len(requests),
-                "attention_count": len(attention),
+                "attention_count": len(attention) if internal else 0,
             },
             "personal_services": personal,
             "devices": devices,
             "open_requests": requests,
-            "attention": attention,
+            "attention": attention if internal else [],
             "recent_activity": User360Service._activity(person, limit=RECENT_ACTIVITY),
+        }
+
+        # what they are billed for is theirs to read; what we wrote for ourselves is not
+        reading["billing"] = {
+            "covered_until": person.covered_until,
+            "last_billed_on": person.last_billed_on,
         }
 
         if internal:
             blockers = User360Service._deletion_blockers(person.name)
             reading["can_delete"] = not blockers
             reading["delete_blockers"] = blockers
-            reading["billing"] = {
-                "covered_until": person.covered_until,
-                "last_billed_on": person.last_billed_on,
-            }
             reading["notes"] = User360Service._notes(person.name)
 
         return reading

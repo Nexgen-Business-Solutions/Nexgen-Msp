@@ -195,11 +195,25 @@ export const useCreateServiceRequest = () => {
   });
 };
 
-export const usePortalUserDetail = (clientUser?: string) =>
+export const usePortalUserFile = (clientUser?: string) =>
   useQuery({
-    queryKey: [...portalKeys.all, 'userDetail', clientUser] as const,
-    queryFn: ({ signal }) => portal.getUserDetail(clientUser as string, signal),
+    queryKey: [...portalKeys.all, 'user-file', clientUser] as const,
+    queryFn: ({ signal }) => portal.getUserFile(clientUser as string, signal),
     enabled: Boolean(clientUser),
+  });
+
+export const usePortalUserFileHistory = (clientUser?: string, enabled = true) =>
+  useQuery({
+    queryKey: [...portalKeys.all, 'user-file', clientUser, 'history'] as const,
+    queryFn: ({ signal }) => portal.getUserFileHistory(clientUser as string, undefined, signal),
+    enabled: Boolean(clientUser) && enabled,
+  });
+
+export const usePortalDeviceFile = (device?: string) =>
+  useQuery({
+    queryKey: [...portalKeys.all, 'device-file', device] as const,
+    queryFn: ({ signal }) => portal.getDeviceFile(device as string, signal),
+    enabled: Boolean(device),
   });
 
 export const usePortalFilterOptions = () => {

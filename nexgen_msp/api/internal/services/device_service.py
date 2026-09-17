@@ -301,6 +301,16 @@ class DeviceService:
         """Everything known about one machine: what runs on it, and what can be done to it."""
         RequestService._guard_internal()
 
+        return DeviceService.read_device(device)
+
+    @staticmethod
+    def read_device(device=None, internal=True):
+        """The same machine, read by whoever has established their right to read it.
+
+        A customer reads their own machine the way we do — what it is, who holds it, what
+        runs on it, what has been asked for it. What stays on our side is what we wrote for
+        ourselves: our notes, and what would have to be cleared before erasing it.
+        """
         if not device:
             raise ValidationError("device is required.", "VALIDATION_ERROR")
 
@@ -331,11 +341,14 @@ class DeviceService:
         if not doc:
             raise NotFoundError(f"Managed Device {device} not found.", "NOT_FOUND")
 
-        doc["remark_log"] = remarks_util.log("MSP Managed Device", device)
+        if internal:
+            doc["remark_log"] = remarks_util.log("MSP Managed Device", device)
 
-        blockers = DeviceService.deletion_blockers(device)
-        doc["delete_blockers"] = blockers
-        doc["can_delete"] = not blockers
+            blockers = DeviceService.deletion_blockers(device)
+            doc["delete_blockers"] = blockers
+            doc["can_delete"] = not blockers
+        else:
+            doc.pop("remarks", None)
 
         doc["user_name"] = (
             frappe.db.get_value("MSP Client User", doc.assigned_client_user, "full_name")
@@ -362,7 +375,7 @@ class DeviceService:
                 coalesce(item.item_name, sa.service_item) as service_name,
                 sa.assignment_scope, sa.operational_status, sa.billing_status,
                 sa.effective_start_date, sa.effective_end_date,
-                sa.internal_notes, sa.source_request,
+                sa.internal_notes, sa.source_request, sa.client_user,
                 (
                     select max(br.billing_period_end)
                     from `tabMSP Billing Run Line` brl
@@ -414,12 +427,23 @@ class DeviceService:
             )
         ]
 
-        return {
+        if not internal:
+            for row in services:
+                row.pop("internal_notes", None)
+
+        reading = {
             "device": doc,
             "holder_log": holders.history(device),
             "interfaces": interfaces,
             "services": services,
             "requests": requests,
+        }
+
+        if not internal:
+            return reading
+
+        return {
+            **reading,
             "catalogue": [item for item in catalogue if item["scope"] in ("Device", "Both")],
             "customer_requests": frappe.db.sql(
                 """

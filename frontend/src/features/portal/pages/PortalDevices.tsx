@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { FilePlus2, Laptop, ShieldAlert, UserX } from 'lucide-react';
+import { Eye, FilePlus2, Laptop, ShieldAlert, UserX } from 'lucide-react';
 import DataTable from '@/shared/components/DataTable';
 import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
 import ColumnsModal from '@/shared/components/ColumnsModal';
@@ -65,7 +65,13 @@ export default function PortalDevices() {
       case 'device':
         return (
           <td key={key} className="whitespace-nowrap px-4 py-3">
-            <p className="text-sm font-semibold text-slate-900">{row.hostname}</p>
+            <button
+              type="button"
+              onClick={() => navigate(`/msp/devices/${row.name}`)}
+              className="text-sm font-semibold text-slate-900 transition-colors hover:text-blue-700"
+            >
+              {row.hostname}
+            </button>
             {row.serial_number ? (
               <p className="mt-0.5 font-mono text-xs text-slate-500">{row.serial_number}</p>
             ) : (
@@ -274,20 +280,22 @@ export default function PortalDevices() {
               <div className="flex justify-end">
                 <RowActionsMenu
                   actions={[
-                    ...(canSubmit
-                      ? [
                     {
-                      label: 'Raise a request for this machine',
-                      icon: FilePlus2,
-                      // a request is about a person: whoever holds the machine, or somebody
-                      // new when nobody does — and the first step lets that be changed
-                      onClick: () =>
-                        navigate(
-                          row.assigned_client_user
-                            ? `/msp/requests/new?client_user=${encodeURIComponent(row.assigned_client_user)}`
-                            : '/msp/requests/new?new_user=1'
-                        ),
+                      label: 'Open device',
+                      icon: Eye,
+                      onClick: () => navigate(`/msp/devices/${row.name}`),
                     },
+                    // a request is about a person, so it is offered for whoever holds it
+                    ...(canSubmit && row.assigned_client_user
+                      ? [
+                          {
+                            label: `Raise a request for ${row.assigned_user_name || 'them'}`,
+                            icon: FilePlus2,
+                            onClick: () =>
+                              navigate(
+                                `/msp/requests/new?client_user=${encodeURIComponent(row.assigned_client_user as string)}`
+                              ),
+                          },
                         ]
                       : []),
                   ]}

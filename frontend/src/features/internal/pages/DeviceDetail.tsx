@@ -16,6 +16,7 @@ import {
   UserPlus,
 } from 'lucide-react';
 import StatusBadge from '@/shared/components/StatusBadge';
+import { useSession } from '@/shared/hooks/useSession';
 import RemarkLog from '@/shared/components/RemarkLog';
 import RowActionsMenu, { type RowAction } from '@/shared/components/RowActionsMenu';
 import ConfirmModal from '@/shared/components/ConfirmModal';
@@ -29,6 +30,7 @@ import ReinstateDeviceModal from '../components/ReinstateDeviceModal';
 import ServiceActionModal, { type ServiceAction } from '../components/ServiceActionModal';
 import type { DeviceDetail as DeviceDetailData, DeviceRow, UserServiceRow } from '@/lib/api/internal';
 import { deviceKeys, useDeleteDevice, useDeviceDetail } from '../hooks/useDevices';
+import { usePortalDeviceFile } from '@/features/portal/hooks/usePortal';
 import { isAvailable, isDeployed, isOutOfService, canRetire } from '../utils/deviceStatus';
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
@@ -107,13 +109,23 @@ const asDeviceRow = (data: DeviceDetailData): DeviceRow => ({
   interfaces: data.interfaces,
 });
 
-export default function DeviceDetail() {
+/**
+ * One machine's file. The customer reads the same page we do — what it is, who holds it, what
+ * runs on it, what has been asked about it — while acting on it stays on our side.
+ */
+export default function DeviceDetail({ portal = false }: { portal?: boolean } = {}) {
   const { name = '' } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const referencedRequest = searchParams.get('ref') ?? undefined;
 
-  const detail = useDeviceDetail(name);
+  const ours = useDeviceDetail(portal ? undefined : name);
+  const theirs = usePortalDeviceFile(portal ? name : undefined);
+  const detail = portal ? theirs : ours;
+  const canAct = !portal;
+  const { data: session } = useSession();
+  // a contact who is kept away from invoices is kept away from billing dates too
+  const seesBilling = canAct || session?.can_see_invoices !== false;
   const remove = useDeleteDevice();
 
   const [addingService, setAddingService] = useState(false);
@@ -164,6 +176,7 @@ export default function DeviceDetail() {
             <div className="flex flex-wrap items-center gap-2.5">
               <h1 className="text-lg font-bold text-slate-900">{device.hostname}</h1>
               <StatusBadge value={device.status} />
+              {canAct && (
               <button
                 type="button"
                 onClick={() => setEditing(true)}
@@ -172,8 +185,9 @@ export default function DeviceDetail() {
                 <Pencil size={13} />
                 Edit device
               </button>
+              )}
 
-              {isAvailable(device.status) && (
+              {canAct && isAvailable(device.status) && (
                 <button
                   type="button"
                   onClick={() => setLifecycleModal('assign')}
@@ -184,7 +198,7 @@ export default function DeviceDetail() {
                 </button>
               )}
 
-              {isDeployed(device.status) && (
+              {canAct && isDeployed(device.status) && (
                 <>
                   <button
                     type="button"
@@ -205,7 +219,7 @@ export default function DeviceDetail() {
                 </>
               )}
 
-              {isOutOfService(device.status) && (
+              {canAct && isOutOfService(device.status) && (
                 <button
                   type="button"
                   onClick={() => setLifecycleModal('reinstate')}
@@ -216,7 +230,7 @@ export default function DeviceDetail() {
                 </button>
               )}
 
-              {canRetire(device.status) && (
+              {canAct && canRetire(device.status) && (
                 <button
                   type="button"
                   onClick={() => setLifecycleModal('retire')}
@@ -227,6 +241,7 @@ export default function DeviceDetail() {
                 </button>
               )}
 
+              {canAct && (
               <button
                 type="button"
                 onClick={() => setDeleting(true)}
@@ -234,13 +249,14 @@ export default function DeviceDetail() {
                 title={
                   device.can_delete
                     ? 'Erase this device'
-                    : `Cannot be deleted: ${device.delete_blockers.join(', ')}`
+                    : `Cannot be deleted: ${(device.delete_blockers ?? []).join(', ')}`
                 }
                 className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-2.5 py-2.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
               >
                 <Trash2 size={13} />
                 Delete
               </button>
+              )}
             </div>
 
             <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-4">
@@ -293,14 +309,18 @@ export default function DeviceDetail() {
               <Fact label="Manufacturer" value={device.manufacturer || 'N/A'} />
               <Fact label="Model" value={device.model || 'N/A'} />
               <Fact label="Operating system" value={device.operating_system || 'N/A'} />
-              <Fact
-                label="Billed up to"
-                value={device.covered_until ? fmtDate(device.covered_until) : 'Never billed'}
-              />
-              <Fact
-                label="Last billed on"
-                value={device.last_billed_on ? fmtDate(device.last_billed_on) : 'Never'}
-              />
+              {seesBilling && (
+                <>
+                  <Fact
+                    label="Billed up to"
+                    value={device.covered_until ? fmtDate(device.covered_until) : 'Never billed'}
+                  />
+                  <Fact
+                    label="Last billed on"
+                    value={device.last_billed_on ? fmtDate(device.last_billed_on) : 'Never'}
+                  />
+                </>
+              )}
               {isOutOfService(device.status) && (
                 <Fact label="Out of service" value={fmtDate(device.retired_date)} />
               )}
@@ -317,6 +337,7 @@ export default function DeviceDetail() {
 
       <Panel title={`Services (${openServices.length} running)`}
       action={
+        canAct ? (
         <button
             type="button"
             onClick={() => setAddingService(true)}
@@ -326,6 +347,7 @@ export default function DeviceDetail() {
             <Plus size={15} />
             Add service
           </button>
+        ) : undefined
       }
       >
         <table className="w-full">
@@ -334,15 +356,17 @@ export default function DeviceDetail() {
               <Th>Service</Th>
               <Th>Since</Th>
               <Th>Ended</Th>
-              <Th>Billing</Th>
-              <Th>Billed up to</Th>
+              {seesBilling && <Th>Billing</Th>}
+              {seesBilling && <Th>Billed up to</Th>}
               <Th>Status</Th>
               <Th />
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {services.length === 0 && (
-              <Empty span={7}>Nothing runs on this machine, so it is billed for nothing.</Empty>
+              <Empty span={seesBilling ? 7 : 5}>
+                Nothing runs on this machine, so it is billed for nothing.
+              </Empty>
             )}
             {services.map((row) => {
               return (
@@ -356,17 +380,22 @@ export default function DeviceDetail() {
                   <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
                     {fmtDate(row.effective_end_date)}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                    {row.billing_status}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                    {row.last_billed_on ? fmtDate(row.last_billed_on) : 'Never'}
-                  </td>
+                  {seesBilling && (
+                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                      {row.billing_status}
+                    </td>
+                  )}
+                  {seesBilling && (
+                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                      {row.last_billed_on ? fmtDate(row.last_billed_on) : 'Never'}
+                    </td>
+                  )}
                   <td className="whitespace-nowrap px-4 py-3">
                     <StatusBadge value={row.operational_status} />
                   </td>
                   <td className="whitespace-nowrap px-4 py-3">
                     <div className="flex justify-end">
+                      {canAct && (
                       <RowActionsMenu
                         actions={
                           [
@@ -428,6 +457,7 @@ export default function DeviceDetail() {
                           ] as RowAction[]
                         }
                       />
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -558,15 +588,19 @@ export default function DeviceDetail() {
             </tbody>
           </table>
         </Panel>
+        {canAct && (
         <Panel title="Remarks">
         <RemarkLog
-          entries={device.remark_log}
+          entries={device.remark_log ?? []}
           target={{ doctype: 'MSP Managed Device', name: device.name }}
           invalidate={deviceKeys.detail(device.name)}
         />
       </Panel>
+        )}
       </div>
 
+      {canAct && (
+      <>
       <DeviceServiceModal
         device={addingService ? device.name : null}
         onClose={() => setAddingService(false)}
@@ -580,7 +614,7 @@ export default function DeviceDetail() {
       <ServiceActionModal
         clientUser={device.assigned_client_user ?? ''}
         target={target}
-        requests={customer_requests}
+        requests={customer_requests ?? []}
         defaultRequest={referencedRequest}
         onClose={() => setTarget(null)}
       />
@@ -650,6 +684,8 @@ export default function DeviceDetail() {
           navigate('/msp/devices');
         }}
       />
+      </>
+      )}
     </div>
   );
 }
