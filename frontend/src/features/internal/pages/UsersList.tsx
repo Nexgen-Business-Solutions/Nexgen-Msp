@@ -6,8 +6,10 @@ import KpiCard from '@/shared/components/KpiCard';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import TablePagination from '@/shared/components/TablePagination';
 import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
-import ExportColumnsModal from '@/shared/components/ExportColumnsModal';
-import { INTERNAL_USERS } from '@/shared/exportColumns';
+import ColumnsModal from '@/shared/components/ColumnsModal';
+import { INTERNAL_USERS, loadChoice } from '@/shared/exportColumns';
+import { INTERNAL_USER_LIST } from '@/shared/listColumns';
+import type { UserRow } from '@/lib/api/internal';
 import StatusBadge from '@/shared/components/StatusBadge';
 import NewUserModal from '../components/NewUserModal';
 import { useUserFilterOptions, useUserFilters, useUserList, useUserStats } from '../hooks/useUsers';
@@ -41,19 +43,13 @@ const COVERAGE_OPTIONS = [
   },
 ];
 
-const COLUMNS = [
-  'User',
-  'Department',
-  'Status',
-  'Devices',
-  'Active services',
-  'Inactive services',
-  'Open requests',
-  '',
-];
+const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
 
 export default function UsersList() {
   const [picking, setPicking] = useState(false);
+  const [choosingColumns, setChoosingColumns] = useState(false);
+  // what this person chose to see, kept in their browser
+  const [shown, setShown] = useState(() => loadChoice(INTERNAL_USER_LIST).columns);
   const navigate = useNavigate();
   const [newUserOpen, setNewUserOpen] = useState(false);
   const { filters, patch, clear } = useUserFilters();
@@ -72,6 +68,92 @@ export default function UsersList() {
   const list = useUserList(filters);
 
   const rows = list.data?.rows ?? [];
+  const labels = Object.fromEntries(INTERNAL_USER_LIST.columns.map((column) => [column.key, column.label]));
+  const span = shown.length + 1;
+
+  const count = (value: number, tone: string) => (
+    <span
+      className={`inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-1 text-xs font-semibold tabular-nums ${
+        value ? tone : 'bg-transparent text-slate-300'
+      }`}
+    >
+      {value}
+    </span>
+  );
+
+  const cell = (key: string, row: UserRow) => {
+    switch (key) {
+      case 'user':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
+            {row.full_name}
+            {row.email && <p className="text-xs font-normal text-slate-400">{row.email}</p>}
+          </td>
+        );
+      case 'status':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3">
+            <StatusBadge value={row.lifecycle_status} />
+          </td>
+        );
+      case 'devices':
+        return (
+          <td key={key} className="max-w-[14rem] px-4 py-3">
+            {row.hostnames ? (
+              <>
+                <p className="truncate text-sm text-slate-700" title={row.hostnames}>
+                  {row.hostnames}
+                </p>
+                {row.device_type && <p className="text-xs text-slate-400">{row.device_type}</p>}
+              </>
+            ) : (
+              <span className="text-sm text-slate-400">None</span>
+            )}
+          </td>
+        );
+      case 'active_services':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3">
+            <span className="inline-flex min-w-[2rem] justify-center rounded-lg bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 tabular-nums">
+              {row.active_services}
+            </span>
+          </td>
+        );
+      case 'inactive_services':
+      case 'personal_services':
+      case 'device_services':
+      case 'current_devices':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3">
+            {count(row[key], 'bg-slate-100 text-slate-600')}
+          </td>
+        );
+      case 'open_requests':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3">
+            {count(row.open_requests, 'bg-blue-50 text-blue-700')}
+          </td>
+        );
+      case 'start_date':
+      case 'disabled_date':
+      case 'last_billed_on':
+      case 'covered_until':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+            {fmtDate(row[key])}
+          </td>
+        );
+      default: {
+        const value = row[key as 'username' | 'department' | 'customer' | 'serial_numbers' | 'services'];
+
+        return (
+          <td key={key} className="max-w-[16rem] px-4 py-3 text-sm text-slate-600">
+            {value ? <span className="line-clamp-2" title={value}>{value}</span> : <span className="text-slate-400">N/A</span>}
+          </td>
+        );
+      }
+    }
+  };
 
   return (
     <div className="space-y-5 px-6 pb-6 pt-4">
@@ -149,6 +231,7 @@ export default function UsersList() {
         onClear={clear}
         onRefresh={() => list.refetch()}
         onExport={() => setPicking(true)}
+        onColumns={() => setChoosingColumns(true)}
         fields={[
           {
             key: 'customer',
@@ -193,13 +276,14 @@ export default function UsersList() {
           <table className="w-full">
             <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
               <tr>
-                {COLUMNS.map((column, index) => (
+                {[...shown, ''].map((key, index) => (
                   <th
-                    key={column}
-                    className={`whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 ${index === 0 ? 'rounded-l-lg' : ''
-                      } ${index === COLUMNS.length - 1 ? 'rounded-r-lg' : ''}`}
+                    key={key || 'actions'}
+                    className={`whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 ${
+                      index === 0 ? 'rounded-l-lg' : ''
+                    } ${index === shown.length ? 'rounded-r-lg' : ''}`}
                   >
-                    {column}
+                    {labels[key] ?? ''}
                   </th>
                 ))}
               </tr>
@@ -207,7 +291,7 @@ export default function UsersList() {
             <tbody className="divide-y divide-slate-100">
               {!!list.error && (
                 <tr>
-                  <td colSpan={COLUMNS.length} className="px-4 py-12 text-center text-sm text-red-600">
+                  <td colSpan={span} className="px-4 py-12 text-center text-sm text-red-600">
                     {(list.error as Error)?.message || 'Failed to load users.'}
                   </td>
                 </tr>
@@ -215,7 +299,7 @@ export default function UsersList() {
 
               {!list.error && list.isLoading && (
                 <tr>
-                  <td colSpan={COLUMNS.length} className="px-4 py-12 text-center text-sm text-slate-500">
+                  <td colSpan={span} className="px-4 py-12 text-center text-sm text-slate-500">
                     Loading…
                   </td>
                 </tr>
@@ -223,7 +307,7 @@ export default function UsersList() {
 
               {!list.error && !list.isLoading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={COLUMNS.length} className="px-4 py-12 text-center text-sm text-slate-500">
+                  <td colSpan={span} className="px-4 py-12 text-center text-sm text-slate-500">
                     No user matches these filters.
                   </td>
                 </tr>
@@ -237,59 +321,7 @@ export default function UsersList() {
                     onClick={() => navigate(`/msp/users/${row.name}`)}
                     className="cursor-pointer transition-colors hover:bg-slate-50"
                   >
-                    <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
-                      {row.full_name}
-                      {row.email && (
-                        <p className="text-xs text-slate-400">{row.email}</p>
-                      )}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                      {row.department || 'N/A'}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3">
-                      <StatusBadge value={row.lifecycle_status} />
-                    </td>
-                    <td className="max-w-[14rem] px-4 py-3">
-                      {row.hostnames ? (
-                        <>
-                          <p className="truncate text-sm text-slate-700" title={row.hostnames}>
-                            {row.hostnames}
-                          </p>
-                          {row.device_type && (
-                            <p className="text-xs text-slate-400">{row.device_type}</p>
-                          )}
-                        </>
-                      ) : (
-                        <span className="text-sm text-slate-400">None</span>
-                      )}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3">
-                      <span className="inline-flex min-w-[2rem] justify-center rounded-lg bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 tabular-nums">
-                        {row.active_services}
-                      </span>
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3">
-                      <span
-                        className={`inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-1 text-xs font-semibold tabular-nums ${
-                          row.inactive_services
-                            ? 'bg-slate-100 text-slate-600'
-                            : 'bg-transparent text-slate-300'
-                        }`}
-                      >
-                        {row.inactive_services}
-                      </span>
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3">
-                      <span
-                        className={`inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-1 text-xs font-semibold tabular-nums ${
-                          row.open_requests
-                            ? 'bg-blue-50 text-blue-700'
-                            : 'bg-transparent text-slate-300'
-                        }`}
-                      >
-                        {row.open_requests}
-                      </span>
-                    </td>
+                    {shown.map((key) => cell(key, row))}
                     <td className="whitespace-nowrap px-4 py-3">
                       <div className="flex justify-end">
                         <RowActionsMenu
@@ -337,11 +369,19 @@ export default function UsersList() {
         }}
       />
 
-      <ExportColumnsModal
+      <ColumnsModal
+        open={choosingColumns}
+        mode="listing"
+        catalogue={INTERNAL_USER_LIST}
+        onClose={() => setChoosingColumns(false)}
+        onConfirm={(choice) => setShown(choice.columns)}
+      />
+
+      <ColumnsModal
         open={picking}
         catalogue={INTERNAL_USERS}
         onClose={() => setPicking(false)}
-        onExport={(picks) => internal.exportUsers(listParams, picks)}
+        onConfirm={(picks) => internal.exportUsers(listParams, picks)}
       />
     </div>
   );

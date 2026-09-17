@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import ExportColumnsModal from './ExportColumnsModal';
+import ColumnsModal from './ColumnsModal';
 import {
   INTERNAL_DEVICES,
   INTERNAL_USERS,
@@ -15,11 +15,11 @@ beforeEach(() => localStorage.clear());
 
 const open = (onExport = vi.fn(), onClose = vi.fn()) => {
   render(
-    <ExportColumnsModal
+    <ColumnsModal
       open
       catalogue={INTERNAL_USERS}
       onClose={onClose}
-      onExport={onExport}
+      onConfirm={onExport}
     />
   );
 

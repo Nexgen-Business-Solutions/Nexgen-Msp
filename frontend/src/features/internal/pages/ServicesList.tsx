@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
-import ExportColumnsModal from '@/shared/components/ExportColumnsModal';
-import { INTERNAL_SERVICES } from '@/shared/exportColumns';
+import ColumnsModal from '@/shared/components/ColumnsModal';
+import { INTERNAL_SERVICES, loadChoice } from '@/shared/exportColumns';
+import { INTERNAL_SERVICE_LIST } from '@/shared/listColumns';
+import type { CatalogueRow as ServiceRow } from '@/lib/api/internal';
 import * as internal from '@/lib/api/internal';
 import { Ban, CircleCheck, Package, Pencil, Plus, Users } from 'lucide-react';
 import KpiCard from '@/shared/components/KpiCard';
@@ -11,8 +13,6 @@ import ConfirmModal from '@/shared/components/ConfirmModal';
 import ServiceModal from '../components/ServiceModal';
 import type { CatalogueRow } from '@/lib/api/internal';
 import { useSaveService, useServiceCatalogue } from '../hooks/useCatalogue';
-
-const COLUMNS = ['Service', 'Billed per', 'Open assignments', 'Customers', 'Priced contracts', 'Status', ''];
 
 const SCOPE_LABEL: Record<string, string> = {
   User: 'Per user',
@@ -24,6 +24,9 @@ const EMPTY: FilterState = { scope: '', status: '', focus: '' };
 
 export default function ServicesList() {
   const [picking, setPicking] = useState(false);
+  const [choosingColumns, setChoosingColumns] = useState(false);
+  // what this person chose to see, kept in their browser
+  const [visible, setVisible] = useState(() => loadChoice(INTERNAL_SERVICE_LIST).columns);
   const navigate = useNavigate();
   const [filters, setFilters] = useState<FilterState>(EMPTY);
   const [search, setSearch] = useState('');
@@ -57,6 +60,81 @@ export default function ServicesList() {
           ? row.priced_contracts === 0
           : true
   );
+  const labels = Object.fromEntries(INTERNAL_SERVICE_LIST.columns.map((column) => [column.key, column.label]));
+  const span = visible.length + 1;
+
+  const cell = (key: string, row: ServiceRow) => {
+    switch (key) {
+      case 'service':
+        return (
+          <td key={key} className="px-4 py-3">
+            <button
+              type="button"
+              onClick={() => navigate(`/msp/services/${row.name}`)}
+              className="text-sm font-semibold text-slate-900 transition-colors hover:text-blue-700"
+            >
+              {row.item_name}
+            </button>
+            <p className="text-xs text-slate-400">{row.name}</p>
+          </td>
+        );
+      case 'scope':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+            {SCOPE_LABEL[row.scope ?? ''] ?? 'Per user'}
+          </td>
+        );
+      case 'open_assignments':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3">
+            <span className="inline-flex min-w-[2.5rem] justify-center rounded-lg bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 tabular-nums">
+              {row.open_assignments}
+            </span>
+          </td>
+        );
+      case 'customers':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3 text-sm text-slate-600 tabular-nums">
+            {row.customers}
+          </td>
+        );
+      case 'priced_contracts':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3">
+            <span
+              className={`text-sm font-semibold tabular-nums ${
+                row.priced_contracts ? 'text-emerald-600' : 'text-amber-600'
+              }`}
+            >
+              {row.priced_contracts}
+            </span>
+          </td>
+        );
+      case 'status':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3">
+            {row.disabled ? (
+              <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500">
+                RETIRED
+              </span>
+            ) : (
+              <span className="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
+                OFFERED
+              </span>
+            )}
+          </td>
+        );
+      default: {
+        const value = row[key as 'stock_uom' | 'invoice_label' | 'description'];
+
+        return (
+          <td key={key} className="max-w-[18rem] px-4 py-3 text-sm text-slate-600">
+            {value ? <span className="line-clamp-2" title={value}>{value}</span> : <span className="text-slate-400">N/A</span>}
+          </td>
+        );
+      }
+    }
+  };
   const assignments = all.reduce((sum, row) => sum + row.open_assignments, 0);
   const unpriced = live.filter((row) => row.priced_contracts === 0).length;
 
@@ -120,6 +198,7 @@ export default function ServicesList() {
         }}
         onRefresh={() => refetch()}
         onExport={() => setPicking(true)}
+        onColumns={() => setChoosingColumns(true)}
         fields={[
           {
             key: 'scope',
@@ -175,14 +254,14 @@ export default function ServicesList() {
           <table className="w-full">
             <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
               <tr>
-                {COLUMNS.map((column, index) => (
+                {[...visible, ''].map((key, index) => (
                   <th
-                    key={column || index}
+                    key={key || 'actions'}
                     className={`whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 ${
                       index === 0 ? 'rounded-l-lg' : ''
-                    } ${index === COLUMNS.length - 1 ? 'rounded-r-lg' : ''}`}
+                    } ${index === visible.length ? 'rounded-r-lg' : ''}`}
                   >
-                    {column}
+                    {labels[key] ?? ''}
                   </th>
                 ))}
               </tr>
@@ -190,7 +269,7 @@ export default function ServicesList() {
             <tbody className="divide-y divide-slate-100">
               {!!error && (
                 <tr>
-                  <td colSpan={COLUMNS.length} className="px-4 py-12 text-center text-sm text-red-600">
+                  <td colSpan={span} className="px-4 py-12 text-center text-sm text-red-600">
                     {(error as Error)?.message || 'Failed to load the catalogue.'}
                   </td>
                 </tr>
@@ -198,7 +277,7 @@ export default function ServicesList() {
 
               {!error && isLoading && (
                 <tr>
-                  <td colSpan={COLUMNS.length} className="px-4 py-12 text-center text-sm text-slate-500">
+                  <td colSpan={span} className="px-4 py-12 text-center text-sm text-slate-500">
                     Loading…
                   </td>
                 </tr>
@@ -206,7 +285,7 @@ export default function ServicesList() {
 
               {!error && !isLoading && shown.length === 0 && (
                 <tr>
-                  <td colSpan={COLUMNS.length} className="px-4 py-12 text-center text-sm text-slate-500">
+                  <td colSpan={span} className="px-4 py-12 text-center text-sm text-slate-500">
                     No service yet.
                   </td>
                 </tr>
@@ -216,47 +295,7 @@ export default function ServicesList() {
                 !isLoading &&
                 shown.map((row) => (
                   <tr key={row.name} className="transition-colors hover:bg-slate-50">
-                    <td className="px-4 py-3">
-                      <button
-                        type="button"
-                        onClick={() => navigate(`/msp/services/${row.name}`)}
-                        className="text-sm font-semibold text-slate-900 transition-colors hover:text-blue-700"
-                      >
-                        {row.item_name}
-                      </button>
-                      <p className="text-xs text-slate-400">{row.name}</p>
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                      {SCOPE_LABEL[row.scope ?? ''] ?? 'Per user'}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3">
-                      <span className="inline-flex min-w-[2.5rem] justify-center rounded-lg bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 tabular-nums">
-                        {row.open_assignments}
-                      </span>
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600 tabular-nums">
-                      {row.customers}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3">
-                      <span
-                        className={`text-sm font-semibold tabular-nums ${
-                          row.priced_contracts ? 'text-emerald-600' : 'text-amber-600'
-                        }`}
-                      >
-                        {row.priced_contracts}
-                      </span>
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3">
-                      {row.disabled ? (
-                        <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500">
-                          RETIRED
-                        </span>
-                      ) : (
-                        <span className="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
-                          OFFERED
-                        </span>
-                      )}
-                    </td>
+                    {visible.map((key) => cell(key, row))}
                     <td className="whitespace-nowrap px-4 py-3">
                       <div className="flex justify-end">
                         <RowActionsMenu
@@ -328,11 +367,19 @@ export default function ServicesList() {
         </div>
       )}
 
-      <ExportColumnsModal
+      <ColumnsModal
+        open={choosingColumns}
+        mode="listing"
+        catalogue={INTERNAL_SERVICE_LIST}
+        onClose={() => setChoosingColumns(false)}
+        onConfirm={(choice) => setVisible(choice.columns)}
+      />
+
+      <ColumnsModal
         open={picking}
         catalogue={INTERNAL_SERVICES}
         onClose={() => setPicking(false)}
-        onExport={(picks) => internal.exportServices(query, picks)}
+        onConfirm={(picks) => internal.exportServices(query, picks)}
       />
     </div>
   );

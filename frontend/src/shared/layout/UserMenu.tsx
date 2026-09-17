@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { Building2, ChevronDown, LogOut, Mail, ShieldCheck } from 'lucide-react';
+import { Building2, ChevronDown, LayoutGrid, LogOut, Mail, ShieldCheck } from 'lucide-react';
 import { logout } from '@/lib/api/client';
 import MyTwoFactorModal from '@/features/auth/components/MyTwoFactorModal';
 import { useSession } from '@/shared/hooks/useSession';
@@ -31,6 +31,8 @@ const UserMenu: React.FC = () => {
   const menuRef = useRef<HTMLDivElement>(null);
 
   const email = session?.user ?? '';
+  // only an account Frappe lets onto the desk is offered the way there
+  const reachesDesk = session?.user_type === 'System User';
   const fullName = session?.full_name || email;
   const initials = getInitials(session?.full_name, email);
 
@@ -127,6 +129,19 @@ const UserMenu: React.FC = () => {
               <ShieldCheck size={15} className="shrink-0" />
               Two-factor authentication
             </button>
+
+            {reachesDesk && (
+              <a
+                href="/app"
+                target="_blank"
+                rel="noreferrer"
+                onClick={() => setOpen(false)}
+                className="flex w-full items-center gap-3 border-t border-slate-100 px-4 py-3 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900"
+              >
+                <LayoutGrid size={15} className="shrink-0" />
+                Open Desk
+              </a>
+            )}
 
             <button
               type="button"

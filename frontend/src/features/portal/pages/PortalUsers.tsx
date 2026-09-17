@@ -3,8 +3,11 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Eye, FilePlus2, UserCheck, UserX, Users } from 'lucide-react';
 import DataTable from '@/shared/components/DataTable';
 import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
-import ExportColumnsModal from '@/shared/components/ExportColumnsModal';
-import { PORTAL_USERS } from '@/shared/exportColumns';
+import ColumnsModal from '@/shared/components/ColumnsModal';
+import { PORTAL_USERS, loadChoice } from '@/shared/exportColumns';
+import { PORTAL_USER_LIST } from '@/shared/listColumns';
+import StatusBadge from '@/shared/components/StatusBadge';
+import type { ClientUser } from '@/lib/api/portal';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import KpiCard from '@/shared/components/KpiCard';
 import * as portal from '@/lib/api/portal';
@@ -12,12 +15,13 @@ import { useClientUserPage, usePortalFilterOptions, usePortalSummary, useSubscri
 import { useMyApprovalRights } from '../hooks/usePortal';
 import { usePortalFilters } from '../store/usePortalFilters';
 
-const COLUMNS = ['User', 'Department', 'Device', 'Active services', 'Inactive services', ''];
-
 const EMPTY: FilterState = { status: '', service: '' };
 
 export default function PortalUsers() {
   const [picking, setPicking] = useState(false);
+  const [choosingColumns, setChoosingColumns] = useState(false);
+  // what this person chose to see, kept in their browser
+  const [shown, setShown] = useState(() => loadChoice(PORTAL_USER_LIST).columns);
   const rights = useMyApprovalRights();
   const canSubmit = rights.data?.can_submit !== false;
   const navigate = useNavigate();
@@ -44,6 +48,104 @@ export default function PortalUsers() {
   });
 
   const rows = list.data?.rows ?? [];
+  const labels = Object.fromEntries(PORTAL_USER_LIST.columns.map((column) => [column.key, column.label]));
+
+  const cell = (key: string, row: ClientUser) => {
+    switch (key) {
+      case 'user':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3">
+            <button
+              type="button"
+              onClick={() => navigate(`/msp/users/${row.name}`)}
+              className="text-sm font-semibold text-slate-900 transition-colors hover:text-blue-700"
+            >
+              {row.full_name}
+            </button>
+            {row.username && <p className="text-xs text-slate-500">{row.username}</p>}
+            {row.email && <p className="text-xs text-slate-400">{row.email}</p>}
+          </td>
+        );
+      case 'status':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3">
+            <StatusBadge value={row.lifecycle_status} />
+          </td>
+        );
+      case 'devices':
+        return (
+          <td key={key} className="max-w-[14rem] px-4 py-3">
+            {row.hostnames ? (
+              <>
+                <p className="truncate text-sm text-slate-700" title={row.hostnames}>
+                  {row.hostnames}
+                </p>
+                {row.device_type && <p className="text-xs text-slate-400">{row.device_type}</p>}
+              </>
+            ) : (
+              <span className="text-sm text-slate-400">N/A</span>
+            )}
+          </td>
+        );
+      case 'active_services':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3">
+            <span className="inline-flex min-w-[2rem] justify-center rounded-lg bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 tabular-nums">
+              {row.active_services}
+            </span>
+          </td>
+        );
+      case 'inactive_services':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3">
+            <span
+              className={`inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-1 text-xs font-semibold tabular-nums ${
+                row.inactive_services ? 'bg-slate-100 text-slate-600' : 'bg-transparent text-slate-300'
+              }`}
+            >
+              {row.inactive_services}
+            </span>
+          </td>
+        );
+      case 'open_requests':
+      case 'current_devices':
+      case 'personal_services':
+      case 'device_services':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3">
+            <span
+              className={`inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-1 text-xs font-semibold tabular-nums ${
+                row[key]
+                  ? key === 'open_requests'
+                    ? 'bg-blue-50 text-blue-700'
+                    : 'bg-slate-100 text-slate-600'
+                  : 'bg-transparent text-slate-300'
+              }`}
+            >
+              {row[key] ?? 0}
+            </span>
+          </td>
+        );
+      case 'start_date':
+      case 'disabled_date':
+      case 'last_billed_on':
+      case 'covered_until':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+            {row[key] ? String(row[key]).slice(0, 10) : 'N/A'}
+          </td>
+        );
+      default: {
+        const value = row[key as 'username' | 'department' | 'serial_numbers' | 'services'];
+
+        return (
+          <td key={key} className="max-w-[16rem] px-4 py-3 text-sm text-slate-600">
+            {value ? <span className="line-clamp-2" title={value}>{value}</span> : <span className="text-slate-400">N/A</span>}
+          </td>
+        );
+      }
+    }
+  };
 
   const apply = (values: FilterState) => {
     setFilters(values);
@@ -96,6 +198,7 @@ export default function PortalUsers() {
         onClear={() => apply(EMPTY)}
         onRefresh={() => list.refetch()}
         onExport={() => setPicking(true)}
+        onColumns={() => setChoosingColumns(true)}
         fields={[
           {
             key: 'service',
@@ -122,7 +225,7 @@ export default function PortalUsers() {
 
       <DataTable
         title="People"
-        columns={COLUMNS}
+        columns={[...shown.map((key) => labels[key]), '']}
         rowCount={rows.length}
         isLoading={list.isLoading}
         error={list.error}
@@ -140,48 +243,7 @@ export default function PortalUsers() {
       >
         {rows.map((row) => (
           <tr key={row.name} className="transition-colors hover:bg-slate-50">
-            <td className="whitespace-nowrap px-4 py-3">
-              <button
-                type="button"
-                onClick={() => navigate(`/msp/users/${row.name}`)}
-                className="text-sm font-semibold text-slate-900 transition-colors hover:text-blue-700"
-              >
-                {row.full_name}
-              </button>
-              {row.username && <p className="text-xs text-slate-500">{row.username}</p>}
-              {row.email && <p className="text-xs text-slate-400">{row.email}</p>}
-            </td>
-            <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-              {row.department || 'N/A'}
-            </td>
-            <td className="max-w-[14rem] px-4 py-3">
-              {row.hostnames ? (
-                <>
-                  <p className="truncate text-sm text-slate-700" title={row.hostnames}>
-                    {row.hostnames}
-                  </p>
-                  {row.device_type && <p className="text-xs text-slate-400">{row.device_type}</p>}
-                </>
-              ) : (
-                <span className="text-sm text-slate-400">N/A</span>
-              )}
-            </td>
-            <td className="whitespace-nowrap px-4 py-3">
-              <span className="inline-flex min-w-[2rem] justify-center rounded-lg bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 tabular-nums">
-                {row.active_services}
-              </span>
-            </td>
-            <td className="whitespace-nowrap px-4 py-3">
-              <span
-                className={`inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-1 text-xs font-semibold tabular-nums ${
-                  row.inactive_services
-                    ? 'bg-slate-100 text-slate-600'
-                    : 'bg-transparent text-slate-300'
-                }`}
-              >
-                {row.inactive_services}
-              </span>
-            </td>
+            {shown.map((key) => cell(key, row))}
             <td className="whitespace-nowrap px-4 py-3">
               <div className="flex justify-end">
                 <RowActionsMenu
@@ -209,11 +271,19 @@ export default function PortalUsers() {
         ))}
       </DataTable>
 
-      <ExportColumnsModal
+      <ColumnsModal
+        open={choosingColumns}
+        mode="listing"
+        catalogue={PORTAL_USER_LIST}
+        onClose={() => setChoosingColumns(false)}
+        onConfirm={(choice) => setShown(choice.columns)}
+      />
+
+      <ColumnsModal
         open={picking}
         catalogue={PORTAL_USERS}
         onClose={() => setPicking(false)}
-        onExport={(picks) =>
+        onConfirm={(picks) =>
           portal.exportMyPeople(
             {
               customer: customer || undefined,

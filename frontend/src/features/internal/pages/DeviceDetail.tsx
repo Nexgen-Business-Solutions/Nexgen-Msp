@@ -101,6 +101,7 @@ const asDeviceRow = (data: DeviceDetailData): DeviceRow => ({
     ['Ended', 'Cancelled'].includes(row.operational_status)
   ).length,
   has_services: 0,
+  manufacturer: data.device.manufacturer,
   model: data.device.model,
   operating_system: data.device.operating_system,
   interfaces: data.interfaces,
@@ -289,10 +290,8 @@ export default function DeviceDetail() {
               <Fact label="Type" value={device.device_type || 'N/A'} />
               <Fact label="In service since" value={fmtDate(device.assigned_date)} />
               <Fact label="Serial number" value={device.serial_number || 'N/A'} />
-              <Fact
-                label="Model"
-                value={[device.manufacturer, device.model].filter(Boolean).join(' ') || 'N/A'}
-              />
+              <Fact label="Manufacturer" value={device.manufacturer || 'N/A'} />
+              <Fact label="Model" value={device.model || 'N/A'} />
               <Fact label="Operating system" value={device.operating_system || 'N/A'} />
               <Fact
                 label="Billed up to"

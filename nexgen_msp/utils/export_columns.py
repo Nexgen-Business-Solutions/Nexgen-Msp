@@ -186,8 +186,11 @@ def fill_people_extras(rows):
             row.update({key: value for key, value in found.items() if key != "name"})
 
 
-def fill_device_extras(rows):
-    """The same, for machines: who holds one, who held it before, and up to when it is billed."""
+def fill_device_extras(rows, with_history=True):
+    """The same, for machines: who holds one, who held it before, and up to when it is billed.
+
+    The history is read machine by machine, so a list page leaves it to the sheet.
+    """
     from nexgen_msp.utils import device_holders
 
     names = [row.get("name") for row in rows if row.get("name")]
@@ -223,6 +226,9 @@ def fill_device_extras(rows):
 
         if found:
             row.update({key: value for key, value in found.items() if key != "name"})
+
+        if not with_history:
+            continue
 
         # who held it before, so a sheet tells the whole story of the machine
         row["previous_holders"] = " | ".join(

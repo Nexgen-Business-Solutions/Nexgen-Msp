@@ -23,6 +23,8 @@ export type ExportCatalogue = {
   /** the lists whose rows carry services */
   serviceFields?: ExportColumn[];
   serviceDefaults?: string[];
+  /** how many columns may be picked at most, the always-written ones included */
+  limit?: number;
 };
 
 const SERVICE_FIELDS: ExportColumn[] = [
@@ -314,11 +316,21 @@ export const ordered = (catalogue: ExportCatalogue, keys: string[]): string[] =>
 };
 
 export const defaultChoice = (catalogue: ExportCatalogue): ExportChoice => ({
-  columns: ordered(catalogue, catalogue.defaults),
+  columns: withinLimit(catalogue, ordered(catalogue, catalogue.defaults)),
   serviceColumns: [...(catalogue.serviceDefaults ?? [])],
 });
 
-const storageKey = (catalogue: ExportCatalogue) => `msp:export-columns:${catalogue.id}`;
+/** A pick trimmed to the limit, keeping what is always written and the first of the rest. */
+const withinLimit = (catalogue: ExportCatalogue, keys: string[]): string[] => {
+  if (!catalogue.limit || keys.length <= catalogue.limit) return keys;
+
+  const kept = required(catalogue);
+  const rest = keys.filter((key) => !kept.includes(key)).slice(0, catalogue.limit - kept.length);
+
+  return ordered(catalogue, [...kept, ...rest]);
+};
+
+const storageKey = (catalogue: ExportCatalogue) => `msp:columns:${catalogue.id}`;
 
 export const loadChoice = (catalogue: ExportCatalogue): ExportChoice => {
   try {
@@ -330,7 +342,10 @@ export const loadChoice = (catalogue: ExportCatalogue): ExportChoice => {
     const knownServices = new Set((catalogue.serviceFields ?? []).map((field) => field.key));
 
     return {
-      columns: ordered(catalogue, (saved.columns ?? []).filter((key) => known.has(key))),
+      columns: withinLimit(
+        catalogue,
+        ordered(catalogue, (saved.columns ?? []).filter((key) => known.has(key)))
+      ),
       serviceColumns: (saved.serviceColumns ?? []).filter((key) => knownServices.has(key)),
     };
   } catch {

@@ -394,6 +394,9 @@ class UserService:
         serial_number=None,
         remarks=None,
         source_request=None,
+        manufacturer=None,
+        model=None,
+        operating_system=None,
     ):
         """Register hardware for a user. No billing impact until a service is attached to it."""
         from nexgen_msp.api.internal.services.device_service import DeviceService
@@ -413,6 +416,9 @@ class UserService:
             interfaces=interfaces,
             remarks=remarks,
             source_request=source_request,
+            manufacturer=manufacturer,
+            model=model,
+            operating_system=operating_system,
         )
 
         return UserService.get_user(client_user)

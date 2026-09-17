@@ -379,6 +379,9 @@ export const executeDeviceProvisioning = (payload: {
   effective_date?: string;
   confirm_transfer?: number;
   notes?: string;
+  manufacturer?: string;
+  model?: string;
+  operating_system?: string;
 }) => post<ExecutionPlan>(`${BASE}.execute_device_provisioning`, payload);
 
 export const executeServiceAction = (payload: {
@@ -566,6 +569,9 @@ export type UserRow = {
   current_devices: number;
   open_requests: number;
   needs_attention: number;
+  serial_numbers?: string | null;
+  last_billed_on?: string | null;
+  covered_until?: string | null;
 };
 
 export type UserDevice = {
@@ -1350,6 +1356,9 @@ export const addUserDevice = (payload: {
   assigned_date?: string;
   interfaces?: DeviceInterface[];
   source_request?: string;
+  manufacturer?: string;
+  model?: string;
+  operating_system?: string;
 }) =>
   post<UserDetail>(`${BASE}.add_user_device`, {
     ...payload,
@@ -1404,6 +1413,11 @@ export type DeviceRow = {
   has_services: number;
   model?: string | null;
   operating_system?: string | null;
+  manufacturer?: string | null;
+  retired_date?: string | null;
+  services?: string | null;
+  last_billed_on?: string | null;
+  covered_until?: string | null;
   interfaces?: DeviceInterface[];
 };
 
@@ -1465,6 +1479,7 @@ export const updateManagedDevice = (payload: {
   remarks?: string;
   model?: string;
   operating_system?: string;
+  manufacturer?: string;
 }) =>
   post<{ name: string; hostname: string }>(`${BASE}.update_managed_device`, {
     ...payload,
@@ -1601,6 +1616,9 @@ export const createManagedDevice = (payload: {
   assigned_date?: string;
   interfaces?: DeviceInterface[];
   source_request?: string;
+  manufacturer?: string;
+  model?: string;
+  operating_system?: string;
 }) =>
   post<{ name: string; hostname: string; customer: string }>(`${BASE}.create_managed_device`, {
     ...payload,

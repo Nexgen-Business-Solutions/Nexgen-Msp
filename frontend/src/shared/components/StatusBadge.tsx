@@ -24,6 +24,10 @@ const PALETTE: Record<string, string> = {
   Posted: DONE,
   Rejected: OFF,
   Disabled: OFF,
+  // a machine out of the fleet
+  Retired: OFF,
+  Damaged: OFF,
+  Lost: OFF,
 };
 
 const StatusBadge: React.FC<{ value?: string | null; className?: string }> = ({

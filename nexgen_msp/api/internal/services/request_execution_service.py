@@ -901,6 +901,9 @@ class RequestExecutionService:
 		effective_date=None,
 		confirm_transfer=None,
 		notes=None,
+		manufacturer=None,
+		model=None,
+		operating_system=None,
 	):
 		"""Settle the machine a request needs: one already on the shelf, or a new one.
 
@@ -929,7 +932,8 @@ class RequestExecutionService:
 		try:
 			if mode == "new":
 				device = RequestExecutionService._register_device(
-					doc.customer, hostname, serial_number, device_type, interfaces
+					doc.customer, hostname, serial_number, device_type, interfaces,
+					manufacturer=manufacturer, model=model, operating_system=operating_system,
 				)
 				action = "Register Device"
 			else:
@@ -1588,7 +1592,10 @@ class RequestExecutionService:
 		frappe.db.set_value("MSP Managed Device", device, "serial_number", serial)
 
 	@staticmethod
-	def _register_device(customer, hostname, serial_number, device_type, interfaces):
+	def _register_device(
+		customer, hostname, serial_number, device_type, interfaces,
+		manufacturer=None, model=None, operating_system=None,
+	):
 		"""Put a machine on file. It reaches its holder through the device domain, not here."""
 		hostname = (hostname or "").strip()
 		serial_number = (serial_number or "").strip()
@@ -1623,6 +1630,9 @@ class RequestExecutionService:
 				"serial_number": serial_number,
 				"device_type": device_type or "Other",
 				"status": "Stock",
+				"manufacturer": (manufacturer or "").strip() or None,
+				"model": (model or "").strip() or None,
+				"operating_system": (operating_system or "").strip() or None,
 				"network_interfaces": [
 					{
 						"interface_type": interface.get("interface_type") or "Other",

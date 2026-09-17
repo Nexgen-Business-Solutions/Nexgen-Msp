@@ -267,3 +267,53 @@ class TestTheSheetIsTheListYouWereLookingAt(MSPTestCase):
             frappe.set_user("Administrator")
 
         self.assertEqual(self.written(), [frappe.db.get_value("MSP Client User", self.gone, "full_name")])
+
+
+class TestTheCustomerListCarriesWhatOursDoes(MSPTestCase):
+    """The columns a customer may show are ours, so their rows carry the same facts."""
+
+    def setUp(self):
+        super().setUp()
+        self.tag = frappe.generate_hash(length=6)
+        self.customer = self.make_customer(self.tag)
+        self.track("MSP Approval Authority", self.customer)
+        self.john = self.make_person(self.customer, "John")
+        self.laptop = self.make_device(
+            self.customer, hostname=f"LST{self.tag[:3]}", holder=self.john, serial=f"LS-{self.tag}"
+        )
+        self.manager = self.make_account(
+            "customer", "MSP Customer Manager", self.customer, suffix=f"ls{self.tag[:3]}"
+        )
+
+    def as_manager(self, fn):
+        frappe.set_user(self.manager)
+        try:
+            return fn()
+        finally:
+            frappe.set_user("Administrator")
+
+    def test_a_person_row_carries_serials_counts_and_billing_dates(self):
+        from nexgen_msp.api.portal.services.portal_service import PortalService
+
+        rows = self.as_manager(lambda: PortalService.list_client_users(page_length=50))["rows"]
+        john = next(row for row in rows if row["name"] == self.john)
+
+        for key in (
+            "serial_numbers", "current_devices", "personal_services", "device_services",
+            "open_requests", "last_billed_on", "covered_until",
+        ):
+            self.assertIn(key, john)
+        self.assertEqual(john["serial_numbers"], f"LS-{self.tag}")
+        self.assertEqual(john["current_devices"], 1)
+
+    def test_a_machine_row_carries_the_department_and_billing_dates(self):
+        from nexgen_msp.api.portal.services.portal_service import PortalService
+
+        rows = self.as_manager(lambda: PortalService.list_devices(page_length=50))["rows"]
+        laptop = next(row for row in rows if row["name"] == self.laptop)
+
+        for key in ("user_department", "last_billed_on", "covered_until"):
+            self.assertIn(key, laptop)
+        # the history is read machine by machine, so a list page leaves it to the sheet
+        self.assertNotIn("previous_holders", laptop)
+

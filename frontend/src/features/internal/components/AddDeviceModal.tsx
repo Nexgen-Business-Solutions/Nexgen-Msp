@@ -7,10 +7,13 @@ import FieldLabel from '@/shared/components/FieldLabel';
 import Select from '@/shared/components/Select';
 import type { CustomerRequestRef, DeviceInterface } from '@/lib/api/internal';
 import RequestReferenceField from './RequestReferenceField';
-import { useAddDevice } from '../hooks/useUsers';
+import { useAddDevice, useCustomerRequests } from '../hooks/useUsers';
 import { useExecuteDeviceProvisioning } from '../hooks/useRequests';
 import {
+  useCreateDevice,
   useCustomerDevices,
+  useCustomerUsers,
+  useDeviceFilterOptions,
   useHandOverDevice,
   useHostnameMatch,
   useSerialMatch,
@@ -18,9 +21,10 @@ import {
 
 type Props = {
   open: boolean;
-  clientUser: string;
-  userName: string;
-  customer: string;
+  /** The person the machine goes to. Left out, the customer and the holder are picked here. */
+  clientUser?: string;
+  userName?: string;
+  customer?: string;
   deviceTypes: string[];
   interfaceTypes: string[];
   requests: CustomerRequestRef[];
@@ -45,9 +49,9 @@ const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) :
 
 const AddDeviceModal: React.FC<Props> = ({
   open,
-  clientUser,
-  userName,
-  customer,
+  clientUser = '',
+  userName = '',
+  customer: givenCustomer = '',
   deviceTypes,
   interfaceTypes,
   requests,
@@ -58,6 +62,15 @@ const AddDeviceModal: React.FC<Props> = ({
   onClose,
 }) => {
   const navigate = useNavigate();
+  // opened from the devices list: nobody is named yet, so the customer comes first
+  const standalone = !clientUser && !workOrder;
+  const [pickedCustomer, setPickedCustomer] = useState('');
+  const [holder, setHolder] = useState('');
+  const customer = standalone ? pickedCustomer : givenCustomer;
+  const customerOptions = useDeviceFilterOptions();
+  const people = useCustomerUsers(standalone && open ? pickedCustomer : null);
+  const customerRequests = useCustomerRequests(standalone && open ? pickedCustomer : null);
+  const create = useCreateDevice();
   const add = useAddDevice(clientUser);
   const handOver = useHandOverDevice();
   const provision = useExecuteDeviceProvisioning();
@@ -75,6 +88,9 @@ const AddDeviceModal: React.FC<Props> = ({
   const [serial, setSerial] = useState('');
   const [assignedDate, setAssignedDate] = useState(today());
   const [sourceRequest, setSourceRequest] = useState('');
+  const [manufacturer, setManufacturer] = useState('');
+  const [model, setModel] = useState('');
+  const [operatingSystem, setOperatingSystem] = useState('');
   const [interfaces, setInterfaces] = useState<DeviceInterface[]>([
     { interface_type: 'Wi-Fi', mac_address: '' },
     { interface_type: 'LAN', mac_address: '' },
@@ -94,6 +110,12 @@ const AddDeviceModal: React.FC<Props> = ({
     setSerial(initial?.serial_number ?? '');
     setAssignedDate(today());
     setSourceRequest(defaultRequest ?? '');
+    setManufacturer('');
+    setModel('');
+    setOperatingSystem('');
+    setPickedCustomer('');
+    setHolder('');
+    create.reset();
     setInterfaces([
       { interface_type: 'Wi-Fi', mac_address: '' },
       { interface_type: 'LAN', mac_address: '' },
@@ -166,6 +188,13 @@ const AddDeviceModal: React.FC<Props> = ({
     }
   };
 
+  // what the case says about the machine, whichever way it is registered
+  const hardware = {
+    manufacturer: manufacturer.trim() || undefined,
+    model: model.trim() || undefined,
+    operating_system: operatingSystem.trim() || undefined,
+  };
+
   const submit = async () => {
     try {
       if (workOrder) {
@@ -177,6 +206,22 @@ const AddDeviceModal: React.FC<Props> = ({
           device_type: deviceType || undefined,
           interfaces: interfaces.filter((item) => item.mac_address.trim()),
           effective_date: assignedDate || undefined,
+          ...hardware,
+        });
+        onClose();
+        return;
+      }
+      if (standalone) {
+        await create.mutateAsync({
+          customer: pickedCustomer,
+          hostname: hostname.trim(),
+          device_type: deviceType || undefined,
+          serial_number: serial.trim() || undefined,
+          assigned_client_user: holder || undefined,
+          assigned_date: assignedDate || undefined,
+          interfaces: interfaces.filter((item) => item.mac_address.trim()),
+          source_request: sourceRequest || undefined,
+          ...hardware,
         });
         onClose();
         return;
@@ -189,6 +234,7 @@ const AddDeviceModal: React.FC<Props> = ({
         assigned_date: assignedDate || undefined,
         interfaces: interfaces.filter((item) => item.mac_address.trim()),
         source_request: sourceRequest || undefined,
+        ...hardware,
       });
 
       onClose();
@@ -203,9 +249,11 @@ const AddDeviceModal: React.FC<Props> = ({
       onClose={onClose}
       icon={Laptop}
       tone="indigo"
-      title={workOrder ? 'Assign a device' : 'Add a device'}
+      title={workOrder ? 'Assign a device' : standalone ? 'New device' : 'Add a device'}
       subtitle={
-        workOrder
+        standalone
+          ? 'Register a machine for a customer. Leave the holder empty to keep it in stock.'
+          : workOrder
           ? `For ${userName}${needs.length ? ` · needed by ${needs.join(', ')}` : ''}`
           : mode === 'new'
           ? `Register hardware for ${userName}. Services are attached separately, through a request.`
@@ -226,7 +274,13 @@ const AddDeviceModal: React.FC<Props> = ({
             onClick={mode === 'new' ? submit : handOverExisting}
             disabled={
               mode === 'new'
-                ? !hostname.trim() || !serial.trim() || Boolean(serialTaken) || add.isLoading || provision.isLoading
+                ? !hostname.trim() ||
+                  !serial.trim() ||
+                  (standalone && !pickedCustomer) ||
+                  Boolean(serialTaken) ||
+                  add.isLoading ||
+                  create.isLoading ||
+                  provision.isLoading
                 : !existing ||
                   !handOverDate ||
                   (serialMissing && !existingSerial.trim()) ||
@@ -235,7 +289,7 @@ const AddDeviceModal: React.FC<Props> = ({
             }
             className="flex min-w-[7rem] items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {add.isLoading || handOver.isLoading || provision.isLoading ? (
+            {add.isLoading || create.isLoading || handOver.isLoading || provision.isLoading ? (
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
             ) : mode === 'new' ? (
               workOrder ? 'Register & assign' : 'Add device'
@@ -249,6 +303,48 @@ const AddDeviceModal: React.FC<Props> = ({
       }
     >
       <div className="space-y-5">
+        {standalone && (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <FieldLabel required>Customer</FieldLabel>
+              <Select
+                searchable
+                className="w-full"
+                value={pickedCustomer}
+                onChange={(value) => {
+                  setPickedCustomer(value);
+                  setHolder('');
+                  setSourceRequest('');
+                }}
+                placeholder="Select a customer"
+                options={(customerOptions.data?.customers ?? []).map((item) => ({
+                  value: item,
+                  label: item,
+                }))}
+              />
+            </div>
+            <div>
+              <FieldLabel>Held by</FieldLabel>
+              <Select
+                searchable
+                className="w-full"
+                value={holder}
+                onChange={setHolder}
+                placeholder={pickedCustomer ? 'Nobody' : 'Pick the customer first'}
+                options={[
+                  { value: '', label: 'Nobody', description: 'Keep it in stock' },
+                  ...(people.data ?? []).map((item) => ({
+                    value: item.name,
+                    label: item.full_name,
+                    description: item.department ?? undefined,
+                  })),
+                ]}
+              />
+            </div>
+          </div>
+        )}
+
+        {!standalone && (
         <div className="inline-flex rounded-lg bg-slate-200/70 p-1">
           <button
             type="button"
@@ -269,6 +365,7 @@ const AddDeviceModal: React.FC<Props> = ({
             Existing device
           </button>
         </div>
+        )}
 
         {mode === 'existing' && (
           <div className="space-y-4">
@@ -443,7 +540,7 @@ const AddDeviceModal: React.FC<Props> = ({
                     Open it
                     <ArrowUpRight size={13} />
                   </button>
-                  {taken.same_customer && (
+                  {taken.same_customer && !standalone && (
                     <button
                       type="button"
                       onClick={() => {
@@ -508,6 +605,39 @@ const AddDeviceModal: React.FC<Props> = ({
               className={inputClass}
             />
           </div>
+          <div>
+            <span className={labelClass}>Manufacturer</span>
+            <input
+              type="text"
+              value={manufacturer}
+              onChange={(event) => setManufacturer(event.target.value)}
+              placeholder="Dell, HP, Lenovo…"
+              aria-label="Manufacturer"
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <span className={labelClass}>Model</span>
+            <input
+              type="text"
+              value={model}
+              onChange={(event) => setModel(event.target.value)}
+              placeholder="What the case says"
+              aria-label="Model"
+              className={inputClass}
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <span className={labelClass}>Operating system</span>
+            <input
+              type="text"
+              value={operatingSystem}
+              onChange={(event) => setOperatingSystem(event.target.value)}
+              placeholder="Windows 11 Pro"
+              aria-label="Operating system"
+              className={inputClass}
+            />
+          </div>
         </div>
 
         )}
@@ -516,19 +646,19 @@ const AddDeviceModal: React.FC<Props> = ({
           <InterfaceEditor value={interfaces} onChange={setInterfaces} suggestions={interfaceTypes} />
         )}
 
-        {mode === 'new' && !workOrder && (
+        {mode === 'new' && !workOrder && (!standalone || pickedCustomer) && (
           <RequestReferenceField
-            requests={requests}
+            requests={standalone ? customerRequests.data ?? [] : requests}
             value={sourceRequest}
             onChange={setSourceRequest}
           />
         )}
 
-        {mode === 'new' && (add.error ?? provision.error) instanceof Error && (
+        {mode === 'new' && (add.error ?? create.error ?? provision.error) instanceof Error && (
           <div className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
             <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
             <span className="text-sm font-medium text-red-700">
-              {((add.error ?? provision.error) as Error).message}
+              {((add.error ?? create.error ?? provision.error) as Error).message}
             </span>
           </div>
         )}

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Download, RefreshCw, Search, SlidersHorizontal, X } from 'lucide-react';
+import { Columns3, Download, RefreshCw, Search, SlidersHorizontal, X } from 'lucide-react';
 import Select, { type SelectOption } from './Select';
 import MultiSelect from './MultiSelect';
 import Modal from './Modal';
@@ -53,6 +53,8 @@ type Props = {
   };
   /** Where the sheet of the current selection is served from. */
   onExport?: () => void;
+  /** Opens the choice of which columns the list shows. */
+  onColumns?: () => void;
 };
 
 const inputClass =
@@ -87,6 +89,7 @@ const FilterBar: React.FC<Props> = ({
   onRefresh,
   toggle,
   onExport,
+  onColumns,
 }) => {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<FilterState>(values);
@@ -193,6 +196,18 @@ const FilterBar: React.FC<Props> = ({
                 {activeCount}
               </span>
             )}
+          </button>
+        )}
+
+        {onColumns && (
+          <button
+            type="button"
+            onClick={onColumns}
+            className={ghost}
+            title="Choose the columns this list shows"
+          >
+            <Columns3 size={16} />
+            <span className="hidden lg:inline">Columns</span>
           </button>
         )}
 

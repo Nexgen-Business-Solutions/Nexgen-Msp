@@ -51,6 +51,13 @@ export type ClientUser = {
   start_date: string | null;
   disabled_date: string | null;
   customer: string;
+  open_requests?: number;
+  serial_numbers?: string | null;
+  current_devices?: number;
+  personal_services?: number;
+  device_services?: number;
+  last_billed_on?: string | null;
+  covered_until?: string | null;
 };
 
 export type ManagedDevice = {
@@ -70,6 +77,9 @@ export type ManagedDevice = {
   active_services: number;
   inactive_services: number;
   services: string | null;
+  user_department?: string | null;
+  last_billed_on?: string | null;
+  covered_until?: string | null;
   interfaces?: { interface_type: string; mac_address: string }[];
 };
 

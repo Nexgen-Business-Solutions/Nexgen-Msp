@@ -3,16 +3,17 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { FilePlus2, Laptop, ShieldAlert, UserX } from 'lucide-react';
 import DataTable from '@/shared/components/DataTable';
 import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
-import ExportColumnsModal from '@/shared/components/ExportColumnsModal';
-import { PORTAL_DEVICES } from '@/shared/exportColumns';
+import ColumnsModal from '@/shared/components/ColumnsModal';
+import { PORTAL_DEVICES, loadChoice } from '@/shared/exportColumns';
+import { PORTAL_DEVICE_LIST } from '@/shared/listColumns';
+import StatusBadge from '@/shared/components/StatusBadge';
+import type { ManagedDevice } from '@/lib/api/portal';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import KpiCard from '@/shared/components/KpiCard';
 import * as portal from '@/lib/api/portal';
 import { useDevicePage, usePortalFilterOptions, usePortalSummary, useSubscribedServices } from '../hooks/usePortal';
 import { useMyApprovalRights } from '../hooks/usePortal';
 import { usePortalFilters } from '../store/usePortalFilters';
-
-const COLUMNS = ['Device', 'Network interfaces', 'Active services', 'Inactive services', ''];
 
 const INTERFACE_LABEL: Record<string, string> = {
   'Wi-Fi': 'MAC WIFI',
@@ -27,6 +28,9 @@ const EMPTY: FilterState = { status: '', service: '', coverage: '' };
 
 export default function PortalDevices() {
   const [picking, setPicking] = useState(false);
+  const [choosingColumns, setChoosingColumns] = useState(false);
+  // what this person chose to see, kept in their browser
+  const [shown, setShown] = useState(() => loadChoice(PORTAL_DEVICE_LIST).columns);
   const rights = useMyApprovalRights();
   const canSubmit = rights.data?.can_submit !== false;
   const navigate = useNavigate();
@@ -54,6 +58,113 @@ export default function PortalDevices() {
   });
 
   const rows = list.data?.rows ?? [];
+  const labels = Object.fromEntries(PORTAL_DEVICE_LIST.columns.map((column) => [column.key, column.label]));
+
+  const cell = (key: string, row: ManagedDevice) => {
+    switch (key) {
+      case 'device':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3">
+            <p className="text-sm font-semibold text-slate-900">{row.hostname}</p>
+            {row.serial_number ? (
+              <p className="mt-0.5 font-mono text-xs text-slate-500">{row.serial_number}</p>
+            ) : (
+              <p className="mt-0.5 text-xs text-slate-300">No serial</p>
+            )}
+          </td>
+        );
+      case 'held_by':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3">
+            {row.assigned_client_user ? (
+              <button
+                type="button"
+                onClick={() => navigate(`/msp/users/${row.assigned_client_user}`)}
+                className="text-sm text-blue-600 transition-colors hover:text-blue-800 hover:underline"
+              >
+                {row.assigned_user_name || row.assigned_client_user}
+              </button>
+            ) : (
+              <span className="text-sm text-slate-400">Unassigned</span>
+            )}
+          </td>
+        );
+      case 'status':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3">
+            <StatusBadge value={row.status} />
+          </td>
+        );
+      case 'interfaces':
+        return (
+          <td key={key} className="px-4 py-3">
+            {row.interfaces?.length ? (
+              <div className="space-y-1">
+                {[...row.interfaces]
+                  .sort(
+                    (a, b) =>
+                      INTERFACE_ORDER.indexOf(a.interface_type) -
+                      INTERFACE_ORDER.indexOf(b.interface_type)
+                  )
+                  .map((item) => (
+                    <div
+                      key={`${item.interface_type}-${item.mac_address}`}
+                      className="flex items-baseline gap-3"
+                    >
+                      <span className="w-[5.5rem] shrink-0 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                        {INTERFACE_LABEL[item.interface_type] ?? item.interface_type}
+                      </span>
+                      <span className="font-mono text-xs tracking-tight text-slate-800">
+                        {item.mac_address}
+                      </span>
+                    </div>
+                  ))}
+              </div>
+            ) : (
+              <span className="text-sm text-slate-400">N/A</span>
+            )}
+          </td>
+        );
+      case 'active_services':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3">
+            <span className="inline-flex min-w-[2rem] justify-center rounded-lg bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 tabular-nums">
+              {row.active_services}
+            </span>
+          </td>
+        );
+      case 'inactive_services':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3">
+            <span
+              className={`inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-1 text-xs font-semibold tabular-nums ${
+                row.inactive_services ? 'bg-slate-100 text-slate-600' : 'bg-transparent text-slate-300'
+              }`}
+            >
+              {row.inactive_services}
+            </span>
+          </td>
+        );
+      case 'assigned_date':
+      case 'retired_date':
+      case 'last_billed_on':
+      case 'covered_until':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+            {row[key] ? String(row[key]).slice(0, 10) : 'N/A'}
+          </td>
+        );
+      default: {
+        const value = row[key as 'device_type' | 'user_department' | 'manufacturer' | 'model' | 'operating_system' | 'services'];
+
+        return (
+          <td key={key} className="px-4 py-3 text-sm text-slate-600">
+            {value || <span className="text-slate-400">N/A</span>}
+          </td>
+        );
+      }
+    }
+  };
 
   const apply = (values: FilterState) => {
     setFilters(values);
@@ -106,6 +217,7 @@ export default function PortalDevices() {
         onClear={() => apply(EMPTY)}
         onRefresh={() => list.refetch()}
         onExport={() => setPicking(true)}
+        onColumns={() => setChoosingColumns(true)}
         fields={[
           {
             key: 'service',
@@ -139,7 +251,7 @@ export default function PortalDevices() {
 
       <DataTable
         title="Machines"
-        columns={COLUMNS}
+        columns={[...shown.map((key) => labels[key]), '']}
         rowCount={rows.length}
         isLoading={list.isLoading}
         error={list.error}
@@ -157,69 +269,7 @@ export default function PortalDevices() {
       >
         {rows.map((row) => (
           <tr key={row.name} className="transition-colors hover:bg-slate-50">
-            <td className="whitespace-nowrap px-4 py-3">
-              <p className="text-sm font-semibold text-slate-900">{row.hostname}</p>
-              {row.assigned_client_user ? (
-                <button
-                  type="button"
-                  onClick={() => navigate(`/msp/users/${row.assigned_client_user}`)}
-                  className="text-xs text-blue-600 transition-colors hover:text-blue-800 hover:underline"
-                >
-                  {row.assigned_user_name || row.assigned_client_user}
-                </button>
-              ) : (
-                <p className="text-xs text-slate-400">Unassigned</p>
-              )}
-              {row.serial_number ? (
-                <p className="mt-0.5 font-mono text-xs text-slate-500">{row.serial_number}</p>
-              ) : (
-                <p className="mt-0.5 text-xs text-slate-300">No serial</p>
-              )}
-              <p className="text-xs text-slate-400">{row.device_type}</p>
-            </td>
-            <td className="px-4 py-3">
-              {row.interfaces?.length ? (
-                <div className="space-y-1">
-                  {[...row.interfaces]
-                    .sort(
-                      (a, b) =>
-                        INTERFACE_ORDER.indexOf(a.interface_type) -
-                        INTERFACE_ORDER.indexOf(b.interface_type)
-                    )
-                    .map((item) => (
-                      <div
-                        key={`${item.interface_type}-${item.mac_address}`}
-                        className="flex items-baseline gap-3"
-                      >
-                        <span className="w-[5.5rem] shrink-0 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                          {INTERFACE_LABEL[item.interface_type] ?? item.interface_type}
-                        </span>
-                        <span className="font-mono text-xs tracking-tight text-slate-800">
-                          {item.mac_address}
-                        </span>
-                      </div>
-                    ))}
-                </div>
-              ) : (
-                <span className="text-sm text-slate-400">N/A</span>
-              )}
-            </td>
-            <td className="whitespace-nowrap px-4 py-3">
-              <span className="inline-flex min-w-[2rem] justify-center rounded-lg bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 tabular-nums">
-                {row.active_services}
-              </span>
-            </td>
-            <td className="whitespace-nowrap px-4 py-3">
-              <span
-                className={`inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-1 text-xs font-semibold tabular-nums ${
-                  row.inactive_services
-                    ? 'bg-slate-100 text-slate-600'
-                    : 'bg-transparent text-slate-300'
-                }`}
-              >
-                {row.inactive_services}
-              </span>
-            </td>
+            {shown.map((key) => cell(key, row))}
             <td className="whitespace-nowrap px-4 py-3">
               <div className="flex justify-end">
                 <RowActionsMenu
@@ -248,11 +298,19 @@ export default function PortalDevices() {
         ))}
       </DataTable>
 
-      <ExportColumnsModal
+      <ColumnsModal
+        open={choosingColumns}
+        mode="listing"
+        catalogue={PORTAL_DEVICE_LIST}
+        onClose={() => setChoosingColumns(false)}
+        onConfirm={(choice) => setShown(choice.columns)}
+      />
+
+      <ColumnsModal
         open={picking}
         catalogue={PORTAL_DEVICES}
         onClose={() => setPicking(false)}
-        onExport={(picks) =>
+        onConfirm={(picks) =>
           portal.exportMyMachines(
             {
               customer: customer || undefined,

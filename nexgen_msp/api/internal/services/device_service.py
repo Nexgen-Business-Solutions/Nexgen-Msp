@@ -572,6 +572,7 @@ class DeviceService:
         remarks=None,
         model=None,
         operating_system=None,
+        manufacturer=None,
     ):
         """Edit the machine itself. Its holder and its services are handed over separately."""
         RequestService._guard_internal()
@@ -596,6 +597,8 @@ class DeviceService:
             doc.model = model.strip() or None
         if operating_system is not None:
             doc.operating_system = operating_system.strip() or None
+        if manufacturer is not None:
+            doc.manufacturer = manufacturer.strip() or None
 
         remarks_util.add(doc, remarks)
 
@@ -740,6 +743,9 @@ class DeviceService:
         interfaces=None,
         remarks=None,
         source_request=None,
+        manufacturer=None,
+        model=None,
+        operating_system=None,
     ):
         """Register a machine for a customer, with or without a holder."""
         RequestService._guard_internal()
@@ -823,6 +829,9 @@ class DeviceService:
                     (assigned_date or frappe.utils.today()) if assigned_client_user else None
                 ),
                 "serial_number": serial_number or None,
+                "manufacturer": (manufacturer or "").strip() or None,
+                "model": (model or "").strip() or None,
+                "operating_system": (operating_system or "").strip() or None,
                 "network_interfaces": rows,
                 "remark_log": (
                     [{"note": remarks.strip(), "noted_on": frappe.utils.now(),

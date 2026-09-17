@@ -7,8 +7,10 @@ import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import StatusBadge from '@/shared/components/StatusBadge';
 import TablePagination from '@/shared/components/TablePagination';
 import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
-import ExportColumnsModal from '@/shared/components/ExportColumnsModal';
-import { INTERNAL_REQUESTS } from '@/shared/exportColumns';
+import ColumnsModal from '@/shared/components/ColumnsModal';
+import { INTERNAL_REQUESTS, loadChoice } from '@/shared/exportColumns';
+import { INTERNAL_REQUEST_LIST } from '@/shared/listColumns';
+import type { RequestRow } from '@/lib/api/internal';
 import {
   useRequestFilterOptions,
   useRequestFilters,
@@ -17,8 +19,6 @@ import {
 } from '../hooks/useRequests';
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
-
-const COLUMNS = ['Request', 'Users', 'Customer', 'Type', 'Priority', 'Lines', 'Raised', 'Age', 'Status', ''];
 
 const formatAge = (hours: number) => {
   if (hours === null || hours === undefined) return 'N/A';
@@ -36,6 +36,9 @@ const openPath = (row: { name: string; billing_run: string | null; status?: stri
 
 export default function RequestsList() {
   const [picking, setPicking] = useState(false);
+  const [choosingColumns, setChoosingColumns] = useState(false);
+  // what this person chose to see, kept in their browser
+  const [shown, setShown] = useState(() => loadChoice(INTERNAL_REQUEST_LIST).columns);
   const navigate = useNavigate();
   const { filters, patch, clear } = useRequestFilters();
   const options = useRequestFilterOptions();
@@ -53,6 +56,70 @@ export default function RequestsList() {
   const list = useRequestList(filters);
 
   const rows = list.data?.rows ?? [];
+  const labels = Object.fromEntries(INTERNAL_REQUEST_LIST.columns.map((column) => [column.key, column.label]));
+  const span = shown.length + 1;
+
+  const cell = (key: string, row: RequestRow) => {
+    switch (key) {
+      case 'request':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
+            {row.name}
+          </td>
+        );
+      case 'users':
+        return (
+          <td key={key} className="max-w-[16rem] px-4 py-3">
+            <p className="truncate text-sm font-medium text-slate-800" title={row.users ?? ''}>
+              {row.users || 'N/A'}
+            </p>
+          </td>
+        );
+      case 'request_type':
+      case 'priority':
+      case 'status':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3">
+            <StatusBadge value={row[key]} />
+          </td>
+        );
+      case 'lines':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3">
+            <span className="inline-flex min-w-[2rem] justify-center rounded-lg bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 tabular-nums">
+              {row.line_count}
+            </span>
+            {row.pending_lines > 0 && (
+              <span className="ml-1.5 text-xs font-medium text-amber-600 tabular-nums">
+                {row.pending_lines} pending
+              </span>
+            )}
+          </td>
+        );
+      case 'creation':
+      case 'modified':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3 text-sm text-slate-500 tabular-nums">
+            {fmtDate(row[key])}
+          </td>
+        );
+      case 'age':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3 text-sm text-slate-500 tabular-nums">
+            {formatAge(row.age_hours)}
+          </td>
+        );
+      default: {
+        const value = row[key as 'customer' | 'requester' | 'source'];
+
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+            {value || <span className="text-slate-400">N/A</span>}
+          </td>
+        );
+      }
+    }
+  };
 
   return (
     <div className="space-y-5 px-6 pb-6 pt-4">
@@ -130,6 +197,7 @@ export default function RequestsList() {
         onClear={clear}
         onRefresh={() => list.refetch()}
         onExport={() => setPicking(true)}
+        onColumns={() => setChoosingColumns(true)}
         fields={[
           {
             key: 'customer',
@@ -187,14 +255,14 @@ export default function RequestsList() {
           <table className="w-full">
             <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
               <tr>
-                {COLUMNS.map((column, index) => (
+                {[...shown, ''].map((key, index) => (
                   <th
-                    key={column}
+                    key={key || 'actions'}
                     className={`whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 ${
                       index === 0 ? 'rounded-l-lg' : ''
-                    } ${index === COLUMNS.length - 1 ? 'rounded-r-lg' : ''}`}
+                    } ${index === shown.length ? 'rounded-r-lg' : ''}`}
                   >
-                    {column}
+                    {labels[key] ?? ''}
                   </th>
                 ))}
               </tr>
@@ -202,7 +270,7 @@ export default function RequestsList() {
             <tbody className="divide-y divide-slate-100">
               {!!list.error && (
                 <tr>
-                  <td colSpan={COLUMNS.length} className="px-4 py-12 text-center text-sm text-red-600">
+                  <td colSpan={span} className="px-4 py-12 text-center text-sm text-red-600">
                     {(list.error as Error)?.message || 'Failed to load requests.'}
                   </td>
                 </tr>
@@ -210,7 +278,7 @@ export default function RequestsList() {
 
               {!list.error && list.isLoading && (
                 <tr>
-                  <td colSpan={COLUMNS.length} className="px-4 py-12 text-center text-sm text-slate-500">
+                  <td colSpan={span} className="px-4 py-12 text-center text-sm text-slate-500">
                     Loading…
                   </td>
                 </tr>
@@ -218,7 +286,7 @@ export default function RequestsList() {
 
               {!list.error && !list.isLoading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={COLUMNS.length} className="px-4 py-12 text-center text-sm text-slate-500">
+                  <td colSpan={span} className="px-4 py-12 text-center text-sm text-slate-500">
                     No request matches these filters.
                   </td>
                 </tr>
@@ -232,42 +300,7 @@ export default function RequestsList() {
                     onClick={() => navigate(openPath(row))}
                     className="cursor-pointer transition-colors hover:bg-slate-50"
                   >
-                    <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
-                      {row.name}
-                    </td>
-                    <td className="max-w-[16rem] px-4 py-3">
-                      <p className="truncate text-sm font-medium text-slate-800" title={row.users ?? ''}>
-                        {row.users || 'N/A'}
-                      </p>
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                      {row.customer}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3">
-                      <StatusBadge value={row.request_type} />
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3">
-                      <StatusBadge value={row.priority} />
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3">
-                      <span className="inline-flex min-w-[2rem] justify-center rounded-lg bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 tabular-nums">
-                        {row.line_count}
-                      </span>
-                      {row.pending_lines > 0 && (
-                        <span className="ml-1.5 text-xs font-medium text-amber-600 tabular-nums">
-                          {row.pending_lines} pending
-                        </span>
-                      )}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-500 tabular-nums">
-                      {fmtDate(row.creation)}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-500 tabular-nums">
-                      {formatAge(row.age_hours)}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3">
-                      <StatusBadge value={row.status} />
-                    </td>
+                    {shown.map((key) => cell(key, row))}
                     <td className="whitespace-nowrap px-4 py-3">
                       <div className="flex justify-end">
                         <RowActionsMenu
@@ -300,11 +333,19 @@ export default function RequestsList() {
         />
       </div>
 
-      <ExportColumnsModal
+      <ColumnsModal
+        open={choosingColumns}
+        mode="listing"
+        catalogue={INTERNAL_REQUEST_LIST}
+        onClose={() => setChoosingColumns(false)}
+        onConfirm={(choice) => setShown(choice.columns)}
+      />
+
+      <ColumnsModal
         open={picking}
         catalogue={INTERNAL_REQUESTS}
         onClose={() => setPicking(false)}
-        onExport={(picks) => internal.exportRequests(listParams, picks)}
+        onConfirm={(picks) => internal.exportRequests(listParams, picks)}
       />
     </div>
   );

@@ -14,16 +14,19 @@ import {
 type Props = {
   open: boolean;
   catalogue: ExportCatalogue;
+  /** what the sheet takes away, or what the list shows */
+  mode?: 'export' | 'listing';
   onClose: () => void;
-  /** The file is fetched here; the picker waits for it before it closes. */
-  onExport: (choice: ExportChoice) => void | Promise<unknown>;
+  /** An export fetches the file here; the picker waits for it before it closes. */
+  onConfirm: (choice: ExportChoice) => void | Promise<unknown>;
 };
 
 const tick =
   'h-4 w-4 rounded border-slate-300 text-blue-600 accent-blue-600 disabled:opacity-60';
 
-/** Which columns the sheet comes out with, and what each service carries with it. */
-const ExportColumnsModal: React.FC<Props> = ({ open, catalogue, onClose, onExport }) => {
+/** Which columns an export carries, or which columns a list shows. */
+const ColumnsModal: React.FC<Props> = ({ open, catalogue, mode = 'export', onClose, onConfirm }) => {
+  const listing = mode === 'listing';
   const [choice, setChoice] = useState<ExportChoice>(() => defaultChoice(catalogue));
   const [working, setWorking] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
@@ -36,16 +39,24 @@ const ExportColumnsModal: React.FC<Props> = ({ open, catalogue, onClose, onExpor
     setFailed(null);
   }, [open, catalogue]);
 
+  const limit = catalogue.limit;
+  const full = Boolean(limit) && choice.columns.length >= (limit ?? 0);
+
   const toggle = (key: string) =>
-    setChoice((current) => ({
-      ...current,
-      columns: ordered(
-        catalogue,
-        current.columns.includes(key)
-          ? current.columns.filter((row) => row !== key)
-          : [...current.columns, key]
-      ),
-    }));
+    setChoice((current) => {
+      const picked = current.columns.includes(key);
+
+      // a list has room for so many columns; one more has to wait for one less
+      if (!picked && limit && current.columns.length >= limit) return current;
+
+      return {
+        ...current,
+        columns: ordered(
+          catalogue,
+          picked ? current.columns.filter((row) => row !== key) : [...current.columns, key]
+        ),
+      };
+    });
 
   const toggleService = (key: string) =>
     setChoice((current) => ({
@@ -59,13 +70,13 @@ const ExportColumnsModal: React.FC<Props> = ({ open, catalogue, onClose, onExpor
         ),
     }));
 
-  // the sheet is built on the server: the picker stays put, and says so, until the file is here
+  // an export is built on the server: the picker stays put, and says so, until the file is here
   const start = async () => {
     setWorking(true);
     setFailed(null);
 
     try {
-      await onExport(choice);
+      await onConfirm(choice);
       saveChoice(catalogue, choice);
       onClose();
     } catch (error) {
@@ -85,8 +96,12 @@ const ExportColumnsModal: React.FC<Props> = ({ open, catalogue, onClose, onExpor
       onClose={leave}
       icon={Columns3}
       tone="blue"
-      title="Columns to export"
-      subtitle="Pick what the sheet carries. Your choice is kept for the next export."
+      title={listing ? 'Columns to show' : 'Columns to export'}
+      subtitle={
+        listing
+          ? `Pick up to ${limit} columns for this list. Your choice is kept for next time.`
+          : 'Pick what the sheet carries. Your choice is kept for the next export.'
+      }
       widthClass="max-w-3xl"
       footer={
         <div className="flex items-center justify-between gap-3">
@@ -100,6 +115,14 @@ const ExportColumnsModal: React.FC<Props> = ({ open, catalogue, onClose, onExpor
             Reset to default
           </button>
           <div className="flex items-center gap-2">
+            {limit && (
+              <span
+                className={`text-xs font-medium ${full ? 'text-amber-700' : 'text-slate-500'}`}
+                aria-live="polite"
+              >
+                {choice.columns.length} of {limit} selected
+              </span>
+            )}
             <button
               type="button"
               onClick={leave}
@@ -119,6 +142,8 @@ const ExportColumnsModal: React.FC<Props> = ({ open, catalogue, onClose, onExpor
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
                   Preparing…
                 </>
+              ) : listing ? (
+                'Apply'
               ) : (
                 <>
                   <Download size={15} />
@@ -145,28 +170,35 @@ const ExportColumnsModal: React.FC<Props> = ({ open, catalogue, onClose, onExpor
             <div className="grid gap-1 sm:grid-cols-2 sm:gap-2">
               {catalogue.columns
                 .filter((column) => column.section === section)
-                .map((column) => (
-                  <label
-                    key={column.key}
-                    className={`flex items-center gap-3 rounded-lg px-3 py-2 ${
-                      column.required ? 'cursor-default' : 'cursor-pointer hover:bg-slate-50'
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      className={tick}
-                      checked={column.required || choice.columns.includes(column.key)}
-                      disabled={column.required}
-                      onChange={() => !column.required && toggle(column.key)}
-                    />
-                    <span className="text-sm text-slate-700">{column.label}</span>
-                  </label>
-                ))}
+                .map((column) => {
+                  const checked = column.required || choice.columns.includes(column.key);
+                  const locked = column.required || (full && !checked);
+
+                  return (
+                    <label
+                      key={column.key}
+                      className={`flex items-center gap-3 rounded-lg px-3 py-2 ${
+                        locked ? 'cursor-default' : 'cursor-pointer hover:bg-slate-50'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        className={tick}
+                        checked={checked}
+                        disabled={locked}
+                        onChange={() => !column.required && toggle(column.key)}
+                      />
+                      <span className={`text-sm ${locked && !checked ? 'text-slate-400' : 'text-slate-700'}`}>
+                        {column.label}
+                      </span>
+                    </label>
+                  );
+                })}
             </div>
           </div>
         ))}
 
-        {catalogue.serviceFields && (
+        {!listing && catalogue.serviceFields && (
           <div role="group" aria-label="Per service">
             <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-slate-400">
               Per service
@@ -198,4 +230,4 @@ const ExportColumnsModal: React.FC<Props> = ({ open, catalogue, onClose, onExpor
   );
 };
 
-export default ExportColumnsModal;
+export default ColumnsModal;

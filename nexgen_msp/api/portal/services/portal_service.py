@@ -366,6 +366,10 @@ class PortalService:
 
         PortalService._add_service_counts(result["rows"])
         PortalService._add_held_devices(result["rows"])
+        # the customer sees everything we do about their own people, bar our notes
+        from nexgen_msp.utils import export_columns
+
+        export_columns.fill_people_extras(result["rows"])
 
         return result
 
@@ -579,6 +583,10 @@ class PortalService:
 
         PortalService._add_device_service_counts(result["rows"])
         PortalService._add_interfaces(result["rows"])
+        # the customer sees everything we do about their own machines, bar our notes
+        from nexgen_msp.utils import export_columns
+
+        export_columns.fill_device_extras(result["rows"], with_history=False)
 
         return result
 

@@ -62,6 +62,61 @@ def on_session_creation(login_manager=None):
         session.update(force=True)
 
 
+def has_expired(data):
+    """Whether a session has sat idle past its own limit, or past the end it was given."""
+    from datetime import UTC, datetime
+
+    from frappe.sessions import get_expiry_in_seconds
+
+    if not data:
+        return False
+
+    period, last = data.get("session_expiry"), data.get("last_updated")
+
+    if period and last:
+        idle = frappe.utils.time_diff_in_seconds(frappe.utils.now(), last)
+
+        if idle > get_expiry_in_seconds(period):
+            return True
+
+    session_end = data.get("session_end")
+
+    return bool(session_end) and datetime.now(tz=UTC) > datetime.fromisoformat(session_end)
+
+
+def expire_idle_session():
+    """End a session that went idle past its own limit, however it was read back.
+
+    Frappe holds a session's idle limit in the session itself and checks it only when the
+    session comes out of the cache. When the cache has been emptied — a restart, a deploy —
+    it reads the session from the table instead and weighs it against the site-wide limit,
+    so a customer idle for a day came back to life as long as they were under a week. This
+    runs before anything else in the request and ends such a session exactly as the cache
+    would have: the session is deleted, the cookies cleared, and the request goes on as a
+    guest.
+    """
+    from frappe.auth import clear_cookies
+    from frappe.sessions import delete_session
+
+    manager = getattr(frappe.local, "login_manager", None)
+    session = getattr(frappe.local, "session", None)
+
+    if not manager or not session or session.user in (None, "Guest"):
+        return
+
+    if not has_expired(session.data):
+        return
+
+    delete_session(session.sid, reason="Session Expired")
+    frappe.response["session_expired"] = 1
+    clear_cookies()
+
+    manager.user = "Guest"
+    manager.get_user_info()
+    manager.make_session()
+    manager.set_user_info()
+
+
 def refresh_live_sessions():
     """Hand every open customer session the limit in force right now.
 

@@ -230,6 +230,28 @@ class TestSettlingTheMachine(ExecutionCase):
         self.assertEqual(card.serial_number, f"SN-{self.tag}")
         self.assertEqual(card.assigned_client_user, self.john)
 
+    def test_a_new_machine_keeps_what_its_case_says(self):
+        name = self.approved(self.line(self.offering("DV9", scope="Device"), is_new_device=1))
+        job = self.work(name, "Device Provisioning")
+
+        self.tech_does(
+            lambda: RequestExecutionService.execute_device_provisioning(
+                work_order=job.name,
+                mode="new",
+                hostname="laptop-dv9",
+                serial_number=f"HW-{self.tag}",
+                manufacturer="Lenovo",
+                model="ThinkPad T14",
+                operating_system="Windows 11",
+            )
+        )
+        device = self.track("MSP Managed Device", frappe.db.get_value(WORK_ORDER, job.name, "resulting_device"))
+        card = frappe.db.get_value(
+            "MSP Managed Device", device, ["manufacturer", "model", "operating_system"], as_dict=True
+        )
+
+        self.assertEqual((card.manufacturer, card.model, card.operating_system), ("Lenovo", "ThinkPad T14", "Windows 11"))
+
     def test_a_machine_without_a_serial_is_refused(self):
         name = self.approved(self.line(self.offering("DV2", scope="Device"), is_new_device=1))
         job = self.work(name, "Device Provisioning")

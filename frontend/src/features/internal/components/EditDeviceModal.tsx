@@ -33,6 +33,7 @@ const EditDeviceModal: React.FC<Props> = ({ device, onClose }) => {
   const [deviceType, setDeviceType] = useState('');
   const [serial, setSerial] = useState('');
   const [assignedDate, setAssignedDate] = useState('');
+  const [manufacturer, setManufacturer] = useState('');
   const [model, setModel] = useState('');
   const [operatingSystem, setOperatingSystem] = useState('');
   const [interfaces, setInterfaces] = useState<DeviceInterface[]>([]);
@@ -43,6 +44,7 @@ const EditDeviceModal: React.FC<Props> = ({ device, onClose }) => {
     setDeviceType(device.device_type);
     setSerial(device.serial_number ?? '');
     setAssignedDate((device.assigned_date ?? '').slice(0, 10));
+    setManufacturer(device.manufacturer ?? '');
     setModel(device.model ?? '');
     setOperatingSystem(device.operating_system ?? '');
     setInterfaces(device.interfaces ?? []);
@@ -67,6 +69,7 @@ const EditDeviceModal: React.FC<Props> = ({ device, onClose }) => {
         device_type: deviceType || undefined,
         serial_number: serial.trim() || undefined,
         assigned_date: assignedDate || undefined,
+        manufacturer: manufacturer.trim(),
         model: model.trim(),
         operating_system: operatingSystem.trim(),
         interfaces: interfaces.filter((item) => item.mac_address.trim()),
@@ -175,6 +178,16 @@ const EditDeviceModal: React.FC<Props> = ({ device, onClose }) => {
               type="date"
               value={assignedDate}
               onChange={(event) => setAssignedDate(event.target.value)}
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <FieldLabel>Manufacturer</FieldLabel>
+            <input
+              type="text"
+              value={manufacturer}
+              onChange={(event) => setManufacturer(event.target.value)}
+              placeholder="Dell, HP, Lenovo…"
               className={inputClass}
             />
           </div>

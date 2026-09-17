@@ -128,6 +128,9 @@ def execute_device_provisioning(
     effective_date=None,
     confirm_transfer=None,
     notes=None,
+    manufacturer=None,
+    model=None,
+    operating_system=None,
 ):
     return _execution().execute_device_provisioning(
         work_order=work_order,
@@ -140,6 +143,9 @@ def execute_device_provisioning(
         effective_date=effective_date,
         confirm_transfer=confirm_transfer,
         notes=notes,
+        manufacturer=manufacturer,
+        model=model,
+        operating_system=operating_system,
     )
 
 
@@ -751,6 +757,9 @@ def add_user_device(
     serial_number=None,
     remarks=None,
     source_request=None,
+    manufacturer=None,
+    model=None,
+    operating_system=None,
 ):
     from nexgen_msp.api.internal.services.user_service import UserService
 
@@ -763,6 +772,9 @@ def add_user_device(
         serial_number=serial_number,
         remarks=remarks,
         source_request=source_request,
+        manufacturer=manufacturer,
+        model=model,
+        operating_system=operating_system,
     )
 
 
@@ -892,6 +904,7 @@ def update_managed_device(
     remarks=None,
     model=None,
     operating_system=None,
+    manufacturer=None,
 ):
     return _devices().update_device(
         device=device,
@@ -903,6 +916,7 @@ def update_managed_device(
         remarks=remarks,
         model=model,
         operating_system=operating_system,
+        manufacturer=manufacturer,
     )
 
 
@@ -996,6 +1010,9 @@ def create_managed_device(
     interfaces=None,
     remarks=None,
     source_request=None,
+    manufacturer=None,
+    model=None,
+    operating_system=None,
 ):
     return _devices().create_device(
         customer=customer,
@@ -1007,6 +1024,9 @@ def create_managed_device(
         interfaces=interfaces,
         remarks=remarks,
         source_request=source_request,
+        manufacturer=manufacturer,
+        model=model,
+        operating_system=operating_system,
     )
 
 

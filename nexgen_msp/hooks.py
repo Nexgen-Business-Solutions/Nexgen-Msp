@@ -66,6 +66,8 @@ fixtures = [
 override_doctype_class = {"User": "nexgen_msp.overrides.user.MSPUser"}
 
 before_request = [
+	# first, so nothing below ever acts for a session that should have ended
+	"nexgen_msp.utils.session_timeout.expire_idle_session",
 	"nexgen_msp.utils.gatekeeper.require_two_factor",
 	"nexgen_msp.utils.gatekeeper.guard",
 ]

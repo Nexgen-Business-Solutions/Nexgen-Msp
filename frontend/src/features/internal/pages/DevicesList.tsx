@@ -13,8 +13,10 @@ import {
   Wifi,
 } from 'lucide-react';
 import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
-import ExportColumnsModal from '@/shared/components/ExportColumnsModal';
-import { INTERNAL_DEVICES } from '@/shared/exportColumns';
+import ColumnsModal from '@/shared/components/ColumnsModal';
+import { INTERNAL_DEVICES, loadChoice } from '@/shared/exportColumns';
+import { INTERNAL_DEVICE_LIST } from '@/shared/listColumns';
+import StatusBadge from '@/shared/components/StatusBadge';
 import KpiCard from '@/shared/components/KpiCard';
 import TablePagination from '@/shared/components/TablePagination';
 import RowActionsMenu, { type RowAction } from '@/shared/components/RowActionsMenu';
@@ -22,7 +24,7 @@ import DeviceServiceModal from '../components/DeviceServiceModal';
 import EditDeviceModal from '../components/EditDeviceModal';
 import RetireDeviceModal from '../components/RetireDeviceModal';
 import ReinstateDeviceModal from '../components/ReinstateDeviceModal';
-import NewDeviceModal from '../components/NewDeviceModal';
+import AddDeviceModal from '../components/AddDeviceModal';
 import type { DeviceRow } from '@/lib/api/internal';
 import {
   useDeviceFilterOptions,
@@ -31,8 +33,6 @@ import {
   useDeviceStats,
 } from '../hooks/useDevices';
 import { canReinstate, canRetire } from '../utils/deviceStatus';
-
-const COLUMNS = ['Device', 'Customer', 'Network interfaces', 'Active services', 'Inactive services', ''];
 
 const INTERFACE_LABEL: Record<string, string> = {
   'Wi-Fi': 'MAC WIFI',
@@ -49,8 +49,13 @@ const COVERAGE_OPTIONS = [
   { value: 'no_mac', label: 'No MAC recorded', description: 'Identification incomplete' },
 ];
 
+const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
+
 export default function DevicesList() {
   const [picking, setPicking] = useState(false);
+  const [choosingColumns, setChoosingColumns] = useState(false);
+  // what this person chose to see, kept in their browser
+  const [shown, setShown] = useState(() => loadChoice(INTERNAL_DEVICE_LIST).columns);
   const navigate = useNavigate();
   const { filters, patch, clear } = useDeviceFilters();
   const options = useDeviceFilterOptions();
@@ -75,6 +80,120 @@ export default function DevicesList() {
   } | null>(null);
 
   const rows = list.data?.rows ?? [];
+  const labels = Object.fromEntries(INTERNAL_DEVICE_LIST.columns.map((column) => [column.key, column.label]));
+  const span = shown.length + 1;
+
+  const cell = (key: string, row: DeviceRow) => {
+    switch (key) {
+      case 'device':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3">
+            <button
+              type="button"
+              onClick={() => navigate(`/msp/devices/${row.name}`)}
+              className="text-sm font-semibold text-slate-900 transition-colors hover:text-blue-700"
+            >
+              {row.hostname}
+            </button>
+            {row.serial_number ? (
+              <p className="mt-0.5 font-mono text-xs text-slate-500">{row.serial_number}</p>
+            ) : (
+              <p className="mt-0.5 text-xs text-slate-300">No serial</p>
+            )}
+          </td>
+        );
+      case 'held_by':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3">
+            {row.assigned_client_user ? (
+              <button
+                type="button"
+                onClick={() => navigate(`/msp/users/${row.assigned_client_user}`)}
+                className="text-sm text-blue-600 transition-colors hover:text-blue-800 hover:underline"
+              >
+                {row.user_name}
+              </button>
+            ) : (
+              <span className="text-sm text-slate-400">Unassigned</span>
+            )}
+          </td>
+        );
+      case 'status':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3">
+            <StatusBadge value={row.status} />
+          </td>
+        );
+      case 'interfaces':
+        return (
+          <td key={key} className="px-4 py-3">
+            {row.interfaces?.length ? (
+              <div className="space-y-1">
+                {[...row.interfaces]
+                  .sort(
+                    (a, b) =>
+                      INTERFACE_ORDER.indexOf(a.interface_type) -
+                      INTERFACE_ORDER.indexOf(b.interface_type)
+                  )
+                  .map((item) => (
+                    <div
+                      key={`${item.interface_type}-${item.mac_address}`}
+                      className="flex items-baseline gap-3"
+                    >
+                      <span className="w-[5.5rem] shrink-0 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                        {INTERFACE_LABEL[item.interface_type] ?? item.interface_type}
+                      </span>
+                      <span className="font-mono text-xs tracking-tight text-slate-800">
+                        {item.mac_address}
+                      </span>
+                    </div>
+                  ))}
+              </div>
+            ) : (
+              <span className="text-sm text-slate-400">N/A</span>
+            )}
+          </td>
+        );
+      case 'active_services':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3">
+            <span className="inline-flex min-w-[2rem] justify-center rounded-lg bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 tabular-nums">
+              {row.active_services}
+            </span>
+          </td>
+        );
+      case 'inactive_services':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3">
+            <span
+              className={`inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-1 text-xs font-semibold tabular-nums ${
+                row.inactive_services ? 'bg-slate-100 text-slate-600' : 'bg-transparent text-slate-300'
+              }`}
+            >
+              {row.inactive_services}
+            </span>
+          </td>
+        );
+      case 'assigned_date':
+      case 'retired_date':
+      case 'last_billed_on':
+      case 'covered_until':
+        return (
+          <td key={key} className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+            {fmtDate(row[key])}
+          </td>
+        );
+      default: {
+        const value = row[key as 'customer' | 'device_type' | 'user_department' | 'manufacturer' | 'model' | 'operating_system' | 'services'];
+
+        return (
+          <td key={key} className="px-4 py-3 text-sm text-slate-600">
+            {value || <span className="text-slate-400">N/A</span>}
+          </td>
+        );
+      }
+    }
+  };
 
   return (
     <div className="space-y-5 px-6 pb-6 pt-4">
@@ -119,6 +238,17 @@ export default function DevicesList() {
         />
       </div>
 
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => setNewDeviceOpen(true)}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
+        >
+          <Plus size={15} />
+          New device
+        </button>
+      </div>
+
       <FilterBar
         values={filters as unknown as FilterState}
         search={filters.search}
@@ -136,6 +266,7 @@ export default function DevicesList() {
         onClear={clear}
         onRefresh={() => list.refetch()}
         onExport={() => setPicking(true)}
+        onColumns={() => setChoosingColumns(true)}
         fields={[
           {
             key: 'customer',
@@ -173,14 +304,14 @@ export default function DevicesList() {
           <table className="w-full">
             <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
               <tr>
-                {COLUMNS.map((column, index) => (
+                {[...shown, ''].map((key, index) => (
                   <th
-                    key={column || index}
+                    key={key || 'actions'}
                     className={`whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 ${
                       index === 0 ? 'rounded-l-lg' : ''
-                    } ${index === COLUMNS.length - 1 ? 'rounded-r-lg' : ''}`}
+                    } ${index === shown.length ? 'rounded-r-lg' : ''}`}
                   >
-                    {column}
+                    {labels[key] ?? ''}
                   </th>
                 ))}
               </tr>
@@ -188,7 +319,7 @@ export default function DevicesList() {
             <tbody className="divide-y divide-slate-100">
               {!!list.error && (
                 <tr>
-                  <td colSpan={COLUMNS.length} className="px-4 py-12 text-center text-sm text-red-600">
+                  <td colSpan={span} className="px-4 py-12 text-center text-sm text-red-600">
                     {(list.error as Error)?.message || 'Failed to load devices.'}
                   </td>
                 </tr>
@@ -196,7 +327,7 @@ export default function DevicesList() {
 
               {!list.error && list.isLoading && (
                 <tr>
-                  <td colSpan={COLUMNS.length} className="px-4 py-12 text-center text-sm text-slate-500">
+                  <td colSpan={span} className="px-4 py-12 text-center text-sm text-slate-500">
                     Loading…
                   </td>
                 </tr>
@@ -204,7 +335,7 @@ export default function DevicesList() {
 
               {!list.error && !list.isLoading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={COLUMNS.length} className="px-4 py-12 text-center text-sm text-slate-500">
+                  <td colSpan={span} className="px-4 py-12 text-center text-sm text-slate-500">
                     No device matches these filters.
                   </td>
                 </tr>
@@ -214,85 +345,7 @@ export default function DevicesList() {
                 !list.isLoading &&
                 rows.map((row) => (
                   <tr key={row.name} className="transition-colors hover:bg-slate-50">
-                    <td className="whitespace-nowrap px-4 py-3">
-                      <button
-                        type="button"
-                        onClick={() => navigate(`/msp/devices/${row.name}`)}
-                        className="text-sm font-semibold text-slate-900 transition-colors hover:text-blue-700"
-                      >
-                        {row.hostname}
-                      </button><br />
-                      {row.assigned_client_user ? (
-                        <button
-                          type="button"
-                          onClick={() => navigate(`/msp/users/${row.assigned_client_user}`)}
-                          className="text-xs text-blue-600 transition-colors hover:text-blue-800 hover:underline"
-                        >
-                          {row.user_name}
-                        </button>
-                      ) : (
-                        <p className="text-xs text-slate-400">Unassigned</p>
-                      )}
-                      {row.serial_number ? (
-                        <p className="mt-0.5 font-mono text-xs text-slate-500">
-                          {row.serial_number}
-                        </p>
-                      ) : (
-                        <p className="mt-0.5 text-xs text-slate-300">No serial</p>
-                      )}
-                      <p className="text-xs text-slate-400">{row.device_type}</p>
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                      {row.customer}
-                    </td>
-                    <td className="px-4 py-3">
-                      {row.interfaces?.length ? (
-                        <div className="space-y-1">
-                          {[...row.interfaces]
-                            .sort(
-                              (a, b) =>
-                                INTERFACE_ORDER.indexOf(a.interface_type) -
-                                INTERFACE_ORDER.indexOf(b.interface_type)
-                            )
-                            .map((item) => (
-                              <div
-                                key={`${item.interface_type}-${item.mac_address}`}
-                                className="flex items-baseline gap-3"
-                              >
-                                <span className="w-[5.5rem] shrink-0 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                                  {INTERFACE_LABEL[item.interface_type] ?? item.interface_type}
-                                </span>
-                                <span className="font-mono text-xs tracking-tight text-slate-800">
-                                  {item.mac_address}
-                                </span>
-                              </div>
-                            ))}
-                        </div>
-                      ) : (
-                        <span className="text-sm text-slate-400">N/A</span>
-                      )}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3">
-                      <span className="inline-flex min-w-[2rem] justify-center rounded-lg bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 tabular-nums">
-                        {row.active_services}
-                      </span>
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3">
-                      <span
-                        className={`inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-1 text-xs font-semibold tabular-nums ${
-                          row.inactive_services
-                            ? 'bg-slate-100 text-slate-600'
-                            : 'bg-transparent text-slate-300'
-                        }`}
-                      >
-                        {row.inactive_services}
-                      </span>
-                      {row.status !== 'Active' && (
-                        <span className="ml-1.5 text-xs font-medium text-slate-400">
-                          {row.status.toLowerCase()}
-                        </span>
-                      )}
-                    </td>
+                    {shown.map((key) => cell(key, row))}
                     <td className="whitespace-nowrap px-4 py-3">
                       <div className="flex justify-end">
                         <RowActionsMenu
@@ -349,7 +402,14 @@ export default function DevicesList() {
 
       <EditDeviceModal device={editDevice} onClose={() => setEditDevice(null)} />
 
-      <NewDeviceModal open={newDeviceOpen} onClose={() => setNewDeviceOpen(false)} />
+      {/* the same form as on a person and on a request, with the customer picked first */}
+      <AddDeviceModal
+        open={newDeviceOpen}
+        deviceTypes={options.data?.device_types ?? []}
+        interfaceTypes={options.data?.interface_types ?? []}
+        requests={[]}
+        onClose={() => setNewDeviceOpen(false)}
+      />
 
       {/* the same act asks the same questions here as on the machine's own page */}
       <RetireDeviceModal
@@ -372,11 +432,19 @@ export default function DevicesList() {
         onClose={() => setStatusTarget(null)}
       />
 
-      <ExportColumnsModal
+      <ColumnsModal
+        open={choosingColumns}
+        mode="listing"
+        catalogue={INTERNAL_DEVICE_LIST}
+        onClose={() => setChoosingColumns(false)}
+        onConfirm={(choice) => setShown(choice.columns)}
+      />
+
+      <ColumnsModal
         open={picking}
         catalogue={INTERNAL_DEVICES}
         onClose={() => setPicking(false)}
-        onExport={(picks) => internal.exportDevices(listParams, picks)}
+        onConfirm={(picks) => internal.exportDevices(listParams, picks)}
       />
     </div>
   );
