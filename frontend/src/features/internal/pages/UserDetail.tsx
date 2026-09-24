@@ -39,9 +39,30 @@ import {
 } from '../hooks/useUsers';
 import { useMyApprovalRights, usePortalUserFile } from '@/features/portal/hooks/usePortal';
 import { useDeviceFilterOptions } from '../hooks/useDevices';
-import type { HeldDevice, UserServiceEntry } from '@/lib/api/internal';
+import type { HeldDevice, UserServiceTimelineEntry } from '@/lib/api/internal';
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'Never');
+// an association or holding with no end is still running
+const fmtDay = (value?: string | null) => (value ? String(value).slice(0, 10) : '—');
+
+// the order the summary line reads in; anything else follows in the order it came
+const STATUS_ORDER = ['Active', 'Pending Setup', 'Suspended', 'Pending Removal', 'Ended', 'Cancelled'];
+
+const statusSummary = (counts: Record<string, number>) =>
+  [...STATUS_ORDER, ...Object.keys(counts).filter((status) => !STATUS_ORDER.includes(status))]
+    .filter((status) => counts[status])
+    .map((status) => `${counts[status]} ${status.toLowerCase()}`)
+    .join(' · ');
+
+const TypeBadge = ({ scope }: { scope: string }) => (
+  <span
+    className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
+      scope === 'Device' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-700'
+    }`}
+  >
+    {scope}
+  </span>
+);
 
 const Panel = ({
   title,
@@ -98,8 +119,7 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
   const [addingDevice, setAddingDevice] = useState(false);
   const [deviceService, setDeviceService] = useState<string | null>(null);
   const [applying, setApplying] = useState<{
-    service: UserServiceEntry;
-    device: HeldDevice | null;
+    service: UserServiceTimelineEntry;
     action: ServiceAction;
   } | null>(null);
   const [moving, setMoving] = useState<{ device: HeldDevice; kind: 'transfer' | 'repossess' } | null>(null);
@@ -136,14 +156,16 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
 
   const openRequest = (request: string) => navigate(`/msp/requests/${request}`);
 
-  const services = [
-    ...data.personal_services.current.map((service) => ({ service, device: null as HeldDevice | null })),
-    ...data.devices.flatMap((slot) => slot.services.current.map((service) => ({ service, device: slot }))),
-  ];
+  // the backend has already worked out which services are theirs and for which days
+  const services = data.services;
+  const summary = statusSummary(data.service_counts);
 
-  const serviceActions = (service: UserServiceEntry, device: HeldDevice | null): RowAction[] => {
+  const serviceActions = (service: UserServiceTimelineEntry): RowAction[] => {
+    // a machine they gave back is acted on from its next holder's page, not from here
+    if (!service.current_holding) return [];
+
     const status = service.operational_status;
-    const act = (action: ServiceAction) => () => setApplying({ service, device, action });
+    const act = (action: ServiceAction) => () => setApplying({ service, action });
 
     return [
       { label: 'Suspend', icon: PauseCircle, onClick: act('Suspend'), disabled: status !== 'Active' },
@@ -196,7 +218,7 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
       <UserOpenRequests requests={data.open_requests} onOpen={openRequest} />
 
       <Panel
-        title={`Services · ${services.length} open`}
+        title={`Services · ${services.length}`}
         action={
           canAct ? (
           <button
@@ -210,25 +232,30 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
           ) : undefined
         }
       >
+        {summary && <p className="mb-2 text-xs text-slate-500">{summary}</p>}
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-slate-50">
               <tr>
                 <Th>Service</Th>
+                <Th>Type</Th>
                 <Th>Device</Th>
-                <Th>Since</Th>
-                {seesBilling && <Th>Last billed</Th>}
-                {seesBilling && <Th>Billing</Th>}
-                <Th>Status</Th>
+                <Th>Associated since</Th>
+                <Th>Associated until</Th>
+                {seesBilling && <Th>Billing status</Th>}
+                <Th>Service status</Th>
                 <Th />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {services.length === 0 && (
-                <Empty span={seesBilling ? 7 : 5}>No open service for {user.full_name}.</Empty>
+                <Empty span={seesBilling ? 8 : 7}>No service recorded for {user.full_name}.</Empty>
               )}
-              {services.map(({ service, device }) => (
-                <tr key={service.name} className="transition-colors hover:bg-slate-50">
+              {services.map((service) => (
+                <tr
+                  key={`${service.assignment}-${service.holding_period ?? 'own'}`}
+                  className="transition-colors hover:bg-slate-50"
+                >
                   <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
                     {service.service_name}
                     {service.pending_request && (
@@ -242,20 +269,24 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
                       </button>
                     )}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                    {device ? device.device.hostname : 'N/A'}
+                  <td className="whitespace-nowrap px-4 py-3">
+                    <TypeBadge scope={service.assignment_scope} />
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                    {fmtDate(service.effective_start_date)}
+                    {service.hostname ?? '—'}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                    {fmtDay(service.association_from)}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                    {fmtDay(service.association_until)}
                   </td>
                   {seesBilling && (
                     <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                      {service.last_billed_on ? fmtDate(service.last_billed_on) : 'Never'}
-                    </td>
-                  )}
-                  {seesBilling && (
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                      {service.billing_status || 'N/A'}
+                      <div>{service.billing_status || 'N/A'}</div>
+                      <div className="text-xs text-slate-400">
+                        Last billed {fmtDate(service.last_billed_on)}
+                      </div>
                     </td>
                   )}
                   <td className="whitespace-nowrap px-4 py-3">
@@ -263,7 +294,7 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3">
                     <div className="flex justify-end">
-                      {canAct && <RowActionsMenu actions={serviceActions(service, device)} />}
+                      {canAct && <RowActionsMenu actions={serviceActions(service)} />}
                     </div>
                   </td>
                 </tr>
@@ -370,7 +401,51 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
         </div>
       </Panel>
 
-      
+      <Panel title={`Device history · ${data.device_history.length}`}>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-slate-50">
+              <tr>
+                <Th>Device</Th>
+                <Th>Type</Th>
+                <Th>From</Th>
+                <Th>To</Th>
+                <Th>Status</Th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {data.device_history.length === 0 && (
+                <Empty span={5}>{user.full_name} has never held a device.</Empty>
+              )}
+              {data.device_history.map((spell) => (
+                <tr key={spell.period} className="transition-colors hover:bg-slate-50">
+                  <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/msp/devices/${spell.device}`)}
+                      className="hover:underline"
+                    >
+                      {spell.hostname}
+                    </button>
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                    {spell.device_type || 'N/A'}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                    {fmtDay(spell.from_date)}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                    {fmtDay(spell.to_date)}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3">
+                    <StatusBadge value={spell.is_current ? 'Current' : 'Previous'} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
 
       <div className="grid gap-4 lg:grid-cols-2">
         {seesBilling && (
@@ -428,20 +503,20 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
           applying
             ? {
                 row: {
-                  name: applying.service.name,
+                  name: applying.service.assignment,
                   service_item: applying.service.service_item,
                   service_name: applying.service.service_name,
-                  assignment_scope: applying.device ? 'Device' : 'User',
-                  managed_device: applying.device?.device.name ?? null,
-                  hostname: applying.device?.device.hostname ?? null,
+                  assignment_scope: applying.service.assignment_scope,
+                  managed_device: applying.service.device,
+                  hostname: applying.service.hostname,
                   operational_status: applying.service.operational_status,
                   billing_status: applying.service.billing_status ?? '',
-                  effective_start_date: applying.service.effective_start_date,
-                  effective_end_date: applying.service.effective_end_date,
+                  effective_start_date: applying.service.service_start,
+                  effective_end_date: applying.service.service_end,
                   source_request: applying.service.source_request,
-                  device_serial_number: applying.device?.device.serial_number ?? null,
+                  device_serial_number: applying.service.device_serial_number,
                   device_user_name: user.full_name,
-                  last_billed_on: applying.service.last_billed_on ?? null,
+                  last_billed_on: applying.service.last_billed_on,
                 },
                 action: applying.action,
               }

@@ -76,6 +76,45 @@ const person = {
       services: { current: [], available: [] },
     },
   ],
+  services: [
+    {
+      assignment: 'SA-1',
+      name: 'SA-1',
+      service_item: 'M365',
+      service_name: 'Microsoft 365',
+      assignment_scope: 'User',
+      device: null,
+      hostname: null,
+      device_serial_number: null,
+      holding_period: null,
+      current_holding: true,
+      association_from: '2025-02-01',
+      association_until: null,
+      service_start: '2025-02-01',
+      service_end: null,
+      operational_status: 'Active',
+      billing_status: 'Billable',
+      quantity: 1,
+      last_billed_on: '2026-08-31',
+      source_request: null,
+      allowed_actions: [],
+      pending_request: null,
+    },
+  ],
+  service_counts: { Active: 1 },
+  device_history: [
+    {
+      period: 'H1',
+      device: 'DEV-1',
+      hostname: 'KV-ADAM',
+      device_type: 'PC',
+      serial_number: 'SN-9',
+      device_status: 'Active',
+      from_date: '2025-03-01',
+      to_date: null,
+      is_current: true,
+    },
+  ],
   open_requests: [],
   // our own signals: the page must not pass them on
   attention: [
@@ -171,7 +210,8 @@ describe('the person file a customer reads', () => {
 
     expect(await screen.findByText('Adam Harmel')).toBeInTheDocument();
     expect(screen.getByText('Microsoft 365')).toBeInTheDocument();
-    expect(screen.getByText('KV-ADAM')).toBeInTheDocument();
+    // held now: in the devices table and at the top of the holding history
+    expect(screen.getAllByText('KV-ADAM')).toHaveLength(2);
     expect(screen.getByText('Billing & coverage')).toBeInTheDocument();
 
     expect(screen.queryByRole('button', { name: /^edit$/i })).not.toBeInTheDocument();

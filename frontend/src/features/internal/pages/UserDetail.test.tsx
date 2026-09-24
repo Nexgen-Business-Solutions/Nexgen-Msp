@@ -6,7 +6,9 @@ import * as internal from '@/lib/api/internal';
 import type {
   HeldDevice,
   UserDetail as UserDetailData,
+  UserDeviceHolding,
   UserServiceEntry,
+  UserServiceTimelineEntry,
 } from '@/lib/api/internal';
 import UserDetail from './UserDetail';
 
@@ -59,6 +61,61 @@ const held = (overrides: Partial<HeldDevice> = {}): HeldDevice => ({
   ...overrides,
 });
 
+// one row of the backend's read model: the page shows it as given, and works nothing out
+const line = (overrides: Partial<UserServiceTimelineEntry> = {}): UserServiceTimelineEntry => ({
+  assignment: 'SA-001',
+  name: 'SA-001',
+  service_item: 'M365',
+  service_name: 'Microsoft 365',
+  assignment_scope: 'User',
+  device: null,
+  hostname: null,
+  device_serial_number: null,
+  holding_period: null,
+  current_holding: true,
+  association_from: '2026-01-10',
+  association_until: null,
+  service_start: '2026-01-10',
+  service_end: null,
+  operational_status: 'Active',
+  billing_status: 'Billable',
+  quantity: 1,
+  last_billed_on: null,
+  source_request: null,
+  allowed_actions: ['Change', 'Suspend', 'Remove'],
+  pending_request: null,
+  ...overrides,
+});
+
+const onLaptop = (overrides: Partial<UserServiceTimelineEntry> = {}) =>
+  line({
+    assignment: 'SA-DEV',
+    name: 'SA-DEV',
+    service_item: 'SOPHOS',
+    service_name: 'Sophos Endpoint',
+    assignment_scope: 'Device',
+    device: 'DEV-001',
+    hostname: 'LAPTOP-JDOE',
+    device_serial_number: 'DELL-93821',
+    holding_period: 'H2',
+    association_from: '2026-09-11',
+    service_start: '2026-04-01',
+    ...overrides,
+  });
+
+const holding = (overrides: Partial<UserDeviceHolding> = {}): UserDeviceHolding => ({
+  period: 'H2',
+  device: 'DEV-001',
+  hostname: 'LAPTOP-JDOE',
+  device_type: 'Laptop',
+  serial_number: 'DELL-93821',
+  device_status: 'Active',
+  from_date: '2026-09-11',
+  to_date: null,
+  is_current: true,
+  ...overrides,
+});
+
 const detail = (overrides: Partial<UserDetailData> = {}): UserDetailData => ({
   user: {
     name: 'CU-001',
@@ -85,6 +142,20 @@ const detail = (overrides: Partial<UserDetailData> = {}): UserDetailData => ({
     target_reason: null,
   },
   devices: [held()],
+  services: [line(), onLaptop()],
+  service_counts: { Active: 2 },
+  device_history: [
+    holding(),
+    holding({
+      period: 'H1',
+      device: 'DEV-OLD',
+      hostname: 'LAPTOP-17',
+      device_status: 'Stock',
+      from_date: '2025-01-12',
+      to_date: '2025-06-04',
+      is_current: false,
+    }),
+  ],
   open_requests: [],
   attention: [],
   recent_activity: [
@@ -121,7 +192,19 @@ const renderPage = async (data: UserDetailData) => {
       },
     ],
     past_personal_services: [],
-    past_requests: [],
+    past_requests: [
+      {
+        name: 'SR-0099',
+        status: 'Completed',
+        priority: 'Medium',
+        request_type: 'Add',
+        creation: '2025-02-01',
+        modified: '2025-02-03',
+        lines: [],
+        work_total: 0,
+        work_done: 0,
+      },
+    ],
     activity: [],
   });
 
@@ -219,9 +302,11 @@ describe('what is theirs and what the machine carries', () => {
   });
 
   it('shows when each service was last billed rather than its quantity', async () => {
-    await renderPage(detail());
+    await renderPage(detail({ services: [line({ last_billed_on: '2026-08-31' })] }));
 
-    expect(screen.getByText('Last billed')).toBeInTheDocument();
+    const row = screen.getByText('Microsoft 365').closest('tr') as HTMLElement;
+
+    expect(within(row).getByText('Last billed 2026-08-31')).toBeInTheDocument();
     expect(screen.queryByText('Quantity')).not.toBeInTheDocument();
   });
 });
@@ -269,14 +354,7 @@ describe('Nexgen acts directly from here', () => {
 
   it('still acts on a service a request is about, and says which request', async () => {
     await renderPage(
-      detail({
-        personal_services: {
-          current: [service({ allowed_actions: [], pending_request: 'SR-0125' })],
-          available: [],
-          blocked: [],
-          target_reason: null,
-        },
-      })
+      detail({ services: [line({ allowed_actions: [], pending_request: 'SR-0125' })] })
     );
 
     const row = screen.getByText(/in request SR-0125/i).closest('tr') as HTMLElement;
@@ -347,12 +425,12 @@ describe('the past is asked for, not carried', () => {
     expect(internal.getUserHistory).not.toHaveBeenCalled();
   });
 
-  it('loads past devices on demand', async () => {
+  it('loads closed requests on demand', async () => {
     await renderPage(detail());
 
     fireEvent.click(screen.getByRole('button', { name: /load older activity/i }));
 
-    expect(await screen.findByText(/LAPTOP-17/)).toBeInTheDocument();
+    expect(await screen.findByText(/SR-0099/)).toBeInTheDocument();
   });
 });
 
@@ -400,5 +478,164 @@ describe('somebody leaving, and coming back', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: /^reactivate$/i }));
 
     await waitFor(() => expect(internal.reactivateClientUser).toHaveBeenCalledWith(data.user.name));
+  });
+});
+
+// ------------------------------------------------------------------ every service, any state
+
+const rowOf = (text: string) => screen.getByText(text).closest('tr') as HTMLElement;
+
+
+describe('the services table carries every service, whatever became of it', () => {
+  it('counts every service in the title and sums them up by state', async () => {
+    await renderPage(
+      detail({
+        services: [
+          line(),
+          onLaptop(),
+          line({ assignment: 'SA-S', name: 'SA-S', service_name: 'VPN', operational_status: 'Suspended' }),
+          line({ assignment: 'SA-E', name: 'SA-E', service_name: 'Old mailbox', operational_status: 'Ended' }),
+        ],
+        service_counts: { Active: 2, Suspended: 1, Ended: 1 },
+      })
+    );
+
+    expect(screen.getByText('Services · 4')).toBeInTheDocument();
+    expect(screen.getByText('2 active · 1 suspended · 1 ended')).toBeInTheDocument();
+    expect(screen.queryByText(/open$/)).not.toBeInTheDocument();
+  });
+
+  it('shows an active personal service as the user\'s own, on no device', async () => {
+    await renderPage(detail());
+
+    const row = rowOf('Microsoft 365');
+
+    expect(within(row).getByText('User')).toBeInTheDocument();
+    expect(within(row).getByText('2026-01-10')).toBeInTheDocument();
+    expect(within(row).getAllByText('—').length).toBe(2);
+    expect(within(row).getByText('ACTIVE')).toBeInTheDocument();
+  });
+
+  it('keeps an ended personal service in the table, with no lifecycle action', async () => {
+    await renderPage(
+      detail({
+        services: [
+          line({
+            operational_status: 'Ended',
+            billing_status: 'Ended',
+            association_until: '2026-08-31',
+            service_end: '2026-08-31',
+            allowed_actions: [],
+          }),
+        ],
+      })
+    );
+
+    const row = rowOf('Microsoft 365');
+
+    expect(within(row).getByText('ENDED')).toBeInTheDocument();
+    expect(within(row).getByText('Ended')).toBeInTheDocument();
+    expect(within(row).getByText('2026-08-31')).toBeInTheDocument();
+    expect(within(row).queryByTitle('More options')).not.toBeInTheDocument();
+  });
+
+  it('offers nothing on a cancelled service', async () => {
+    await renderPage(detail({ services: [line({ operational_status: 'Cancelled' })] }));
+
+    expect(within(rowOf('Microsoft 365')).queryByTitle('More options')).not.toBeInTheDocument();
+  });
+
+  it('offers resume instead of suspend on a suspended service', async () => {
+    await renderPage(
+      detail({ services: [line({ operational_status: 'Suspended', billing_status: 'On Hold' })] })
+    );
+
+    const row = rowOf('Microsoft 365');
+    expect(within(row).getByText('SUSPENDED')).toBeInTheDocument();
+
+    fireEvent.click(within(row).getByTitle('More options'));
+
+    expect(await screen.findByRole('button', { name: 'Resume' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Suspend' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Change' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
+  });
+
+  it('shows a device service on the machine they hold, from the day they got it', async () => {
+    await renderPage(detail());
+
+    const row = rowOf('Sophos Endpoint');
+
+    expect(within(row).getByText('Device')).toBeInTheDocument();
+    expect(within(row).getByText('LAPTOP-JDOE')).toBeInTheDocument();
+    expect(within(row).getByText('2026-09-11')).toBeInTheDocument();
+    expect(within(row).queryByText('2026-04-01')).not.toBeInTheDocument();
+  });
+
+  it('reads a machine they gave back as over for them, while the service still runs', async () => {
+    await renderPage(
+      detail({
+        services: [
+          onLaptop({
+            hostname: 'LAPTOP-001',
+            association_from: '2026-05-01',
+            association_until: '2026-09-15',
+            current_holding: false,
+          }),
+        ],
+      })
+    );
+
+    const row = rowOf('Sophos Endpoint');
+
+    expect(within(row).getByText('2026-05-01')).toBeInTheDocument();
+    expect(within(row).getByText('2026-09-15')).toBeInTheDocument();
+    expect(within(row).getByText('ACTIVE')).toBeInTheDocument();
+    expect(within(row).getByText('Billable')).toBeInTheDocument();
+    // acting on it is the next holder's business
+    expect(within(row).queryByTitle('More options')).not.toBeInTheDocument();
+  });
+
+  it('keeps an ended device service that ran while they held the machine', async () => {
+    await renderPage(
+      detail({
+        services: [
+          onLaptop({
+            operational_status: 'Ended',
+            billing_status: 'Ended',
+            association_until: '2026-09-20',
+            service_end: '2026-09-20',
+          }),
+        ],
+      })
+    );
+
+    const row = rowOf('Sophos Endpoint');
+
+    expect(within(row).getByText('2026-09-20')).toBeInTheDocument();
+    expect(within(row).queryByTitle('More options')).not.toBeInTheDocument();
+  });
+
+  it('works out no dates of its own: what the backend leaves out is not shown', async () => {
+    await renderPage(detail({ services: [line()] }));
+
+    expect(screen.queryByText('Sophos Endpoint')).not.toBeInTheDocument();
+  });
+});
+
+describe('every machine they have held', () => {
+  it('lists current and previous holdings with their dates', async () => {
+    await renderPage(detail());
+
+    const panel = screen.getByText('Device history · 2').closest('section') as HTMLElement;
+    const current = within(panel).getByText('LAPTOP-JDOE').closest('tr') as HTMLElement;
+    const previous = within(panel).getByText('LAPTOP-17').closest('tr') as HTMLElement;
+
+    expect(within(current).getByText('CURRENT')).toBeInTheDocument();
+    expect(within(current).getByText('—')).toBeInTheDocument();
+    expect(within(previous).getByText('PREVIOUS')).toBeInTheDocument();
+    expect(within(previous).getByText('2025-01-12')).toBeInTheDocument();
+    expect(within(previous).getByText('2025-06-04')).toBeInTheDocument();
+    expect(internal.getUserHistory).not.toHaveBeenCalled();
   });
 });

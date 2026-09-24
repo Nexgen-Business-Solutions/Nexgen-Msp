@@ -21,6 +21,9 @@ const Timeline: React.FC<{ events: UserActivityEvent[] }> = ({ events }) => (
 /**
  * What happened before now. It is not carried with the page: the first reading holds the
  * last handful of events, and the rest is fetched the moment somebody asks for it.
+ *
+ * Past devices and closed services are not repeated here: the page already lists every
+ * service in any state, and every holding, in its own tables.
  */
 const UserHistoryPanel: React.FC<{
   name: string;
@@ -60,43 +63,6 @@ const UserHistoryPanel: React.FC<{
 
       {open && history.data && (
         <div className="mt-3 space-y-4 border-t border-slate-100 pt-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-              Past devices
-            </p>
-            {history.data.past_devices.length ? (
-              <ul className="mt-1 space-y-0.5">
-                {history.data.past_devices.map((row) => (
-                  <li key={row.period} className="text-xs text-slate-600">
-                    {row.hostname}
-                    {row.serial_number ? ` · ${row.serial_number}` : ''} — held{' '}
-                    {fmtDate(row.held_from)} to {fmtDate(row.held_until)}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="mt-1 text-xs text-slate-400">They have never given a machine back.</p>
-            )}
-          </div>
-
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-              Past personal services
-            </p>
-            {history.data.past_personal_services.length ? (
-              <ul className="mt-1 space-y-0.5">
-                {history.data.past_personal_services.map((row) => (
-                  <li key={row.name} className="text-xs text-slate-600">
-                    {row.service_name} — {row.operational_status.toLowerCase()}{' '}
-                    {fmtDate(row.effective_end_date)}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="mt-1 text-xs text-slate-400">Nothing of theirs has been closed.</p>
-            )}
-          </div>
-
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
               Closed requests

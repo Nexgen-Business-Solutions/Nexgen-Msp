@@ -20,6 +20,8 @@ const PALETTE: Record<string, string> = {
   Approved: DONE,
   Completed: DONE,
   Active: DONE,
+  // a holding still running
+  Current: DONE,
   Invoiced: DONE,
   Posted: DONE,
   Rejected: OFF,

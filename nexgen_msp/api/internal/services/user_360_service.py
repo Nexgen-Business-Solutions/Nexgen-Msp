@@ -43,6 +43,35 @@ VISIBLE_REQUEST_STATUSES = tuple(status for status in OPEN_STATUSES if status !=
 RECENT_ACTIVITY = 20
 
 
+def association_window(service_start, service_end, held_from, held_until):
+    """The days a person and a machine's service were together, or None if there were none.
+
+    Both periods are inclusive and an empty end means it has not ended. A service with no
+    start yet is only waiting to begin, so it belongs with a holding still running.
+
+    The window says nothing about the service itself: a service that outlives the holding is
+    still running, it simply stopped being this person's to look at.
+    """
+    # frappe reads an empty date as today, which here would close an open period
+    def getdate(value):
+        return frappe.utils.getdate(value) if value else None
+
+    service_start, service_end = getdate(service_start), getdate(service_end)
+    held_from, held_until = getdate(held_from), getdate(held_until)
+
+    if service_start is None:
+        return (None, None) if held_until is None else None
+
+    since = max(day for day in (service_start, held_from) if day is not None)
+    ends = [day for day in (service_end, held_until) if day is not None]
+    until = min(ends) if ends else None
+
+    if until is not None and until < since:
+        return None
+
+    return since, until
+
+
 class User360Service:
     # ------------------------------------------------------------------ the reading
     @staticmethod
@@ -60,6 +89,8 @@ class User360Service:
         personal = User360Service._personal_services(person, internal=internal)
         requests = User360Service._open_requests(person)
         attention = User360Service._attention(person, devices, personal, requests)
+        holdings = User360Service._holdings(person)
+        services = User360Service._service_timeline(person, holdings, internal=internal)
 
         reading = {
             "user": User360Service._identity(person, internal=internal),
@@ -74,6 +105,11 @@ class User360Service:
             },
             "personal_services": personal,
             "devices": devices,
+            # every service they have been associated with, whatever became of it; the
+            # screens read this rather than stitching the two lists above back together
+            "services": services,
+            "service_counts": User360Service._count_by_status(services),
+            "device_history": User360Service._device_history(holdings),
             "open_requests": requests,
             "attention": attention if internal else [],
             "recent_activity": User360Service._activity(person, limit=RECENT_ACTIVITY),
@@ -276,12 +312,12 @@ class User360Service:
         return {row.assignment: row.billed_to for row in rows}
 
     @staticmethod
-    def _describe_service(row, pending=None):
+    def _describe_service(row, pending=None, key="name"):
         """What may still be asked of this service, and whether somebody is already asking."""
         asked = (
-            pending.get(row["name"])
+            pending.get(row[key])
             if pending is not None
-            else (request_intents.in_flight_requests_for(row["name"]) or [None])[0]
+            else (request_intents.in_flight_requests_for(row[key]) or [None])[0]
         )
 
         row["allowed_actions"] = list(
@@ -295,6 +331,157 @@ class User360Service:
             row["allowed_actions"] = []
 
         return row
+
+    # ------------------------------------------------------------------ everything they had
+    @staticmethod
+    def _holdings(person):
+        """Every spell this person held a machine, current or over, one line each."""
+        return frappe.db.sql(
+            """
+            select holder.name as period, holder.from_date, holder.to_date, holder.is_current,
+                   device.name as device, device.hostname, device.device_type,
+                   device.serial_number, device.status
+            from `tabMSP Device Holder` holder
+            join `tabMSP Managed Device` device on device.name = holder.parent
+            where holder.parenttype = 'MSP Managed Device'
+              and holder.client_user = %(user)s
+            order by holder.is_current desc, holder.from_date desc
+            """,
+            {"user": person.name},
+            as_dict=True,
+        )
+
+    @staticmethod
+    def _device_history(holdings):
+        return [
+            {
+                "period": spell.period,
+                "device": spell.device,
+                "hostname": spell.hostname,
+                "device_type": spell.device_type,
+                "serial_number": spell.serial_number,
+                "device_status": spell.status,
+                "from_date": spell.from_date,
+                "to_date": spell.to_date,
+                "is_current": bool(spell.is_current),
+            }
+            for spell in holdings
+        ]
+
+    @staticmethod
+    def _service_timeline(person, holdings, internal):
+        """Every service this person has been associated with, in any state, as one list.
+
+        Their own services are theirs for the life of the service. A machine's service is
+        read only for the days they held that machine while it ran, so the same assignment
+        reads differently on each holder's page and nothing is copied or moved to say so.
+        """
+        fields = """
+            sa.name as assignment, sa.service_item,
+            coalesce(item.item_name, sa.service_item) as service_name,
+            sa.assignment_scope, sa.managed_device, sa.operational_status, sa.billing_status,
+            sa.quantity, sa.effective_start_date, sa.effective_end_date, sa.source_request
+        """
+
+        rows = []
+
+        for row in frappe.db.sql(
+            f"""
+            select {fields}
+            from `tabMSP Service Assignment` sa
+            left join `tabItem` item on item.name = sa.service_item
+            where sa.client_user = %(user)s and sa.assignment_scope = 'User'
+            """,
+            {"user": person.name},
+            as_dict=True,
+        ):
+            rows.append(
+                User360Service._timeline_row(
+                    row,
+                    since=row.effective_start_date,
+                    until=row.effective_end_date,
+                    spell=None,
+                )
+            )
+
+        if holdings:
+            spells = {}
+            for spell in holdings:
+                spells.setdefault(spell.device, []).append(spell)
+
+            for row in frappe.db.sql(
+                f"""
+                select {fields}
+                from `tabMSP Service Assignment` sa
+                left join `tabItem` item on item.name = sa.service_item
+                where sa.managed_device in %(devices)s and sa.assignment_scope = 'Device'
+                """,
+                {"devices": tuple(spells)},
+                as_dict=True,
+            ):
+                # held twice, read twice: each spell is its own association
+                for spell in spells[row.managed_device]:
+                    window = association_window(
+                        row.effective_start_date,
+                        row.effective_end_date,
+                        spell.from_date,
+                        spell.to_date,
+                    )
+
+                    if window:
+                        rows.append(
+                            User360Service._timeline_row(
+                                row, since=window[0], until=window[1], spell=spell
+                            )
+                        )
+
+        names = list({row["assignment"] for row in rows})
+        pending = User360Service._pending_on(names, internal)
+        billed = User360Service._billed_through(names)
+
+        for row in rows:
+            User360Service._describe_service(row, pending, key="assignment")
+            row["last_billed_on"] = billed.get(row["assignment"])
+
+        # what is still running first, then the most recent association
+        rows.sort(key=lambda row: str(row["association_from"] or "9999"), reverse=True)
+        rows.sort(key=lambda row: row["operational_status"] not in OPEN_ASSIGNMENT_STATUSES)
+
+        return rows
+
+    @staticmethod
+    def _timeline_row(row, since, until, spell):
+        return {
+            "assignment": row.assignment,
+            # the key the service action forms already speak
+            "name": row.assignment,
+            "service_item": row.service_item,
+            "service_name": row.service_name,
+            "assignment_scope": row.assignment_scope,
+            "device": spell.device if spell else None,
+            "hostname": spell.hostname if spell else None,
+            "device_serial_number": spell.serial_number if spell else None,
+            "holding_period": spell.period if spell else None,
+            # whether acting from this page still acts on something in their hands: a
+            # machine they gave back is the next holder's to deal with
+            "current_holding": bool(spell.is_current) if spell else True,
+            "association_from": since,
+            "association_until": until,
+            "service_start": row.effective_start_date,
+            "service_end": row.effective_end_date,
+            "operational_status": row.operational_status,
+            "billing_status": row.billing_status,
+            "quantity": row.quantity,
+            "source_request": row.source_request,
+        }
+
+    @staticmethod
+    def _count_by_status(services):
+        counts = {}
+        for row in services:
+            counts[row["operational_status"]] = counts.get(row["operational_status"], 0) + 1
+
+        return counts
 
     # ------------------------------------------------------------------ what they hold
     @staticmethod

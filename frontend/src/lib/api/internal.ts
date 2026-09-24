@@ -676,6 +676,49 @@ export type HeldDevice = {
   };
 };
 
+/**
+ * One service as it reads on a person's page, in any state. A device service appears once per
+ * spell the person held its machine, and only for the days that spell and the service overlap:
+ * `association_until` is when the person stopped being associated, not when the service ended.
+ */
+export type UserServiceTimelineEntry = {
+  assignment: string;
+  /** the same assignment, under the key the service forms speak */
+  name: string;
+  service_item: string;
+  service_name: string;
+  assignment_scope: 'User' | 'Device';
+  device: string | null;
+  hostname: string | null;
+  device_serial_number: string | null;
+  holding_period: string | null;
+  /** false once the machine has left their hands: acting on it is the next holder's business */
+  current_holding: boolean;
+  association_from: string | null;
+  association_until: string | null;
+  service_start: string | null;
+  service_end: string | null;
+  operational_status: string;
+  billing_status: string | null;
+  quantity: number | null;
+  last_billed_on: string | null;
+  source_request: string | null;
+  allowed_actions: string[];
+  pending_request: string | null;
+};
+
+export type UserDeviceHolding = {
+  period: string;
+  device: string;
+  hostname: string;
+  device_type: string | null;
+  serial_number: string | null;
+  device_status: string;
+  from_date: string | null;
+  to_date: string | null;
+  is_current: boolean;
+};
+
 export type AttentionSignal = {
   code: string;
   severity: 'warning' | 'info';
@@ -737,6 +780,11 @@ export type UserDetail = {
     target_reason: string | null;
   };
   devices: HeldDevice[];
+  /** every service they have been associated with, open or closed, ready to show */
+  services: UserServiceTimelineEntry[];
+  /** how many of `services` are in each operational status */
+  service_counts: Record<string, number>;
+  device_history: UserDeviceHolding[];
   open_requests: UserOpenRequest[];
   attention: AttentionSignal[];
   recent_activity: UserActivityEvent[];
