@@ -81,7 +81,7 @@ class TestDecidingSeveralLinesAtOnce(FulfilmentCase):
         )
         after = frappe.get_doc("MSP Service Request", name).lines[0]
 
-        for field in ("requested_service", "action", "target_scope", "client_user", "request_action"):
+        for field in ("requested_service", "action", "target_scope", "client_user", "operation_code"):
             self.assertEqual(after.get(field), before.get(field), field)
 
 

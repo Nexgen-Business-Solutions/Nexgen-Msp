@@ -9,15 +9,22 @@ import * as internal from '@/lib/api/internal';
 import { Ban, CircleCheck, Package, Pencil, Plus, Users } from 'lucide-react';
 import KpiCard from '@/shared/components/KpiCard';
 import RowActionsMenu, { type RowAction } from '@/shared/components/RowActionsMenu';
-import ConfirmModal from '@/shared/components/ConfirmModal';
 import ServiceModal from '../components/ServiceModal';
 import type { CatalogueRow } from '@/lib/api/internal';
-import { useSaveService, useServiceCatalogue } from '../hooks/useCatalogue';
+import { useServiceCatalogue } from '../hooks/useCatalogue';
+import RemoveFromMspModal from '../components/RemoveFromMspModal';
+
+// what MSP says, and what ERPNext says: two axes, never collapsed into one badge
+const MSP_TONE: Record<string, string> = {
+  Available: 'bg-emerald-100 text-emerald-700',
+  'Not available': 'bg-slate-100 text-slate-600',
+  'Needs configuration': 'bg-amber-100 text-amber-700',
+};
 
 const SCOPE_LABEL: Record<string, string> = {
-  User: 'Per user',
-  Device: 'Per device',
-  Both: 'User or device',
+  User: 'User',
+  Device: 'Device',
+  Both: 'Both',
 };
 
 const EMPTY: FilterState = { scope: '', status: '', focus: '' };
@@ -40,11 +47,11 @@ export default function ServicesList() {
   const { data, isLoading, error, refetch } = useServiceCatalogue(query);
   // the cards describe the whole catalogue; a filter narrows the list below, never them
   const everything = useServiceCatalogue({});
-  const save = useSaveService();
 
   const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState<CatalogueRow | null>(null);
-  const [toggling, setToggling] = useState<CatalogueRow | null>(null);
+  // a service already on file that is being offered again: the row says which one
+  const [reoffering, setReoffering] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<CatalogueRow | null>(null);
 
   const rows = data ?? [];
   const all = everything.data ?? [];
@@ -70,10 +77,10 @@ export default function ServicesList() {
           <td key={key} className="px-4 py-3">
             <button
               type="button"
-              onClick={() => navigate(`/msp/services/${row.name}`)}
+              onClick={() => navigate(`/msp/services/detail?item=${encodeURIComponent(row.name)}`)}
               className="text-sm font-semibold text-slate-900 transition-colors hover:text-blue-700"
             >
-              {row.item_name}
+              {row.service_name}
             </button>
             <p className="text-xs text-slate-400">{row.name}</p>
           </td>
@@ -81,7 +88,7 @@ export default function ServicesList() {
       case 'scope':
         return (
           <td key={key} className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-            {SCOPE_LABEL[row.scope ?? ''] ?? 'Per user'}
+            {SCOPE_LABEL[row.scope ?? ''] ?? <span className="text-slate-400">N/A</span>}
           </td>
         );
       case 'open_assignments':
@@ -110,18 +117,16 @@ export default function ServicesList() {
             </span>
           </td>
         );
-      case 'status':
+      case 'msp_availability':
         return (
           <td key={key} className="whitespace-nowrap px-4 py-3">
-            {row.disabled ? (
-              <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500">
-                RETIRED
-              </span>
-            ) : (
-              <span className="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
-                OFFERED
-              </span>
-            )}
+            <span
+              className={`inline-flex whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold ${
+                MSP_TONE[row.msp_availability] ?? 'bg-slate-100 text-slate-600'
+              }`}
+            >
+              {row.msp_availability}
+            </span>
           </td>
         );
       default: {
@@ -138,10 +143,6 @@ export default function ServicesList() {
   const assignments = all.reduce((sum, row) => sum + row.open_assignments, 0);
   const unpriced = live.filter((row) => row.priced_contracts === 0).length;
 
-  const open = (service: CatalogueRow | null) => {
-    setEditing(service);
-    setModalOpen(true);
-  };
 
   return (
     <div className="space-y-5 px-6 pb-6 pt-4">
@@ -188,7 +189,7 @@ export default function ServicesList() {
       <FilterBar
         values={filters}
         search={search}
-        searchPlaceholder="Search a service, its code or its invoice label…"
+        searchPlaceholder="Search MSP services…"
         subtitle="Narrow the catalogue."
         onSearch={setSearch}
         onApply={setFilters}
@@ -213,8 +214,11 @@ export default function ServicesList() {
             kind: 'select',
             allLabel: 'Any status',
             options: [
-              { value: 'active', label: 'Active' },
-              { value: 'disabled', label: 'Disabled' },
+              { value: 'Ready', label: 'Ready' },
+              { value: 'Needs Configuration', label: 'Needs Configuration' },
+              { value: 'ERPNext Disabled', label: 'ERPNext Disabled' },
+              { value: 'Stock Item', label: 'Stock Item' },
+              { value: 'Historical Only', label: 'Historical Only' },
             ],
           },
           {
@@ -236,17 +240,19 @@ export default function ServicesList() {
           <div>
             <h2 className="text-base font-semibold text-slate-900">Service catalogue</h2>
             <p className="mt-0.5 text-sm text-slate-400">
-              What can be assigned and billed. The scope decides whether a licence follows a person
-              or a machine.
+              What Nexgen sells, and how widely each one is in use.
             </p>
           </div>
           <button
             type="button"
-            onClick={() => open(null)}
+            onClick={() => {
+              setReoffering(null);
+              setModalOpen(true);
+            }}
             className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
           >
             <Plus size={15} />
-            New service
+            Add service
           </button>
         </div>
 
@@ -301,19 +307,27 @@ export default function ServicesList() {
                         <RowActionsMenu
                           actions={
                             [
-                              { label: 'Edit service', icon: Pencil, onClick: () => open(row) },
                               {
-                                label: 'Retire from catalogue',
-                                icon: Ban,
-                                onClick: () => setToggling(row),
-                                danger: true,
-                                disabled: Boolean(row.disabled),
+                                label: 'Open service',
+                                icon: Pencil,
+                                onClick: () =>
+                                  navigate(`/msp/services/detail?item=${encodeURIComponent(row.name)}`),
                               },
                               {
-                                label: 'Offer again',
+                                label: 'Remove from MSP',
+                                icon: Ban,
+                                onClick: () => setRemoving(row),
+                                danger: true,
+                                disabled: !row.msp_enabled,
+                              },
+                              {
+                                label: 'Make available in MSP',
                                 icon: CircleCheck,
-                                onClick: () => setToggling(row),
-                                disabled: !row.disabled,
+                                onClick: () => {
+                                  setReoffering(row.name);
+                                  setModalOpen(true);
+                                },
+                                disabled: Boolean(row.msp_enabled),
                               },
                             ] as RowAction[]
                           }
@@ -327,45 +341,17 @@ export default function ServicesList() {
         </div>
       </div>
 
-      <ServiceModal open={modalOpen} service={editing} onClose={() => setModalOpen(false)} />
-
-      <ConfirmModal
-        open={Boolean(toggling)}
-        tone={toggling?.disabled ? 'info' : 'danger'}
-        title={
-          toggling?.disabled
-            ? `Offer ${toggling.item_name} again?`
-            : `Retire ${toggling?.item_name} from the catalogue?`
-        }
-        description={
-          toggling?.disabled
-            ? 'It becomes assignable again straight away.'
-            : `It can no longer be assigned. ${toggling?.open_assignments ?? 0} open assignment(s) must be ended first.`
-        }
-        confirmLabel={toggling?.disabled ? 'Offer again' : 'Retire'}
-        loading={save.isLoading}
-        onCancel={() => setToggling(null)}
-        onConfirm={async () => {
-          if (!toggling) return;
-          try {
-            await save.mutateAsync({
-              name: toggling.name,
-              item_name: toggling.item_name,
-              scope: toggling.scope ?? 'User',
-              disabled: toggling.disabled ? 0 : 1,
-            });
-            setToggling(null);
-          } catch {
-            // the modal stays open; the message is shown below
-          }
+      <ServiceModal
+        open={modalOpen}
+        item={reoffering}
+        onClose={() => {
+          setModalOpen(false);
+          setReoffering(null);
         }}
       />
 
-      {save.error instanceof Error && (
-        <div className="rounded-lg border border-red-100 bg-red-50 p-3 text-sm font-medium text-red-700">
-          {save.error.message}
-        </div>
-      )}
+      <RemoveFromMspModal service={removing} onClose={() => setRemoving(null)} />
+
 
       <ColumnsModal
         open={choosingColumns}

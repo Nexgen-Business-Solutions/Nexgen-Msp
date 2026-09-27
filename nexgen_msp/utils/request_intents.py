@@ -16,17 +16,6 @@ from frappe import _
 
 ASSIGNMENT = "MSP Service Assignment"
 
-# what may be asked of a service, according to the life it is currently in
-ALLOWED_ACTIONS = {
-	"Draft": (),
-	"Pending Setup": (),
-	"Active": ("Change", "Suspend", "Remove"),
-	"Suspended": ("Resume", "Remove"),
-	"Pending Removal": (),
-	"Ended": (),
-	"Cancelled": (),
-}
-
 # the acts that work on a service already on file, and so have to name which one
 ACTS_ON_EXISTING = ("Change", "Suspend", "Resume", "Remove")
 
@@ -44,6 +33,53 @@ IN_FLIGHT_STATUSES = (
 )
 
 TARGET_FIELD = {"User": "client_user", "Device": "managed_device"}
+
+# the operations that decide who holds a machine, and so cannot be asked twice at once
+HOLDER_OPERATIONS = ("device.assign", "device.transfer", "device.repossess")
+
+
+def operation_of(row):
+	"""The operation a line asks for, whether it was written as a code or as an old action."""
+	from nexgen_msp.utils import operations
+
+	code = (row.get("operation_code") or "").strip() or operations.from_legacy_action(
+		row.get("action")
+	)
+
+	return operations.get(code)
+
+
+def is_device_operation(row):
+	"""Whether this line is about a machine itself rather than a service on one."""
+	definition = operation_of(row)
+
+	return bool(definition) and definition["domain"] == "device"
+
+
+def pending_holder_request(device, exclude=None):
+	"""The request already asking for this machine to change hands, if there is one."""
+	if not device:
+		return None
+
+	rows = frappe.db.sql_list(
+		"""
+		select distinct sr.name
+		from `tabMSP Service Request Line` srl
+		join `tabMSP Service Request` sr on sr.name = srl.parent
+		where srl.managed_device = %(device)s
+		  and srl.operation_code in %(holder)s
+		  and sr.status in %(in_flight)s
+		  and sr.name != %(exclude)s
+		""",
+		{
+			"device": device,
+			"holder": HOLDER_OPERATIONS,
+			"in_flight": IN_FLIGHT_STATUSES,
+			"exclude": exclude or "",
+		},
+	)
+
+	return rows[0] if rows else None
 
 
 def subject_of(row):
@@ -78,8 +114,16 @@ def subject_department(row):
 
 
 def allowed_actions(operational_status):
-	"""What may still be asked of a service in this state."""
-	return ALLOWED_ACTIONS.get(operational_status, ())
+	"""What may still be asked of a service in this state, in the old vocabulary.
+
+	Which acts a state allows is decided once, where the operations themselves are.
+	"""
+	from nexgen_msp.utils import operations
+
+	return tuple(
+		operations.REGISTRY[code]["legacy_action"]
+		for code in operations.for_service_state(operational_status)
+	)
 
 
 def open_assignment_for(customer, service_item, scope, target):
@@ -209,6 +253,11 @@ def validate_action_against_state(doc, row):
 	if row.get("is_new_user"):
 		return
 
+	# a machine operation is read against the machine, not against a service on it, and that
+	# reading happens where the operation is accepted and again before it is carried out
+	if is_device_operation(row):
+		return
+
 	action = row.get("action")
 	assignment = row.get("source_service_assignment")
 
@@ -282,6 +331,19 @@ def validate_action_against_state(doc, row):
 def validate_no_open_conflict(doc, row):
 	"""One open request at a time may ask for something on the same service."""
 	if row.get("is_new_user"):
+		return
+
+	if is_device_operation(row):
+		if (row.get("operation_code") or "") in HOLDER_OPERATIONS:
+			other = pending_holder_request(row.get("managed_device"), exclude=doc.name)
+
+			if other:
+				frappe.throw(
+					_("Row {0}: this Device already has a pending holder change in request {1}.").format(
+						row.idx, other
+					)
+				)
+
 		return
 
 	assignment = row.get("source_service_assignment")

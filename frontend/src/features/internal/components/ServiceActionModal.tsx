@@ -29,6 +29,7 @@ const COPY: Record<
     icon: typeof CircleX;
     modalTone: 'amber' | 'blue' | 'red';
     dateLabel: string;
+    notePlaceholder?: string;
   }
 > = {
   Suspend: {
@@ -62,14 +63,16 @@ const COPY: Record<
     dateLabel: 'New terms from',
   },
   End: {
-    title: 'Close this service',
-    subtitle: 'The assignment is closed on the date you choose. History is kept.',
+    title: 'Stop this service?',
+    subtitle:
+      'The assignment will end on the selected date. Its history and previous billing remain available.',
     hint: 'This service will remain in history. Re-adding it later creates a new service period.',
-    confirm: 'Close service',
+    confirm: 'Stop service',
     tone: 'bg-red-600 hover:bg-red-700',
     icon: CircleX,
     modalTone: 'red',
-    dateLabel: 'Close on',
+    dateLabel: 'Stop on',
+    notePlaceholder: 'Why is this service being stopped?',
   },
 };
 
@@ -236,7 +239,11 @@ const ServiceActionModal: React.FC<Props> = ({
             rows={3}
             value={notes}
             onChange={(event) => setNotes(event.target.value)}
-            placeholder="What you did and why — kept for Nexgen, not shown to the customer."
+            aria-label="Internal note"
+            placeholder={
+              copy.notePlaceholder ??
+              'What you did and why — kept for Nexgen, not shown to the customer.'
+            }
             className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm leading-relaxed text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
           />
         </div>

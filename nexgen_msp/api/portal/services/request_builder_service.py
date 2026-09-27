@@ -15,7 +15,10 @@ import frappe
 from nexgen_msp.api.internal.services.service_availability_service import (
     ServiceAvailabilityService,
 )
-from nexgen_msp.utils import approval, permissions, request_intents
+from nexgen_msp.api.internal.services.service_definition_service import (
+    ServiceDefinitionService,
+)
+from nexgen_msp.utils import approval, operations, permissions, request_intents
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 MAX_SEARCH_RESULTS = 25
@@ -62,6 +65,264 @@ class RequestBuilderService:
         )
 
     # ------------------------------------------------------------------ the subject
+    # ------------------------------------------------------------------ a group of people
+    @staticmethod
+    def department_selection(customer=None, department=None):
+        """The people a Department would add, resolved now and never re-read later.
+
+        The Department list is the site's own and global; who belongs to it is always read
+        inside this one Customer. Whoever is disabled or archived is left out and counted, so
+        the screen can say how many rather than silently shrink.
+        """
+        from nexgen_msp.api.portal.services.portal_service import PortalService
+
+        customer = PortalService._resolve_customer(customer)
+        department = (department or "").strip()
+
+        if not department:
+            raise ValidationError("Choose a Department.", "VALIDATION_ERROR")
+
+        return RequestBuilderService._selection(
+            customer,
+            origin="Department",
+            label=department,
+            condition="cu.department like %(department)s",
+            values={"department": f"%{department}%"},
+        )
+
+    @staticmethod
+    def company_selection(customer=None):
+        """Every active person this Customer has, resolved now, as a snapshot."""
+        from nexgen_msp.api.portal.services.portal_service import PortalService
+
+        customer = PortalService._resolve_customer(customer)
+
+        return RequestBuilderService._selection(
+            customer, origin="Company", label="Entire company", condition="1 = 1", values={}
+        )
+
+    @staticmethod
+    def _selection(customer, origin, label, condition, values):
+        """Who is added, who is left out, and what the screen says about both."""
+        params = {"customer": customer, **values}
+        rows = frappe.db.sql(
+            f"""
+            select cu.name, cu.full_name, cu.email, cu.department, cu.lifecycle_status
+            from `tabMSP Client User` cu
+            where cu.customer = %(customer)s and {condition}
+            order by cu.full_name asc
+            """,
+            params,
+            as_dict=True,
+        )
+
+        active = [row for row in rows if row.lifecycle_status in ("Pending", "Active")]
+        excluded = [row for row in rows if row.lifecycle_status not in ("Pending", "Active")]
+        departments = sorted({(row.department or "").strip() for row in active if row.department})
+
+        return {
+            "customer": customer,
+            "selection_origin": origin,
+            "selection_label": label,
+            "selection_group_key": f"{origin.lower()}:{label}",
+            "selection_snapshot_at": frappe.utils.now(),
+            "active_count": len(active),
+            "excluded_disabled_count": len(excluded),
+            "department_count": len(departments),
+            "departments": departments,
+            "people": active,
+            "excluded": excluded,
+        }
+
+    # ------------------------------------------------------------------ a change for many
+    @staticmethod
+    def bulk_targets(customer=None, operation_code=None, service_item=None, people=None):
+        """Which of these people the change can actually be asked for, and why not for the rest.
+
+        A bulk selection is expanded into one atomic line per real target. Nothing is invented
+        on the way: a Device operation reaches the machines those people hold today and no new
+        machine is requested for anybody who holds none.
+        """
+        from nexgen_msp.api.portal.services.portal_service import PortalService
+
+        customer = PortalService._resolve_customer(customer)
+        definition = operations.require_customer_requestable(operation_code)
+
+        if definition["domain"] == operations.DEVICE:
+            raise ValidationError(
+                "An act on a machine names that machine, so it is asked for one Device at a time.",
+                "OPERATION_NOT_REQUESTABLE",
+            )
+
+        people = frappe.parse_json(people) if isinstance(people, str) else (people or [])
+        people = [person for person in people if person]
+
+        if not people:
+            raise ValidationError("Add at least one person before continuing.", "VALIDATION_ERROR")
+
+        if not service_item:
+            raise ValidationError("Choose a service.", "VALIDATION_ERROR")
+
+        known = {
+            row.name: row
+            for row in frappe.get_all(
+                "MSP Client User",
+                filters={"name": ("in", people)},
+                fields=["name", "full_name", "department", "customer", "lifecycle_status"],
+            )
+        }
+        scope = ServiceDefinitionService.scope_of(service_item)
+        sellable = ServiceDefinitionService.is_ready(service_item)
+        eligible, excluded = [], []
+
+        for person in people:
+            card = known.get(person)
+
+            if not card or card.customer != customer:
+                excluded.append(
+                    {
+                        "client_user": person,
+                        "full_name": card.full_name if card else person,
+                        "reason": "One or more selected people no longer belong to this Customer.",
+                    }
+                )
+                continue
+
+            if card.lifecycle_status not in ("Pending", "Active"):
+                excluded.append(
+                    {"client_user": person, "full_name": card.full_name, "reason": "Person is disabled"}
+                )
+                continue
+
+            if not sellable:
+                excluded.append(
+                    {
+                        "client_user": person,
+                        "full_name": card.full_name,
+                        "reason": "Service is not available for this Customer",
+                    }
+                )
+                continue
+
+            targets = RequestBuilderService._bulk_targets_for(
+                customer, definition, service_item, card, scope
+            )
+            eligible.extend(targets["eligible"])
+            excluded.extend(targets["excluded"])
+
+        return {
+            "customer": customer,
+            "operation_code": definition["code"],
+            "operation_label": definition["label"],
+            "service_item": service_item,
+            "service_scope": scope,
+            "eligible": eligible,
+            "excluded": excluded,
+            "eligible_count": len(eligible),
+            "excluded_count": len(excluded),
+            "device_count": len({row["managed_device"] for row in eligible if row.get("managed_device")}),
+        }
+
+    @staticmethod
+    def _bulk_targets_for(customer, definition, service_item, person, scope):
+        """The exact targets one selected person contributes to a bulk change."""
+        code = definition["code"]
+        on_devices = scope == "Device"
+        eligible, excluded = [], []
+
+        if on_devices:
+            devices = frappe.db.sql(
+                """
+                select device.name, device.hostname
+                from `tabMSP Managed Device` device
+                join `tabMSP Device Holder` holder
+                  on holder.parent = device.name and holder.parenttype = 'MSP Managed Device'
+                where holder.client_user = %(person)s and holder.is_current = 1
+                  and device.customer = %(customer)s and device.status = 'Active'
+                order by device.hostname asc
+                """,
+                {"person": person.name, "customer": customer},
+                as_dict=True,
+            )
+
+            if not devices:
+                # a bulk change never invents a machine for somebody who holds none
+                excluded.append(
+                    {
+                        "client_user": person.name,
+                        "full_name": person.full_name,
+                        "reason": "Person has no current Device",
+                    }
+                )
+
+                return {"eligible": eligible, "excluded": excluded}
+
+            for device in devices:
+                RequestBuilderService._sort_target(
+                    customer, code, service_item, person, "Device", device, eligible, excluded
+                )
+
+            return {"eligible": eligible, "excluded": excluded}
+
+        RequestBuilderService._sort_target(
+            customer, code, service_item, person, "User", None, eligible, excluded
+        )
+
+        return {"eligible": eligible, "excluded": excluded}
+
+    @staticmethod
+    def _sort_target(customer, code, service_item, person, scope, device, eligible, excluded):
+        """One target, kept or refused with the reason a person can read."""
+        target = device.name if device else person.name
+        running = request_intents.open_assignment_for(customer, service_item, scope, target)
+        entry = {
+            "client_user": person.name,
+            "full_name": person.full_name,
+            "department": person.department,
+            "target_scope": scope,
+            "managed_device": device.name if device else None,
+            "hostname": device.hostname if device else None,
+            "source_service_assignment": running,
+        }
+
+        if code == "service.add":
+            if running:
+                excluded.append({**entry, "reason": "Service already active"})
+
+                return
+
+            others = request_intents.in_flight_additions_for(customer, service_item, scope, target)
+
+            if others:
+                excluded.append(
+                    {**entry, "reason": f"Another request is already changing this service ({others[0]})"}
+                )
+
+                return
+
+            eligible.append(entry)
+
+            return
+
+        if not running:
+            excluded.append({**entry, "reason": "No matching current assignment"})
+
+            return
+
+        if request_intents.in_flight_requests_for(running):
+            excluded.append({**entry, "reason": "Another request is already changing this service"})
+
+            return
+
+        status = frappe.db.get_value("MSP Service Assignment", running, "operational_status")
+
+        if code not in operations.for_service_state(status):
+            excluded.append({**entry, "reason": f"Service is {str(status).lower()}"})
+
+            return
+
+        eligible.append(entry)
+
     @staticmethod
     def subject_context(client_user=None):
         """Everything one screen needs about one person, already decided.
@@ -213,30 +474,23 @@ class RequestBuilderService:
         sellable = ("User", "Both") if scope == "User" else ("Device", "Both")
         offered = []
 
-        for item in frappe.get_all(
-            "Item",
-            filters={"disabled": 0, "is_stock_item": 0},
-            fields=["name", "item_name", "msp_service_scope"],
-            order_by="item_name asc",
-        ):
-            # a service that does not say where it is sold is sold to both
-            item.msp_service_scope = item.msp_service_scope or "Both"
-            if item.msp_service_scope not in sellable:
+        for item in ServiceDefinitionService.available_rows():
+            if item["service_scope"] not in sellable:
                 continue
-            if selectable_services is not None and item.name not in selectable_services:
+            if selectable_services is not None and item["name"] not in selectable_services:
                 continue
 
             warning = ServiceAvailabilityService._commercial_warning(
-                customer, item.name, frappe.utils.getdate(frappe.utils.today())
+                customer, item["name"], frappe.utils.getdate(frappe.utils.today())
             )
 
             offered.append(
                 {
-                    "service_item": item.name,
-                    "item_name": item.item_name or item.name,
-                    "service_scope": item.msp_service_scope,
+                    "service_item": item["name"],
+                    "item_name": item["item_name"],
+                    "service_scope": item["service_scope"],
                     "warning": warning,
-                    "allowed_request_actions": RequestBuilderService._actions_for(("Add",)),
+                    "allowed_operations": RequestBuilderService._operations_for(("service.add",)),
                 }
             )
 
@@ -302,11 +556,11 @@ class RequestBuilderService:
             "managed_device": device["name"] if device else None,
             "hostname": device["hostname"] if device else None,
             "pending_request": pending[0] if pending else None,
-            "allowed_request_actions": (
+            "allowed_operations": (
                 []
                 if pending
-                else RequestBuilderService._actions_for(
-                    request_intents.allowed_actions(row["operational_status"])
+                else RequestBuilderService._operations_for(
+                    operations.for_service_state(row["operational_status"])
                 )
             ),
         }
@@ -318,27 +572,10 @@ class RequestBuilderService:
             "item_name": row.get("item_name") or row["service_item"],
             "service_scope": row.get("service_scope"),
             "warning": row.get("warning"),
-            "allowed_request_actions": RequestBuilderService._actions_for(("Add",)),
+            "allowed_operations": RequestBuilderService._operations_for(("service.add",)),
         }
 
     @staticmethod
-    def _actions_for(action_types):
-        """The acts on offer, named the way the administrator chose to name them.
-
-        The customer never handles an action type: they read "Temporarily suspend" and the
-        record behind it says what that mechanically is.
-        """
-        if not action_types:
-            return []
-
-        # in the order an administrator settled, not the alphabet
-        return frappe.db.sql(
-            """
-            select name, title, action_type, description
-            from `tabMSP Request Action`
-            where enabled = 1 and action_type in %(types)s
-            order by ifnull(sort_order, 9999) asc, title asc
-            """,
-            {"types": tuple(action_types)},
-            as_dict=True,
-        )
+    def _operations_for(codes):
+        """What may be asked here, from the operations this application performs."""
+        return operations.offered([code for code in codes if operations.get(code)])

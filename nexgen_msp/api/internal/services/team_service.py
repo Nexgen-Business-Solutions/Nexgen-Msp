@@ -24,6 +24,24 @@ def _classify(email, held):
 	return permissions.ROLE_LABELS.get(role, "No role")
 
 
+
+def _drop_contact_links(user, wanted):
+	"""Leave the contact saying exactly what the administrator settled on."""
+	for contact in frappe.get_all("Contact", filters={"user": user}, pluck="name"):
+		doc = frappe.get_doc("Contact", contact)
+		keep = [
+			link
+			for link in doc.links
+			if link.link_doctype != "Customer" or link.link_name in wanted
+		]
+
+		if len(keep) == len(doc.links):
+			continue
+
+		doc.links = keep
+		doc.save(ignore_permissions=True)
+
+
 class TeamService:
 	@staticmethod
 	def _guard():
@@ -45,7 +63,7 @@ class TeamService:
 			from `tabUser` u
 			where u.name not in ('Guest')
 			  and u.user_type in ('System User', 'Website User')
-			order by u.full_name asc
+			order by u.creation desc
 			""",
 			as_dict=True,
 		)
@@ -149,12 +167,92 @@ class TeamService:
 
 		from nexgen_msp.api.two_factor.services.two_factor_service import TwoFactorService
 
+		account["access"] = TeamService.access_integrity(email)
 		account["two_factor"] = TwoFactorService.has_secret(email)
 		account["is_self"] = email == frappe.session.user
 		# nothing to invite someone to until the account carries a role
 		account["can_invite"] = bool(account["role"])
 
 		return account
+
+	@staticmethod
+	def access_integrity(email):
+		"""Whether a customer account's two Customer references agree, and what they hold.
+
+		A customer role is a promise that the account answers for a company; this says
+		whether the records behind that promise are there, were repaired, or disagree.
+		"""
+		outcome = permissions.reconcile_customer_permissions(email)
+
+		return {
+			"status": outcome["status"],
+			"message": permissions.STATUS_TEXT.get(outcome["status"]),
+			"customer_roles": outcome["customer_roles"],
+			"internal_roles": outcome["internal_roles"],
+			"contact_customers": outcome["contact_customers"],
+			"permission_customers": outcome["permission_customers"],
+			"added_contact_links": outcome["added_contact_links"],
+			"added_permissions": outcome["added_permissions"],
+			"removed_permissions": outcome["removed_permissions"],
+		}
+
+	@staticmethod
+	def resolve_access_references(email=None, source=None, customers=None):
+		"""Settle a disagreement an administrator has looked at.
+
+		Nothing here is guessed: the administrator says which side is right, or names the
+		companies themselves, and both references are written to say the same thing.
+		"""
+		TeamService._guard()
+
+		if not email or not frappe.db.exists("User", email):
+			raise NotFoundError("This application account no longer exists.", "NOT_FOUND")
+
+		held = permissions.held_roles(email)
+
+		if held["internal"] and held["customer"]:
+			raise ValidationError(permissions.STATUS_TEXT[permissions.ROLE_FAMILY_CONFLICT], "ROLE_FAMILY_CONFLICT")
+
+		if not held["customer"]:
+			raise ValidationError(
+				"This account holds no customer role, so it answers for no Customer.",
+				"NOT_CUSTOMER_ACCOUNT",
+			)
+
+		if source == "contact":
+			wanted = permissions.customers_from_contacts(email)
+		elif source == "permission":
+			wanted = permissions.customer_permissions_of(email)
+		else:
+			wanted = set(frappe.parse_json(customers) if isinstance(customers, str) else (customers or []))
+
+		wanted = {name for name in wanted if name}
+
+		if not wanted:
+			raise ValidationError(
+				"Choose at least one Customer for this customer account.", "VALIDATION_ERROR"
+			)
+
+		for customer in sorted(wanted):
+			if not frappe.db.exists("Customer", customer):
+				raise NotFoundError(f'Customer "{customer}" no longer exists.', "NOT_FOUND")
+
+		user_doc = frappe.get_doc("User", email)
+
+		for customer in sorted(wanted):
+			permissions.ensure_customer_contact(user_doc, customer)
+			permissions.add_customer_permission(email, customer)
+
+		for row in frappe.get_all(
+			"User Permission", filters={"user": email, "allow": "Customer"}, fields=["name", "for_value"]
+		):
+			if row.for_value not in wanted:
+				frappe.delete_doc("User Permission", row.name, ignore_permissions=True)
+
+		_drop_contact_links(email, wanted)
+		frappe.db.commit()
+
+		return TeamService.get_member(email)
 
 	@staticmethod
 	def _after_account_change(email):
@@ -253,6 +351,19 @@ class TeamService:
 
 		user.append("roles", {"role": role})
 		user.save(ignore_permissions=True)
+
+		# the account is only opened once both references agree
+		if customer:
+			health = permissions.reconcile_customer_permissions(user.name)
+
+			if health["status"] not in (permissions.HEALTHY, *permissions.REPAIRED):
+				frappe.db.rollback()
+
+				raise ValidationError(
+					permissions.STATUS_TEXT.get(health["status"], "Customer access could not be established."),
+					health["status"],
+				)
+
 		frappe.db.commit()
 
 		if frappe.utils.cint(send_email):

@@ -112,12 +112,6 @@ class TestSuspensionInvariants(MSPTestCase):
         with self.assertRaises(frappe.ValidationError):
             self.assignment("SUSPACT", status="Active", suspensions=[self.spell(self.days_from_today(-10))])
 
-    def test_a_service_awaiting_removal_cannot_have_an_open_pause(self):
-        with self.assertRaises(frappe.ValidationError):
-            self.assignment(
-                "SUSPPR", status="Pending Removal", suspensions=[self.spell(self.days_from_today(-10))]
-            )
-
     def test_an_active_service_may_carry_a_pause_that_is_over(self):
         doc = self.assignment(
             "SUSPPAST",

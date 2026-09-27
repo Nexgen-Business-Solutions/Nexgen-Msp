@@ -95,15 +95,16 @@ export default function PortalUsers() {
             </span>
           </td>
         );
-      case 'inactive_services':
+      case 'suspended_services':
+      case 'ended_services':
         return (
           <td key={key} className="whitespace-nowrap px-4 py-3">
             <span
               className={`inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-1 text-xs font-semibold tabular-nums ${
-                row.inactive_services ? 'bg-slate-100 text-slate-600' : 'bg-transparent text-slate-300'
+                row[key] ? 'bg-slate-100 text-slate-600' : 'bg-transparent text-slate-300'
               }`}
             >
-              {row.inactive_services}
+              {row[key]}
             </span>
           </td>
         );

@@ -20,11 +20,13 @@ import UsersList from '@/features/internal/pages/UsersList';
 import UserDetail from '@/features/internal/pages/UserDetail';
 import DeviceDetail from '@/features/internal/pages/DeviceDetail';
 import ServiceDetail from '@/features/internal/pages/ServiceDetail';
+import ServiceRedirect from '@/features/internal/pages/ServiceRedirect';
 import TeamList from '@/features/internal/pages/TeamList';
 import AccountDetail from '@/features/internal/pages/AccountDetail';
 import DevicesList from '@/features/internal/pages/DevicesList';
 import ActivityLog from '@/features/internal/pages/ActivityLog';
 import Settings from '@/features/internal/pages/Settings';
+import ItemIntegrityReview from '@/features/internal/pages/ItemIntegrityReview';
 import PortalRequestDetail from '@/features/portal/pages/PortalRequestDetail';
 import RoleDetail from './RoleDetail';
 import InvoiceGuard from './guards/InvoiceGuard';
@@ -132,6 +134,14 @@ export const router = createBrowserRouter([
         ),
       },
       {
+        path: 'item-integrity',
+        element: (
+          <AdminGuard>
+            <ItemIntegrityReview />
+          </AdminGuard>
+        ),
+      },
+      {
         path: 'services',
         element: (
           <RoleDetail
@@ -145,12 +155,17 @@ export const router = createBrowserRouter([
         ),
       },
       {
-        path: 'services/:name',
+        path: 'services/detail',
         element: (
           <AdminGuard>
             <ServiceDetail />
           </AdminGuard>
         ),
+      },
+      {
+        // kept so historical links still open
+        path: 'services/:name',
+        element: <ServiceRedirect />,
       },
       {
         path: 'customers',
@@ -161,6 +176,8 @@ export const router = createBrowserRouter([
         ),
       },
       {
+        // one customer, one screen: the counters, the contract and the pricing together,
+        // because everything the old overview showed was editable from here anyway
         path: 'customers/:customer',
         element: (
           <AdminGuard>

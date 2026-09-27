@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Eye, FilePlus2, Laptop, ShieldAlert, UserX } from 'lucide-react';
+import { Eye, FilePlus2, Laptop, UserX } from 'lucide-react';
 import DataTable from '@/shared/components/DataTable';
 import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
 import ColumnsModal from '@/shared/components/ColumnsModal';
@@ -197,16 +197,6 @@ export default function PortalDevices() {
           caption="Taken out of service"
           loading={summary.isLoading}
           onView={() => apply({ ...EMPTY, status: 'Retired' })}
-        />
-        <KpiCard
-          icon={ShieldAlert}
-          tone="alert"
-          accent="slate"
-          label="No service"
-          value={summary.data?.devices_without_services ?? 0}
-          caption="Active, with no active service"
-          loading={summary.isLoading}
-          onView={() => apply({ ...EMPTY, coverage: 'no_service' })}
         />
       </div>
 

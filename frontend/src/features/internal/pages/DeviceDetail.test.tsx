@@ -49,6 +49,8 @@ const buildDetail = (
   interfaces: [],
   services: [],
   requests: [],
+  pending_operation: null,
+  customer_operations: [],
   catalogue: [],
   customer_requests: [],
   device_types: [],

@@ -38,6 +38,10 @@ import {
   warnBar,
 } from '../../lib/fulfilmentStyles';
 import ApplyActionModal from './ApplyActionModal';
+import DeviceOperationModal from './DeviceOperationModal';
+import MoreActionsModal from './MoreActionsModal';
+import PrepareWorkModal from './PrepareWorkModal';
+import RequiredIdentifiersModal from './RequiredIdentifiersModal';
 import ClientUserModal from './ClientUserModal';
 import PersonHeader from './PersonHeader';
 import PeopleWorkspace from '@/shared/components/PeopleWorkspace';
@@ -56,7 +60,7 @@ type Props = {
 };
 
 const DONE = ['Completed', 'Awaiting Verification'];
-const OPEN = ['Active', 'Suspended', 'Pending Removal'];
+const OPEN = ['Active', 'Suspended'];
 const settled = (card: WorkCard) => DONE.includes(card.status) || card.status === 'Cancelled';
 
 const userRecord = (
@@ -82,7 +86,7 @@ const userStatusDetail = (
 ) => {
   const user = userRecord(person, facts, customer);
   const openServices = facts?.services.filter((service) =>
-    ['Active', 'Suspended', 'Pending Removal'].includes(service.status)
+    ['Active', 'Suspended'].includes(service.status)
   ) ?? [];
 
   return {
@@ -135,8 +139,10 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
   const [applying, setApplying] = useState<{
     card: WorkCard;
     person: SubjectWorkGroup['person'];
-    action?: string;
+    operation?: string;
   } | null>(null);
+  const [onMachine, setOnMachine] = useState<WorkCard | null>(null);
+  const [moreFor, setMoreFor] = useState<string | null>(null);
   const [acting, setActing] = useState<{
     kind: 'service' | 'device' | 'edit' | 'status' | 'stop' | 'deviceService' | 'repossess';
     key: string;
@@ -146,6 +152,28 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
     facts: PersonFacts | null;
   } | null>(null);
   const [outcome, setOutcome] = useState<string | null>(null);
+  // there is no draft to save here: every act is committed as it is carried out
+  const [saved, setSaved] = useState(false);
+  const [completing, setCompleting] = useState<'username' | 'serial_number' | null>(null);
+  const [preparingWork, setPreparingWork] = useState<
+    'device_resolution' | 'client_user_creation' | null
+  >(null);
+
+  // what the whole request is waiting on, gathered per record by the server
+  const missing = {
+    usernames: (plan.requirements ?? []).filter(
+      (row) => row.kind === 'username' && !row.satisfied
+    ).length,
+    serials: (plan.requirements ?? []).filter(
+      (row) => row.kind === 'serial_number' && !row.satisfied
+    ).length,
+    devices: (plan.requirements ?? []).filter(
+      (row) => row.kind === 'device_resolution' && !row.satisfied
+    ).length,
+    people: (plan.requirements ?? []).filter(
+      (row) => row.kind === 'client_user_creation' && !row.satisfied
+    ).length,
+  };
   const queryClient = useQueryClient();
   const customerRequests = useCustomerRequests(plan.customer);
   const deviceOptions = useDeviceFilterOptions();
@@ -189,58 +217,85 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
         ? { label: 'Reactivate user', icon: UserCheck, onClick: open('status') }
         : { label: 'Disable user', icon: UserX, onClick: open('status'), danger: true },
       { label: 'Stop all services', icon: CircleX, onClick: open('stop'), danger: true, disabled: !hasServices },
+      // what else the person, their machines and their services allow, read from the server
+      { label: 'More actions', icon: Settings2, onClick: () => setMoreFor(group.subject_key) },
     ];
   };
 
   // the request says what the customer asked; the technician decides what is actually done
   const lineActions = (card: WorkCard, person: SubjectWorkGroup['person']): RowAction[] => {
     const status = card.current?.operational_status ?? '';
-    const act = (action: string) => () => setApplying({ card, person, action });
+    const act = (operation: string) => () => setApplying({ card, person, operation });
 
-    return [
-      { label: 'Suspend', icon: PauseCircle, onClick: act('Suspend'), disabled: status !== 'Active' },
-      { label: 'Resume', icon: PlayCircle, onClick: act('Resume'), disabled: status !== 'Suspended' },
-      { label: 'Change', icon: PencilLine, onClick: act('Change'), disabled: !['Active', 'Suspended'].includes(status) },
-      { label: 'Close', icon: CircleX, onClick: act('Remove'), danger: true, disabled: !OPEN.includes(status) },
-    ].filter((row) => row.label !== (card.action === 'Remove' ? 'Close' : card.action));
+    const offered: { code: string; action: RowAction }[] = [
+      { code: 'service.suspend', action: { label: 'Suspend', icon: PauseCircle, onClick: act('service.suspend'), disabled: status !== 'Active' } },
+      { code: 'service.resume', action: { label: 'Resume', icon: PlayCircle, onClick: act('service.resume'), disabled: status !== 'Suspended' } },
+      { code: 'service.change', action: { label: 'Change service', icon: PencilLine, onClick: act('service.change'), disabled: !['Active', 'Suspended'].includes(status) } },
+      { code: 'service.end', action: { label: 'Stop service', icon: CircleX, onClick: act('service.end'), danger: true, disabled: !OPEN.includes(status) } },
+    ];
+
+    return offered
+      .filter((row) => row.code !== card.operation_code)
+      .map((row) => row.action);
   };
 
   const remaining = plan.groups.reduce(
     (count, group) =>
       count +
-      [group.user_setup, ...group.devices.map((slot) => slot.work), ...group.services].filter(
-        (card) => card && !settled(card)
-      ).length,
+      [
+        group.user_setup,
+        ...group.devices.map((slot) => slot.work),
+        ...group.device_operations,
+        ...group.services,
+      ].filter((card) => card && !settled(card)).length,
     0
   );
 
-  // the same ready act for several people, with nothing to type for any of them
+  /**
+   * The customer's own acts, and how much of each is ready to run now.
+   *
+   * The grouping is the one the request stored — the act the customer added — never one
+   * rebuilt by matching service and action names. What is still missing information does
+   * not hold back what is ready: the two are counted apart and only the ready ones run.
+   */
   const groupable = useMemo(() => {
-    const byAct = new Map<string, { label: string; cards: WorkCard[] }>();
+    const byAct = new Map<string, { label: string; cards: WorkCard[]; waiting: number }>();
 
     for (const group of plan.groups) {
       for (const card of group.services) {
-        if (settled(card) || !card.ready || ['Blocked', 'Failed'].includes(card.status)) continue;
-        if (identifierMissing(card, group.person)) continue;
+        if (settled(card) || ['Blocked', 'Failed'].includes(card.status)) continue;
 
-        const key = `${card.service_item}|${card.action}`;
+        const key =
+          card.action_group_key ?? `legacy:${card.service_item}|${card.operation_code}`;
+        const asked = plan.action_groups?.find((row) => row.group_key === card.action_group_key);
         const entry = byAct.get(key) ?? {
-          label: `${card.action_label ?? card.action} · ${card.service_name ?? card.service_item ?? ''}`,
+          label:
+            asked?.label ??
+            `${card.action_label ?? card.operation_code} · ${card.service_name ?? card.service_item ?? ''}`,
           cards: [],
+          waiting: 0,
         };
-        entry.cards.push(card);
+
+        if (!card.ready || identifierMissing(card, group.person)) {
+          entry.waiting += 1;
+        } else {
+          entry.cards.push(card);
+        }
+
         byAct.set(key, entry);
       }
     }
 
-    return [...byAct.values()].filter((entry) => entry.cards.length > 1);
-  }, [plan.groups]);
+    return [...byAct.values()].filter((entry) => entry.cards.length > 1 || entry.waiting > 0);
+  }, [plan.groups, plan.action_groups]);
 
   const runGroup = async (orders: string[]) => {
     setOutcome(null);
     try {
       const result = await groupRun.mutateAsync({ work_orders: orders });
       const refused = result.results.filter((row) => !row.ok);
+
+      if (result.completed) setSaved(true);
 
       setOutcome(
         refused.length
@@ -262,9 +317,12 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
   const executed = plan.stages.current !== 'execute';
 
   const workPeople = plan.groups.map((group) => {
-    const open = [group.user_setup, ...group.devices.map((slot) => slot.work), ...group.services].filter(
-      (card) => card && !settled(card)
-    ).length;
+    const open = [
+      group.user_setup,
+      ...group.devices.map((slot) => slot.work),
+      ...group.device_operations,
+      ...group.services,
+    ].filter((card) => card && !settled(card)).length;
     return {
       key: group.subject_key,
       name: group.person?.full_name ?? 'Unnamed person',
@@ -283,26 +341,98 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
         </p>
       </div> */}
 
-      {groupable.length > 0 && (
+      <p className="inline-flex items-center gap-1.5 text-xs text-emerald-700">
+        <Check size={13} />
+        {saved ? 'Progress saved automatically' : 'Progress is saved as work is completed.'}
+      </p>
+
+      {(groupable.length > 0 ||
+        missing.usernames > 0 ||
+        missing.serials > 0 ||
+        missing.devices > 0 ||
+        missing.people > 0) && (
         <div className={bulkBar}>
           <div>
-            <p className="text-sm font-semibold text-slate-900">Grouped execution</p>
-            <p className="text-xs text-slate-500">The same ready action across several people.</p>
+            <p className="text-sm font-semibold text-slate-900">Action groups</p>
+            <p className="text-xs text-slate-500">
+              What the customer asked for, run together. Each target is still carried out on
+              its own.
+            </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {groupable.map((entry) => (
-              <button
-                key={`${entry.cards[0].service_item}|${entry.cards[0].action}`}
-                type="button"
-                disabled={groupRun.isLoading}
-                onClick={() => runGroup(entry.cards.map((card) => card.name))}
-                className={btnPrimary}
-              >
-                {entry.label} for {entry.cards.length} people
-              </button>
+              <div key={entry.label} className="flex items-center gap-1.5">
+                <span className="text-xs font-semibold text-slate-700">{entry.label}</span>
+                {entry.waiting > 0 && (
+                  <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                    {entry.waiting} need information
+                  </span>
+                )}
+                {entry.cards.length > 0 && (
+                  <button
+                    type="button"
+                    disabled={groupRun.isLoading}
+                    onClick={() => runGroup(entry.cards.map((card) => card.name))}
+                    className={btnPrimary}
+                  >
+                    Execute {entry.cards.length} ready
+                  </button>
+                )}
+              </div>
             ))}
           </div>
+
+          {missing.usernames > 0 && (
+            <button
+              type="button"
+              onClick={() => setCompleting('username')}
+              className={btn}
+            >
+              Complete {missing.usernames} usernames
+            </button>
+          )}
+
+          {missing.serials > 0 && (
+            <button type="button" onClick={() => setCompleting('serial_number')} className={btn}>
+              Complete {missing.serials} serial numbers
+            </button>
+          )}
+
+          {missing.devices > 0 && (
+            <button type="button" onClick={() => setPreparingWork('device_resolution')} className={btn}>
+              Prepare {missing.devices} Devices
+            </button>
+          )}
+
+          {missing.people > 0 && (
+            <button
+              type="button"
+              onClick={() => setPreparingWork('client_user_creation')}
+              className={btn}
+            >
+              Create {missing.people} Client Users
+            </button>
+          )}
         </div>
+      )}
+
+      {preparingWork && (
+        <PrepareWorkModal
+          request={plan.request}
+          customer={plan.customer}
+          kind={preparingWork}
+          requirements={plan.requirements ?? []}
+          onClose={() => setPreparingWork(null)}
+        />
+      )}
+
+      {completing && (
+        <RequiredIdentifiersModal
+          request={plan.request}
+          kind={completing}
+          requirements={plan.requirements ?? []}
+          onClose={() => setCompleting(null)}
+        />
       )}
 
       {outcome && (
@@ -400,7 +530,81 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
                   {!done && slot.work.ready && (
                     <div className="col-start-2 flex gap-2 sm:col-start-auto">
                       <button type="button" onClick={() => setPreparing({ card: slot.work, group })} className={btn}>
-                        Assign a device
+                        Prepare Device
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {group.device_operations.map((card) => {
+              const done = settled(card);
+              const heldUp = ['Blocked', 'Failed'].includes(card.status);
+              // before it runs: who holds it and who was asked for; after: what actually happened
+              const from = (done ? card.snapshot_holder_name : card.current_holder_name) ?? 'Unassigned';
+              const to =
+                (done ? card.device?.holder_name : card.requested_holder_name) ?? 'Unassigned';
+
+              return (
+                <div
+                  key={card.name}
+                  className={`${lineRow} ${done ? 'bg-emerald-50/30' : 'bg-white'}`}
+                >
+                  <LineIcon tone={done ? 'done' : card.ready ? 'plain' : 'wait'}>
+                    {done ? <Check size={16} /> : <Laptop size={16} />}
+                  </LineIcon>
+
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-900">
+                      {card.action_label ?? card.operation_code}
+                      {card.origin === 'Technician' && (
+                        <span className={`ml-2 ${pill('violet')}`}>ADDITIONAL ACTION</span>
+                      )}
+                    </p>
+                    <p className="text-sm text-slate-700">{card.device?.hostname}</p>
+                    <p className="text-sm text-slate-700">
+                      {from} → {to}
+                    </p>
+                    {card.override_reason && (
+                      <p className="mt-0.5 text-xs text-violet-700">
+                        Requested: {card.requested_holder_name} · {card.override_reason}
+                      </p>
+                    )}
+                    {!done && card.holder_changed && (
+                      <p className="mt-0.5 text-xs font-semibold text-amber-700">
+                        The Device holder changed after this request was submitted. Review the
+                        current holder before continuing.
+                      </p>
+                    )}
+                    <p
+                      className={`mt-1 inline-flex items-center gap-1 text-xs font-semibold ${
+                        done
+                          ? 'text-emerald-700'
+                          : heldUp
+                            ? 'text-orange-700'
+                            : card.ready
+                              ? 'text-emerald-700'
+                              : 'text-amber-700'
+                      }`}
+                    >
+                      {done
+                        ? card.status === 'Cancelled'
+                          ? 'Given up'
+                          : 'Completed'
+                        : heldUp
+                          ? `${card.status}${card.failure_reason ? ` · ${card.failure_reason}` : ''}`
+                          : card.ready
+                            ? 'Ready to execute'
+                            : `Waiting for ${card.waiting_on}`}
+                    </p>
+                  </div>
+
+                  {!done && card.ready && !heldUp && (
+                    <div className="col-start-2 flex items-center gap-2 sm:col-start-auto">
+                      <button type="button" onClick={() => setOnMachine(card)} className={btnPrimary}>
+                        <Play size={13} />
+                        {card.action_label ?? 'Carry it out'}
                       </button>
                     </div>
                   )}
@@ -432,8 +636,12 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
 
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-slate-900">
-                      {card.service_name ?? card.service_item} · {card.action_label ?? card.action}
-                      {extra && <span className={`ml-2 ${pill('violet')}`}>Additional</span>}
+                      {card.action_label ?? card.action} · {card.service_name ?? card.service_item}
+                      {extra ? (
+                        <span className={`ml-2 ${pill('violet')}`}>ADDITIONAL ACTION</span>
+                      ) : (
+                        <span className={`ml-2 ${pill('blue')}`}>REQUESTED</span>
+                      )}
                     </p>
                     <p className="mt-0.5 text-xs text-slate-500">
                       {card.target_scope} scope
@@ -479,7 +687,7 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
                           {card.action_label ?? card.action}
                         </button>
                       )}
-                      {!done && card.ready && card.action !== 'Add' && lineActions(card, person).some((row) => !row.disabled) && (
+                      {!done && card.ready && card.operation_code !== 'service.add' && lineActions(card, person).some((row) => !row.disabled) && (
                         <RowActionsMenu actions={lineActions(card, person)} />
                       )}
                     </div>
@@ -488,7 +696,10 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
               );
             })}
 
-            {group.services.length === 0 && !group.user_setup && group.devices.length === 0 && (
+            {group.services.length === 0 &&
+              !group.user_setup &&
+              group.devices.length === 0 &&
+              group.device_operations.length === 0 && (
               <p className="px-4 py-3 text-xs text-slate-500">
                 No accepted request line remains for this person. The ⋯ menu still acts on them.
               </p>
@@ -510,7 +721,7 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
           <div>
             <p className="text-sm font-semibold text-emerald-800">Execution complete</p>
             <p className="text-xs text-emerald-700">
-              All accepted request lines and additional actions have been carried out.
+              All accepted request work and additional technician actions have been resolved.
             </p>
           </div>
           <button type="button" onClick={onContinue} className={btnPrimary}>
@@ -521,7 +732,12 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
         remaining > 0 && <p className="text-xs text-slate-500">{remaining} item{remaining > 1 ? 's' : ''} remaining.</p>
       )}
 
-      <ClientUserModal card={creating?.card ?? null} person={creating?.person ?? null} onClose={() => setCreating(null)} />
+      <ClientUserModal
+        card={creating?.card ?? null}
+        person={creating?.person ?? null}
+        customer={plan.customer}
+        onClose={() => setCreating(null)}
+      />
       <AddDeviceModal
         open={Boolean(preparing)}
         clientUser={(preparing?.group.person?.name as string) ?? ''}
@@ -542,9 +758,21 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
       <ApplyActionModal
         card={applying?.card ?? null}
         person={applying?.person ?? null}
-        action={applying?.action ?? null}
+        operation={applying?.operation ?? null}
         onClose={() => setApplying(null)}
       />
+      <DeviceOperationModal
+        card={onMachine}
+        customer={plan.customer}
+        onClose={() => setOnMachine(null)}
+      />
+      {moreFor && (
+        <MoreActionsModal
+          request={plan.request}
+          subjectKey={moreFor}
+          onClose={() => setMoreFor(null)}
+        />
+      )}
       {acting && (
         <>
           <AddUserServiceModal

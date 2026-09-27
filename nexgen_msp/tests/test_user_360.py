@@ -225,7 +225,7 @@ class TestWhatIsMoving(User360Case):
         action = fields.pop("action", "Add")
 
         return {
-            "request_action": self.action(action),
+            "operation_code": self.operation(action),
             "action": action,
             "target_scope": "User",
             "client_user": self.john,
@@ -306,12 +306,11 @@ class TestWhatNeedsLookingAt(User360Case):
         self.assertIn("DISABLED_WITH_OPEN_SERVICES", codes)
         self.assertIn("DISABLED_WITH_DEVICE", codes)
 
-    def test_licences_with_nobody_to_issue_them_to_are_flagged(self):
+    def test_a_missing_username_alone_flags_nothing(self):
+        """§04-10: a username is owed by an operation that needs one, not by every service."""
         self.running(self.personal, "User", client_user=self.john)
 
-        codes = {row["code"] for row in self.reading()["attention"]}
-
-        self.assertIn("ACCOUNT_NAME_MISSING", codes)
+        self.assertEqual(self.reading()["attention"], [])
 
     def test_a_tidy_situation_raises_nothing(self):
         frappe.db.set_value("MSP Client User", self.john, "username", f"j.{self.tag}")

@@ -257,7 +257,14 @@ def get_request(name=None):
 @frappe.whitelist()
 @handle_errors
 def create_request(
-    name=None, customer=None, request_type=None, priority=None, lines=None, details=None
+    name=None,
+    customer=None,
+    request_type=None,
+    priority=None,
+    lines=None,
+    details=None,
+    subjects=None,
+    action_groups=None,
 ):
     return PortalService.create_request(
         name=name,
@@ -266,13 +273,22 @@ def create_request(
         priority=priority,
         lines=lines,
         details=details,
+        subjects=subjects,
+        action_groups=action_groups,
     )
 
 
 @frappe.whitelist()
 @handle_errors
 def save_request_draft(
-    name=None, customer=None, request_type=None, priority=None, lines=None, details=None
+    name=None,
+    customer=None,
+    request_type=None,
+    priority=None,
+    lines=None,
+    details=None,
+    subjects=None,
+    action_groups=None,
 ):
     return PortalService.save_draft(
         name=name,
@@ -281,6 +297,8 @@ def save_request_draft(
         priority=priority,
         lines=lines,
         details=details,
+        subjects=subjects,
+        action_groups=action_groups,
     )
 
 
@@ -294,6 +312,12 @@ def discard_request_draft(name=None):
 @handle_errors
 def list_catalogue(customer=None):
     return PortalService.list_catalogue(customer=customer)
+
+
+@frappe.whitelist()
+@handle_errors
+def get_service_portfolio(customer=None):
+    return PortalService.service_portfolio(customer=customer)
 
 
 @frappe.whitelist()
@@ -408,12 +432,6 @@ def get_recent_activity(customer=None, limit=12):
 
 @frappe.whitelist()
 @handle_errors
-def list_request_actions(for_new_user=None):
-    return PortalService.list_request_actions(for_new_user=for_new_user)
-
-
-@frappe.whitelist()
-@handle_errors
 def get_service_state(
     service_item=None, client_user=None, managed_device=None, customer=None
 ):
@@ -439,6 +457,29 @@ def search_request_users(customer=None, search=None, limit=None):
 
 @frappe.whitelist()
 @handle_errors
+def get_department_selection(customer=None, department=None):
+    return _request_builder().department_selection(customer=customer, department=department)
+
+
+@frappe.whitelist()
+@handle_errors
+def get_company_selection(customer=None):
+    return _request_builder().company_selection(customer=customer)
+
+
+@frappe.whitelist()
+@handle_errors
+def resolve_bulk_targets(customer=None, operation_code=None, service_item=None, people=None):
+    return _request_builder().bulk_targets(
+        customer=customer,
+        operation_code=operation_code,
+        service_item=service_item,
+        people=people,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
 def get_request_subject_context(client_user=None):
     return _request_builder().subject_context(client_user=client_user)
 
@@ -453,3 +494,23 @@ def get_new_user_request_context(customer=None):
 @handle_errors
 def get_request_submission_context(customer=None):
     return _request_builder().submission_context(customer=customer)
+
+
+def _request_v3():
+    from nexgen_msp.api.portal.services.request_v3_service import RequestV3Service
+
+    return RequestV3Service
+
+
+@frappe.whitelist()
+@handle_errors
+def evaluate_request_scope(customer=None, subjects=None):
+    return _request_v3().scope_projection(customer=customer, subjects=subjects)
+
+
+@frappe.whitelist()
+@handle_errors
+def evaluate_request_operations(customer=None, subjects=None, subject_keys=None):
+    return _request_v3().operation_options(
+        customer=customer, subjects=subjects, subject_keys=subject_keys
+    )

@@ -13,8 +13,13 @@ def handle_errors(fn):
             return fn(*args, **kwargs)
         except NexgenError as e:
             frappe.db.rollback()
+            detail = getattr(e, "detail", None)
+
             return response.error(
-                e.message, code=e.code, fallback_status=getattr(e, "http_status_code", None)
+                e.message,
+                code=e.code,
+                fallback_status=getattr(e, "http_status_code", None),
+                **({"detail": detail} if detail else {}),
             )
         except frappe.PermissionError as e:
             frappe.db.rollback()

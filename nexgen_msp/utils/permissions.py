@@ -289,38 +289,136 @@ def customers_from_contacts(user):
     )
 
 
-def reconcile_customer_permissions(user):
-    """Make the permissions say exactly what the contacts say.
+# what a reconciliation can conclude about one account
+HEALTHY = "HEALTHY"
+REPAIRED_CONTACT_LINK = "REPAIRED_CONTACT_LINK"
+REPAIRED_USER_PERMISSION = "REPAIRED_USER_PERMISSION"
+MISSING_CUSTOMER_REFERENCE = "MISSING_CUSTOMER_REFERENCE"
+CUSTOMER_REFERENCE_CONFLICT = "CUSTOMER_REFERENCE_CONFLICT"
+ROLE_FAMILY_CONFLICT = "ROLE_FAMILY_CONFLICT"
+NOT_CUSTOMER_ACCOUNT = "NOT_CUSTOMER_ACCOUNT"
 
-    The contact is where an account is declared to belong to a customer; the permission is
-    only how Frappe enforces it. When the two drift — a permission added by hand, or a
-    contact unlinked without it — the contact wins, and access follows the declaration
-    rather than a leftover row.
+REPAIRED = (REPAIRED_CONTACT_LINK, REPAIRED_USER_PERMISSION)
+NEEDS_REVIEW = (MISSING_CUSTOMER_REFERENCE, CUSTOMER_REFERENCE_CONFLICT, ROLE_FAMILY_CONFLICT)
 
-    An account with no contact at all is left alone: nothing declares it, so there is
-    nothing to reconcile it against.
-    """
-    declared = customers_from_contacts(user)
+STATUS_TEXT = {
+    ROLE_FAMILY_CONFLICT: (
+        "This account has both customer and Nexgen staff roles. "
+        "Remove one role family before access can be reconciled."
+    ),
+    MISSING_CUSTOMER_REFERENCE: (
+        "This customer account is not linked to any Customer. "
+        "Assign a Customer in Accounts before the account can be used."
+    ),
+    CUSTOMER_REFERENCE_CONFLICT: (
+        "Customer access references disagree. "
+        "Review the Contact links and User Permissions before continuing."
+    ),
+}
 
-    if not declared:
-        return 0, 0
 
-    added = sum(1 for customer in declared if add_customer_permission(user, customer))
-
-    stale = [
-        row.name
-        for row in frappe.db.get_all(
+def customer_permissions_of(user):
+    """Every customer Frappe itself lets this account reach."""
+    return set(
+        frappe.db.get_all(
             "User Permission",
             filters={"user": user, "allow": "Customer"},
-            fields=["name", "for_value"],
+            pluck="for_value",
         )
-        if row.for_value not in declared
-    ]
+    )
 
-    for name in stale:
-        frappe.delete_doc("User Permission", name, ignore_permissions=True)
 
-    return added, len(stale)
+def reconcile_customer_permissions(user):
+    """Check that a customer account's two references agree, and repair only the obvious.
+
+    The role is what says an account belongs to a customer, so the check starts there: a
+    contact record that was never created cannot declare anything, and an account whose
+    contact was lost would otherwise pass unnoticed.
+
+    One side empty is a missing reference and is written from the other. Both sides filled
+    and disagreeing is somebody's decision to make, never ours: nothing is unioned, and no
+    permission is ever taken away here.
+    """
+    held = held_roles(user)
+    outcome = {
+        "user": user,
+        "status": NOT_CUSTOMER_ACCOUNT,
+        "customer_roles": held["customer"],
+        "internal_roles": held["internal"],
+        "contact_customers": [],
+        "permission_customers": [],
+        "added_contact_links": [],
+        "added_permissions": [],
+        "removed_permissions": [],
+    }
+
+    if not held["customer"]:
+        return outcome
+
+    if held["internal"]:
+        outcome["status"] = ROLE_FAMILY_CONFLICT
+
+        return outcome
+
+    declared = customers_from_contacts(user)
+    permitted = customer_permissions_of(user)
+    outcome["contact_customers"] = sorted(declared)
+    outcome["permission_customers"] = sorted(permitted)
+
+    if declared and permitted:
+        outcome["status"] = HEALTHY if declared == permitted else CUSTOMER_REFERENCE_CONFLICT
+
+        return outcome
+
+    if not declared and not permitted:
+        outcome["status"] = MISSING_CUSTOMER_REFERENCE
+
+        return outcome
+
+    if not declared:
+        outcome["added_contact_links"] = _declare_on_contact(user, permitted)
+        outcome["status"] = REPAIRED_CONTACT_LINK
+    else:
+        outcome["added_permissions"] = [
+            customer for customer in sorted(declared) if add_customer_permission(user, customer)
+        ]
+        outcome["status"] = REPAIRED_USER_PERMISSION
+
+        if outcome["added_permissions"]:
+            frappe.get_doc("User", user).add_comment(
+                "Comment", f"Created missing Customer User Permission for {user}."
+            )
+
+    outcome["contact_customers"] = sorted(customers_from_contacts(user))
+    outcome["permission_customers"] = sorted(customer_permissions_of(user))
+
+    if set(outcome["contact_customers"]) != set(outcome["permission_customers"]):
+        outcome["status"] = CUSTOMER_REFERENCE_CONFLICT
+
+    return outcome
+
+
+def _declare_on_contact(user, customers):
+    """Write on the contact what the permissions already say."""
+    user_doc = frappe.get_doc("User", user)
+    written = []
+
+    for customer in sorted(customers):
+        if not frappe.db.exists("Customer", customer):
+            continue
+
+        _, created = ensure_customer_contact(user_doc, customer)
+        written.append(customer)
+
+        if created:
+            continue
+
+    if written:
+        frappe.get_doc("User", user).add_comment(
+            "Comment", f"Created missing Customer reference on Contact for {user}."
+        )
+
+    return written
 
 
 def revoke_undeclared_customer_permissions(user):
@@ -352,33 +450,75 @@ def revoke_undeclared_customer_permissions(user):
 
 
 def sync_contact_user_permission(doc, method=None):
-    if not doc.get("user"):
+    """A contact says who an account answers for; only a customer account is reconciled.
+
+    Nothing is written for an account without a customer role: a contact record of our own
+    staff, or of a person with no application account at all, is somebody else's business.
+    """
+    user = doc.get("user")
+
+    if not user or frappe.flags.in_msp_access_reconciliation:
         return
 
-    reconcile_customer_permissions(doc.user)
+    if not frappe.db.exists("User", user):
+        return
+
+    if not held_roles(user)["customer"]:
+        return
+
+    frappe.flags.in_msp_access_reconciliation = True
+
+    try:
+        reconcile_customer_permissions(user)
+    finally:
+        frappe.flags.in_msp_access_reconciliation = False
+
+
+def customer_role_accounts():
+    """Every account a customer role says belongs to a customer.
+
+    Found by role rather than by contact: an account whose contact reference was never
+    created is exactly the one that has to be found.
+    """
+    return sorted(
+        set(
+            frappe.db.sql_list(
+                """
+                select distinct parent from `tabHas Role`
+                where parenttype = 'User' and role in %(roles)s
+                """,
+                {"roles": CUSTOMER_ROLES},
+            )
+        )
+        - {"Administrator", "Guest"}
+    )
 
 
 def reconcile_all_customer_permissions():
-    """Sweep the drift that built up before the contacts were the last word."""
-    users = frappe.db.sql_list(
-        """
-        select distinct c.user
-        from `tabContact` c
-        join `tabDynamic Link` dl on dl.parent = c.name
-        where ifnull(c.user, '') != '' and dl.link_doctype = 'Customer'
-        """
-    )
+    """Check every customer account, repair what is unambiguous, report the rest."""
+    healthy = repaired = review = 0
 
-    added = removed = 0
+    for user in customer_role_accounts():
+        if not frappe.db.get_value("User", user, "enabled"):
+            continue
 
-    for user in users:
-        gained, lost = reconcile_customer_permissions(user)
-        added += gained
-        removed += lost
+        outcome = reconcile_customer_permissions(user)
 
-    if added or removed:
-        frappe.db.commit()
-        print(f"  portal access: {added} permission(s) added, {removed} stale one(s) removed")
+        if outcome["status"] == HEALTHY:
+            healthy += 1
+        elif outcome["status"] in REPAIRED:
+            repaired += 1
+        elif outcome["status"] in NEEDS_REVIEW:
+            review += 1
+            frappe.logger("msp.access").warning(
+                f"{user}: {outcome['status']} "
+                f"contacts={outcome['contact_customers']} permissions={outcome['permission_customers']}"
+            )
+
+    frappe.db.commit()
+    print(f"  customer access: {healthy} healthy, {repaired} repaired, {review} need review")
+
+    return {"healthy": healthy, "repaired": repaired, "need_review": review}
 
 
 def ensure_customer_contact(user_doc, customer):

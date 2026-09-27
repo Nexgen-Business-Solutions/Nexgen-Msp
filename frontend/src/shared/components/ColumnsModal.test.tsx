@@ -39,7 +39,7 @@ describe('the columns an export comes out with', () => {
 
     expect(tick('User', 'Identity')).toBeChecked();
     expect(tick('User', 'Identity')).toBeDisabled();
-    expect(tick('Remarks')).toBeChecked();
+    expect(tick('Internal notes')).toBeChecked();
     expect(tick('Reference')).not.toBeChecked();
   });
 
@@ -47,7 +47,7 @@ describe('the columns an export comes out with', () => {
     const onExport = open();
 
     fireEvent.click(tick('Reference'));
-    fireEvent.click(tick('Remarks', 'Notes'));
+    fireEvent.click(tick('Internal notes', 'Notes'));
     exportNow();
     await waitFor(() => expect(onExport).toHaveBeenCalled());
 

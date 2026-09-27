@@ -78,8 +78,21 @@ def _service_item():
                 "item_name": f"{PREFIX} Service",
                 "item_group": frappe.db.get_value("Item Group", {"is_group": 0}, "name"),
                 "is_stock_item": 0,
+                "is_sales_item": 1,
                 "stock_uom": "Month",
-                "msp_service_scope": "User",
+                "sales_uom": "Month",
+                "uoms": [{"uom": "Month", "conversion_factor": 1}],
+            }
+        ).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+    if not frappe.db.exists("MSP Service Definition", {"item": code}):
+        frappe.get_doc(
+            {
+                "doctype": "MSP Service Definition",
+                "item": code,
+                "enabled": 1,
+                "service_scope": "User",
             }
         ).insert(ignore_permissions=True)
         frappe.db.commit()

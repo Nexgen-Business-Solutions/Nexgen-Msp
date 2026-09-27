@@ -213,6 +213,7 @@ export const useExecuteUserSetup = () => usePlanMutation(internal.executeUserSet
 export const useExecuteDeviceProvisioning = () =>
   usePlanMutation(internal.executeDeviceProvisioning);
 export const useExecuteServiceAction = () => usePlanMutation(internal.executeServiceAction);
+export const useExecuteDeviceOperation = () => usePlanMutation(internal.executeDeviceOperation);
 export const useVerifyWorkItem = () => usePlanMutation(internal.verifyWorkItem);
 export const useCompleteRequest = () => usePlanMutation(internal.completeRequest);
 export const useAddTechnicianAction = () => usePlanMutation(internal.addTechnicianAction);
@@ -278,3 +279,33 @@ export const useDashboardKpiRows = (
     keepPreviousData: true,
     enabled: Boolean(kpi),
   });
+
+/** One batch of ready work, whatever each unit is, carried out one Work Order at a time. */
+export const useExecuteWorkOrders = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: internal.executeWorkOrders,
+    onSuccess: (outcome) => {
+      queryClient.setQueryData(requestKeys.plan(outcome.plan.request), outcome.plan);
+      queryClient.invalidateQueries({ queryKey: requestKeys.detail(outcome.plan.request) });
+      queryClient.invalidateQueries({ queryKey: ['internal', 'users'] });
+      queryClient.invalidateQueries({ queryKey: ['internal', 'devices'] });
+    },
+  });
+};
+
+/** The identifiers a request is waiting on, written as many at a time as are known. */
+export const useSaveRequiredIdentifiers = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: internal.saveRequiredIdentifiers,
+    onSuccess: (outcome) => {
+      queryClient.setQueryData(requestKeys.plan(outcome.plan.request), outcome.plan);
+      queryClient.invalidateQueries({ queryKey: requestKeys.detail(outcome.plan.request) });
+      queryClient.invalidateQueries({ queryKey: ['internal', 'users'] });
+      queryClient.invalidateQueries({ queryKey: ['internal', 'devices'] });
+    },
+  });
+};

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as internal from '@/lib/api/internal';
-import { Eye, Laptop, Plus, ShieldAlert, UserMinus, Users } from 'lucide-react';
+import { Eye, Laptop, Plus, UserMinus, Users } from 'lucide-react';
 import KpiCard from '@/shared/components/KpiCard';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import TablePagination from '@/shared/components/TablePagination';
@@ -23,13 +23,19 @@ const COVERAGE_OPTIONS = [
   },
   {
     value: 'no_service',
-    label: 'Device without services',
-    description: 'Active users whose device runs no active service',
+    label: 'Device with no current service',
+    description: 'Active users holding an active Device with no current Device-scoped service',
   },
   {
-    value: 'disabled_with_services',
-    label: 'Disabled with open services',
-    description: 'Offboarding never completed',
+    value: 'disabled_with_personal_services',
+    label: 'Disabled with personal services',
+    description: 'Disabled or archived people with open User-scoped services.',
+  },
+  {
+    value: 'disabled_holding_device',
+    label: 'Disabled user still holds a Device',
+    description:
+      'The person is disabled or archived, but a current Device Holder period is still open.',
   },
   {
     value: 'open_requests',
@@ -39,7 +45,7 @@ const COVERAGE_OPTIONS = [
   {
     value: 'needs_attention',
     label: 'Needs attention',
-    description: 'A missing serial, a missing username, or an unfinished offboarding',
+    description: 'A missing serial, or a disabled person with open personal services',
   },
 ];
 
@@ -114,12 +120,16 @@ export default function UsersList() {
       case 'active_services':
         return (
           <td key={key} className="whitespace-nowrap px-4 py-3">
-            <span className="inline-flex min-w-[2rem] justify-center rounded-lg bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 tabular-nums">
+            <span
+              title={`${row.personal_services ?? 0} of their own · ${row.device_services ?? 0} on the machines they hold`}
+              className="inline-flex min-w-[2rem] justify-center rounded-lg bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 tabular-nums"
+            >
               {row.active_services}
             </span>
           </td>
         );
-      case 'inactive_services':
+      case 'suspended_services':
+      case 'ended_services':
       case 'personal_services':
       case 'device_services':
       case 'current_devices':
@@ -182,23 +192,23 @@ export default function UsersList() {
           icon={UserMinus}
           tone="alert"
           accent="slate"
-          label="Disabled with services"
-          value={stats.data?.disabled_with_services ?? 0}
-          caption="Offboarding never completed"
+          label="Disabled with personal services"
+          value={stats.data?.disabled_with_personal_services ?? 0}
+          caption="Disabled or archived people with open User-scoped services"
           loading={stats.isLoading}
-          onView={() => patch({ coverage: 'disabled_with_services', status: '' })}
-          viewLabel="Show incomplete offboardings"
+          onView={() => patch({ coverage: 'disabled_with_personal_services', status: '' })}
+          viewLabel="Show disabled people with personal services"
         />
         <KpiCard
-          icon={ShieldAlert}
+          icon={Laptop}
           tone="alert"
           accent="slate"
-          label="With an idle device"
-          value={stats.data?.users_with_idle_device ?? 0}
-          caption="Active devices with no security"
+          label="Disabled user still holds a Device"
+          value={stats.data?.disabled_holding_device ?? 0}
+          caption="A current Device Holder period is still open"
           loading={stats.isLoading}
-          onView={() => patch({ coverage: 'no_service', status: '' })}
-          viewLabel="Show users whose device runs nothing"
+          onView={() => patch({ coverage: 'disabled_holding_device', status: '' })}
+          viewLabel="Show disabled people still holding a Device"
         />
       </div>
 

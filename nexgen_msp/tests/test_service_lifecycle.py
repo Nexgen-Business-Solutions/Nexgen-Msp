@@ -530,36 +530,27 @@ class TestServiceLifecycle(MSPTestCase):
         with self.assertRaises(ValidationError):
             ServiceLifecycleService.cancel(assignment=running["name"])
 
-    # --------------------------------------------------------------- planned removal
-    def test_a_scheduled_removal_can_be_called_off(self):
-        service = self.offering("LIFEREMOVAL")
-        opened = self.open_service(service, effective_date=self.days_ago(10))
+    # --------------------------------------------------------------- no planned removal
+    def test_nothing_schedules_a_removal_any_more(self):
+        """§V2-00-9: a pending end lives in the Request and its Work Order, never here."""
+        self.assertFalse(hasattr(ServiceLifecycleService, "schedule_removal"))
+        self.assertFalse(hasattr(ServiceLifecycleService, "cancel_removal"))
 
-        ServiceLifecycleService.schedule_removal(
-            assignment=opened["name"], effective_date=frappe.utils.add_days(self.today, 15)
-        )
-        doc = self.reload(opened["name"])
+        options = frappe.get_meta("MSP Service Assignment").get_field("operational_status").options
 
-        self.assertEqual(doc.operational_status, "Pending Removal")
-        self.assertEqual(doc.billing_status, "Billable")
+        self.assertNotIn("Pending Removal", options.split("\n"))
 
-        ServiceLifecycleService.cancel_removal(assignment=opened["name"])
-        doc = self.reload(opened["name"])
-
-        self.assertEqual(doc.operational_status, "Active")
-        self.assertEqual(doc.billing_status, "Billable")
-
-        with self.assertRaises(ValidationError):
-            ServiceLifecycleService.cancel_removal(assignment=opened["name"])
-
-    def test_a_service_awaiting_removal_can_still_be_closed(self):
+    def test_a_running_service_is_ended_in_one_step(self):
         service = self.offering("LIFEREMOVAL2")
         opened = self.open_service(service, effective_date=self.days_ago(10))
-        ServiceLifecycleService.schedule_removal(assignment=opened["name"])
 
         ServiceLifecycleService.end(assignment=opened["name"], effective_date=self.days_ago(1))
+        doc = self.reload(opened["name"])
 
-        self.assertEqual(self.reload(opened["name"]).operational_status, "Ended")
+        self.assertEqual(doc.operational_status, "Ended")
+        self.assertEqual(
+            frappe.utils.getdate(doc.effective_end_date), frappe.utils.getdate(self.days_ago(1))
+        )
 
     # ------------------------------------------------------------------- changing it
     def test_changing_the_quantity_writes_two_periods_that_do_not_overlap(self):

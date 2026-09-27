@@ -3,43 +3,23 @@ import * as internal from '@/lib/api/internal';
 
 export const settingsKeys = {
   all: ['internal', 'settings'] as const,
-  options: () => [...settingsKeys.all, 'options'] as const,
-  actions: () => [...settingsKeys.all, 'requestActions'] as const,
   departments: (enabledOnly: boolean) => [...settingsKeys.all, 'departments', enabledOnly] as const,
 };
 
-export const useSettingsOptions = () =>
+export const useItemIntegrityAudit = () =>
   useQuery({
-    queryKey: settingsKeys.options(),
-    queryFn: ({ signal }) => internal.getSettingsOptions(signal),
-    staleTime: 10 * 60 * 1000,
+    queryKey: ['internal', 'item-integrity'] as const,
+    queryFn: ({ signal }) => internal.auditItemIntegrity(signal),
   });
 
-export const useRequestActionList = () =>
-  useQuery({
-    queryKey: settingsKeys.actions(),
-    queryFn: ({ signal }) => internal.listRequestActions(signal),
-  });
-
-const useActionMutation = <TVariables, TResult>(
-  mutationFn: (variables: TVariables) => Promise<TResult>
-) => {
+export const useRestoreItemState = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn,
-    onSuccess: (rows) => {
-      queryClient.setQueryData(settingsKeys.actions(), rows);
-      // the request form reads the same list
-      queryClient.invalidateQueries({ queryKey: ['portal'] });
-    },
+    mutationFn: internal.restoreItemState,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['internal', 'item-integrity'] }),
   });
 };
-
-export const useSaveRequestAction = () => useActionMutation(internal.saveRequestAction);
-
-export const useDeleteRequestAction = () =>
-  useActionMutation((name: string) => internal.deleteRequestAction(name));
 
 export const useDepartmentList = (enabledOnly = false) =>
   useQuery({

@@ -11,7 +11,7 @@ from frappe import _
 FIELD = "suspension_log"
 
 # the statuses that say the service is being provided right now, so nothing may be paused
-PROVIDING_STATUSES = ("Active", "Pending Removal")
+PROVIDING_STATUSES = ("Active",)
 
 
 def open_row(doc):

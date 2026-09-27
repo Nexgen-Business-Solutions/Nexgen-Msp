@@ -340,7 +340,7 @@ class TestARoleAddedByHand(MSPTestCase):
         finally:
             frappe.set_user("Administrator")
 
-    def test_the_deployment_sweep_puts_permissions_back_in_line(self):
+    def test_references_that_disagree_are_reported_rather_than_trimmed(self):
         elsewhere = self.make_customer("B")
         permissions.add_customer_permission(self.contact, elsewhere)
         frappe.db.commit()
@@ -348,16 +348,18 @@ class TestARoleAddedByHand(MSPTestCase):
         # a permission with no contact behind it opened nothing in the first place
         self.assertEqual(permissions.get_allowed_customers(self.contact), [self.customer])
 
-        permissions.reconcile_customer_permissions(self.contact)
+        outcome = permissions.reconcile_customer_permissions(self.contact)
         frappe.db.commit()
 
+        self.assertEqual(outcome["status"], permissions.CUSTOMER_REFERENCE_CONFLICT)
         self.assertEqual(permissions.get_allowed_customers(self.contact), [self.customer])
-        self.assertFalse(
+        self.assertEqual(outcome["removed_permissions"], [])
+        self.assertTrue(
             frappe.db.exists(
                 "User Permission",
                 {"user": self.contact, "allow": "Customer", "for_value": elsewhere},
             ),
-            "and the sweep takes the leftover row away",
+            "an account an administrator has to look at is never trimmed on its own",
         )
 
 

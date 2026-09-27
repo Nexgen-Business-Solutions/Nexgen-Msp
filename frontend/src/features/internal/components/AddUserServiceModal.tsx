@@ -159,7 +159,7 @@ const AddUserServiceModal: React.FC<Props> = ({
               <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
                 <AlertCircle size={16} className="mt-0.5 shrink-0 text-amber-600" />
                 <div className="text-sm text-amber-900">
-                  <p className="font-semibold">Billing setup needs attention</p>
+                  <p className="font-semibold">No customer service rate yet</p>
                   <p className="mt-0.5">{selectedOffer.warning} The service will still be added.</p>
                 </div>
               </div>

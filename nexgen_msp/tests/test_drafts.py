@@ -44,7 +44,7 @@ class TestTheDraft(MSPTestCase):
 
     def line(self, **over):
         row = {
-            "request_action": self.action(),
+            "operation_code": self.operation(),
             "action": "Add",
             "target_scope": "User",
             "client_user": self.person,

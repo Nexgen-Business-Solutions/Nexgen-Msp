@@ -63,14 +63,14 @@ describe('closing a service already invoiced', () => {
     expect(within(dialog).getByText(/no credit note is created/i)).toBeInTheDocument();
   });
 
-  it('sends the close once confirmed', async () => {
+  it('sends the stop once confirmed', async () => {
     vi.mocked(internal.changeUserService).mockResolvedValue({} as never);
     const dialog = open('End');
 
     fireEvent.change(within(dialog).getByDisplayValue(/^\d{4}-\d{2}-\d{2}$/), {
       target: { value: '2026-03-15' },
     });
-    fireEvent.click(within(dialog).getByRole('button', { name: /close service/i }));
+    fireEvent.click(within(dialog).getByRole('button', { name: /stop service/i }));
 
     await waitFor(() =>
       expect(vi.mocked(internal.changeUserService).mock.calls[0][0]).toMatchObject({

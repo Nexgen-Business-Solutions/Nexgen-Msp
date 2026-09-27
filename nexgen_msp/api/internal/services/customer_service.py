@@ -282,7 +282,7 @@ class CustomerService:
                     where ct.customer = c.name and ct.status = 'Active') as active_contracts
             from `tabCustomer` c
             where {" and ".join(conditions)}
-            order by c.customer_name asc
+            order by c.creation desc
             """,
             values,
             as_dict=True,

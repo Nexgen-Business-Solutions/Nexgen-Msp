@@ -26,7 +26,6 @@ export type KpiDetailPanelProps = {
 const statusBadge: Record<string, string> = {
   Active: 'bg-emerald-100 text-emerald-700',
   'Pending Setup': 'bg-amber-100 text-amber-700',
-  'Pending Removal': 'bg-amber-100 text-amber-700',
   Suspended: 'bg-amber-100 text-amber-700',
   Ended: 'bg-slate-100 text-slate-500',
   Cancelled: 'bg-slate-100 text-slate-500',

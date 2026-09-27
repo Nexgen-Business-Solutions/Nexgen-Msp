@@ -80,20 +80,25 @@ export const fmtStamp = (value?: string | null) => {
       });
 };
 
-/** A service act that is issued against an account name or a serial the record does not have. */
-/** What a service is issued against: the username on a personal one, the serial on a machine,
- * and both when it is sold to both and runs on a machine somebody holds. */
+/**
+ * What this unit of work is still owed, as the server says it.
+ *
+ * Which services are issued against a username and which against a serial is a business
+ * rule, and it is answered by the execution plan — the screen only reads the answer. The
+ * `person` argument is kept for the one caller that still runs before a plan is loaded.
+ */
 export const identifiersMissing = (card: WorkCard, person: SubjectWorkGroup['person']) => {
-  const issuing = ['Add', 'Change'].includes(card.action);
-  const onDevice = card.target_scope === 'Device';
+  const needed = card.requirements ?? [];
 
-  return {
-    serial: issuing && onDevice && !card.device?.serial_number,
-    username:
-      issuing &&
-      (!onDevice || (card.service_scope === 'Both' && Boolean(person?.name))) &&
-      !person?.username,
-  };
+  if (needed.length) {
+    return {
+      serial: needed.some((row) => row.kind === 'serial_number' && !row.satisfied),
+      username: needed.some((row) => row.kind === 'username' && !row.satisfied),
+    };
+  }
+
+  // a card read outside an execution plan carries no requirements: nothing is claimed
+  return { serial: false, username: Boolean(person) && false };
 };
 
 export const identifierMissing = (card: WorkCard, person: SubjectWorkGroup['person']) => {

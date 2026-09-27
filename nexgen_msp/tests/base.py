@@ -45,6 +45,7 @@ class MSPTestCase(IntegrationTestCase):
                 # document it refers to and would sit in the site's outbox for ever
                 self._purge_mail(doctype, name)
                 self._purge_work(doctype, name)
+                self._purge_definition(doctype, name)
 
                 self._purge_runs(doctype, name)
 
@@ -82,6 +83,23 @@ class MSPTestCase(IntegrationTestCase):
         ):
             frappe.delete_doc(
                 "MSP Service Work Order", order, force=True, ignore_permissions=True
+            )
+
+    def _purge_definition(self, doctype, name):
+        """What MSP knows about an Item goes with the Item.
+
+        The definition is a record of its own, so nothing removes it when the fixture Item
+        is deleted, and an orphan one would keep claiming a scope for a code that no longer
+        exists.
+        """
+        if doctype != "Item":
+            return
+
+        for definition in frappe.get_all(
+            "MSP Service Definition", filters={"item": name}, pluck="name"
+        ):
+            frappe.delete_doc(
+                "MSP Service Definition", definition, force=True, ignore_permissions=True
             )
 
     def _purge_runs(self, doctype, name):
@@ -160,8 +178,8 @@ class MSPTestCase(IntegrationTestCase):
 
         return self.track("Customer", name)
 
-    def make_service(self, suffix="A", scope="User"):
-        """A billable service in the catalogue, at the scope the test needs."""
+    def make_service(self, suffix="A", scope="User", available=True):
+        """A billable service the MSP catalogue offers, at the scope the test needs."""
         code = f"{PREFIX}-SVC-{suffix}"
 
         if not frappe.db.exists("Item", code):
@@ -172,12 +190,31 @@ class MSPTestCase(IntegrationTestCase):
                     "item_name": f"{PREFIX} Service {suffix}",
                     "item_group": frappe.db.get_value("Item Group", {"is_group": 0}, "name"),
                     "is_stock_item": 0,
+                    "is_sales_item": 1,
                     "stock_uom": "Month",
-                    "msp_service_scope": scope,
+                    "sales_uom": "Month",
+                    "uoms": [{"uom": "Month", "conversion_factor": 1}],
                 }
             ).insert(ignore_permissions=True)
+
+        # what MSP knows about the Item lives in its own record, one per Item
+        definition = frappe.db.get_value("MSP Service Definition", {"item": code}, "name")
+
+        if definition:
+            frappe.db.set_value(
+                "MSP Service Definition",
+                definition,
+                {"service_scope": scope, "enabled": 1 if available else 0},
+            )
         else:
-            frappe.db.set_value("Item", code, "msp_service_scope", scope)
+            frappe.get_doc(
+                {
+                    "doctype": "MSP Service Definition",
+                    "item": code,
+                    "enabled": 1 if available else 0,
+                    "service_scope": scope,
+                }
+            ).insert(ignore_permissions=True)
 
         frappe.db.commit()
 
@@ -364,8 +401,11 @@ class MSPTestCase(IntegrationTestCase):
 
         AuthorityService.set_account_rights(email, {"can_submit": can_submit, "can_approve": can_approve})
 
-    def action(self, action_type="Add"):
-        name = frappe.db.get_value("MSP Request Action", {"action_type": action_type}, "name")
-        self.assertIsNotNone(name, f"no request action of type {action_type} is seeded")
+    def operation(self, action_type="Add"):
+        """The operation code an old action name stands for."""
+        from nexgen_msp.utils import operations
 
-        return name
+        code = operations.from_legacy_action(action_type)
+        self.assertIsNotNone(code, f"{action_type} is not an operation")
+
+        return code

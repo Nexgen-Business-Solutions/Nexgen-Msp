@@ -218,8 +218,19 @@ export default function CustomersList() {
                       onClick={() => navigate(`/msp/customers/${encodeURIComponent(row.customer)}`)}
                       className="cursor-pointer transition-colors hover:bg-slate-50"
                     >
-                      <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
-                        {row.customer}
+                      <td className="whitespace-nowrap px-4 py-3">
+                        {/* the row stays clickable, but the name is a real control: without
+                            one, this register was the only listing no keyboard could open */}
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            navigate(`/msp/customers/${encodeURIComponent(row.customer)}`);
+                          }}
+                          className="text-sm font-semibold text-slate-900 transition-colors hover:text-blue-700"
+                        >
+                          {row.customer}
+                        </button>
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
                         {row.contract ? (

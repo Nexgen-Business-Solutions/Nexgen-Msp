@@ -13,6 +13,7 @@ import frappe
 from nexgen_msp.api.excel_import.services.excel_import_service import ExcelImportService
 from nexgen_msp.api.internal.services.department_service import DepartmentService
 from nexgen_msp.api.internal.services.settings_service import SettingsService
+from nexgen_msp.utils import operations
 from nexgen_msp.utils.errors import NexgenError, ValidationError as ServiceRefused
 
 from .base import MSPTestCase
@@ -271,124 +272,30 @@ class TestWhatTheSpreadsheetIsAllowedToSay(ReferenceCase):
         self.assertNotIn("department_prefix", fields)
 
 
-class TestOneOfferPerAct(ReferenceCase):
-    def action(self, title, action_type, **fields):
-        doc = frappe.get_doc(
-            {
-                "doctype": "MSP Request Action",
-                "title": f"ZZTEST {title} {self.tag}",
-                "action_type": action_type,
-                **fields,
-            }
-        ).insert(ignore_permissions=True)
+class TestTheActsTheEngineKnows(ReferenceCase):
+    """§3: what a request may ask for is what the application performs, not a setting."""
 
-        return self.track("MSP Request Action", doc.name)
-
-    def test_a_second_offer_of_the_same_act_is_refused(self):
-        with self.assertRaises(REFUSED) as caught:
-            self.action("Terminate", "Remove", enabled=1)
-
-        self.assertIn("already what a customer is offered", str(caught.exception))
-
-    def test_a_second_wording_may_be_kept_as_long_as_it_is_not_offered(self):
-        kept = self.action("Terminate", "Remove", enabled=0)
-
-        self.assertEqual(frappe.db.get_value("MSP Request Action", kept, "enabled"), 0)
-
-    def test_what_an_unused_action_does_can_still_be_settled(self):
-        spare = self.action("Spare", "Remove", enabled=0)
-
-        doc = frappe.get_doc("MSP Request Action", spare)
-        doc.action_type = "Suspend"
-        doc.save(ignore_permissions=True)
-
-        self.assertEqual(frappe.db.get_value("MSP Request Action", spare, "action_type"), "Suspend")
-
-    def test_what_a_used_action_does_can_no_longer_be_rewritten(self):
-        customer = self.make_customer(self.tag)
-        self.track("MSP Approval Authority", customer)
-        person = self.make_person(customer, "Asker")
-        service = self.make_service(f"RA{self.tag[:3]}", scope="User")
-        self.cover_service(customer, service)
-
-        used = frappe.db.get_value("MSP Request Action", {"action_type": "Add", "enabled": 1}, "name")
-        request = frappe.get_doc(
-            {
-                "doctype": "MSP Service Request",
-                "customer": customer,
-                "request_type": "Add",
-                "priority": "Medium",
-                "status": "Submitted",
-                "source": "Internal",
-                "requester": frappe.session.user,
-                "lines": [
-                    {
-                        "request_action": used,
-                        "action": "Add",
-                        "target_scope": "User",
-                        "client_user": person,
-                        "requested_service": service,
-                    }
-                ],
-            }
-        ).insert(ignore_permissions=True)
-        self.track("MSP Service Request", request.name)
-
-        doc = frappe.get_doc("MSP Request Action", used)
-        doc.action_type = "Suspend"
-
-        with self.assertRaises(REFUSED) as caught:
-            doc.save(ignore_permissions=True)
-
-        self.assertIn("can no longer be changed", str(caught.exception))
-
-    def test_the_order_an_administrator_settled_is_the_order_they_are_read_in(self):
-        listed = self.as_admin(lambda: SettingsService.list_request_actions())
-        seeded = [row for row in listed if not row.title.startswith("ZZTEST")]
-
+    def test_the_service_operations_are_defined_in_code(self):
         self.assertEqual(
-            [row.action_type for row in seeded],
-            ["Add", "Change", "Suspend", "Resume", "Remove"],
+            list(operations.SERVICE_OPERATIONS),
+            [
+                "service.add",
+                "service.change",
+                "service.suspend",
+                "service.resume",
+                "service.end",
+            ],
         )
 
-    def test_an_action_nobody_has_used_can_be_deleted(self):
-        spare = self.action("Unused", "Remove", enabled=0)
-
-        self.as_admin(lambda: SettingsService.delete_request_action(name=spare))
-
-        self.assertFalse(frappe.db.exists("MSP Request Action", spare))
-
-    def test_hiding_an_offer_does_not_take_the_act_away_from_the_engine(self):
-        """Settings governs what a customer may ask for, never what the engine can do."""
-        from nexgen_msp.api.internal.services.service_lifecycle_service import (
-            ServiceLifecycleService,
-        )
-
-        customer = self.make_customer(self.tag)
-        person = self.make_person(customer, "Subject")
-        service = self.make_service(f"HD{self.tag[:3]}", scope="User")
-        self.cover_service(customer, service)
-
-        opened = ServiceLifecycleService.activate(
-            customer=customer, service_item=service, target_scope="User", client_user=person
-        )
-        self.track("MSP Service Assignment", opened["name"])
-
-        offer = frappe.db.get_value(
-            "MSP Request Action", {"action_type": "Suspend", "enabled": 1}, "name"
-        )
-        frappe.db.set_value("MSP Request Action", offer, "enabled", 0)
-        frappe.db.commit()
-        self.addCleanup(
-            lambda: frappe.db.set_value("MSP Request Action", offer, "enabled", 1)
-        )
-
-        ServiceLifecycleService.suspend(assignment=opened["name"])
-
+    def test_what_a_customer_may_ask_of_a_machine_is_fixed(self):
         self.assertEqual(
-            frappe.db.get_value("MSP Service Assignment", opened["name"], "operational_status"),
-            "Suspended",
+            operations.customer_requestable(operations.DEVICE),
+            ["device.assign", "device.transfer", "device.repossess"],
         )
+
+    def test_no_settings_screen_administers_them(self):
+        for gone in ("list_request_actions", "save_request_action", "delete_request_action"):
+            self.assertFalse(hasattr(SettingsService, gone), gone)
 
 
 class TestWhatSettingsMayNeverReach(ReferenceCase):
@@ -401,10 +308,11 @@ class TestWhatSettingsMayNeverReach(ReferenceCase):
         )
 
     def test_the_acts_the_engine_knows_are_not_administered(self):
-        options = frappe.get_meta("MSP Request Action").get_field("action_type").options
-
         self.assertEqual(
-            [value for value in options.split("\n") if value],
+            [
+                operations.REGISTRY[code]["legacy_action"]
+                for code in operations.SERVICE_OPERATIONS
+            ],
             ["Add", "Change", "Suspend", "Resume", "Remove"],
         )
 

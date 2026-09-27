@@ -18,6 +18,7 @@ from nexgen_msp.api.internal.services.user_service import UserService
 from nexgen_msp.api.portal.services.portal_service import PortalService
 from nexgen_msp.utils import device_holders as holders
 from nexgen_msp.utils.device_status import TERMINAL_STATUSES, UNAVAILABLE_STATUSES
+from nexgen_msp.utils.errors import ValidationError as REFUSED
 
 from .base import MSPTestCase
 
@@ -78,15 +79,19 @@ class TestDevicePredicates(MSPTestCase):
         )[0]
 
     # ------------------------------------------------- a machine on the shelf, on our side
-    def test_a_machine_on_the_shelf_is_not_out_of_service_on_the_dashboard(self):
+    def test_a_machine_on_the_shelf_is_not_one_with_no_current_service(self):
+        """§04-4: the filter states a factual absence, over active machines only."""
         rows = self.as_user(
-            self.tech, lambda: DashboardService.list_kpi_rows("devices_without_services", 0, 200)
+            self.tech,
+            lambda: DeviceService.list_devices(
+                customer=self.customer, coverage="no_service", page_length=200
+            ),
         )
         listed = self.kpi_names(rows)
 
-        self.assertIn(self.idle, listed, "a machine somebody holds that runs nothing is idle")
-        self.assertNotIn(self.stock, listed, "a machine on the shelf is not an idle machine")
-        self.assertNotIn(self.dead, listed, "a machine out of service is not an idle machine")
+        self.assertIn(self.idle, listed, "a machine somebody holds that runs nothing")
+        self.assertNotIn(self.stock, listed, "a machine on the shelf is not an active machine")
+        self.assertNotIn(self.dead, listed, "a machine out of service is not an active machine")
 
         shelf = frappe.get_doc("MSP Managed Device", self.stock)
         self.assertEqual(shelf.status, "Stock")
@@ -94,13 +99,28 @@ class TestDevicePredicates(MSPTestCase):
         self.assertNotIn(shelf.status, TERMINAL_STATUSES)
         self.assertIsNone(shelf.retired_date)
 
-    def test_the_idle_card_and_the_rows_behind_it_count_the_same_machines(self):
-        board = self.as_user(self.tech, DashboardService.get_dashboard)
+    def test_the_no_current_service_figure_and_its_rows_count_the_same_machines(self):
+        stats = self.as_user(self.tech, lambda: DeviceService.get_stats(customer=self.customer))
         rows = self.as_user(
-            self.tech, lambda: DashboardService.list_kpi_rows("devices_without_services", 0, 500)
+            self.tech,
+            lambda: DeviceService.list_devices(
+                customer=self.customer, coverage="no_service", page_length=500
+            ),
         )
 
-        self.assertEqual(board["hygiene"]["devices_without_services"], rows["total"])
+        self.assertEqual(stats["devices_without_services"], rows["total"])
+
+    def test_no_dashboard_card_claims_anything_about_a_machine_without_services(self):
+        """§04-3: the heuristic KPI and its drill-down are gone from the dashboard."""
+        board = self.as_user(self.tech, DashboardService.get_dashboard)
+
+        self.assertNotIn("hygiene", board)
+
+        with self.assertRaises(REFUSED):
+            self.as_user(
+                self.tech,
+                lambda: DashboardService.list_kpi_rows("devices_without_services", 0, 10),
+            )
 
     def test_the_portfolio_never_counts_a_shelved_machine_as_in_service(self):
         board = self.as_user(self.admin, DashboardService.get_dashboard)
@@ -122,7 +142,9 @@ class TestDevicePredicates(MSPTestCase):
 
         rows = self.as_user(
             self.manager,
-            lambda: PortalService.list_kpi_rows("devices_without_services", self.customer, 0, 200),
+            lambda: PortalService.list_devices(
+                self.customer, coverage="no_service", page_length=200
+            ),
         )
         listed = self.kpi_names(rows)
 
@@ -146,14 +168,15 @@ class TestDevicePredicates(MSPTestCase):
         )
         self.assertEqual([row["name"] for row in on_shelf["rows"]], [self.stock])
 
-    def test_the_portal_idle_filter_lists_exactly_what_its_card_counted(self):
+    def test_the_portal_no_service_filter_lists_the_machine_that_runs_nothing(self):
         summary = self.as_user(self.manager, lambda: PortalService.get_summary(self.customer))
         listed = self.as_user(
             self.manager,
             lambda: PortalService.list_devices(self.customer, coverage="no_service", page_length=200),
         )
 
-        self.assertEqual(listed["total"], summary["devices_without_services"])
+        self.assertNotIn("devices_without_services", summary)
+        self.assertNotIn("reclaimable_licences", summary)
         self.assertEqual([row["name"] for row in listed["rows"]], [self.idle])
 
     # ------------------------------------------------- a service follows the machine
@@ -238,11 +261,6 @@ class TestDevicePredicates(MSPTestCase):
             stats["unassigned_devices"],
         )
 
-        board = self.as_user(self.tech, DashboardService.get_dashboard)
-        self.assertGreaterEqual(board["hygiene"]["devices_without_services"], 1)
-
-        portal = self.as_user(self.manager, lambda: PortalService.get_summary(self.customer))
-        self.assertEqual(portal["devices_without_services"], 1)
         self.assertEqual(stats["devices_without_services"], 1)
 
     # ------------------------------------------------------- what the spreadsheet imports

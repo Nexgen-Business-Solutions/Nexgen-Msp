@@ -7,8 +7,6 @@ import {
   Inbox,
   Laptop,
   Layers,
-  ShieldAlert,
-  UserMinus,
   Users,
   Wrench,
 } from 'lucide-react';
@@ -280,36 +278,6 @@ export default function InternalDashboard() {
         </Panel>
       </Section>
 
-      <Section
-        title="Service health"
-        description="Coverage gaps and licences that are still being billed for nothing."
-      >
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <KpiCard
-            icon={UserMinus}
-            tone="alert"
-            accent="slate"
-            label="Licences to reclaim"
-            value={data?.hygiene.reclaimable_licences ?? 0}
-            caption="Services still open on disabled users"
-            loading={isLoading}
-            onView={() => openKpi('reclaimable_licences')}
-            viewLabel="List the licences to reclaim"
-          />
-          <KpiCard
-            icon={ShieldAlert}
-            tone="alert"
-            accent="slate"
-            label="Devices without services"
-            value={data?.hygiene.devices_without_services ?? 0}
-            caption="Active devices with no active service"
-            loading={isLoading}
-            onView={() => openKpi('devices_without_services')}
-            viewLabel="List the devices without services"
-          />
-        </div>
-      </Section>
-
       {portfolio && (
         <Section
           title="Portfolio"
@@ -387,8 +355,8 @@ export default function InternalDashboard() {
 
           {portfolio.rated_services === 0 && (
             <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-              No service carries an agreed rate yet, so revenue cannot be computed. Set rates on the
-              assignments — or on the contract — before the first billing run.
+              No valid customer service rate is available yet. Configure a rate before generating
+              billable coverage for these services.
             </p>
           )}
         </Section>

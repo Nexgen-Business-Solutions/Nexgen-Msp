@@ -14,6 +14,7 @@ import {
 import KpiCard from '@/shared/components/KpiCard';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import StatusBadge from '@/shared/components/StatusBadge';
+import Select from '@/shared/components/Select';
 import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
 import { useBillingDue, useBillingRuns } from '../hooks/useBilling';
 import { useMspContracts } from '../hooks/useMspContracts';
@@ -142,21 +143,13 @@ export default function BillingRuns() {
         ]}
       />
 
-      <div className="flex flex-wrap items-center gap-1.5">
-        {RANGES.map((entry) => (
-          <button
-            key={entry.label}
-            type="button"
-            onClick={() => setRange(entry.label)}
-            className={`rounded-lg px-3 py-2.5 text-xs font-semibold transition-colors ${
-              entry.label === range
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-            }`}
-          >
-            {entry.label}
-          </button>
-        ))}
+      <div className="flex items-center justify-end">
+        <Select
+          className="w-44"
+          value={range}
+          onChange={setRange}
+          options={RANGES.map((entry) => ({ value: entry.label, label: entry.label }))}
+        />
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">

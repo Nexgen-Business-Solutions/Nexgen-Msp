@@ -18,6 +18,9 @@
   "requester",
   "column_break_requester",
   "requester_contact",
+  "section_snapshot",
+  "subjects",
+  "action_groups",
   "section_lines",
   "details",
   "lines",
@@ -49,7 +52,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Request Type",
-   "options": "Add\nChange\nSuspend\nResume\nRemove\nMixed\nBilling Dispute",
+   "options": "Add\nChange\nSuspend\nResume\nRemove\nDevice\nMixed\nBilling Dispute",
    "read_only": 1
   },
   {
@@ -173,6 +176,23 @@
    "fieldtype": "Small Text",
    "label": "Rejection Reason",
    "mandatory_depends_on": "eval:doc.status==\"Rejected\""
+  },
+  {
+   "fieldname": "section_snapshot",
+   "fieldtype": "Section Break",
+   "label": "Request Snapshot"
+  },
+  {
+   "fieldname": "subjects",
+   "fieldtype": "Table",
+   "label": "Subjects",
+   "options": "MSP Request Subject"
+  },
+  {
+   "fieldname": "action_groups",
+   "fieldtype": "Table",
+   "label": "Action Groups",
+   "options": "MSP Request Action Group"
   },
   {
    "fieldname": "section_lines",

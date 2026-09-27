@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import ConfirmModal from '@/shared/components/ConfirmModal';
 import PersonRightsPanel from '../components/PersonRightsPanel';
+import AccessReferencesPanel from '../components/AccessReferencesPanel';
 import { useSession } from '@/shared/hooks/useSession';
 import {
   useResendTeamInvitation,
@@ -71,19 +72,19 @@ const ACTION_CLASS =
 /** What each role opens — the old one always closes behind it. */
 const ROLE_CHANGE: Record<string, { title: string; gains: string }> = {
   'MSP System Admin': {
-    title: 'Make them an administrator?',
+    title: 'Make them an MSP System administrator?',
     gains: 'They will reach billing, contracts, settings and the Frappe desk.',
   },
   'MSP Technician': {
-    title: 'Make them a technician?',
+    title: 'Make them a MSP Technician?',
     gains: 'They will handle requests, people and devices, without billing, contracts or settings.',
   },
   'MSP Customer Manager': {
-    title: 'Make them a customer manager?',
+    title: 'Make them a MSP Customer Manager?',
     gains: 'They will use the customer portal for their company, invoices included.',
   },
   'MSP Customer Operator': {
-    title: 'Make them a customer operator?',
+    title: 'Make them a MSP Customer Operator?',
     gains: 'They will use the customer portal for their company, without the invoices.',
   },
 };
@@ -268,6 +269,8 @@ export default function AccountDetail() {
           />
         </div>
       </div>
+
+      <AccessReferencesPanel email={account.name} access={account.access} />
 
       <PersonRightsPanel user={account.name} />
 

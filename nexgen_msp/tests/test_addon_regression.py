@@ -141,7 +141,7 @@ class TestARequestKeepsTheShapePhase3GaveIt(RegressionCase):
                 request_type="Add",
                 lines=[
                     {
-                        "request_action": self.action("Add"),
+                        "operation_code": self.operation("Add"),
                         "action": "Add",
                         "requested_service": self.service,
                         **line,
@@ -203,7 +203,7 @@ class TestARequestKeepsTheShapePhase3GaveIt(RegressionCase):
                 request_type="Add",
                 lines=[
                     {
-                        "request_action": self.action("Add"),
+                        "operation_code": self.operation("Add"),
                         "action": "Add",
                         "requested_service": service,
                         "client_user": self.john,

@@ -69,6 +69,8 @@ const RowActionsMenu: React.FC<{ actions: RowAction[] }> = ({ actions }) => {
           toggle();
         }}
         title="More options"
+        aria-haspopup="menu"
+        aria-expanded={open}
         className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
       >
         <MoreVertical size={15} />
@@ -78,6 +80,8 @@ const RowActionsMenu: React.FC<{ actions: RowAction[] }> = ({ actions }) => {
         createPortal(
           <div
             ref={menuRef}
+            role="menu"
+            aria-label="More options"
             style={{ top: coords.top, left: coords.left, width: MENU_WIDTH }}
             className="fixed z-[90] overflow-hidden rounded-lg border border-slate-200 bg-white p-1 shadow-xl"
           >
@@ -85,9 +89,12 @@ const RowActionsMenu: React.FC<{ actions: RowAction[] }> = ({ actions }) => {
               const Icon = action.icon;
               return (
                 <React.Fragment key={action.label}>
-                  {action.danger && index > 0 && <div className="my-1 h-px bg-slate-100" />}
+                  {action.danger && index > 0 && (
+                    <div role="none" className="my-1 h-px bg-slate-100" />
+                  )}
                   <button
                     type="button"
+                    role="menuitem"
                     onClick={(event) => {
                       event.stopPropagation();
                       setOpen(false);

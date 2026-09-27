@@ -110,7 +110,11 @@ class MSPServiceAssignment(Document):
 		if self.assignment_scope not in ITEM_SCOPES or not self.service_item:
 			return
 
-		item_scope = frappe.db.get_value("Item", self.service_item, "msp_service_scope")
+		from nexgen_msp.api.internal.services.service_definition_service import (
+			ServiceDefinitionService,
+		)
+
+		item_scope = ServiceDefinitionService.scope_of(self.service_item, default=None)
 
 		if item_scope not in ITEM_SCOPES or item_scope == self.assignment_scope:
 			return

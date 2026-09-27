@@ -23,7 +23,8 @@ COVERAGE_FILTERS = (
     "no_device",
     "no_personal_service",
     "no_service",
-    "disabled_with_services",
+    "disabled_with_personal_services",
+    "disabled_holding_device",
     "open_requests",
     "needs_attention",
 )
@@ -40,21 +41,35 @@ NEEDS_ATTENTION = """(
         and (
             exists (
                 select 1 from `tabMSP Service Assignment` sa
-                where sa.client_user = cu.name and sa.operational_status in %(open)s
+                where sa.client_user = cu.name and sa.assignment_scope = 'User'
+                  and sa.operational_status in %(open)s
             )
             or exists (
-                select 1 from `tabMSP Managed Device` device
-                where device.assigned_client_user = cu.name
+                select 1 from `tabMSP Device Holder` holder
+                where holder.parenttype = 'MSP Managed Device'
+                  and holder.client_user = cu.name and holder.is_current = 1
             )
         )
     )
-    or (
-        ifnull(cu.username, '') = ''
-        and exists (
-            select 1 from `tabMSP Service Assignment` sa
-            where sa.client_user = cu.name and sa.assignment_scope = 'User'
-              and sa.operational_status in %(open)s
-        )
+)"""
+
+# a person who left, whose own services were never closed
+DISABLED_WITH_PERSONAL_SERVICES = """(
+    cu.lifecycle_status in ('Disabled', 'Archived')
+    and exists (
+        select 1 from `tabMSP Service Assignment` sa
+        where sa.client_user = cu.name and sa.assignment_scope = 'User'
+          and sa.operational_status in %(open)s
+    )
+)"""
+
+# a person who left with a machine still in their hands, which is about the machine, not billing
+DISABLED_HOLDING_DEVICE = """(
+    cu.lifecycle_status in ('Disabled', 'Archived')
+    and exists (
+        select 1 from `tabMSP Device Holder` holder
+        where holder.parenttype = 'MSP Managed Device'
+          and holder.client_user = cu.name and holder.is_current = 1
     )
 )"""
 
@@ -138,35 +153,16 @@ class UserService:
                )"""
         )
 
-        disabled_with_services = count(
-            """cu.lifecycle_status in ('Disabled', 'Archived')
-               and exists (
-                   select 1 from `tabMSP Service Assignment` sa
-                   left join `tabMSP Managed Device` device on device.name = sa.managed_device
-                   where sa.operational_status in %(open)s
-                     and (sa.client_user = cu.name or device.assigned_client_user = cu.name)
-               )"""
-        )
+        # a service of their own that is still open, which a Device service never is
+        disabled_with_personal_services = count(DISABLED_WITH_PERSONAL_SERVICES)
 
-        # the people whose machine runs nothing — the same rows the "no_service" coverage lists
-        users_with_idle_device = count(
-            """cu.lifecycle_status = 'Active'
-               and exists (
-                   select 1 from `tabMSP Managed Device` device
-                   where device.assigned_client_user = cu.name and device.status = 'Active'
-                     and not exists (
-                         select 1 from `tabMSP Service Assignment` sa
-                         where sa.managed_device = device.name
-                           and sa.operational_status in %(open)s
-                     )
-               )"""
-        )
+        disabled_holding_device = count(DISABLED_HOLDING_DEVICE)
 
         return {
             "active_users": active,
             "without_device": without_device,
-            "disabled_with_services": disabled_with_services,
-            "users_with_idle_device": users_with_idle_device,
+            "disabled_with_personal_services": disabled_with_personal_services,
+            "disabled_holding_device": disabled_holding_device,
         }
 
     @staticmethod
@@ -234,16 +230,10 @@ class UserService:
             conditions.append(OPEN_REQUEST_FOR)
         elif coverage == "needs_attention":
             conditions.append(NEEDS_ATTENTION)
-        elif coverage == "disabled_with_services":
-            conditions.append("cu.lifecycle_status in ('Disabled', 'Archived')")
-            conditions.append(
-                """exists (
-                    select 1 from `tabMSP Service Assignment` sa
-                    left join `tabMSP Managed Device` sad on sad.name = sa.managed_device
-                    where sa.operational_status in %(open)s
-                      and (sa.client_user = cu.name or sad.assigned_client_user = cu.name)
-                )"""
-            )
+        elif coverage == "disabled_with_personal_services":
+            conditions.append(DISABLED_WITH_PERSONAL_SERVICES)
+        elif coverage == "disabled_holding_device":
+            conditions.append(DISABLED_HOLDING_DEVICE)
 
         if search:
             conditions.append(
@@ -335,7 +325,30 @@ class UserService:
                       and sr.status in ('Submitted', 'Under Review', 'Approved', 'In Progress'))
                     as open_requests,
                 {attention} as needs_attention,
-                (select count(*) from `tabMSP Service Assignment` sa
+                -- suspended is a state of now, so it follows the machine's current holder
+                (select count(distinct sa.name) from `tabMSP Service Assignment` sa
+                    left join `tabMSP Managed Device` sad on sad.name = sa.managed_device
+                    where sa.operational_status = 'Suspended'
+                      and (sa.client_user = cu.name or sad.assigned_client_user = cu.name))
+                    as suspended_services,
+                -- what ended belongs to whoever held the machine while it ran, which is not
+                -- the same person as whoever holds it today
+                (select count(distinct sa.name) from `tabMSP Service Assignment` sa
+                    where sa.operational_status = 'Ended'
+                      and sa.assignment_scope = 'User'
+                      and sa.client_user = cu.name)
+                  + (select count(distinct sa.name) from `tabMSP Service Assignment` sa
+                    join `tabMSP Device Holder` h
+                      on h.parent = sa.managed_device and h.parenttype = 'MSP Managed Device'
+                     and h.client_user = cu.name
+                    where sa.operational_status = 'Ended'
+                      and sa.assignment_scope = 'Device'
+                      and (sa.effective_end_date is null or h.from_date is null
+                           or sa.effective_end_date >= h.from_date)
+                      and (h.to_date is null or sa.effective_start_date is null
+                           or sa.effective_start_date <= h.to_date))
+                    as ended_services,
+                (select count(distinct sa.name) from `tabMSP Service Assignment` sa
                     left join `tabMSP Managed Device` sad on sad.name = sa.managed_device
                     where sa.operational_status != 'Active'
                       and (sa.client_user = cu.name or sad.assigned_client_user = cu.name))
@@ -358,7 +371,7 @@ class UserService:
                     as inactive_service_names
             from `tabMSP Client User` cu
             {where}
-            order by cu.full_name asc
+            order by cu.creation desc
             limit {page_length} offset {start}
             """,
             params,
@@ -559,7 +572,7 @@ class UserService:
                 "VALIDATION_ERROR",
             )
 
-        # a licence is issued against a username, a machine service against a serial
+        # a personal service is issued against a username, a machine service against a serial
         if scope == "User" or declared == "Both":
             identifiers.require_username(user.name, username)
         if scope == "Device":
@@ -577,7 +590,7 @@ class UserService:
         )
 
         # what the service will later be refused a closure for not having, taken while the
-        # technician still has the machine and the licence in front of them
+        # technician still has the machine and the service in front of them
         UserService._record_identifiers(user.name, device, serial_number, username)
         frappe.db.commit()
 
@@ -692,7 +705,7 @@ class UserService:
                 "customer": customer,
                 "department": department or None,
                 "email": email or None,
-                # the account name a licence is issued against, when the service needs one
+                # the username a service is issued against, when it needs one
                 "username": (username or "").strip() or None,
                 "lifecycle_status": "Active",
                 "start_date": start_date or frappe.utils.today(),
@@ -727,9 +740,14 @@ class UserService:
                         and line.subject_key == same_subject
                     ):
                         # no longer "new": the request must still save once they exist,
-                        # and a line on an existing machine names it, not them
+                        # and a line about a machine names the machine, with the person it
+                        # is for beside it
                         line.db_set("is_new_user", 0)
-                        if line.target_scope != "Device" or line.is_new_device:
+
+                        if line.target_scope == "Device":
+                            if line.is_new_device and not line.requested_for_user:
+                                line.db_set("requested_for_user", doc.name)
+                        else:
                             line.db_set("client_user", doc.name)
 
         reference = f" for {source_request}" if source_request else ""
@@ -827,7 +845,7 @@ class UserService:
                     "MSP Service Assignment",
                     filters={
                         "client_user": doc.name,
-                        "operational_status": ("in", ("Active", "Suspended", "Pending Removal")),
+                        "operational_status": ("in", ("Active", "Suspended")),
                     },
                     pluck="name",
                 )
@@ -838,7 +856,7 @@ class UserService:
                         "MSP Service Assignment",
                         filters={
                             "managed_device": ("in", devices),
-                            "operational_status": ("in", ("Active", "Suspended", "Pending Removal")),
+                            "operational_status": ("in", ("Active", "Suspended")),
                         },
                         pluck="name",
                     )
@@ -898,7 +916,7 @@ class UserService:
             filters={
                 "client_user": doc.name,
                 "assignment_scope": "User",
-                "operational_status": ("in", ("Active", "Suspended", "Pending Removal")),
+                "operational_status": ("in", ("Active", "Suspended")),
             },
             pluck="name",
         )

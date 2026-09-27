@@ -16,6 +16,7 @@ from frappe.utils import add_days, getdate
 from nexgen_msp.api.internal.services.billing_service import BillingService
 from nexgen_msp.api.internal.services.department_service import DepartmentService
 from nexgen_msp.api.internal.services.device_lifecycle_service import DeviceLifecycleService
+from nexgen_msp.utils import operations
 from nexgen_msp.api.internal.services.request_execution_service import RequestExecutionService
 from nexgen_msp.api.internal.services.request_service import RequestService
 from nexgen_msp.api.internal.services.service_lifecycle_service import ServiceLifecycleService
@@ -108,7 +109,7 @@ class AcceptanceCase(MSPTestCase):
         action = fields.pop("action", "Add")
 
         return {
-            "request_action": self.action(action),
+            "operation_code": self.operation(action),
             "action": action,
             "target_scope": "User",
             "client_user": self.john,
@@ -490,23 +491,13 @@ class TestTheSharedCatalogue(AcceptanceCase):
 
         self.assertEqual(reading["user"]["department"], retired)
 
-    def test_hiding_an_offer_never_takes_the_act_from_the_engine(self):
-        """§46: Settings governs what a customer may ask for, not what the engine can do."""
+    def test_what_a_customer_may_ask_for_is_never_what_the_engine_can_do(self):
+        """§46: the portal offers the customer operations; the engine performs them all."""
         service = self.offering("OFFR")
         assignment = self.running(service, client_user=self.john)
 
-        offer = frappe.db.get_value(
-            "MSP Request Action", {"action_type": "Suspend", "enabled": 1}, "name"
-        )
-        frappe.db.set_value("MSP Request Action", offer, "enabled", 0)
-        frappe.db.commit()
-        self.addCleanup(lambda: frappe.db.set_value("MSP Request Action", offer, "enabled", 1))
-
-        offered = self.customer_does(
-            lambda: PortalService.list_request_actions()
-        )
-
-        self.assertNotIn("Suspend", [row["action_type"] for row in offered])
+        self.assertNotIn("device.retire", operations.customer_requestable())
+        self.assertIn("device.retire", operations.REGISTRY)
 
         ServiceLifecycleService.suspend(assignment=assignment)
 

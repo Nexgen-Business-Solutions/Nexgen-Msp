@@ -88,7 +88,7 @@ class CrossCustomerCase(MSPTestCase):
                 request_type="Add",
                 lines=[
                     {
-                        "request_action": self.action(),
+                        "operation_code": self.operation(),
                         "action": "Add",
                         "target_scope": "User",
                         "client_user": self.their_person,

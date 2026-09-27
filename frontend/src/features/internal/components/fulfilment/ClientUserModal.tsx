@@ -2,26 +2,32 @@ import React, { useEffect, useState } from 'react';
 import { UserPlus } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
 import FieldLabel from '@/shared/components/FieldLabel';
+import Select from '@/shared/components/Select';
 import type { SubjectWorkGroup, WorkCard } from '@/lib/api/internal';
 import { useExecuteUserSetup } from '../../hooks/useRequests';
+import { useDepartmentOptions } from '../../hooks/useSettings';
 import { inputClass } from '../../lib/fulfilmentStyles';
 
 type Props = {
   card: WorkCard | null;
   person: SubjectWorkGroup['person'];
+  customer: string;
   onClose: () => void;
 };
 
 /** The managed person the request needs, created once. Never an account, never an invitation. */
-const ClientUserModal: React.FC<Props> = ({ card, person, onClose }) => {
+const ClientUserModal: React.FC<Props> = ({ card, person, customer, onClose }) => {
   const create = useExecuteUserSetup();
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
+  const [department, setDepartment] = useState('');
+  const departments = useDepartmentOptions(customer);
 
   useEffect(() => {
     if (!card) return;
     setEmail(person?.email ?? '');
     setUsername(person?.username ?? '');
+    setDepartment(person?.department ?? '');
     create.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [card]);
@@ -33,6 +39,7 @@ const ClientUserModal: React.FC<Props> = ({ card, person, onClose }) => {
         work_order: card.name,
         email: email.trim() || undefined,
         username: username.trim() || undefined,
+        department: department || undefined,
       });
       onClose();
     } catch {
@@ -61,7 +68,7 @@ const ClientUserModal: React.FC<Props> = ({ card, person, onClose }) => {
           <button
             type="button"
             onClick={submit}
-            disabled={create.isLoading}
+            disabled={create.isLoading || !department}
             className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
           >
             {create.isLoading ? 'Creating…' : 'Create Client User'}
@@ -75,8 +82,16 @@ const ClientUserModal: React.FC<Props> = ({ card, person, onClose }) => {
           <input className={`${inputClass} bg-slate-50`} readOnly value={person?.full_name ?? ''} />
         </div>
         <div>
-          <FieldLabel>Department</FieldLabel>
-          <input className={`${inputClass} bg-slate-50`} readOnly value={person?.department ?? ''} />
+          {/* the customer is asked for a name and nothing else, so this is settled here */}
+          <FieldLabel required>Department</FieldLabel>
+          <Select
+            searchable
+            className="w-full"
+            value={department}
+            onChange={setDepartment}
+            placeholder="Choose a Department"
+            options={departments.data ?? []}
+          />
         </div>
         <div>
           <FieldLabel>Email</FieldLabel>

@@ -4,182 +4,239 @@ import { FilePlus2, Layers, Package, Search, Users } from 'lucide-react';
 import DataTable from '@/shared/components/DataTable';
 import KpiCard from '@/shared/components/KpiCard';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
-import { useCatalogue, useSubscribedServices } from '../hooks/usePortal';
-import { useMyApprovalRights } from '../hooks/usePortal';
+import Select from '@/shared/components/Select';
+import type { ServicePortfolioRow } from '@/lib/api/portal';
+import { useMyApprovalRights, useServicePortfolio } from '../hooks/usePortal';
+
+const AVAILABILITY_TONE: Record<ServicePortfolioRow['availability'], string> = {
+  'Available to request': 'bg-emerald-100 text-emerald-700',
+  'History only': 'bg-slate-100 text-slate-600',
+  'Temporarily unavailable': 'bg-amber-100 text-amber-700',
+};
+
+const SCOPE_LABEL: Record<string, string> = {
+  User: 'Per person',
+  Device: 'Per machine',
+  Both: 'Person or machine',
+};
+
+/** A service is in use when something is actually running, not merely because it is on file. */
+const inUse = (row: ServicePortfolioRow) =>
+  row.active > 0 || row.suspended > 0 || row.pending_setup > 0;
+
+const VIEWS = [
+  ['all', 'All services'],
+  ['available', 'Available'],
+  ['in_use', 'In use'],
+  ['ended', 'Ended'],
+] as const;
 
 /**
- * Every service this company may order, not only the ones it already runs.
+ * The company's service portfolio: what it may ask for, what it runs, and what it has run.
  *
- * A customer comes here to ask for something new as often as to look at what they hold, so
- * the page is the catalogue their contract covers, with what they already use shown beside
- * each line.
+ * A service that ended stays here. It is part of what this company has had, and hiding it
+ * would make the history unreadable the moment the last assignment closed.
  */
 export default function PortalServices() {
   const rights = useMyApprovalRights();
   const canSubmit = rights.data?.can_submit === true;
   const navigate = useNavigate();
-  const catalogue = useCatalogue();
-  const subscribed = useSubscribedServices();
+  const portfolio = useServicePortfolio();
   const [search, setSearch] = useState('');
-  // what a card puts in front of you: everything, what runs, or what nobody holds yet
-  const [view, setView] = useState<'all' | 'in_use' | 'unused'>('all');
+  const [view, setView] = useState<(typeof VIEWS)[number][0]>('all');
 
-  const inUse = useMemo(() => {
-    const held = new Map<string, number>();
+  const all = useMemo(() => portfolio.data?.rows ?? [], [portfolio.data]);
 
-    for (const row of subscribed.data?.services ?? []) {
-      held.set(row.service_item, (held.get(row.service_item) ?? 0) + row.active);
-    }
-
-    return held;
-  }, [subscribed.data]);
+  const countOf = (scope: (typeof VIEWS)[number][0]) =>
+    all.filter((row) =>
+      scope === 'available'
+        ? row.availability === 'Available to request'
+        : scope === 'in_use'
+          ? inUse(row)
+          : scope === 'ended'
+            ? row.ended > 0
+            : true
+    ).length;
 
   const rows = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    const items = (catalogue.data?.items ?? []).filter((item) =>
-      view === 'in_use' ? inUse.has(item.name) : view === 'unused' ? !inUse.has(item.name) : true
+    const kept = all.filter((row) =>
+      view === 'available'
+        ? row.availability === 'Available to request'
+        : view === 'in_use'
+          ? inUse(row)
+          : view === 'ended'
+            ? row.ended > 0
+            : true
     );
 
-    if (!needle) return items;
+    if (!needle) return kept;
 
-    return items.filter((item) =>
-      `${item.item_name} ${item.name}`.toLowerCase().includes(needle)
+    return kept.filter((row) =>
+      `${row.service_name} ${row.service_item}`.toLowerCase().includes(needle)
     );
-  }, [catalogue.data, search, view, inUse]);
+  }, [all, search, view]);
 
-  const running = [...inUse.values()].reduce((sum, count) => sum + count, 0);
+  const running = all.reduce((sum, row) => sum + row.active, 0);
+  const available = all.filter((row) => row.availability === 'Available to request').length;
+  const ended = all.filter((row) => row.ended > 0 && !inUse(row)).length;
 
   return (
     <div className="space-y-5 px-6 pb-6 pt-4">
+      <div>
+        <h1 className="text-lg font-bold text-slate-900">Services</h1>
+        <p className="mt-0.5 text-sm text-slate-500">
+          Services available to your company, currently assigned services, and service history.
+        </p>
+      </div>
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <KpiCard
           icon={Package}
           accent="blue"
-          label="Services available"
-          value={catalogue.data?.items.length ?? 0}
-          caption="What your contract lets you order"
-          loading={catalogue.isLoading}
-        onView={() => setView('all')}
+          label="Available to request"
+          value={available}
+          caption="Covered by a live contract and ready"
+          loading={portfolio.isLoading}
+          onView={() => setView('available')}
         />
         <KpiCard
           icon={Layers}
           accent="indigo"
-          label="Active licences"
+          label="Active assignments"
           value={running}
-          caption="Running right now"
-          loading={subscribed.isLoading}
-        onView={() => setView('in_use')}
+          caption="Currently running service assignments"
+          loading={portfolio.isLoading}
+          onView={() => setView('in_use')}
         />
         <KpiCard
           icon={FilePlus2}
           accent="slate"
-          label="Not used yet"
-          value={Math.max((catalogue.data?.items.length ?? 0) - inUse.size, 0)}
-          caption="Covered by your contract, nobody holds them"
-          loading={catalogue.isLoading}
-        onView={() => setView('unused')}
+          label="History only"
+          value={ended}
+          caption="Ran in the past, nothing running now"
+          loading={portfolio.isLoading}
+          onView={() => setView('ended')}
         />
       </div>
 
-      <div className="flex flex-wrap items-center gap-1.5">
-        {(
-          [
-            ['all', 'Everything'],
-            ['in_use', 'In use'],
-            ['unused', 'Not used yet'],
-          ] as const
-        ).map(([value, label]) => (
-          <button
-            key={value}
-            type="button"
-            onClick={() => setView(value)}
-            className={`rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
-              view === value
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      <div className="relative">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-        <input
-          type="text"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search a service…"
-          className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search a service…"
+            className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+          />
+        </div>
+        <Select
+          className="w-44 shrink-0"
+          value={view}
+          onChange={(value) => setView(value as (typeof VIEWS)[number][0])}
+          options={VIEWS.map(([value, label]) => ({
+            value,
+            label,
+            description: `${countOf(value)} service(s)`,
+          }))}
         />
       </div>
 
       <DataTable
-        title="Services you can order"
-        columns={['Service', 'Billed to', 'In use', '']}
+        title="Service portfolio"
+        columns={['Service', 'Availability', 'Active', 'Suspended', 'Ended', 'Scope', '']}
         rowCount={rows.length}
-        isLoading={catalogue.isLoading}
-        error={catalogue.error}
+        isLoading={portfolio.isLoading}
+        error={portfolio.error}
         emptyLabel={
-          catalogue.data && !catalogue.data.has_contract
+          portfolio.data && !portfolio.data.has_contract
             ? 'No live contract yet, so there is nothing to order. Ask us to set one up.'
-            : 'Your contract covers no service yet.'
+            : 'No service is recorded for your company yet.'
         }
         showToolbar={false}
         showPagination={false}
       >
-        {rows.map((item) => {
-          const scope = item.scope || 'User';
-          const onDevices = scope === 'Device';
-          const held = inUse.get(item.name) ?? 0;
+        {rows.map((row) => {
+          const onDevices = row.scope === 'Device';
           const holders = `/msp/${onDevices ? 'devices' : 'users'}?service=${encodeURIComponent(
-            item.name
+            row.service_item
           )}`;
+          const requestable = row.availability === 'Available to request' && canSubmit;
 
           return (
-            <tr key={item.name} className="transition-colors hover:bg-slate-50">
+            <tr key={row.service_item} className="transition-colors hover:bg-slate-50">
               <td className="px-4 py-3">
-                <p className="text-sm font-semibold text-slate-900">{item.item_name}</p>
-                {item.description && (
-                  <p className="mt-0.5 text-xs text-slate-400">{item.description}</p>
+                <p className="text-sm font-semibold text-slate-900">{row.service_name}</p>
+                <p className="text-xs text-slate-400">{row.service_item}</p>
+              </td>
+              <td className="whitespace-nowrap px-4 py-3">
+                <span
+                  className={`inline-flex whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold ${
+                    AVAILABILITY_TONE[row.availability]
+                  }`}
+                >
+                  {row.availability}
+                </span>
+              </td>
+              <td className="whitespace-nowrap px-4 py-3 text-sm tabular-nums">
+                {row.active > 0 ? (
+                  <span className="font-semibold text-emerald-700">{row.active}</span>
+                ) : (
+                  <span className="text-slate-300">0</span>
+                )}
+              </td>
+              <td className="whitespace-nowrap px-4 py-3 text-sm tabular-nums">
+                {row.suspended > 0 ? (
+                  <span className="font-semibold text-amber-700">{row.suspended}</span>
+                ) : (
+                  <span className="text-slate-300">0</span>
+                )}
+              </td>
+              <td className="whitespace-nowrap px-4 py-3 text-sm tabular-nums">
+                {row.ended > 0 ? (
+                  <span className="font-semibold text-slate-700">{row.ended}</span>
+                ) : (
+                  <span className="text-slate-300">0</span>
                 )}
               </td>
               <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
                 <span className="flex items-center gap-1.5">
                   <Layers size={14} className="text-slate-300" />
-                  {onDevices ? 'Per machine' : scope === 'Both' ? 'Person or machine' : 'Per person'}
+                  {SCOPE_LABEL[row.scope] ?? row.scope}
                 </span>
-              </td>
-              <td className="whitespace-nowrap px-4 py-3 text-sm tabular-nums">
-                {held > 0 ? (
-                  <span className="font-semibold text-emerald-700">{held}</span>
-                ) : (
-                  <span className="text-slate-300">None</span>
-                )}
               </td>
               <td className="whitespace-nowrap px-4 py-3">
                 <div className="flex justify-end">
-                  <RowActionsMenu
-                    actions={[
-                      ...(canSubmit
-                        ? [
-                      {
-                        label: 'Ask for this service',
-                        icon: FilePlus2,
-                        onClick: () =>
-                          navigate(`/msp/requests/new?service=${encodeURIComponent(item.name)}`),
-                      },
-                          ]
-                        : []),
-                      {
-                        label: onDevices ? 'See the machines' : 'See the people',
-                        icon: Users,
-                        disabled: held === 0,
-                        onClick: () => navigate(holders),
-                      },
-                    ]}
-                  />
+                  {requestable ? (
+                    <RowActionsMenu
+                      actions={[
+                        {
+                          label: 'Request change',
+                          icon: FilePlus2,
+                          onClick: () =>
+                            navigate(
+                              `/msp/requests/new?service=${encodeURIComponent(row.service_item)}`
+                            ),
+                        },
+                        {
+                          label: onDevices ? 'See the machines' : 'See the people',
+                          icon: Users,
+                          disabled: !inUse(row),
+                          onClick: () => navigate(holders),
+                        },
+                      ]}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => navigate(holders)}
+                      disabled={row.total === 0}
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+                    >
+                      View assignments
+                    </button>
+                  )}
                 </div>
               </td>
             </tr>

@@ -1,0 +1,16 @@
+{
+  "customer": "ZZE2E Journey",
+  "password": "Zze2e-Headless-2026",
+  "departments": [
+    "ZZE2E Finance",
+    "ZZE2E Support"
+  ],
+  "admin": "zze2e.jadmin@example.invalid",
+  "admin_secret": "DZUKM3TXAUXCZHTWRMPDYJ5BORFSJQ4R",
+  "technician": "zze2e.jtech@example.invalid",
+  "technician_secret": "MUVDFYX7C624ZKH2KJQJGS5Z7QXBEI4M",
+  "manager": "zze2e.jmanager@example.invalid",
+  "manager_secret": "BA6ZOJQPZX3LAGN22LTKW3E6W3A67GAZ",
+  "operator": "zze2e.joperator@example.invalid",
+  "operator_secret": "TTRTJEVGPK22PVOQXNHES3BDT7MVLKXC"
+}

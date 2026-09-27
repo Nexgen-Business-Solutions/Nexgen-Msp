@@ -1,10 +1,48 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertCircle, ArrowLeft, CircleCheck, FileText, Package } from 'lucide-react';
 import StatusBadge from '@/shared/components/StatusBadge';
 import FieldLabel from '@/shared/components/FieldLabel';
 import Select from '@/shared/components/Select';
-import { useSaveService, useServiceDetail } from '../hooks/useCatalogue';
+import { FrappeError } from '@/lib/api/client';
+import { useEnableItemForMsp, useServiceDetail } from '../hooks/useCatalogue';
+
+const STATUS_TONE: Record<string, string> = {
+  Ready: 'bg-emerald-100 text-emerald-700',
+  'Historical Only': 'bg-slate-100 text-slate-600',
+  'Needs Configuration': 'bg-amber-100 text-amber-700',
+  'Stock Item': 'bg-amber-100 text-amber-700',
+  'ERPNext Disabled': 'bg-red-100 text-red-700',
+};
+
+/** What went wrong, told apart rather than all called Not Found. */
+const failure = (error: unknown, item: string) => {
+  if (error instanceof FrappeError) {
+    if (error.status === 404 || error.code === 'NOT_FOUND') {
+      return {
+        title: 'This Item no longer exists in ERPNext.',
+        detail: `Item: ${item}`,
+        retry: false,
+      };
+    }
+
+    if (error.status === 403 || error.code === 'PERMISSION_DENIED') {
+      return {
+        title: 'You do not have permission to view the MSP service catalogue.',
+        detail: null,
+        retry: false,
+      };
+    }
+
+    return { title: 'The service could not be loaded.', detail: error.message, retry: true };
+  }
+
+  return {
+    title: 'The service could not be loaded.',
+    detail: error instanceof Error ? error.message : null,
+    retry: true,
+  };
+};
 
 const inputClass =
   'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
@@ -42,10 +80,11 @@ const Empty = ({ span, children }: { span: number; children: React.ReactNode }) 
 );
 
 export default function ServiceDetail() {
-  const { name = '' } = useParams();
+  const [params] = useSearchParams();
+  const name = params.get('item') ?? '';
   const navigate = useNavigate();
   const detail = useServiceDetail(name);
-  const save = useSaveService();
+  const save = useEnableItemForMsp();
 
   const [itemName, setItemName] = useState('');
   const [invoiceLabel, setInvoiceLabel] = useState('');
@@ -64,6 +103,23 @@ export default function ServiceDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [service?.name]);
 
+  if (!name) {
+    return (
+      <div className="space-y-3 px-6 pb-6 pt-4">
+        <div className="rounded-xl border border-slate-200 bg-white p-6">
+          <p className="text-sm font-semibold text-slate-900">No service was selected.</p>
+          <button
+            type="button"
+            onClick={() => navigate('/msp/services')}
+            className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+          >
+            Back to services
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (detail.isLoading) {
     return (
       <div className="flex items-center justify-center p-16">
@@ -73,10 +129,44 @@ export default function ServiceDetail() {
   }
 
   if (detail.error || !detail.data || !service) {
+    const shown = detail.error
+      ? failure(detail.error, name)
+      : !detail.data
+        ? {
+            title: 'The service could not be loaded because the server returned no data.',
+            detail: `Item: ${name}`,
+            retry: true,
+          }
+        : {
+            title:
+              'The service could not be loaded because the server returned an incomplete response.',
+            detail: `Item: ${name}`,
+            retry: true,
+          };
+
     return (
-      <div className="px-6 pb-6 pt-4">
-        <div className="rounded-xl border border-red-100 bg-red-50 p-6 text-sm text-red-700">
-          {(detail.error as Error)?.message || 'Service not found.'}
+      <div className="space-y-3 px-6 pb-6 pt-4">
+        <div className="rounded-xl border border-red-100 bg-red-50 p-6">
+          <p className="text-sm font-semibold text-red-800">{shown.title}</p>
+          {shown.detail && <p className="mt-1 text-sm text-red-700">{shown.detail}</p>}
+          <div className="mt-3 flex flex-wrap gap-2">
+            {shown.retry && (
+              <button
+                type="button"
+                onClick={() => detail.refetch()}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-700"
+              >
+                Try again
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => navigate('/msp/services')}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700 transition-colors hover:bg-red-100"
+            >
+              Back to services
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -107,26 +197,46 @@ export default function ServiceDetail() {
         <div className="flex flex-wrap items-center gap-2.5">
           <Package size={18} className="text-slate-400" />
           <h1 className="text-lg font-bold text-slate-900">{service.item_name}</h1>
-          <StatusBadge value={service.disabled ? 'Retired' : 'Active'} />
+          <span
+            className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+              STATUS_TONE[service.compatibility_status] ?? 'bg-slate-100 text-slate-600'
+            }`}
+          >
+            {service.compatibility_status}
+          </span>
         </div>
 
         <div className="mt-4 grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-4">
-          <div>
-            <p className="text-xs font-medium text-slate-400">Attached to</p>
-            <p className="mt-0.5 text-sm text-slate-700">{service.scope ?? 'User'}</p>
-          </div>
-          <div>
-            <p className="text-xs font-medium text-slate-400">Billed in</p>
-            <p className="mt-0.5 text-sm text-slate-700">{service.uom ?? '—'}</p>
-          </div>
-          <div>
-            <p className="text-xs font-medium text-slate-400">Runs billed</p>
-            <p className="mt-0.5 text-sm text-slate-700">{billed.runs ?? 0}</p>
-          </div>
-          <div>
-            <p className="text-xs font-medium text-slate-400">Revenue to date</p>
-            <p className="mt-0.5 text-sm font-semibold text-slate-900">{money(billed.amount)}</p>
-          </div>
+          {[
+            ['Service scope', service.scope ?? 'Not set'],
+            [
+              'MSP availability',
+              service.msp_enabled ? (service.ready ? 'Available' : 'Needs configuration') : 'Not available',
+            ],
+            [
+              'ERPNext status',
+              service.is_stock_item ? 'Stock item' : service.disabled ? 'Disabled' : 'Enabled',
+            ],
+            ['MSP service definition', service.definition ?? 'Not configured for MSP'],
+            ['Stock UOM', service.stock_uom ?? 'N/A'],
+            ['Sales UOM', service.sales_uom ?? 'N/A'],
+            [
+              'MSP billing UOM',
+              `${service.billing_uom} · ${
+                service.has_month_uom && service.month_conversion_factor === 1
+                  ? 'Ready'
+                  : 'Needs configuration'
+              }`,
+            ],
+            ['Open assignments', String(customers.reduce((sum, row) => sum + row.open_assignments, 0))],
+            ['Runs billed', String(billed.runs ?? 0)],
+            ['Revenue to date', money(billed.amount)],
+          ].map(([label, value]) => (
+            <div key={label}>
+              <p className="text-xs font-medium text-slate-400">{label}</p>
+              <p className="mt-0.5 text-sm text-slate-700">{value}</p>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -196,7 +306,7 @@ export default function ServiceDetail() {
             disabled={!dirty || !itemName.trim() || save.isLoading}
             onClick={() =>
               save.mutate({
-                name: service.name,
+                item: service.name,
                 item_name: itemName.trim(),
                 invoice_label: invoiceLabel.trim(),
                 scope,

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as internal from '@/lib/api/internal';
-import type { DepartmentRow, InvoiceSettings, RequestActionRow, SettingsOptions } from '@/lib/api/internal';
+import type { DepartmentRow, InvoiceSettings } from '@/lib/api/internal';
 import Settings from './Settings';
 
 vi.mock('@/lib/api/internal', async (importOriginal) => {
@@ -11,8 +11,6 @@ vi.mock('@/lib/api/internal', async (importOriginal) => {
     ...actual,
     getInvoiceSettings: vi.fn(),
     getInvoiceDimensions: vi.fn(),
-    listRequestActions: vi.fn(),
-    getSettingsOptions: vi.fn(),
     listDepartments: vi.fn(),
     saveDepartment: vi.fn(),
     disableDepartment: vi.fn(),
@@ -37,8 +35,6 @@ const invoiceSettings: InvoiceSettings = {
   show_cost_center_on_invoice: 0,
 };
 
-const settingsOptions: SettingsOptions = { action_types: ['Add', 'Change'] };
-
 const department = (overrides: Partial<DepartmentRow> = {}): DepartmentRow => ({
   name: 'Accounting',
   department_name: 'Accounting',
@@ -52,8 +48,6 @@ const department = (overrides: Partial<DepartmentRow> = {}): DepartmentRow => ({
 const renderSettings = async (rows: DepartmentRow[]) => {
   vi.mocked(internal.getInvoiceSettings).mockResolvedValue(invoiceSettings);
   vi.mocked(internal.getInvoiceDimensions).mockResolvedValue([]);
-  vi.mocked(internal.listRequestActions).mockResolvedValue([] as RequestActionRow[]);
-  vi.mocked(internal.getSettingsOptions).mockResolvedValue(settingsOptions);
   vi.mocked(internal.listDepartments).mockResolvedValue(rows);
   vi.mocked(internal.listCustomers).mockResolvedValue([
     { name: 'ACME', customer_name: 'ACME Corporation' },
@@ -151,7 +145,7 @@ describe('Settings — Departments', () => {
     vi.mocked(internal.saveDepartment).mockResolvedValue([]);
 
     fireEvent.click(await screen.findByTitle('More options'));
-    fireEvent.click(await screen.findByRole('button', { name: /edit department/i }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /edit department/i }));
 
     const dialog = await screen.findByRole('dialog');
     fireEvent.click(await within(dialog).findByRole('button', { name: /acme corporation/i }));
@@ -174,7 +168,7 @@ describe('Settings — Departments', () => {
     ]);
 
     fireEvent.click(await screen.findByTitle('More options'));
-    fireEvent.click(await screen.findByRole('button', { name: /disable department/i }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /disable department/i }));
 
     await waitFor(() => expect(internal.disableDepartment).toHaveBeenCalledWith('Accounting'));
   });
@@ -186,7 +180,7 @@ describe('Settings — Departments', () => {
     );
 
     fireEvent.click(await screen.findByTitle('More options'));
-    fireEvent.click(await screen.findByRole('button', { name: /delete department/i }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /delete department/i }));
 
     const dialog = await screen.findByRole('dialog');
     fireEvent.click(within(dialog).getByRole('button', { name: /^delete$/i }));
@@ -204,87 +198,12 @@ describe('Settings — Departments', () => {
     vi.mocked(internal.deleteDepartment).mockResolvedValue([]);
 
     fireEvent.click(await screen.findByTitle('More options'));
-    fireEvent.click(await screen.findByRole('button', { name: /delete department/i }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /delete department/i }));
 
     const dialog = await screen.findByRole('dialog');
     fireEvent.click(within(dialog).getByRole('button', { name: /^delete$/i }));
 
     await waitFor(() => expect(internal.deleteDepartment).toHaveBeenCalledWith('Unused'));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-  });
-});
-
-describe('Settings — Request actions', () => {
-  const action = (overrides: Partial<RequestActionRow> = {}): RequestActionRow => ({
-    name: 'Grant a service',
-    title: 'Grant a service',
-    action_type: 'Add',
-    description: null,
-    enabled: 1,
-    sort_order: 10,
-    used: 0,
-    ...overrides,
-  });
-
-  const renderActions = async (rows: RequestActionRow[]) => {
-    vi.mocked(internal.getInvoiceSettings).mockResolvedValue(invoiceSettings);
-    vi.mocked(internal.getInvoiceDimensions).mockResolvedValue([]);
-    vi.mocked(internal.getSettingsOptions).mockResolvedValue(settingsOptions);
-    vi.mocked(internal.listDepartments).mockResolvedValue([]);
-    vi.mocked(internal.listRequestActions).mockResolvedValue(rows);
-
-    const client = new QueryClient({
-      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-    });
-
-    render(
-      <QueryClientProvider client={client}>
-        <Settings />
-      </QueryClientProvider>
-    );
-
-    fireEvent.click(await screen.findByRole('button', { name: /request actions/i }));
-  };
-
-  it('shows the order an administrator settled, not the alphabet', async () => {
-    await renderActions([action(), action({ name: 'Close', title: 'Close', action_type: 'Remove', sort_order: 50 })]);
-
-    expect(await screen.findByText('Grant a service')).toBeInTheDocument();
-    expect(screen.getByText('10')).toBeInTheDocument();
-    expect(screen.getByText('50')).toBeInTheDocument();
-  });
-
-  it('lets an unused action be re-pointed at another act', async () => {
-    await renderActions([action({ used: 0 })]);
-
-    fireEvent.click(await screen.findByTitle('More options'));
-    fireEvent.click(await screen.findByRole('button', { name: /edit action/i }));
-
-    const dialog = await screen.findByRole('dialog');
-
-    expect(within(dialog).getByText(/action type/i)).toBeInTheDocument();
-    expect(
-      within(dialog).queryByText(/can no longer be changed/i)
-    ).not.toBeInTheDocument();
-  });
-
-  it('settles what a used action does, and says why', async () => {
-    await renderActions([action({ used: 12 })]);
-
-    fireEvent.click(await screen.findByTitle('More options'));
-    fireEvent.click(await screen.findByRole('button', { name: /edit action/i }));
-
-    const dialog = await screen.findByRole('dialog');
-
-    expect(within(dialog).getByText(/can no longer be changed/i)).toBeInTheDocument();
-  });
-
-  it('does not offer to delete an action customers have already used', async () => {
-    await renderActions([action({ used: 12 })]);
-
-    fireEvent.click(await screen.findByTitle('More options'));
-    await screen.findByRole('button', { name: /edit action/i });
-
-    expect(screen.queryByRole('button', { name: /delete action/i })).not.toBeInTheDocument();
   });
 });

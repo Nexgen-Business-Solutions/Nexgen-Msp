@@ -77,7 +77,7 @@ def append(doctype=None, name=None, note=None):
 
 
 def on_assignment(assignment, action, note):
-	"""Carry a note written on a service onto whatever receives that service.
+	"""Carry a note somebody wrote on a service onto whatever receives that service.
 
 	A note left on an assignment is invisible unless someone opens that very assignment.
 	The person or the machine is where anyone actually looks, so the note is copied there
@@ -105,7 +105,9 @@ def on_assignment(assignment, action, note):
 	)
 
 	doc = frappe.get_doc(host_type, host)
-	add(doc, f"{service} — {action.lower()}: {note}")
+	# the service is named so the note can be read years later, but the words are the ones
+	# somebody typed — nothing is written here that nobody wrote
+	add(doc, f"{service}: {note}")
 	doc.save(ignore_permissions=True)
 
 	return True

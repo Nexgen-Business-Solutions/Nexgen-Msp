@@ -12,28 +12,33 @@ import { identifiersMissing, inputClass } from '../../lib/fulfilmentStyles';
 type Props = {
   card: WorkCard | null;
   person: SubjectWorkGroup['person'];
-  /** the act the technician chose, when it is not the one written on the line */
-  action?: string | null;
+  /** the operation the technician chose, when it is not the one written on the line */
+  operation?: string | null;
   onClose: () => void;
 };
 
-const LABEL: Record<string, string> = { Suspend: 'Suspend', Resume: 'Resume', Change: 'Change', Remove: 'Close' };
+const LABEL: Record<string, string> = {
+  'service.suspend': 'Suspend',
+  'service.resume': 'Resume',
+  'service.change': 'Change service',
+  'service.end': 'Stop service',
+};
 
 /** What a service act needs to run: the day it takes effect, and the one fact it is issued against. */
-const ApplyActionModal: React.FC<Props> = ({ card, person, action, onClose }) => {
+const ApplyActionModal: React.FC<Props> = ({ card, person, operation, onClose }) => {
   const run = useExecuteServiceAction();
   const [date, setDate] = useState('');
   const [username, setUsername] = useState('');
   const [serial, setSerial] = useState('');
   const [replacement, setReplacement] = useState('');
 
-  const act = action || card?.action || '';
-  const changing = act === 'Change';
+  const act = operation || card?.operation_code || '';
+  const changing = act === 'service.change';
   const onMachine = card?.target_scope === 'Device';
   const userOffers = useUserServiceAvailability(changing && !onMachine ? (person?.name ?? undefined) : undefined);
   const machineOffers = useDeviceServiceAvailability(changing && onMachine ? card?.managed_device : null);
   const offers = (onMachine ? machineOffers.data : userOffers.data)?.available ?? [];
-  const chosenLabel = action ? (LABEL[action] ?? action) : null;
+  const chosenLabel = operation ? (LABEL[operation] ?? operation) : null;
 
   useEffect(() => {
     if (!card) return;
@@ -48,7 +53,9 @@ const ApplyActionModal: React.FC<Props> = ({ card, person, action, onClose }) =>
   if (!card) return null;
 
   const onDevice = card.target_scope === 'Device';
-  const needs = action ? { username: false, serial: false } : identifiersMissing(card, person);
+  const needs = operation ? { username: false, serial: false } : identifiersMissing(card, person);
+  // §V2-05-12: an act dated inside an invoiced period still runs, and the screen says so first
+  const invoiced = Boolean(card.current?.billed_to && date && date <= card.current.billed_to);
   const label = chosenLabel ?? card.action_label ?? card.action;
 
   const submit = async () => {
@@ -56,7 +63,7 @@ const ApplyActionModal: React.FC<Props> = ({ card, person, action, onClose }) =>
       await run.mutateAsync({
         work_order: card.name,
         effective_date: date || undefined,
-        action: action && action !== card.action ? action : undefined,
+        operation_code: operation && operation !== card.operation_code ? operation : undefined,
         service_item: changing && replacement ? replacement : undefined,
         username: needs.username && username.trim() ? username.trim() : undefined,
         serial_number: needs.serial && serial.trim() ? serial.trim() : undefined,
@@ -141,14 +148,26 @@ const ApplyActionModal: React.FC<Props> = ({ card, person, action, onClose }) =>
               className={inputClass}
               value={username}
               onChange={(event) => setUsername(event.target.value)}
-              placeholder="The name on the licence"
+              placeholder="The username this service is issued against"
               aria-label="Username"
             />
           </div>
         )}
       </div>
 
-      {chosenLabel && card.action !== action && (
+      {invoiced && (
+        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2">
+          <p className="text-sm font-semibold text-amber-900">
+            This period has already been invoiced.
+          </p>
+          <p className="mt-0.5 text-xs text-amber-800">
+            The service can still be ended on this date, but the existing invoice will not be
+            rewritten automatically. Handle any financial adjustment separately.
+          </p>
+        </div>
+      )}
+
+      {chosenLabel && card.operation_code !== operation && (
         <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2 text-xs text-amber-800">
           The request asked for {card.action_label ?? card.action}. It will be recorded as {chosenLabel}.
         </p>

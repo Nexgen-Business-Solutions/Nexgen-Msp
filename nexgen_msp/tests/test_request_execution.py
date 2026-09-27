@@ -14,6 +14,7 @@ import frappe
 from nexgen_msp.api.internal.services.request_execution_service import RequestExecutionService
 from nexgen_msp.api.internal.services.request_service import RequestService
 from nexgen_msp.api.portal.services.portal_service import PortalService
+from nexgen_msp.utils import operations
 from nexgen_msp.utils.errors import ValidationError as ServiceRefused
 
 from .base import MSPTestCase
@@ -57,7 +58,7 @@ class ExecutionCase(MSPTestCase):
         action = fields.pop("action", "Add")
 
         return {
-            "request_action": self.action(action),
+            "operation_code": self.operation(action),
             "action": action,
             "target_scope": "User",
             "client_user": self.john,
@@ -583,7 +584,7 @@ class TestActionsAddedWhileWorking(ExecutionCase):
             client_user=self.john,
         )
         self.track("MSP Service Assignment", opened["name"])
-        action_name = self.action("Suspend")
+        code = self.operation("Suspend")
 
         name = self.approved(self.line(self.offering("BASE")))
         subject_key = frappe.db.get_value(
@@ -595,7 +596,7 @@ class TestActionsAddedWhileWorking(ExecutionCase):
         chosen = next(
             row
             for row in options
-            if row["request_action"] == action_name
+            if row["operation_code"] == code
             and row["source_service_assignment"] == opened["name"]
         )
 
@@ -610,7 +611,7 @@ class TestActionsAddedWhileWorking(ExecutionCase):
         self.sweep(name)
         extra = frappe.db.get_value(
             WORK_ORDER,
-            {"service_request": name, "origin": "Technician", "request_action": action_name},
+            {"service_request": name, "origin": "Technician", "operation_code": code},
             "name",
         )
         self.assertTrue(extra)
@@ -618,7 +619,9 @@ class TestActionsAddedWhileWorking(ExecutionCase):
         plan = self.tech_does(
             lambda: RequestExecutionService.execute_service_action(work_order=extra)
         )
-        self.assertTrue(any(action_name in row["title"] for row in plan["recap"]))
+        self.assertTrue(
+            any(operations.label(code) in row["title"] for row in plan["recap"])
+        )
 
     def test_a_profile_change_recorded_in_the_workflow_appears_in_the_recap(self):
         name = self.approved(self.line(self.offering("PROFILE")))

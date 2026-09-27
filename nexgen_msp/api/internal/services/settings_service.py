@@ -3,9 +3,7 @@ from urllib.parse import urlparse
 import frappe
 
 from nexgen_msp.api.internal.services.contract_service import ContractService
-from nexgen_msp.utils.errors import NotFoundError, ValidationError
-
-ACTION_FIELDS = ("title", "action_type", "description", "enabled", "sort_order")
+from nexgen_msp.utils.errors import ValidationError
 
 PORTAL_FIELDS = ("portal_url", "customer_session_timeout")
 
@@ -36,102 +34,6 @@ class SettingsService:
     @staticmethod
     def _guard_admin():
         ContractService._guard_admin()
-
-    @staticmethod
-    def options():
-        SettingsService._guard_admin()
-
-        field = frappe.get_meta("MSP Request Action").get_field("action_type")
-
-        return {
-            "action_types": [
-                value for value in (field.options or "").split("\n") if value
-            ],
-        }
-
-    @staticmethod
-    def list_request_actions():
-        """Every action a customer can pick from, with how often it has been used."""
-        SettingsService._guard_admin()
-
-        return frappe.db.sql(
-            """
-            select
-                ra.name, ra.title, ra.action_type, ra.description, ra.enabled, ra.sort_order,
-                (select count(*) from `tabMSP Service Request Line` srl
-                    where srl.request_action = ra.name) as used
-            from `tabMSP Request Action` ra
-            order by ifnull(ra.sort_order, 9999) asc, ra.title asc
-            """,
-            as_dict=True,
-        )
-
-    @staticmethod
-    def save_request_action(name=None, action=None):
-        """Create or update an action. Its type is what the engine actually carries out."""
-        SettingsService._guard_admin()
-
-        action = frappe.parse_json(action) if isinstance(action, str) else (action or {})
-
-        title = (action.get("title") or "").strip()
-
-        if not title:
-            raise ValidationError("A title is required.", "VALIDATION_ERROR")
-
-        allowed = SettingsService.options()["action_types"]
-
-        if action.get("action_type") not in allowed:
-            raise ValidationError(
-                f"'{action.get('action_type')}' is not an action type.", "VALIDATION_ERROR"
-            )
-
-        if name:
-            if not frappe.db.exists("MSP Request Action", name):
-                raise NotFoundError(f"Action {name} not found.", "NOT_FOUND")
-            doc = frappe.get_doc("MSP Request Action", name)
-        else:
-            if frappe.db.exists("MSP Request Action", title):
-                raise ValidationError(
-                    f"An action is already called '{title}'.", "VALIDATION_ERROR"
-                )
-            doc = frappe.new_doc("MSP Request Action")
-
-        for field in ACTION_FIELDS:
-            if field in action:
-                doc.set(field, action[field])
-
-        doc.title = title
-        doc.save()
-
-        # the record is named after its title, so a rename keeps the links intact
-        if name and doc.name != title:
-            frappe.rename_doc("MSP Request Action", doc.name, title, force=True)
-
-        frappe.db.commit()
-
-        return SettingsService.list_request_actions()
-
-    @staticmethod
-    def delete_request_action(name=None):
-        """Remove an action nobody has used. A used one is disabled instead."""
-        SettingsService._guard_admin()
-
-        if not name or not frappe.db.exists("MSP Request Action", name):
-            raise NotFoundError(f"Action {name} not found.", "NOT_FOUND")
-
-        used = frappe.db.count("MSP Service Request Line", {"request_action": name})
-
-        if used:
-            raise ValidationError(
-                f"'{name}' is on {used} request line(s). Disable it instead — deleting it "
-                "would erase what those customers asked for.",
-                "VALIDATION_ERROR",
-            )
-
-        frappe.delete_doc("MSP Request Action", name, ignore_permissions=True)
-        frappe.db.commit()
-
-        return SettingsService.list_request_actions()
 
     @staticmethod
     def get_import_mappings():

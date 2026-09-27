@@ -157,12 +157,7 @@ export const useSaveRequestDraft = () => {
   const customer = usePortalFilters((state) => state.customer);
 
   return useMutation({
-    mutationFn: (payload: {
-      name?: string;
-      request_type?: string;
-      priority?: string;
-      lines: portal.NewRequestLine[];
-    }) => portal.saveRequestDraft({ ...payload, customer: customer || undefined }),
+    mutationFn: (payload: Omit<portal.RequestPayload, 'customer'>) => portal.saveRequestDraft({ ...payload, customer: customer || undefined }),
     onSuccess: () => forgetRequests(queryClient, customer),
   });
 };
@@ -182,12 +177,7 @@ export const useCreateServiceRequest = () => {
   const customer = usePortalFilters((state) => state.customer);
 
   return useMutation({
-    mutationFn: (payload: {
-      name?: string;
-      request_type?: string;
-      priority?: string;
-      lines: portal.NewRequestLine[];
-    }) => portal.createRequest({ ...payload, customer: customer || undefined }),
+    mutationFn: (payload: Omit<portal.RequestPayload, 'customer'>) => portal.createRequest({ ...payload, customer: customer || undefined }),
     onSuccess: (created) => {
       forgetRequests(queryClient, customer);
       queryClient.setQueryData(portalKeys.request(created.name), created);
@@ -223,6 +213,16 @@ export const usePortalFilterOptions = () => {
     queryKey: ['portal', 'filter-options', customer] as const,
     queryFn: ({ signal }) => portal.getPortalFilterOptions(customer || undefined, signal),
     staleTime: 10 * 60 * 1000,
+  });
+};
+
+export const useServicePortfolio = () => {
+  const customer = usePortalFilters((state) => state.customer);
+
+  return useQuery({
+    queryKey: [...portalKeys.all, 'servicePortfolio', customer] as const,
+    queryFn: ({ signal }) => portal.getServicePortfolio(customer || undefined, signal),
+    staleTime: 60 * 1000,
   });
 };
 
@@ -348,13 +348,6 @@ export const useRecentActivity = (limit = 12) => {
   });
 };
 
-export const useRequestActions = () =>
-  useQuery({
-    queryKey: [...portalKeys.all, 'requestActions'] as const,
-    queryFn: ({ signal }) => portal.listRequestActions(false, signal),
-    staleTime: 10 * 60 * 1000,
-  });
-
 export const useServiceState = (
   serviceItem?: string,
   clientUser?: string,
@@ -431,6 +424,39 @@ export const requestBuilderKeys = {
     [...requestBuilderKeys.all, 'submission', customer ?? ''] as const,
 };
 
+export const useDepartmentSelection = (department?: string) => {
+  const customer = usePortalFilters((state) => state.customer);
+
+  return useQuery({
+    queryKey: [...portalKeys.all, 'departmentSelection', customer, department] as const,
+    queryFn: ({ signal }) =>
+      portal.getDepartmentSelection(
+        { customer: customer || undefined, department: department as string },
+        signal
+      ),
+    enabled: Boolean(department),
+  });
+};
+
+export const useCompanySelection = (enabled: boolean) => {
+  const customer = usePortalFilters((state) => state.customer);
+
+  return useQuery({
+    queryKey: [...portalKeys.all, 'companySelection', customer] as const,
+    queryFn: ({ signal }) => portal.getCompanySelection(customer || undefined, signal),
+    enabled,
+  });
+};
+
+export const useBulkTargets = () => {
+  const customer = usePortalFilters((state) => state.customer);
+
+  return useMutation({
+    mutationFn: (payload: { operation_code: string; service_item: string; people: string[] }) =>
+      portal.resolveBulkTargets({ ...payload, customer: customer || undefined }),
+  });
+};
+
 export const useRequestUserSearch = (search?: string) => {
   const customer = usePortalFilters((state) => state.customer);
 
@@ -465,5 +491,40 @@ export const useRequestSubmissionContext = () => {
   return useQuery({
     queryKey: requestBuilderKeys.submission(customer),
     queryFn: ({ signal }) => portal.getRequestSubmissionContext(customer ?? undefined, signal),
+  });
+};
+
+/** The People table, as the server projects it: one canonical row per selected person. */
+export const useRequestScope = (subjects: portal.RequestSubjectDraft[]) => {
+  const customer = usePortalFilters((state) => state.customer);
+  const keys = subjects.map((subject) => subject.subject_key).join('|');
+
+  return useQuery({
+    queryKey: [...requestBuilderKeys.all, 'scope', customer, keys] as const,
+    queryFn: ({ signal }) =>
+      portal.evaluateRequestScope({ customer: customer || undefined, subjects }, signal),
+    enabled: subjects.length > 0,
+    keepPreviousData: true,
+  });
+};
+
+/** What may be asked of the chosen scope, decided by the server and grouped by domain. */
+export const useRequestOperations = (
+  subjects: portal.RequestSubjectDraft[],
+  subjectKeys: string[]
+) => {
+  const customer = usePortalFilters((state) => state.customer);
+  const scope = subjectKeys.join('|');
+  const all = subjects.map((subject) => subject.subject_key).join('|');
+
+  return useQuery({
+    queryKey: [...requestBuilderKeys.all, 'operations', customer, all, scope] as const,
+    queryFn: ({ signal }) =>
+      portal.evaluateRequestOperations(
+        { customer: customer || undefined, subjects, subject_keys: subjectKeys },
+        signal
+      ),
+    enabled: subjectKeys.length > 0,
+    keepPreviousData: true,
   });
 };

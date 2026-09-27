@@ -1,8 +1,13 @@
 import frappe
 
+from nexgen_msp.api.internal.services.service_definition_service import (
+    ServiceDefinitionService,
+)
+
 from nexgen_msp.api.internal.services.contract_service import ContractService
 from nexgen_msp.utils import device_holders as holders
 from nexgen_msp.utils import identifiers
+from nexgen_msp.utils import operations
 from nexgen_msp.utils import remarks as remarks_util
 
 
@@ -194,7 +199,7 @@ class DeviceService:
                 ) as has_services
             {base_from}
             {where}
-            order by device.hostname asc
+            order by device.creation desc
             limit {page_length} offset {start}
             """,
             params,
@@ -261,7 +266,7 @@ class DeviceService:
             }
             for item in frappe.get_all(
                 "Item",
-                filters={"disabled": 0, "is_stock_item": 0},
+                filters={"name": ["in", ServiceDefinitionService.available_items()]},
                 fields=["name", "item_name"],
                 order_by="item_name asc",
             )
@@ -302,6 +307,59 @@ class DeviceService:
         RequestService._guard_internal()
 
         return DeviceService.read_device(device)
+
+    @staticmethod
+    def _pending_operation(device):
+        """The change already asked for this machine that nobody has carried out yet.
+
+        A machine with a change in flight takes no second one: whoever is looking at it is
+        shown what was asked, by whom it was asked, and where to read it.
+        """
+        from nexgen_msp.utils import request_intents
+
+        row = frappe.db.sql(
+            """
+            select sr.name as request, sr.status, srl.operation_code, srl.requested_holder,
+                   srl.requested_for_user
+            from `tabMSP Service Request Line` srl
+            join `tabMSP Service Request` sr on sr.name = srl.parent
+            where srl.managed_device = %(device)s
+              and srl.operation_code in %(holder)s
+              and sr.status in %(in_flight)s
+            order by sr.creation desc
+            limit 1
+            """,
+            {
+                "device": device,
+                "holder": request_intents.HOLDER_OPERATIONS,
+                "in_flight": request_intents.IN_FLIGHT_STATUSES,
+            },
+            as_dict=True,
+        )
+
+        if not row:
+            return None
+
+        found = row[0]
+
+        def who(client_user):
+            if not client_user:
+                return None
+
+            return (
+                frappe.db.get_value("MSP Client User", client_user, "full_name") or client_user
+            )
+
+        return {
+            "request": found.request,
+            "status": found.status,
+            "operation_code": found.operation_code,
+            "label": operations.label(found.operation_code),
+            "current_holder": found.requested_for_user,
+            "current_holder_name": who(found.requested_for_user),
+            "requested_holder": found.requested_holder,
+            "requested_holder_name": who(found.requested_holder),
+        }
 
     @staticmethod
     def read_device(device=None, internal=True):
@@ -421,15 +479,25 @@ class DeviceService:
             }
             for item in frappe.get_all(
                 "Item",
-                filters={"disabled": 0, "is_stock_item": 0},
+                filters={"name": ["in", ServiceDefinitionService.available_items()]},
                 fields=["name", "item_name"],
                 order_by="item_name asc",
             )
         ]
 
+        defined = ServiceDefinitionService.definitions_by_item(
+            [row.service_item for row in services]
+        )
+
+        for row in services:
+            # history reads whatever MSP once sold; only our own screens say it is legacy
+            row["legacy_service"] = internal and row.service_item not in defined
+
         if not internal:
             for row in services:
                 row.pop("internal_notes", None)
+
+        pending = DeviceService._pending_operation(device)
 
         reading = {
             "device": doc,
@@ -437,6 +505,17 @@ class DeviceService:
             "interfaces": interfaces,
             "services": services,
             "requests": requests,
+            # what has already been asked of the machine itself, and what may still be asked
+            "pending_operation": pending,
+            "customer_operations": []
+            if pending
+            else operations.offered(
+                [
+                    code
+                    for code in operations.for_device_state(doc.status)
+                    if operations.get(code)["customer_requestable"]
+                ]
+            ),
         }
 
         if not internal:
@@ -897,16 +976,25 @@ class DeviceService:
         ]
 
         if not claimed and holder:
-            theirs = [line for line in waiting if line.client_user == holder]
+            theirs = [
+                line
+                for line in waiting
+                if (line.client_user or line.requested_for_user) == holder
+            ]
             labels = {(line.new_device_label or "").strip().lower() for line in theirs}
             if len(labels) == 1:
                 claimed = theirs
 
         for line in claimed:
+            person = line.client_user or line.requested_for_user
+
             line.db_set("managed_device", device.name)
             line.db_set("is_new_device", 0)
             line.db_set("target_scope", "Device")
             line.db_set("client_user", None)
+
+            if person:
+                line.db_set("requested_for_user", person)
 
     @staticmethod
     def list_customer_devices(customer=None, exclude_holder=None):

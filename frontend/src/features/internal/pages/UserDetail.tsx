@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import StatusBadge from '@/shared/components/StatusBadge';
 import RowActionsMenu, { type RowAction } from '@/shared/components/RowActionsMenu';
+import Select from '@/shared/components/Select';
 import RemarkLog from '@/shared/components/RemarkLog';
 import ConfirmModal from '@/shared/components/ConfirmModal';
 import { useSession } from '@/shared/hooks/useSession';
@@ -39,9 +40,17 @@ import {
 } from '../hooks/useUsers';
 import { useMyApprovalRights, usePortalUserFile } from '@/features/portal/hooks/usePortal';
 import { useDeviceFilterOptions } from '../hooks/useDevices';
-import type { HeldDevice, UserServiceEntry } from '@/lib/api/internal';
+import type { HeldDevice, UserPortfolioEntry, UserServiceEntry } from '@/lib/api/internal';
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'Never');
+
+// a service that stopped is part of this person's file: the filter narrows, it never hides
+const SERVICE_VIEWS = [
+  ['all', 'All services'],
+  ['current', 'Current'],
+  ['suspended', 'Suspended'],
+  ['ended', 'Ended'],
+] as const;
 
 const Panel = ({
   title,
@@ -103,6 +112,7 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
     action: ServiceAction;
   } | null>(null);
   const [moving, setMoving] = useState<{ device: HeldDevice; kind: 'transfer' | 'repossess' } | null>(null);
+  const [serviceView, setServiceView] = useState<(typeof SERVICE_VIEWS)[number][0]>('all');
 
   // the request list a citation field offers, fetched by the forms that want it
   const customerRequests = useCustomerRequests(portal ? null : detail.data?.user.customer);
@@ -136,25 +146,48 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
 
   const openRequest = (request: string) => navigate(`/msp/requests/${request}`);
 
-  const services = [
-    ...data.personal_services.current.map((service) => ({ service, device: null as HeldDevice | null })),
-    ...data.devices.flatMap((slot) => slot.services.current.map((service) => ({ service, device: slot }))),
-  ];
+  const portfolio = data.services ?? [];
+  const countOf = (view: (typeof SERVICE_VIEWS)[number][0]) =>
+    view === 'all'
+      ? portfolio.length
+      : portfolio.filter((row) =>
+          view === 'current'
+            ? ['Pending Setup', 'Active', 'Suspended'].includes(row.operational_status)
+            : view === 'suspended'
+              ? row.operational_status === 'Suspended'
+              : row.operational_status === 'Ended'
+        ).length;
+  const services = portfolio.filter((row) =>
+    serviceView === 'current'
+      ? ['Pending Setup', 'Active', 'Suspended'].includes(row.operational_status)
+      : serviceView === 'suspended'
+        ? row.operational_status === 'Suspended'
+        : serviceView === 'ended'
+          ? row.operational_status === 'Ended'
+          : true
+  );
+  const deviceOf = (row: UserPortfolioEntry) =>
+    row.managed_device
+      ? data.devices.find((slot) => slot.device.name === row.managed_device) ?? null
+      : null;
 
-  const serviceActions = (service: UserServiceEntry, device: HeldDevice | null): RowAction[] => {
+  const serviceActions = (service: UserPortfolioEntry, device: HeldDevice | null): RowAction[] => {
+    // a machine they gave back is acted on from its next holder's page, not from here
+    if (!service.current_holding) return [];
+
     const status = service.operational_status;
     const act = (action: ServiceAction) => () => setApplying({ service, device, action });
 
     return [
       { label: 'Suspend', icon: PauseCircle, onClick: act('Suspend'), disabled: status !== 'Active' },
       { label: 'Resume', icon: PlayCircle, onClick: act('Resume'), disabled: status !== 'Suspended' },
-      { label: 'Change', icon: PencilLine, onClick: act('Change'), disabled: !['Active', 'Suspended'].includes(status) },
+      { label: 'Change service', icon: PencilLine, onClick: act('Change'), disabled: !['Active', 'Suspended'].includes(status) },
       {
-        label: 'Close',
+        label: 'Stop service',
         icon: CircleX,
         onClick: act('End'),
         danger: true,
-        disabled: !['Active', 'Suspended', 'Pending Removal'].includes(status),
+        disabled: !['Active', 'Suspended'].includes(status),
       },
     ];
   };
@@ -196,18 +229,30 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
       <UserOpenRequests requests={data.open_requests} onOpen={openRequest} />
 
       <Panel
-        title={`Services · ${services.length} open`}
+        title="Services"
         action={
-          canAct ? (
-          <button
-            type="button"
-            onClick={() => setAddingService(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
-          >
-            <Plus size={13} />
-            Add service
-          </button>
-          ) : undefined
+          <div className="flex items-center gap-2">
+            <Select
+              className="w-44"
+              value={serviceView}
+              onChange={(value) => setServiceView(value as (typeof SERVICE_VIEWS)[number][0])}
+              options={SERVICE_VIEWS.map(([value, label]) => ({
+                value,
+                label,
+                description: `${countOf(value)} service assignment(s)`,
+              }))}
+            />
+            {canAct && (
+              <button
+                type="button"
+                onClick={() => setAddingService(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+              >
+                <Plus size={13} />
+                Add service
+              </button>
+            )}
+          </div>
         }
       >
         <div className="overflow-x-auto">
@@ -215,8 +260,9 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
             <thead className="bg-slate-50">
               <tr>
                 <Th>Service</Th>
-                <Th>Device</Th>
-                <Th>Since</Th>
+                <Th>Target</Th>
+                <Th>Started</Th>
+                <Th>Ended</Th>
                 {seesBilling && <Th>Last billed</Th>}
                 {seesBilling && <Th>Billing</Th>}
                 <Th>Status</Th>
@@ -225,12 +271,30 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
             </thead>
             <tbody className="divide-y divide-slate-100">
               {services.length === 0 && (
-                <Empty span={seesBilling ? 7 : 5}>No open service for {user.full_name}.</Empty>
+                <Empty span={seesBilling ? 8 : 6}>
+                  {serviceView === 'all'
+                    ? `No service assignment is recorded for ${user.full_name}.`
+                    : `No ${serviceView} service assignment is recorded for ${user.full_name}.`}
+                </Empty>
               )}
-              {services.map(({ service, device }) => (
+              {services.map((service) => (
                 <tr key={service.name} className="transition-colors hover:bg-slate-50">
                   <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
                     {service.service_name}
+                    {canAct && service.legacy_service && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          navigate(
+                            `/msp/services/detail?item=${encodeURIComponent(service.service_item)}`
+                          )
+                        }
+                        className="mt-0.5 flex items-center gap-1 text-xs font-medium text-amber-700 hover:underline"
+                        title="Legacy MSP service"
+                      >
+                        Legacy MSP service · Configure for MSP
+                      </button>
+                    )}
                     {service.pending_request && (
                       <button
                         type="button"
@@ -243,10 +307,23 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
                     )}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                    {device ? device.device.hostname : 'N/A'}
+                    {service.assignment_scope === 'Device' ? service.target : 'Person'}
+                    {service.assignment_scope === 'Device' && (
+                      <p className="text-xs text-slate-400">
+                        held {fmtDate(service.association_from)}
+                        {service.association_until
+                          ? ` to ${fmtDate(service.association_until)}`
+                          : ' — still holding'}
+                      </p>
+                    )}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
                     {fmtDate(service.effective_start_date)}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                    {service.operational_status === 'Ended'
+                      ? fmtDate(service.effective_end_date)
+                      : '—'}
                   </td>
                   {seesBilling && (
                     <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
@@ -263,7 +340,9 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3">
                     <div className="flex justify-end">
-                      {canAct && <RowActionsMenu actions={serviceActions(service, device)} />}
+                      {canAct && service.operational_status !== 'Ended' && (
+                        <RowActionsMenu actions={serviceActions(service, deviceOf(service))} />
+                      )}
                     </div>
                   </td>
                 </tr>

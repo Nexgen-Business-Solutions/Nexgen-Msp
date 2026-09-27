@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AlertCircle, ArrowLeft, CircleCheck, CircleX, PencilLine, ShieldCheck } from 'lucide-react';
 import StatusBadge from '@/shared/components/StatusBadge';
+import RequestActionGroups from '@/shared/components/RequestActionGroups';
 import RequestLinesByPerson, { type PersonLine } from '@/shared/components/RequestLinesByPerson';
 import type { PortalRequestLine } from '@/lib/api/portal';
 import { useDecideRequest, useServiceRequest } from '../hooks/usePortal';
@@ -12,6 +13,8 @@ const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) :
 const asPersonLine = (line: PortalRequestLine): PersonLine => {
   const person = line.client_user || line.device_holder;
   const isNewUser = Boolean(line.is_new_user) && !person;
+  // an act on the machine itself names no service: what it is, is the act and the two holders
+  const onMachine = (line.operation_code ?? '').startsWith('device.');
 
   return {
     idx: line.idx,
@@ -23,7 +26,7 @@ const asPersonLine = (line: PortalRequestLine): PersonLine => {
     email: line.new_user_email,
     action: line.action,
     actionLabel: line.action_label,
-    service: line.service_name,
+    service: onMachine ? line.operation_label_snapshot ?? line.action_label ?? '' : line.service_name,
     onDevice: Boolean(line.managed_device || line.is_new_device),
     serviceScope: line.service_scope,
     isNewDevice: Boolean(line.is_new_device),
@@ -34,7 +37,11 @@ const asPersonLine = (line: PortalRequestLine): PersonLine => {
     status: line.line_status,
     comment: line.comment,
     rejectionReason: line.rejection_reason,
-    extra: line.service_status ? (
+    extra: onMachine ? (
+      <p className="mt-0.5 text-xs text-slate-600">
+        {line.user_name || 'Unassigned'} → {line.requested_holder_name || 'Unassigned'}
+      </p>
+    ) : line.service_status ? (
       <p className="mt-0.5 inline-flex items-center gap-1 text-xs font-medium text-slate-500">
         <CircleCheck size={12} />
         Delivered — {line.service_status.toLowerCase()}
@@ -202,10 +209,18 @@ export default function PortalRequestDetail() {
         )}
       </div>
 
-      <RequestLinesByPerson
-        lines={data.lines.map(asPersonLine)}
-        noteLabel="What you asked for"
-      />
+      {data.action_groups?.length ? (
+        <RequestActionGroups
+          groups={data.action_groups}
+          subjects={data.subjects ?? []}
+          lines={data.lines}
+        />
+      ) : (
+        <RequestLinesByPerson
+          lines={data.lines.map(asPersonLine)}
+          noteLabel="What you asked for"
+        />
+      )}
     </div>
   );
 }

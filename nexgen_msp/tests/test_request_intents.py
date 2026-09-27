@@ -76,7 +76,7 @@ class RequestIntentCase(MSPTestCase):
         action = fields.pop("action", "Add")
 
         return {
-            "request_action": self.action(action),
+            "operation_code": self.operation(action),
             "action": action,
             "target_scope": "User",
             "client_user": self.john,
@@ -348,7 +348,7 @@ class TestALineKeepsThePersonItWasRaisedFor(RequestIntentCase):
 
         name = self.raise_request(
             {
-                "request_action": self.action(),
+                "operation_code": self.operation(),
                 "action": "Add",
                 "target_scope": "User",
                 "is_new_user": 1,
@@ -438,7 +438,7 @@ class TestWhoMayAgreeToWhat(RequestIntentCase):
     def test_they_decide_on_a_new_person_of_their_own_department(self):
         name = self.raise_request(
             {
-                "request_action": self.action(),
+                "operation_code": self.operation(),
                 "action": "Add",
                 "target_scope": "User",
                 "is_new_user": 1,
@@ -453,7 +453,7 @@ class TestWhoMayAgreeToWhat(RequestIntentCase):
     def test_they_do_not_decide_for_a_new_person_of_another_department(self):
         name = self.raise_request(
             {
-                "request_action": self.action(),
+                "operation_code": self.operation(),
                 "action": "Add",
                 "target_scope": "User",
                 "is_new_user": 1,
@@ -471,6 +471,14 @@ class TestWhoMayAgreeToWhat(RequestIntentCase):
     def test_a_request_reaching_beyond_their_department_is_refused_whole(self):
         elsewhere = self.make_person(self.customer, "Elsewhere")
         frappe.db.set_value("MSP Client User", elsewhere, "department", self.sales)
+        # two departments in one request: §21 asks the company for a company-wide approver
+        # before it may be sent at all, and that approver is not this department's one
+        company_wide = self.make_account(
+            "customer", "MSP Customer Manager", self.customer, suffix=f"rc{self.tag[:3]}"
+        )
+        AuthorityService.set_account_rights(
+            company_wide, {"can_submit": 1, "can_approve": 1, "department": None}
+        )
 
         name = self.raise_request(
             self.line(self.offering("APPM")),

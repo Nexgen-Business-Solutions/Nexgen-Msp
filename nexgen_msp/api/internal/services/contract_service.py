@@ -1,5 +1,9 @@
 import frappe
 
+from nexgen_msp.api.internal.services.service_definition_service import (
+    ServiceDefinitionService,
+)
+
 from nexgen_msp.utils import access
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 from nexgen_msp.utils.assignments import OPEN_ASSIGNMENT_STATUSES
@@ -279,7 +283,10 @@ class ContractService:
         doc.note = note or None
         # the discount travels with the rate for as long as the rate is the one in force
         doc.msp_discount_percent = frappe.utils.flt(discount_percent)
-        doc.save()
+        # an Item Price is an ERPNext record, and no MSP role holds rights on it. The
+        # authorisation happened above, in `_guard_admin`: that is this application's
+        # boundary, and the generic document API stays shut to everybody either way.
+        doc.save(ignore_permissions=True)
         frappe.db.commit()
 
         return {"name": doc.name, "item_code": doc.item_code, "rate": doc.price_list_rate}
@@ -291,7 +298,7 @@ class ContractService:
         if not name or not frappe.db.exists("Item Price", name):
             raise NotFoundError(f"Item Price {name} not found.", "NOT_FOUND")
 
-        frappe.delete_doc("Item Price", name)
+        frappe.delete_doc("Item Price", name, ignore_permissions=True)
         frappe.db.commit()
 
         return {"deleted": name}
@@ -432,7 +439,7 @@ class ContractService:
 
         catalogue = frappe.get_all(
             "Item",
-            filters={"disabled": 0, "is_stock_item": 0},
+            filters={"name": ["in", ServiceDefinitionService.available_items()]},
             fields=["name", "item_name"],
             order_by="item_name asc",
         )

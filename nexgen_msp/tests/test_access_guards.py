@@ -227,14 +227,25 @@ class TestRawDocumentBoundary(MSPTestCase):
             self.assertEqual(access.raw_msp_query_condition(self.manager), "1 = 0")
 
     def test_generic_lists_return_no_msp_rows_to_a_customer_contact(self):
+        """Nothing of ours reaches a customer account through Frappe's own list API.
+
+        What is checked is the outcome, not the mechanism that produces it: the door may be
+        shut outright or answer with nothing at all, and both are the same promise kept. It
+        used to answer empty; since the customer DocPerms were withdrawn it refuses, which is
+        the stronger of the two.
+        """
         person = self.make_person(self.customer, "Raw hidden")
         frappe.set_user(self.manager)
         frappe.clear_cache(user=self.manager)
         try:
-            rows = frappe.get_list(
-                "MSP Client User", filters={"name": person}, pluck="name"
-            )
-            self.assertEqual(rows, [])
+            try:
+                rows = frappe.get_list(
+                    "MSP Client User", filters={"name": person}, pluck="name"
+                )
+            except frappe.PermissionError:
+                rows = []
+
+            self.assertEqual(rows, [], "no MSP row may come back through the generic API")
             self.assertFalse(
                 frappe.has_permission(
                     "MSP Client User",

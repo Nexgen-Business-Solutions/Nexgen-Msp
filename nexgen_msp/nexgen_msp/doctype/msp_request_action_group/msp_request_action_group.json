@@ -1,0 +1,134 @@
+{
+ "actions": [],
+ "creation": "2026-09-26 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "group_key",
+  "operation_code",
+  "operation_label_snapshot",
+  "domain",
+  "column_break_operation",
+  "service_item",
+  "group_origin",
+  "section_scope",
+  "source_scope_type",
+  "source_scope_key",
+  "source_scope_label",
+  "column_break_scope",
+  "selected_subject_count",
+  "applicable_target_count",
+  "excluded_subject_count",
+  "section_impact",
+  "impact_snapshot_json"
+ ],
+ "fields": [
+  {
+   "fieldname": "group_key",
+   "fieldtype": "Data",
+   "label": "Group Key",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "operation_code",
+   "fieldtype": "Data",
+   "label": "Operation Code",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "operation_label_snapshot",
+   "fieldtype": "Data",
+   "label": "Operation",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "domain",
+   "fieldtype": "Select",
+   "label": "Domain",
+   "options": "Service\nDevice\nPeople",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_operation",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "service_item",
+   "fieldtype": "Link",
+   "label": "Service",
+   "options": "Item"
+  },
+  {
+   "fieldname": "group_origin",
+   "fieldtype": "Select",
+   "label": "Origin",
+   "options": "Customer\nLegacyMigration",
+   "default": "Customer"
+  },
+  {
+   "fieldname": "section_scope",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "source_scope_type",
+   "fieldtype": "Select",
+   "label": "Scope",
+   "options": "All\nDepartment\nPerson",
+   "reqd": 1
+  },
+  {
+   "fieldname": "source_scope_key",
+   "fieldtype": "Data",
+   "label": "Scope Key"
+  },
+  {
+   "fieldname": "source_scope_label",
+   "fieldtype": "Data",
+   "label": "Scope Label"
+  },
+  {
+   "fieldname": "column_break_scope",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "selected_subject_count",
+   "fieldtype": "Int",
+   "label": "Selected Subjects"
+  },
+  {
+   "fieldname": "applicable_target_count",
+   "fieldtype": "Int",
+   "label": "Applicable Targets"
+  },
+  {
+   "fieldname": "excluded_subject_count",
+   "fieldtype": "Int",
+   "label": "Excluded Subjects"
+  },
+  {
+   "fieldname": "section_impact",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "impact_snapshot_json",
+   "fieldtype": "Code",
+   "label": "Impact Snapshot",
+   "options": "JSON",
+   "reqd": 1
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-26 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nexgen MSP",
+ "name": "MSP Request Action Group",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

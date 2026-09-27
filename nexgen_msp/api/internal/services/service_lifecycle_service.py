@@ -12,6 +12,11 @@ the operational record from matching what happened in reality.
 
 import frappe
 
+from nexgen_msp.api.internal.services.service_definition_service import (
+    ServiceDefinitionService,
+)
+from nexgen_msp.utils import catalogue as msp_catalogue
+
 from nexgen_msp.api.internal.services.contract_service import ContractService
 from nexgen_msp.api.internal.services.request_service import ADMIN_ROLES, RequestService
 from nexgen_msp.api.internal.services.user_service import UserService
@@ -32,7 +37,7 @@ ACTIVATABLE_DEVICE_STATUSES = DEPLOYED_STATUSES + ("Stock",)
 # a person is given a new service while they are expected or already here
 ACTIVATABLE_USER_LIFECYCLE = ("Pending", "Active")
 
-ENDABLE_STATUSES = ("Active", "Suspended", "Pending Removal")
+ENDABLE_STATUSES = ("Active", "Suspended")
 
 CHANGEABLE_STATUSES = ("Active", "Suspended")
 
@@ -245,57 +250,6 @@ class ServiceLifecycleService:
             + (f" in reference to {request}" if request else ""),
             notes,
             commit=_commit,
-        )
-
-        return ServiceLifecycleService._outcome(doc)
-
-    @staticmethod
-    def schedule_removal(assignment=None, effective_date=None, notes=None):
-        """Record that a running service is to be closed, while it is still being provided.
-
-        Nothing about the billing changes: the service is still there until somebody stops
-        it, and the day it is meant to stop is kept as a trace rather than as a field.
-        """
-        RequestService._guard_internal()
-
-        doc = ServiceLifecycleService._assignment(assignment)
-
-        if doc.operational_status != "Active":
-            raise ValidationError(
-                f"This service is {doc.operational_status.lower()} and no removal can be "
-                "scheduled for it.",
-                "INVALID_TRANSITION",
-            )
-
-        planned = ServiceLifecycleService._planned_day(doc, effective_date)
-        doc.operational_status = "Pending Removal"
-
-        ServiceLifecycleService._write(
-            doc,
-            "Removal scheduled",
-            f"To be closed on {frappe.utils.formatdate(planned)}, still provided until then",
-            notes,
-        )
-
-        return ServiceLifecycleService._outcome(doc)
-
-    @staticmethod
-    def cancel_removal(assignment=None, notes=None):
-        """Call off a scheduled removal: the service goes on as before."""
-        RequestService._guard_internal()
-
-        doc = ServiceLifecycleService._assignment(assignment)
-
-        if doc.operational_status != "Pending Removal":
-            raise ValidationError(
-                f"This service is {doc.operational_status.lower()}; no removal is scheduled.",
-                "INVALID_TRANSITION",
-            )
-
-        doc.operational_status = "Active"
-
-        ServiceLifecycleService._write(
-            doc, "Removal cancelled", "The scheduled removal was called off", notes
         )
 
         return ServiceLifecycleService._outcome(doc)
@@ -589,34 +543,29 @@ class ServiceLifecycleService:
         item = frappe.db.get_value(
             "Item",
             service_item,
-            ["name", "item_name", "disabled", "is_stock_item", "msp_service_scope", "stock_uom"],
+            ["name", "item_name", "disabled", "is_stock_item", "stock_uom"],
             as_dict=True,
         )
 
         if not item:
             raise NotFoundError(f"Service {service_item} not found.", "NOT_FOUND")
 
-        if item.disabled:
+        definition = ServiceDefinitionService.for_item(item.name)
+
+        # what may be opened for somebody new is the one question the MSP definition answers;
+        # a service already running is never re-checked against it
+        if not ServiceDefinitionService.is_ready(item.name, definition=definition):
+            blockers = ServiceDefinitionService.blockers(item.name, definition=definition)
+            code = blockers[0] if blockers else "MSP_SERVICE_NOT_AVAILABLE"
             raise ValidationError(
-                f"{item.item_name or item.name} has been retired from the catalogue and cannot "
-                "be sold.",
-                "VALIDATION_ERROR",
+                msp_catalogue.BLOCKERS.get(
+                    code,
+                    f"{item.item_name or item.name} is not available in Nexgen MSP.",
+                ),
+                code,
             )
 
-        if item.is_stock_item:
-            raise ValidationError(
-                f"{item.item_name or item.name} is stock, not a service.", "VALIDATION_ERROR"
-            )
-
-        # a service that does not say where it is sold is sold to both
-        item.msp_service_scope = item.msp_service_scope or "Both"
-
-        if item.msp_service_scope not in TARGET_SCOPES + ("Both",):
-            raise ValidationError(
-                f"{item.item_name or item.name} does not say where it may be sold. Set its "
-                "scope in the catalogue before opening it for anybody.",
-                "VALIDATION_ERROR",
-            )
+        item.service_scope = (definition.service_scope if definition else None) or "Both"
 
         return item
 
@@ -624,7 +573,7 @@ class ServiceLifecycleService:
     def _scope(item, target_scope):
         """Where this period is really provided, which the catalogue has to allow."""
         scope = target_scope or (
-            item.msp_service_scope if item.msp_service_scope in TARGET_SCOPES else None
+            item.service_scope if item.service_scope in TARGET_SCOPES else None
         )
 
         if not scope:
@@ -639,9 +588,9 @@ class ServiceLifecycleService:
                 f"'{scope}' is not a target a service can be provided to.", "VALIDATION_ERROR"
             )
 
-        if item.msp_service_scope != "Both" and item.msp_service_scope != scope:
+        if item.service_scope != "Both" and item.service_scope != scope:
             raise ValidationError(
-                f"{item.name} is a {item.msp_service_scope} service and cannot be assigned at "
+                f"{item.name} is a {item.service_scope} service and cannot be assigned at "
                 f"{scope} scope.",
                 "VALIDATION_ERROR",
             )

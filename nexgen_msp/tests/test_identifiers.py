@@ -92,7 +92,7 @@ class TestIdentifiersKeepTheirRules(MSPTestCase):
                 request_type="Add",
                 lines=[
                     {
-                        "request_action": self.action(),
+                        "operation_code": self.operation(),
                         "action": "Add",
                         "target_scope": "User",
                         "client_user": person,
@@ -118,7 +118,7 @@ class TestIdentifiersKeepTheirRules(MSPTestCase):
                 request_type="Add",
                 lines=[
                     {
-                        "request_action": self.action(),
+                        "operation_code": self.operation(),
                         "action": "Add",
                         "target_scope": "Device",
                         "managed_device": machine,
@@ -147,7 +147,7 @@ class TestIdentifiersKeepTheirRules(MSPTestCase):
                 request_type="Add",
                 lines=[
                     {
-                        "request_action": self.action(),
+                        "operation_code": self.operation(),
                         "action": "Add",
                         "target_scope": "User",
                         "client_user": self.bob,
@@ -199,7 +199,7 @@ class TestIdentifiersKeepTheirRules(MSPTestCase):
                 request_type="Add",
                 lines=[
                     {
-                        "request_action": self.action(),
+                        "operation_code": self.operation(),
                         "action": "Add",
                         "target_scope": "User",
                         "client_user": self.bob,

@@ -18,13 +18,22 @@ export class FrappeError extends Error {
   status: number;
   code?: string;
   excType?: string;
+  /** what the screen needs in order to act on the refusal, when a sentence is not enough */
+  detail?: Record<string, unknown>;
 
-  constructor(message: string, status: number, code?: string, excType?: string) {
+  constructor(
+    message: string,
+    status: number,
+    code?: string,
+    excType?: string,
+    detail?: Record<string, unknown>
+  ) {
     super(message);
     this.name = 'FrappeError';
     this.status = status;
     this.code = code;
     this.excType = excType;
+    this.detail = detail;
   }
 }
 
@@ -217,12 +226,19 @@ export const request = async <T>(
       ),
       response.status,
       structured?.code,
-      payload?.exc_type
+      payload?.exc_type,
+      structured?.detail as Record<string, unknown> | undefined
     );
   }
 
   if (body && typeof body === 'object' && body.success === false) {
-    throw new FrappeError(stripHtml(body.error || 'Request failed.'), 400, body.code);
+    throw new FrappeError(
+      stripHtml(body.error || 'Request failed.'),
+      400,
+      body.code,
+      undefined,
+      body.detail as Record<string, unknown> | undefined
+    );
   }
 
   return body as T;

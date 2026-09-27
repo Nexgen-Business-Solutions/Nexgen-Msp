@@ -25,6 +25,19 @@ export const useTeamMember = (email: string) =>
     enabled: Boolean(email),
   });
 
+export const useResolveAccountAccess = (email: string) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: internal.resolveAccountAccess,
+    onSuccess: (account) => {
+      queryClient.setQueryData(teamKeys.detail(email), account);
+      queryClient.invalidateQueries({ queryKey: teamKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['session'] });
+    },
+  });
+};
+
 export const useTeamOptions = () =>
   useQuery({
     queryKey: teamKeys.options(),

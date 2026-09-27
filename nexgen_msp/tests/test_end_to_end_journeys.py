@@ -24,7 +24,7 @@ from nexgen_msp.utils.errors import ValidationError as Refused
 from .test_request_execution import WORK_ORDER, ExecutionCase
 
 REFUSED = (Refused, NotFoundError, frappe.ValidationError, frappe.PermissionError)
-OPEN = ("Active", "Suspended", "Pending Removal")
+OPEN = ("Active", "Suspended")
 
 
 class JourneyCase(ExecutionCase):
@@ -322,13 +322,24 @@ class TestWhatAServiceIsIssuedAgainst(JourneyCase):
 
         self.assertEqual(frappe.db.get_value("MSP Client User", self.marie, "username"), f"mb.{self.tag}")
 
-    def test_a_service_that_names_no_scope_is_sold_to_both(self):
+    def test_a_definition_that_names_no_scope_is_read_as_both_but_sold_to_nobody(self):
+        """A scope nobody settled is still read as Both; nothing new opens on it."""
         service = self.offering("JI5")
-        frappe.db.set_value("Item", service, "msp_service_scope", None)
+        definition = frappe.db.get_value("MSP Service Definition", {"item": service}, "name")
+        frappe.db.set_value("MSP Service Definition", definition, "service_scope", None)
+        frappe.db.commit()
 
         self.assertEqual(RequestService._service_scope(service), "Both")
 
         laptop = self.make_device(self.customer, f"JS-{self.tag}", holder=self.john, serial=f"ZZTEST-JS-{self.tag}")
+
+        with self.assertRaises(Refused) as caught:
+            DeviceService.assign_device_service(device=laptop, service_item=service)
+
+        self.assertEqual(caught.exception.code, "INVALID_MSP_SCOPE")
+
+        frappe.db.set_value("MSP Service Definition", definition, "service_scope", "Both")
+        frappe.db.commit()
         DeviceService.assign_device_service(device=laptop, service_item=service)
         UserService.assign_service(client_user=self.john, service_item=service)
         for name in frappe.get_all("MSP Service Assignment", {"service_item": service}, pluck="name"):
@@ -367,8 +378,13 @@ class TestWhatIsSentThatShouldNotBe(JourneyCase):
             self.line(service, target_scope="Device", managed_device=box)
         )
 
-    def test_a_new_person_with_no_department(self):
-        self.refused_to_raise(
+    def test_a_new_person_needs_only_their_name(self):
+        """What the customer does not know is completed by the people who can find out.
+
+        A Department, an email, a username: none of them is theirs to supply, and a request
+        that waits for them is a request that never gets raised.
+        """
+        name = self.raised(
             self.line(
                 self.offering("JW3"),
                 client_user=None,
@@ -377,6 +393,10 @@ class TestWhatIsSentThatShouldNotBe(JourneyCase):
                 new_user_department=None,
             )
         )
+        line = frappe.get_doc("MSP Service Request", name).lines[0]
+
+        self.assertEqual(line.new_user_full_name, "Paul Martin")
+        self.assertIsNone(line.new_user_department)
 
     def test_a_line_naming_nobody(self):
         self.refused_to_raise(self.line(self.offering("JW4"), client_user=None))
@@ -526,7 +546,7 @@ class TestAMachineAskedForSomebodyOnFile(JourneyCase):
         service = self.offering("JN1", scope="Device")
         return self.approved(
             {
-                "request_action": self.action("Add"),
+                "operation_code": self.operation("Add"),
                 "action": "Add",
                 "target_scope": "User",
                 "requested_for_user": self.john,

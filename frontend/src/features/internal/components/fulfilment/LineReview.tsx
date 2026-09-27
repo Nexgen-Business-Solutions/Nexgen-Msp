@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { AlertCircle, Check, CircleAlert, Laptop, TriangleAlert, UserRound, X } from 'lucide-react';
+import { AlertCircle, Check, Laptop, TriangleAlert, UserRound, X } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
 import type { RequestDetail, RequestDetailLine } from '@/lib/api/internal';
 import { useSetLineStatus, useSetLineStatuses } from '../../hooks/useRequests';
@@ -38,6 +38,18 @@ const personName = (line: RequestDetailLine) =>
 const serviceOf = (line: RequestDetailLine) => line.requested_service_name || line.requested_service;
 const actOf = (line: RequestDetailLine) => line.action_label || line.action;
 
+// an act on the machine itself: the machine is the subject, and the holders are the change
+const onMachine = (line: RequestDetailLine) => (line.operation_code ?? '').startsWith('device.');
+
+const askedFor = (value?: string | null) =>
+  value
+    ? new Date(String(value)).toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      })
+    : null;
+
 /**
  * Step 1: which of the lines the customer asked for Nexgen will carry out. Nothing runs here.
  *
@@ -48,6 +60,7 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
   const one = useSetLineStatus();
   const many = useSetLineStatuses();
   const [rejecting, setRejecting] = useState<RequestDetailLine | null>(null);
+  const [rejectingGroup, setRejectingGroup] = useState<RequestDetailLine[] | null>(null);
   const [reason, setReason] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -78,16 +91,48 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
   }, [lines]);
 
   // the same act on the same service, still waiting, for more than one person
+  /**
+   * The acts the customer added, as they added them.
+   *
+   * A group is read from the key the request stored, never rebuilt by matching service and
+   * action strings — two people asked for the same thing in two separate acts are two acts.
+   * A request raised before V3 carries no key, and only then is the old pairing used, so an
+   * old request still offers a group decision rather than nothing.
+   */
   const shared = useMemo(() => {
     const byAct = new Map<string, RequestDetailLine[]>();
 
     for (const line of pending) {
-      const key = `${line.requested_service}|${line.action_label || line.action}`;
+      const key =
+        line.action_group_key || `legacy:${line.requested_service}|${line.action_label || line.action}`;
       byAct.set(key, [...(byAct.get(key) ?? []), line]);
     }
 
     return [...byAct.values()].filter((group) => group.length > 1);
   }, [pending]);
+
+  const labelOf = (group: RequestDetailLine[]) => {
+    const asked = request.action_groups?.find(
+      (row) => row.group_key === group[0].action_group_key
+    );
+
+    return asked?.operation_label_snapshot ?? `${actOf(group[0])} ${serviceOf(group[0])}`;
+  };
+
+  const rejectMany = async (group: RequestDetailLine[], why: string) => {
+    setNotice(null);
+
+    const outcome = await many.mutateAsync({
+      name: request.name,
+      idxs: group.map((line) => line.idx),
+      line_status: 'Rejected',
+      reason: why,
+    });
+
+    if (outcome.failed) {
+      setNotice(`${outcome.decided} rejected, ${outcome.failed} not.`);
+    }
+  };
 
   const decideMany = async (group: RequestDetailLine[]) => {
     setNotice(null);
@@ -150,13 +195,13 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
           <div className="flex flex-wrap gap-2">
             {shared.map((group) => (
               <button
-                key={`${group[0].requested_service}|${group[0].action}`}
+                key={`accept-${group[0].action_group_key ?? group[0].idx}`}
                 type="button"
                 disabled={many.isLoading}
                 onClick={() => decideMany(group)}
                 className={btnAccept}
               >
-                Accept {group.length} {serviceOf(group[0])} lines
+                Accept all {group.length}
               </button>
             ))}
             <button
@@ -173,15 +218,41 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
 
       {shared.map((group) => (
         <div
-          key={`shared-${group[0].requested_service}|${group[0].action}`}
+          key={`shared-${group[0].action_group_key ?? group[0].idx}`}
           className="rounded-lg border border-slate-200 bg-white px-4 py-3"
         >
-          <p className="text-sm font-semibold text-slate-900">
-            Grouped request · {serviceOf(group[0])}
-          </p>
-          <p className="text-xs text-slate-500">
-            {actOf(group[0])} for {group.length} people.
-          </p>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-slate-900">
+                {labelOf(group)} · {group.length} targets
+              </p>
+              <p className="text-xs text-slate-500">
+                {actOf(group[0])} for {group.length} people.
+              </p>
+            </div>
+
+            {decidable && (
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  disabled={many.isLoading}
+                  onClick={() => decideMany(group)}
+                  className={btnAccept}
+                >
+                  Accept all {group.length}
+                </button>
+                <button
+                  type="button"
+                  disabled={many.isLoading}
+                  onClick={() => setRejectingGroup(group)}
+                  className={btnReject}
+                >
+                  Reject all {group.length}
+                </button>
+              </div>
+            )}
+          </div>
+
           <div className="mt-2 flex flex-wrap gap-1.5">
             {group.map((line) => (
               <span key={line.idx} className={pill('slate')}>
@@ -255,27 +326,46 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
                 </span>
 
                 <div className="min-w-0">
-                  <p className="text-sm font-semibold text-slate-900">
-                    {serviceOf(line)} · {actOf(line)}
-                  </p>
-                  <p className="mt-0.5 text-xs text-slate-500">
-                    {person.name} · {onDevice ? 'Device' : 'User'} scope
-                    {onDevice
-                      ? ` · ${line.device_hostname || (line.is_new_device ? 'device to be prepared' : 'device')}`
-                      : ''}
-                  </p>
+                  {onMachine(line) ? (
+                    <>
+                      <p className="text-sm font-semibold text-slate-900">{actOf(line)}</p>
+                      <p className="text-sm text-slate-700">{line.device_hostname}</p>
+                      <p className="text-sm text-slate-700">
+                        {line.client_user_name || 'Unassigned'} →{' '}
+                        {line.requested_holder_name || 'Unassigned'}
+                      </p>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        Device
+                        {askedFor(line.requested_effective_date)
+                          ? ` · Requested for ${askedFor(line.requested_effective_date)}`
+                          : ''}
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-sm font-semibold text-slate-900">
+                        {serviceOf(line)} · {actOf(line)}
+                      </p>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {person.name} · {onDevice ? 'Device' : 'User'} scope
+                        {onDevice
+                          ? ` · ${line.device_hostname || (line.is_new_device ? 'device to be prepared' : 'device')}`
+                          : ''}
+                      </p>
+                    </>
+                  )}
                   {rate && (
                     <p
                       className={`mt-0.5 inline-flex items-center gap-1 text-xs ${
                         rate.priced ? 'text-slate-500' : 'text-amber-700'
                       }`}
                     >
-                      {rate.priced ? <Check size={12} /> : <CircleAlert size={12} />}
+                      {/* {rate.priced ? <Check size={12} /> : <CircleAlert size={12} />} */}
                       {rate.priced
                         ? request.review?.shows_rates && rate.rate !== null
                           ? `Rate ${rate.rate.toLocaleString()} ${request.review.currency ?? ''}`
                           : 'Rate set in contract'
-                        : 'No rate — delivered but never billed'}
+                        : ''}
                       {rate.duplicate ? ` · already held (${rate.duplicate})` : ''}
                     </p>
                   )}
@@ -285,14 +375,14 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
                         ? 'text-emerald-700'
                         : line.line_status === 'Rejected'
                           ? 'text-red-700'
-                          : 'text-amber-700'
+                          : 'text-gray-700'
                     }`}
                   >
                     {line.line_status === 'Approved'
-                      ? 'Accepted for execution'
+                      ? ''
                       : line.line_status === 'Rejected'
                         ? `Rejected${line.rejection_reason ? ` · ${line.rejection_reason}` : ''}`
-                        : 'Decision required'}
+                        : ''}
                   </p>
                 </div>
 
@@ -408,6 +498,68 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
           value={reason}
           onChange={(event) => setReason(event.target.value)}
           placeholder="Why is this line being rejected?"
+          className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+        />
+      </Modal>
+
+      <Modal
+        open={Boolean(rejectingGroup)}
+        onClose={() => {
+          setRejectingGroup(null);
+          setReason('');
+        }}
+        icon={TriangleAlert}
+        tone="red"
+        title="Reject request"
+        subtitle="A reason is required and will be visible in the request history."
+        widthClass="max-w-lg"
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setRejectingGroup(null);
+                setReason('');
+              }}
+              className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={!reason.trim() || many.isLoading}
+              onClick={async () => {
+                if (!rejectingGroup) return;
+
+                await rejectMany(rejectingGroup, reason.trim());
+                setRejectingGroup(null);
+                setReason('');
+              }}
+              className="rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+            >
+              Reject request
+            </button>
+          </div>
+        }
+      >
+        {rejectingGroup && (
+          <p className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+            <span className="font-semibold">{labelOf(rejectingGroup)}</span>
+            <br />
+            {rejectingGroup.length} line(s) will carry this reason.
+          </p>
+        )}
+        <label
+          htmlFor="reject-group-reason"
+          className="mb-1.5 block text-xs font-semibold text-slate-700"
+        >
+          Reason
+        </label>
+        <textarea
+          id="reject-group-reason"
+          rows={4}
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
           className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
         />
       </Modal>

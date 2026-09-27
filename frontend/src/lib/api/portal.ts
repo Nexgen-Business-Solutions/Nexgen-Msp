@@ -28,8 +28,6 @@ export type PortalSummary = {
   active_services: number;
   open_requests: number;
   awaiting_approval: number;
-  reclaimable_licences: number;
-  devices_without_services: number;
   catalogue_size: number;
 };
 
@@ -47,6 +45,8 @@ export type ClientUser = {
   username: string | null;
   active_services: number;
   inactive_services: number;
+  suspended_services: number;
+  ended_services: number;
   services: string | null;
   hostnames: string | null;
   device_type: string | null;
@@ -109,8 +109,10 @@ export type ServiceRequestLine = {
   idx: number;
   action: string;
   target_scope: string;
-  /** the configured action, which is what the form offers — not the mechanical verb */
-  request_action?: string | null;
+  /** the operation the line asks for, which is what the form offers — not the mechanical verb */
+  operation_code?: string | null;
+  operation_label_snapshot?: string | null;
+  requested_holder?: string | null;
   is_new_user?: number;
   new_user_full_name?: string | null;
   new_user_department?: string | null;
@@ -167,8 +169,8 @@ export type ListParams = {
 };
 
 export type NewRequestLine = {
-  /** the chosen MSP Request Action; the server derives the mechanical action type */
-  request_action?: string;
+  /** the operation asked for; the server derives the mechanical action type */
+  operation_code?: string;
   action?: string;
   target_scope: string;
   is_new_user?: number;
@@ -190,7 +192,15 @@ export type NewRequestLine = {
   source_service_assignment?: string;
   /** who the line was raised for, kept even when it targets a machine */
   requested_for_user?: string;
-  requested_service: string;
+  /** who should hold the machine, for an operation that decides that */
+  requested_holder?: string;
+  /** an act on the machine itself names no service */
+  requested_service?: string;
+  /** how this subject came into the request, kept exactly as it was selected */
+  selection_origin?: 'Individual' | 'Department' | 'Company';
+  selection_group_key?: string;
+  selection_label?: string;
+  selection_snapshot_at?: string;
   requested_quantity?: number;
   requested_effective_date?: string;
   comment?: string;
@@ -326,7 +336,12 @@ export type PortalRequestLine = {
   service_status: string | null;
   service_start_date: string | null;
   delivered_on: string | null;
-  request_action: string | null;
+  operation_code: string | null;
+  operation_label_snapshot: string | null;
+  operation_payload: string | null;
+  state_snapshot: string | null;
+  requested_holder: string | null;
+  requested_holder_name: string | null;
   target_scope: string | null;
   service_scope: string;
   client_user: string | null;
@@ -358,6 +373,41 @@ export type PortalRequestDetail = {
   can_decide: boolean;
   has_approver: boolean;
   lines: PortalRequestLine[];
+  /** what the customer actually built, when the request was raised the V3 way */
+  subjects?: RequestSubjectSnapshot[];
+  action_groups?: RequestActionGroupSnapshot[];
+};
+
+export type RequestSubjectSnapshot = {
+  subject_key: string;
+  client_user: string | null;
+  is_new_user: boolean;
+  full_name: string;
+  department: string | null;
+  email: string | null;
+  added_via: string;
+  selection_label: string | null;
+};
+
+export type RequestActionGroupSnapshot = {
+  group_key: string;
+  operation_code: string;
+  operation_label_snapshot: string;
+  domain: string;
+  service_item: string | null;
+  group_origin: string;
+  source_scope_type: string;
+  source_scope_key: string | null;
+  source_scope_label: string | null;
+  selected_subject_count: number;
+  applicable_target_count: number;
+  excluded_subject_count: number;
+  impact: {
+    subject_key: string;
+    status: 'selected' | 'inapplicable';
+    reason_code?: string;
+    targets?: { target_type: string; target: string }[];
+  }[];
 };
 
 export type PortalUserDevice = {
@@ -415,14 +465,23 @@ export type RequestPayload = {
   request_type?: string;
   priority?: string;
   details?: string;
-  lines: NewRequestLine[];
+  lines?: NewRequestLine[];
+  subjects?: RequestSubjectDraft[];
+  action_groups?: RequestActionGroupDraft[];
 };
 
+/** The snapshot travels as JSON: it is a document the server keeps, not a form field. */
+const packed = (payload: RequestPayload) => ({
+  ...payload,
+  subjects: payload.subjects ? JSON.stringify(payload.subjects) : undefined,
+  action_groups: payload.action_groups ? JSON.stringify(payload.action_groups) : undefined,
+});
+
 export const createRequest = (payload: RequestPayload) =>
-  post<ServiceRequestDetail>(`${BASE}.create_request`, payload);
+  post<ServiceRequestDetail>(`${BASE}.create_request`, packed(payload));
 
 export const saveRequestDraft = (payload: RequestPayload) =>
-  post<ServiceRequestDetail>(`${BASE}.save_request_draft`, payload);
+  post<ServiceRequestDetail>(`${BASE}.save_request_draft`, packed(payload));
 
 export const discardRequestDraft = (name: string) =>
   post<{ discarded: string }>(`${BASE}.discard_request_draft`, { name });
@@ -454,6 +513,26 @@ export type ServiceRow = {
   last_billed_on: string | null;
 };
 
+export type ServicePortfolioRow = {
+  service_item: string;
+  service_name: string;
+  scope: string;
+  availability: 'Available to request' | 'History only' | 'Temporarily unavailable';
+  active: number;
+  suspended: number;
+  pending_setup: number;
+  ended: number;
+  cancelled: number;
+  total: number;
+};
+
+export const getServicePortfolio = (customer?: string, signal?: AbortSignal) =>
+  get<{ rows: ServicePortfolioRow[]; count: number; has_contract: boolean }>(
+    `${BASE}.get_service_portfolio`,
+    { customer },
+    signal
+  );
+
 export const listSubscribedServices = (customer?: string, signal?: AbortSignal) =>
   get<{ services: SubscribedService[]; count: number }>(
     `${BASE}.list_subscribed_services`,
@@ -481,11 +560,7 @@ export type UserWithServices = {
 export const listUsersWithServices = (params: ListParams = {}, signal?: AbortSignal) =>
   get<Paginated<UserWithServices>>(`${BASE}.list_users_with_services`, params, signal);
 
-export type KpiName =
-  | 'active_services'
-  | 'open_requests'
-  | 'reclaimable_licences'
-  | 'devices_without_services';
+export type KpiName = 'active_services' | 'open_requests';
 
 export type KpiColumn = { key: string; label: string };
 
@@ -549,6 +624,7 @@ export type PortalBillingDetail = {
     disputed: number;
     dispute_reason: string | null;
     disputed_on: string | null;
+    dispute_request: string | null;
   };
   invoice: {
     name: string;
@@ -571,6 +647,11 @@ export type PortalBillingDetail = {
     open: boolean;
   };
   can_dispute: boolean;
+  dispute_outcome: {
+    request: string;
+    settled: boolean;
+    note: string | null;
+  } | null;
 };
 
 export const listBilling = (customer?: string, signal?: AbortSignal) =>
@@ -651,11 +732,10 @@ export const getRecentActivity = (customer?: string, limit = 12, signal?: AbortS
     signal
   );
 
-export type RequestAction = {
-  name: string;
-  title: string;
-  action_type: string;
-  description: string | null;
+export type RequestOperation = {
+  code: string;
+  label: string;
+  description?: string | null;
 };
 
 export type ServiceState = {
@@ -667,13 +747,6 @@ export type ServiceState = {
   until?: string | null;
   last_billed_on?: string | null;
 };
-
-export const listRequestActions = (forNewUser?: boolean, signal?: AbortSignal) =>
-  get<RequestAction[]>(
-    `${BASE}.list_request_actions`,
-    { for_new_user: forNewUser ? 1 : 0 },
-    signal
-  );
 
 export const getServiceState = (
   params: { service_item: string; client_user?: string; managed_device?: string },
@@ -695,7 +768,7 @@ export type RequestServiceOffer = {
   item_name: string;
   service_scope: string | null;
   warning?: string | null;
-  allowed_request_actions: RequestAction[];
+  allowed_operations: RequestOperation[];
 };
 
 export type RequestCurrentService = {
@@ -708,7 +781,7 @@ export type RequestCurrentService = {
   managed_device: string | null;
   hostname: string | null;
   pending_request: string | null;
-  allowed_request_actions: RequestAction[];
+  allowed_operations: RequestOperation[];
 };
 
 export type RequestDeviceContext = {
@@ -768,6 +841,73 @@ export type RequestSubmissionContext = {
   message: string;
 };
 
+export type SelectionPerson = {
+  name: string;
+  full_name: string;
+  email: string | null;
+  department: string | null;
+  lifecycle_status: string;
+};
+
+/** Who a Department or the whole company would add, resolved once and kept as a snapshot. */
+export type GroupSelection = {
+  customer: string;
+  selection_origin: 'Department' | 'Company';
+  selection_label: string;
+  selection_group_key: string;
+  selection_snapshot_at: string;
+  active_count: number;
+  excluded_disabled_count: number;
+  department_count: number;
+  departments: string[];
+  people: SelectionPerson[];
+  excluded: SelectionPerson[];
+};
+
+export const getDepartmentSelection = (
+  params: { customer?: string; department: string },
+  signal?: AbortSignal
+) => get<GroupSelection>(`${BASE}.get_department_selection`, params, signal);
+
+export const getCompanySelection = (customer?: string, signal?: AbortSignal) =>
+  get<GroupSelection>(`${BASE}.get_company_selection`, { customer }, signal);
+
+export type BulkTarget = {
+  client_user: string;
+  full_name: string;
+  department?: string | null;
+  target_scope: 'User' | 'Device';
+  managed_device: string | null;
+  hostname: string | null;
+  source_service_assignment: string | null;
+};
+
+export type BulkExclusion = BulkTarget & { reason: string };
+
+export type BulkResolution = {
+  customer: string;
+  operation_code: string;
+  operation_label: string;
+  service_item: string;
+  service_scope: string;
+  eligible: BulkTarget[];
+  excluded: BulkExclusion[];
+  eligible_count: number;
+  excluded_count: number;
+  device_count: number;
+};
+
+export const resolveBulkTargets = (payload: {
+  customer?: string;
+  operation_code: string;
+  service_item: string;
+  people: string[];
+}) =>
+  post<BulkResolution>(`${BASE}.resolve_bulk_targets`, {
+    ...payload,
+    people: JSON.stringify(payload.people),
+  });
+
 export const searchRequestUsers = (
   params: { customer?: string; search?: string; limit?: number } = {},
   signal?: AbortSignal
@@ -785,3 +925,139 @@ export const getNewUserRequestContext = (customer?: string, signal?: AbortSignal
 
 export const getRequestSubmissionContext = (customer?: string, signal?: AbortSignal) =>
   get<RequestSubmissionContext>(`${BASE}.get_request_submission_context`, { customer }, signal);
+
+
+/* ------------------------------------------------------------------ Request Builder V3 */
+
+/** One person in the request snapshot, whichever door they came in through. */
+export type RequestSubjectDraft = {
+  subject_key: string;
+  client_user?: string | null;
+  is_new_user?: boolean;
+  full_name?: string;
+  department?: string | null;
+  email?: string | null;
+  username?: string | null;
+  added_via?: 'Existing' | 'New' | 'Department' | 'Company';
+  selection_label?: string | null;
+};
+
+/** The same person as the server reads them: what they hold and what runs on them today. */
+export type RequestSubjectRow = {
+  subject_key: string;
+  client_user: string | null;
+  is_new_user: 0 | 1;
+  full_name: string;
+  department: string | null;
+  email: string | null;
+  username: string | null;
+  added_via: string;
+  selection_label: string | null;
+  devices: { name: string; label: string; status: string }[];
+  current_services: {
+    assignment: string;
+    service_item: string;
+    label: string;
+    scope: 'User' | 'Device';
+    status: string;
+    managed_device: string | null;
+  }[];
+  last_billed: string | null;
+  usable: boolean;
+  reason_code: string | null;
+};
+
+export type RequestTarget = {
+  subject_key: string;
+  client_user: string | null;
+  full_name: string;
+  department?: string | null;
+  target_scope: 'User' | 'Device';
+  managed_device: string | null;
+  device_label: string | null;
+  source_service_assignment: string | null;
+  current_state?: string | null;
+  current_holder?: string | null;
+  current_holder_label?: string | null;
+  requested_holder?: string | null;
+};
+
+export type RequestExclusion = {
+  subject_key: string;
+  client_user: string | null;
+  full_name: string;
+  managed_device: string | null;
+  device_label: string | null;
+  reason_code: string;
+  reason: string;
+};
+
+export type RequestOperationOption = {
+  operation_code: string;
+  operation_label: string;
+  operation_label_snapshot: string;
+  object_key: string | null;
+  object_label: string;
+  targets: RequestTarget[];
+  exclusions: RequestExclusion[];
+  applicable_target_count: number;
+  applicable_subject_count: number;
+  excluded_subject_count: number;
+  device_count?: number;
+  holder_options?: { value: string; label: string }[];
+};
+
+export type RequestServiceOption = {
+  object_key: string;
+  object_label: string;
+  service_scope: string;
+  current_count: number;
+  without_count: number;
+  actions: RequestOperationOption[];
+};
+
+export type RequestOperationDomain =
+  | { key: 'Service'; label: string; options: RequestServiceOption[] }
+  | { key: 'Device'; label: string; options: RequestOperationOption[] };
+
+export type RequestActionGroupDraft = {
+  group_key: string;
+  operation_code: string;
+  operation_label_snapshot: string;
+  domain: 'Service' | 'Device' | 'People';
+  service_item?: string | null;
+  source_scope_type: 'All' | 'Department' | 'Person';
+  source_scope_key?: string | null;
+  source_scope_label: string;
+  selected_subject_count: number;
+  targets: RequestTarget[];
+  exclusions: RequestExclusion[];
+};
+
+export const evaluateRequestScope = (
+  payload: { customer?: string; subjects: RequestSubjectDraft[] },
+  signal?: AbortSignal
+) =>
+  get<{ customer: string; subjects: RequestSubjectRow[] }>(
+    `${BASE}.evaluate_request_scope`,
+    { customer: payload.customer, subjects: JSON.stringify(payload.subjects) },
+    signal
+  );
+
+export const evaluateRequestOperations = (
+  payload: { customer?: string; subjects: RequestSubjectDraft[]; subject_keys: string[] },
+  signal?: AbortSignal
+) =>
+  get<{
+    customer: string;
+    selected_subject_count: number;
+    domains: RequestOperationDomain[];
+  }>(
+    `${BASE}.evaluate_request_operations`,
+    {
+      customer: payload.customer,
+      subjects: JSON.stringify(payload.subjects),
+      subject_keys: JSON.stringify(payload.subject_keys),
+    },
+    signal
+  );

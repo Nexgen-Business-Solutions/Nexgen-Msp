@@ -10,6 +10,7 @@ import LineReview from '../components/fulfilment/LineReview';
 import ExecutionWorkspace from '../components/fulfilment/ExecutionWorkspace';
 import ExecutionRecap from '../components/fulfilment/ExecutionRecap';
 import FinalValidation from '../components/fulfilment/FinalValidation';
+import RequestActionGroups from '@/shared/components/RequestActionGroups';
 import RequestLinesByPerson, { type PersonLine } from '@/shared/components/RequestLinesByPerson';
 import {
   useRequestDetail,
@@ -17,7 +18,7 @@ import {
   useRunRequestAction,
 } from '../hooks/useRequests';
 import type { ExecutionPlan, RequestDetail as Detail, RequestDetailLine } from '@/lib/api/internal';
-import { pill } from '../lib/fulfilmentStyles';
+import { fmtDate, pill } from '../lib/fulfilmentStyles';
 
 const STEPS = [
   { key: 'review', label: 'Review lines' },
@@ -40,7 +41,10 @@ const COPY: Record<StepKey, { title: string; sub: string }> = {
     title: 'Execute accepted actions',
     sub: 'Accepted request lines stay first. Add other legitimate actions whenever the situation requires them.',
   },
-  verify: { title: 'Execution recap', sub: 'Review exactly what was performed before final validation.' },
+  verify: {
+    title: 'Execution recap',
+    sub: 'Review what was actually performed before final validation.',
+  },
   complete: { title: 'Final validation', sub: 'Confirm the final outcome and close the request.' },
 };
 
@@ -70,6 +74,8 @@ const CLOSED = ['Completed', 'Rejected', 'Cancelled'];
 const asPersonLine = (line: RequestDetailLine): PersonLine => {
   const person = line.client_user || line.requested_for_user || line.device_holder || null;
   const isNewUser = Boolean(line.is_new_user) && !person;
+  // an act on the machine itself names no service: what it is, is the act and the two holders
+  const onMachine = (line.operation_code ?? '').startsWith('device.');
 
   return {
     idx: line.idx,
@@ -81,7 +87,9 @@ const asPersonLine = (line: RequestDetailLine): PersonLine => {
     email: line.new_user_email,
     action: line.action,
     actionLabel: line.action_label,
-    service: line.requested_service_name || line.requested_service || '',
+    service: onMachine
+      ? line.action_label ?? line.operation_code ?? ''
+      : line.requested_service_name || line.requested_service || '',
     onDevice: Boolean(line.managed_device || line.is_new_device),
     serviceScope: line.service_scope,
     isNewDevice: Boolean(line.is_new_device),
@@ -92,6 +100,11 @@ const asPersonLine = (line: RequestDetailLine): PersonLine => {
     status: line.line_status,
     comment: line.comment,
     rejectionReason: line.rejection_reason,
+    extra: onMachine ? (
+      <p className="mt-0.5 text-xs text-slate-600">
+        {line.client_user_name || 'Unassigned'} → {line.requested_holder_name || 'Unassigned'}
+      </p>
+    ) : null,
   };
 };
 
@@ -189,17 +202,19 @@ export default function RequestDetail() {
     <div className="space-y-4 px-6 pb-6 pt-4">
       <WorkflowHeader
         title={data.name}
-        subtitle={
-          planned
-            ? 'Customer-approved request · fulfilment'
-            : `${data.customer} · raised via ${data.source}`
-        }
+        subtitle={`${data.customer} · raised via ${data.source} on ${fmtDate(data.creation)} by ${
+          data.requester_name || data.requester || 'somebody'
+        }`}
         onBack={() => navigate('/msp/requests')}
         backLabel="Back to requests"
         actions={
           <>
             <StatusBadge value={data.status} />
-            {planned && <span className={pill('emerald')}>Customer approved</span>}
+            {planned && <span className={pill('emerald')}>CUSTOMER APPROVED</span>}
+            <span className={pill('slate')}>{String(data.priority).toUpperCase()}</span>
+            <span className={pill('slate')}>
+              {data.lines.length} ACTION{data.lines.length === 1 ? '' : 'S'}
+            </span>
             {headerActions.map((action) => (
               <button
                 key={action.action}
@@ -261,6 +276,13 @@ export default function RequestDetail() {
               </div>
             </section>
           )}
+          {data.action_groups?.length ? (
+            <RequestActionGroups
+              groups={data.action_groups}
+              subjects={data.subjects ?? []}
+              lines={data.lines}
+            />
+          ) : (
           <RequestLinesByPerson
             lines={data.lines.map(asPersonLine)}
             noteLabel="Customer note"
@@ -276,6 +298,7 @@ export default function RequestDetail() {
               ) : null
             }
           />
+          )}
         </div>
       ) : (
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">

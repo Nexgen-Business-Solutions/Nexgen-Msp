@@ -23,52 +23,6 @@ ASSIGNMENT_JOIN = """
 HOLDER = "coalesce(holder.full_name, device_holder.full_name)"
 
 KPI_SOURCES = {
-    "reclaimable_licences": {
-        "title": "Licences to reclaim",
-        "description": "Services still open on users who have left. Every one of these is billed for nothing.",
-        "fields": [
-            ("customer", "Customer", "sa.customer"),
-            ("user_name", "User", HOLDER),
-            ("service", "Service", "coalesce(item.item_name, sa.service_item)"),
-            ("hostname", "Device", "device.hostname"),
-            ("left_on", "User disabled on", "coalesce(holder.disabled_date, device_holder.disabled_date)"),
-            ("status", "Status", "sa.operational_status"),
-        ],
-        "body": ASSIGNMENT_JOIN
-        + """
-            where sa.operational_status in ('Pending Setup', 'Active', 'Suspended', 'Pending Removal')
-              and coalesce(holder.lifecycle_status, device_holder.lifecycle_status)
-                  in ('Disabled', 'Archived')
-        """,
-        "order_by": "coalesce(holder.disabled_date, device_holder.disabled_date) desc",
-        "key": "sa.name",
-        "route": "concat('/msp/users/', coalesce(holder.name, device_holder.name))",
-    },
-    "devices_without_services": {
-        "title": "Devices without services",
-        "description": "Active machines with no active service.",
-        "fields": [
-            ("customer", "Customer", "device.customer"),
-            ("hostname", "Device", "device.hostname"),
-            ("device_type", "Type", "device.device_type"),
-            ("user_name", "Held by", "holder.full_name"),
-            ("since", "In service since", "device.assigned_date"),
-            ("status", "Status", "device.status"),
-        ],
-        "body": """
-            from `tabMSP Managed Device` device
-            left join `tabMSP Client User` holder on holder.name = device.assigned_client_user
-            where device.status = 'Active'
-              and not exists (
-                  select 1 from `tabMSP Service Assignment` sa
-                  where sa.managed_device = device.name
-                    and sa.operational_status in ('Pending Setup', 'Active', 'Suspended', 'Pending Removal')
-              )
-        """,
-        "order_by": "device.customer asc, device.hostname asc",
-        "key": "device.name",
-        "route": "concat('/msp/devices/', device.name)",
-    },
     "billable_services": {
         "title": "Billable services",
         "description": "Every assignment currently flagged as billable.",
@@ -137,7 +91,6 @@ class DashboardService:
             "requests": DashboardService._request_counters(),
             "queue": DashboardService._queue(),
             "pending_lines": DashboardService._pending_lines(),
-            "hygiene": DashboardService._hygiene(),
         }
 
         if is_admin:
@@ -280,37 +233,6 @@ class DashboardService:
             """,
             as_dict=True,
         )
-
-    @staticmethod
-    def _hygiene():
-        idle = frappe.db.sql(
-            """
-            select count(*)
-            from `tabMSP Managed Device` device
-            where device.status = 'Active'
-              and not exists (
-                  select 1 from `tabMSP Service Assignment` sa
-                  where sa.managed_device = device.name
-                    and sa.operational_status in ('Pending Setup', 'Active', 'Suspended', 'Pending Removal')
-              )
-            """,
-            {},
-        )[0][0]
-
-        reclaimable = frappe.db.sql(
-            """
-            select count(*)
-            from `tabMSP Service Assignment` sa
-            left join `tabMSP Client User` holder on holder.name = sa.client_user
-            left join `tabMSP Managed Device` device on device.name = sa.managed_device
-            left join `tabMSP Client User` device_holder on device_holder.name = device.assigned_client_user
-            where sa.operational_status in ('Pending Setup', 'Active', 'Suspended', 'Pending Removal')
-              and coalesce(holder.lifecycle_status, device_holder.lifecycle_status)
-                  in ('Disabled', 'Archived')
-            """
-        )[0][0]
-
-        return {"devices_without_services": idle, "reclaimable_licences": reclaimable}
 
     @staticmethod
     def _portfolio():

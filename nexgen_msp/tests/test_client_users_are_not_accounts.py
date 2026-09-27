@@ -165,7 +165,7 @@ class TestARequestForANewcomer(AccountFootprint):
                 request_type="Add",
                 lines=[
                     {
-                        "request_action": self.action("Add"),
+                        "operation_code": self.operation("Add"),
                         "action": "Add",
                         "target_scope": "User",
                         "is_new_user": 1,

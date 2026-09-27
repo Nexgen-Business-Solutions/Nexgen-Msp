@@ -97,15 +97,44 @@ export default function PortalInvoiceDetail() {
           </div>
         </div>
 
-        {Boolean(run.disputed) && (
-          <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
-            <ShieldAlert size={16} className="mt-0.5 shrink-0 text-amber-600" />
-            <div className="text-sm text-amber-800">
+        {Boolean(run.dispute_reason) && (
+          <div
+            className={`mt-4 flex items-start gap-2.5 rounded-lg border p-3 ${
+              data.dispute_outcome?.settled
+                ? 'border-emerald-200 bg-emerald-50'
+                : 'border-amber-200 bg-amber-50'
+            }`}
+          >
+            <ShieldAlert
+              size={16}
+              className={`mt-0.5 shrink-0 ${
+                data.dispute_outcome?.settled ? 'text-emerald-600' : 'text-amber-600'
+              }`}
+            />
+            <div
+              className={`text-sm ${
+                data.dispute_outcome?.settled ? 'text-emerald-900' : 'text-amber-800'
+              }`}
+            >
               <p className="font-semibold">
                 You disputed this invoice on {fmtDate(run.disputed_on)}
               </p>
               <p className="mt-1">{run.dispute_reason}</p>
-              <p className="mt-1 text-xs">Our team is reviewing it and will come back to you.</p>
+              {data.dispute_outcome?.settled ? (
+                <>
+                  <p className="mt-2 font-semibold">Settled</p>
+                  {data.dispute_outcome.note && (
+                    <p className="mt-0.5">{data.dispute_outcome.note}</p>
+                  )}
+                  <p className="mt-1 text-xs">
+                    The invoice itself is unchanged. Anything owed back travels as a credit note.
+                  </p>
+                </>
+              ) : (
+                <p className="mt-1 text-xs">
+                  Our team is reviewing it and will come back to you.
+                </p>
+              )}
             </div>
           </div>
         )}

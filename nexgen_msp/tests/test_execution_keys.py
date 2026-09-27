@@ -55,7 +55,7 @@ class ExecutionKeyCase(MSPTestCase):
         action = fields.pop("action", "Add")
 
         return {
-            "request_action": self.action(action),
+            "operation_code": self.operation(action),
             "action": action,
             "target_scope": "User",
             "client_user": self.john,

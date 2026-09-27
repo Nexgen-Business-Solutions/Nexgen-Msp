@@ -86,24 +86,15 @@ class TestDeploymentSteps(MSPTestCase):
         self.assertTrue(frappe.db.exists("UOM", "Month"))
         self.assertFalse(frappe.db.get_value("UOM", "Month", "must_be_whole_number"))
 
-    def test_the_actions_a_customer_may_ask_for_are_seeded(self):
-        self.assertGreater(frappe.db.count("MSP Request Action"), 0)
-
     def test_the_invoice_carries_an_issuer(self):
         self.assertTrue(
             (frappe.db.get_single_value("MSP Invoice Settings", "issuer_name") or "").strip()
         )
 
     def test_running_the_seeds_again_changes_nothing(self):
-        before = (
-            frappe.db.count("MSP Request Action"),
-            frappe.db.get_value("UOM", "Month", "must_be_whole_number"),
-        )
+        before = frappe.db.get_value("UOM", "Month", "must_be_whole_number")
         seeds.ensure_seeds()
-        after = (
-            frappe.db.count("MSP Request Action"),
-            frappe.db.get_value("UOM", "Month", "must_be_whole_number"),
-        )
+        after = frappe.db.get_value("UOM", "Month", "must_be_whole_number")
 
         self.assertEqual(before, after)
 

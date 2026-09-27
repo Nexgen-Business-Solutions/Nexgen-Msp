@@ -232,7 +232,7 @@ class TestServiceCallers(MSPTestCase):
                 "requester": frappe.session.user,
                 "lines": [
                     {
-                        "request_action": self.action(),
+                        "operation_code": self.operation(),
                         "action": "Add",
                         "requested_service": service,
                         "line_status": "Pending",

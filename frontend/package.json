@@ -9,7 +9,9 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "copy-html-entry": "cp ../nexgen_msp/public/frontend/index.html ../nexgen_msp/www/msp.html",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:journey": "playwright test --config playwright.journey.config.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.6",
@@ -46,6 +48,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.19.0",
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/vite": "^4.2.2",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^7.0.1",

@@ -88,7 +88,7 @@ describe('raising a request about a machine', () => {
 
     fireEvent.click(screen.getByTitle('More options'));
     expect(
-      await screen.findByRole('button', { name: 'Raise a request for Adam Harmel' })
+      await screen.findByRole('menuitem', { name: 'Raise a request for Adam Harmel' })
     ).toBeInTheDocument();
   });
 });
@@ -106,7 +106,7 @@ describe('a customer opening one of their machines', () => {
     await renderList();
 
     fireEvent.click(screen.getByTitle('More options'));
-    fireEvent.click(await screen.findByRole('button', { name: /open device/i }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /open device/i }));
 
     expect(await screen.findByText('the machine file')).toBeInTheDocument();
   });

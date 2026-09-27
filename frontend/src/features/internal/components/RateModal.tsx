@@ -130,6 +130,7 @@ const RateModal: React.FC<Props> = ({
           <div>
             <FieldLabel required>Rate {currency ? `(${currency})` : ''}</FieldLabel>
             <input
+              aria-label="Rate"
               type="number"
               min={0}
               step="0.01"
@@ -157,6 +158,7 @@ const RateModal: React.FC<Props> = ({
           <div>
             <FieldLabel>Applies from</FieldLabel>
             <input
+              aria-label="Applies from"
               type="date"
               value={validFrom}
               max={validUpto || undefined}

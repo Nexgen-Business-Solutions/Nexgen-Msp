@@ -18,8 +18,8 @@ from nexgen_msp.utils.errors import NotFoundError, ValidationError
 from .base import MSPTestCase
 
 REFUSED = (ValidationError, NotFoundError, frappe.PermissionError, frappe.ValidationError)
-PORTAL_KPIS = ("active_services", "open_requests", "reclaimable_licences", "devices_without_services")
-INTERNAL_KPIS = ("reclaimable_licences", "devices_without_services", "billable_services", "services_added", "services_removed")
+PORTAL_KPIS = ("active_services", "open_requests")
+INTERNAL_KPIS = ("billable_services", "services_added", "services_removed")
 
 
 class TestFiltersByRole(MSPTestCase):
@@ -136,18 +136,29 @@ class TestFiltersByRole(MSPTestCase):
         with self.assertRaises(REFUSED):
             self.as_user(self.manager, lambda: PortalService.list_kpi_rows("no_such_kpi", None, 0, 10))
 
-    def test_the_idle_machine_kpi_names_the_right_machine(self):
-        rows = self.as_user(self.manager, lambda: PortalService.list_kpi_rows("devices_without_services", None, 0, 200))
+    def test_the_machine_that_runs_nothing_is_named_by_its_own_filter(self):
+        """§04-3/§04-4: no portal KPI claims it; the factual coverage filter lists it."""
+        rows = self.as_user(
+            self.manager,
+            lambda: PortalService.list_devices(self.customer, coverage="no_service", page_length=200),
+        )
         self.assertEqual([row["name"] for row in rows["rows"]], [self.box2])
 
-        elsewhere = self.as_user(self.stranger, lambda: PortalService.list_kpi_rows("devices_without_services", None, 0, 200))
-        self.assertEqual(elsewhere["rows"], [])
+        with self.assertRaises(REFUSED):
+            self.as_user(
+                self.manager,
+                lambda: PortalService.list_kpi_rows("devices_without_services", None, 0, 200),
+            )
 
     # ---------------------------------------------------------------- internal lists
     def test_each_coverage_card_counts_exactly_the_rows_its_filter_lists(self):
         for viewer in (self.tech, self.admin):
             users = self.as_user(viewer, lambda: UserService.get_stats(customer=self.customer))
-            for stat, coverage in (("without_device", "no_device"), ("disabled_with_services", "disabled_with_services")):
+            for stat, coverage in (
+                ("without_device", "no_device"),
+                ("disabled_with_personal_services", "disabled_with_personal_services"),
+                ("disabled_holding_device", "disabled_holding_device"),
+            ):
                 listed = self.as_user(viewer, lambda: UserService.list_users(customer=self.customer, coverage=coverage, page_length=200))
                 self.assertEqual(self.total(listed), users[stat], f"{viewer} {coverage}")
 
@@ -173,8 +184,13 @@ class TestFiltersByRole(MSPTestCase):
         for kpi in INTERNAL_KPIS:
             self.assertIn("rows", self.as_user(self.admin, lambda: DashboardService.list_kpi_rows(kpi, 0, 50)), kpi)
 
-        for kpi in ("reclaimable_licences", "devices_without_services", "services_added", "services_removed"):
+        for kpi in ("services_added", "services_removed"):
             self.assertIn("rows", self.as_user(self.tech, lambda: DashboardService.list_kpi_rows(kpi, 0, 50)), kpi)
+
+        # §04-3/§04-6: the two heuristic KPIs no longer exist at all
+        for gone in ("reclaimable_licences", "devices_without_services"):
+            with self.assertRaises(REFUSED):
+                self.as_user(self.admin, lambda: DashboardService.list_kpi_rows(gone, 0, 50))
 
         with self.assertRaises(REFUSED):
             self.as_user(self.tech, lambda: DashboardService.list_kpi_rows("billable_services", 0, 50))
@@ -191,7 +207,7 @@ class TestFiltersByRole(MSPTestCase):
                 lambda: UserService.list_users(page_length=10),
                 lambda: UserService.get_stats(),
                 lambda: DeviceService.list_devices(page_length=10),
-                lambda: DashboardService.list_kpi_rows("devices_without_services", 0, 10),
+                lambda: DashboardService.list_kpi_rows("services_added", 0, 10),
                 lambda: DashboardService.get_dashboard(),
             ):
                 with self.assertRaises(REFUSED, msg=viewer):
@@ -229,7 +245,7 @@ class TestTheRequestQueueCards(MSPTestCase):
                 priority=priority,
                 lines=[
                     {
-                        "request_action": self.action(),
+                        "operation_code": self.operation(),
                         "action": "Add",
                         "target_scope": "User",
                         "client_user": self.person,
@@ -316,8 +332,10 @@ class TestEveryCardListsWhatItCounts(MSPTestCase):
         self.assertEqual(summary["active_devices"], machines(status="Active"))
         self.assertEqual(summary["retired_devices"], machines(status="Retired"))
         self.assertEqual(summary["retired_devices"], 1, "stock is not retired")
-        self.assertEqual(summary["devices_without_services"], machines(coverage="no_service"))
-        self.assertEqual(summary["devices_without_services"], 1, "BOX1 runs nothing; the others are not active")
+        self.assertEqual(machines(coverage="no_service"), 1, "BOX1 runs nothing; the others are not active")
+        # §04-3: the customer's summary carries no heuristic counter any more
+        self.assertNotIn("devices_without_services", summary)
+        self.assertNotIn("reclaimable_licences", summary)
 
     def test_the_internal_dashboard_cards_and_their_queues(self):
         from nexgen_msp.api.internal.services.request_service import RequestService
@@ -326,7 +344,7 @@ class TestEveryCardListsWhatItCounts(MSPTestCase):
             self.manager,
             lambda: PortalService.create_request(
                 customer=self.customer, request_type="Add",
-                lines=[{"request_action": self.action(), "action": "Add", "target_scope": "User", "client_user": self.alice, "requested_service": self.service}],
+                lines=[{"operation_code": self.operation(), "action": "Add", "target_scope": "User", "client_user": self.alice, "requested_service": self.service}],
             ),
         )["name"])
         self.as_user(self.tech, lambda: RequestService.run_action(name, "start_review"))
@@ -346,10 +364,6 @@ class TestEveryCardListsWhatItCounts(MSPTestCase):
         self.assertIn(name, names(to_execute), "approved, nothing delivered yet")
         self.assertGreaterEqual(counters["lines_to_execute"], 1)
 
-        for kpi in ("reclaimable_licences", "devices_without_services"):
-            rows = self.as_user(self.admin, lambda: DashboardService.list_kpi_rows(kpi, 0, 500))
-            self.assertEqual(rows["total"], board["hygiene"][kpi], kpi)
-
         self.assertEqual(
             board["portfolio"]["active_client_users"],
             self.as_user(self.admin, lambda: UserService.list_users(status="Active", page_length=2000))["total"],
@@ -360,8 +374,13 @@ class TestEveryCardListsWhatItCounts(MSPTestCase):
         listed = lambda **f: self.as_user(self.tech, lambda: UserService.list_users(customer=self.customer, page_length=500, **f))["total"]
 
         self.assertEqual(stats["active_users"], listed(status="Active"))
-        self.assertEqual(stats["users_with_idle_device"], listed(coverage="no_service"))
-        self.assertEqual(stats["users_with_idle_device"], 1, "alice, whose BOX1 runs nothing")
+        # §04-5: no counter claims a held machine that runs nothing is idle
+        self.assertNotIn("users_with_idle_device", stats)
+        self.assertEqual(listed(coverage="no_service"), 1, "alice, whose BOX1 runs nothing")
+        self.assertEqual(
+            stats["disabled_with_personal_services"], listed(coverage="disabled_with_personal_services")
+        )
+        self.assertEqual(stats["disabled_holding_device"], listed(coverage="disabled_holding_device"))
 
         devices = self.as_user(self.tech, lambda: DeviceService.get_stats(customer=self.customer))
         machines = lambda **f: self.as_user(self.tech, lambda: DeviceService.list_devices(customer=self.customer, page_length=500, **f))["total"]

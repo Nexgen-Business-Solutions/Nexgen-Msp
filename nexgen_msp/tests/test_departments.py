@@ -44,7 +44,7 @@ class TestDepartmentCatalogue(MSPTestCase):
                 "requester": frappe.session.user,
                 "lines": [
                     {
-                        "request_action": self.action(),
+                        "operation_code": self.operation(),
                         "action": "Add",
                         "target_scope": "User",
                         "is_new_user": 1,
@@ -210,7 +210,7 @@ class TestDepartmentCatalogue(MSPTestCase):
                 request_type="Add",
                 lines=[
                     {
-                        "request_action": self.action(),
+                        "operation_code": self.operation(),
                         "action": "Add",
                         "target_scope": "User",
                         "is_new_user": 1,
@@ -268,7 +268,7 @@ class TestDepartmentCatalogue(MSPTestCase):
                     request_type="Add",
                     lines=[
                         {
-                            "request_action": self.action(),
+                            "operation_code": self.operation(),
                             "action": "Add",
                             "target_scope": "User",
                             "is_new_user": 1,
@@ -281,32 +281,47 @@ class TestDepartmentCatalogue(MSPTestCase):
         finally:
             frappe.set_user("Administrator")
 
-    def test_new_user_request_requires_a_department_even_with_new_device_flag(self):
+    def test_a_new_user_needs_a_name_and_a_department_only_if_one_is_given(self):
+        """The catalogue rule holds; being asked for a Department at all no longer does.
+
+        A customer is asked for the person's name and nothing else — a Department they do not
+        know is completed during fulfilment. What has not changed is that a Department they do
+        give has to be one of ours, whatever else the line happens to say.
+        """
         customer = self.make_customer()
         service = self.make_service(f"REQDEP{self.tag}", scope="User")
         asker = self.make_account("customer", "MSP Customer Manager", customer, suffix=f"reqdep{self.tag}")
         self.grant(asker)
 
+        def line(department):
+            return {
+                "operation_code": self.operation(),
+                "action": "Add",
+                "target_scope": "User",
+                "is_new_user": 1,
+                "is_new_device": 1,
+                "new_user_full_name": "New Colleague",
+                "new_user_department": department,
+                "requested_service": service,
+            }
+
         frappe.set_user(asker)
         try:
-            for department in (None, "Whatever I Want"):
-                with self.assertRaises(ValidationError):
-                    PortalService.create_request(
-                        customer=customer,
-                        request_type="Add",
-                        lines=[
-                            {
-                                "request_action": self.action(),
-                                "action": "Add",
-                                "target_scope": "User",
-                                "is_new_user": 1,
-                                "is_new_device": 1,
-                                "new_user_full_name": "New Colleague",
-                                "new_user_department": department,
-                                "requested_service": service,
-                            }
-                        ],
-                    )
+            with self.assertRaises(ValidationError):
+                PortalService.create_request(
+                    customer=customer, request_type="Add", lines=[line("Whatever I Want")]
+                )
+
+            out = PortalService.create_request(
+                customer=customer, request_type="Add", lines=[line(None)]
+            )
+            self.track("MSP Service Request", out["name"])
+
+            self.assertIsNone(
+                frappe.db.get_value("MSP Service Request Line", out["lines"][0]["name"], "new_user_department")
+                if out["lines"][0].get("name")
+                else None
+            )
         finally:
             frappe.set_user("Administrator")
 
@@ -349,7 +364,7 @@ class TestDepartmentMigration(MSPTestCase):
                 "requester": frappe.session.user,
                 "lines": [
                     {
-                        "request_action": self.action(),
+                        "operation_code": self.operation(),
                         "action": "Add",
                         "target_scope": "User",
                         "is_new_user": 1,

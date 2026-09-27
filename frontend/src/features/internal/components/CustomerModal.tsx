@@ -127,6 +127,7 @@ const CustomerModal: React.FC<Props> = ({ open, customer, details, onClose, onCr
               <FieldLabel required>Name</FieldLabel>
               <input
                 type="text"
+                aria-label="Name"
                 value={form.customer_name ?? ''}
                 onChange={(event) => set({ customer_name: event.target.value })}
                 className={inputClass}

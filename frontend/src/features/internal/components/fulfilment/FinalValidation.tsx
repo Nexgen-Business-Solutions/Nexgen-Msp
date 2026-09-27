@@ -34,13 +34,19 @@ const FinalValidation: React.FC<{
           {done ? 'Request completed' : 'Ready for final validation'}
         </p>
         <p className="mt-1 text-sm">
-          {outcome.requested_done} accepted request line{outcome.requested_done === 1 ? '' : 's'} completed ·{' '}
-          {outcome.rejected} rejected · {outcome.technician_done} additional action
-          {outcome.technician_done === 1 ? '' : 's'} completed · {outcome.prepared} created or prepared
+          {outcome.requested_done} accepted request line
+          {outcome.requested_done === 1 ? '' : 's'} completed
+        </p>
+        <p className="text-sm">
+          {outcome.rejected} rejected request line{outcome.rejected === 1 ? '' : 's'}
+        </p>
+        <p className="text-sm">
+          {outcome.technician_done} additional technician action
+          {outcome.technician_done === 1 ? '' : 's'} completed
+          {outcome.prepared ? ` · ${outcome.prepared} created or prepared` : ''}
           {outcome.context_done
             ? ` · ${outcome.context_done} profile change${outcome.context_done === 1 ? '' : 's'}`
             : ''}
-          .
         </p>
       </div>
 

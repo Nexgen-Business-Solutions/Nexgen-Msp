@@ -15,6 +15,7 @@ SCOPE_FIELD = {
 SERVICE_ACTION = "Service Action"
 USER_SETUP = "User Setup"
 DEVICE_PROVISIONING = "Device Provisioning"
+DEVICE_OPERATION = "Device Operation"
 CONTEXT_ACTION = "Context Action"
 
 # what each kind of work is allowed to be an act of
@@ -22,6 +23,7 @@ WORK_ACTIONS = {
 	SERVICE_ACTION: ("Add", "Change", "Suspend", "Resume", "Remove"),
 	USER_SETUP: ("Create User",),
 	DEVICE_PROVISIONING: ("Assign Device", "Register Device", "Transfer Device"),
+	DEVICE_OPERATION: ("Assign Device", "Transfer Device"),
 	CONTEXT_ACTION: (),
 }
 
@@ -40,12 +42,19 @@ class MSPServiceWorkOrder(Document):
 	def validate_work_type(self):
 		"""Preparing a person or a machine is work, but it is not a service being sold.
 
-		Only a Service Action names a service item and acts on it. The two preparation
-		kinds name the group of lines they stand for instead, which is what lets one
-		account be created for somebody a request asked three things for.
+		Only a Service Action names a service item and acts on it. The preparation kinds
+		name the group of lines they stand for instead, which is what lets one account be
+		created for somebody a request asked three things for, and an act on a machine
+		itself names the machine and the operation it carries out.
 		"""
 		if not self.work_type:
 			self.work_type = SERVICE_ACTION
+
+		if self.work_type == DEVICE_OPERATION:
+			# the operation is what this work is; the old verb is kept only where one exists
+			from nexgen_msp.utils import operations
+
+			self.action = operations.work_action(self.operation_code)
 
 		allowed = WORK_ACTIONS[self.work_type]
 
@@ -75,6 +84,12 @@ class MSPServiceWorkOrder(Document):
 
 		if self.work_type == DEVICE_PROVISIONING and not self.device_requirement_key:
 			frappe.throw(_("A device provisioning work order must say which machine it settles."))
+
+		if self.work_type == DEVICE_OPERATION:
+			if not self.operation_code:
+				frappe.throw(_("A device operation work order must say which operation it carries out."))
+			if not self.managed_device:
+				frappe.throw(_("A device operation work order must name the machine it acts on."))
 
 		if self.work_type == CONTEXT_ACTION and not self.activity_label:
 			frappe.throw(_("A context action must say what was changed."))

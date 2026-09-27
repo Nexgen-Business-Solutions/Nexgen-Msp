@@ -23,6 +23,9 @@ from nexgen_msp.api.internal.services.request_service import (
     OPEN_STATUSES,
     RequestService,
 )
+from nexgen_msp.api.internal.services.service_definition_service import (
+    ServiceDefinitionService,
+)
 from nexgen_msp.api.internal.services.service_availability_service import (
     ServiceAvailabilityService,
 )
@@ -43,6 +46,35 @@ VISIBLE_REQUEST_STATUSES = tuple(status for status in OPEN_STATUSES if status !=
 RECENT_ACTIVITY = 20
 
 
+def association_window(service_start, service_end, held_from, held_until):
+    """The days a person and a machine's service were together, or None if there were none.
+
+    Both periods are inclusive and an empty end means it has not ended. A service with no
+    start yet is only waiting to begin, so it belongs with a holding still running.
+
+    The window says nothing about the service itself: a service that outlives the holding is
+    still running, it simply stopped being this person's to look at.
+    """
+    # frappe reads an empty date as today, which here would close an open period
+    def getdate(value):
+        return frappe.utils.getdate(value) if value else None
+
+    service_start, service_end = getdate(service_start), getdate(service_end)
+    held_from, held_until = getdate(held_from), getdate(held_until)
+
+    if service_start is None:
+        return (None, None) if held_until is None else None
+
+    since = max(day for day in (service_start, held_from) if day is not None)
+    ends = [day for day in (service_end, held_until) if day is not None]
+    until = min(ends) if ends else None
+
+    if until is not None and until < since:
+        return None
+
+    return since, until
+
+
 class User360Service:
     # ------------------------------------------------------------------ the reading
     @staticmethod
@@ -58,6 +90,8 @@ class User360Service:
 
         devices = User360Service._current_devices(person, internal=internal)
         personal = User360Service._personal_services(person, internal=internal)
+        holdings = User360Service._holdings(person)
+        services = User360Service._service_portfolio(person, holdings, internal=internal)
         requests = User360Service._open_requests(person)
         attention = User360Service._attention(person, devices, personal, requests)
 
@@ -73,6 +107,11 @@ class User360Service:
                 "attention_count": len(attention) if internal else 0,
             },
             "personal_services": personal,
+            # every service this page is about, ended ones included: a service that stopped
+            # is part of what happened to this person, not something to hide
+            "services": services,
+            "service_counts": User360Service._count_by_status(services),
+            "device_history": User360Service._device_history(holdings),
             "devices": devices,
             "open_requests": requests,
             "attention": attention if internal else [],
@@ -195,6 +234,162 @@ class User360Service:
         }
 
     @staticmethod
+    def _holdings(person):
+        """Every spell this person held a machine, current or over, one line each."""
+        return frappe.db.sql(
+            """
+            select holder.name as period, holder.from_date, holder.to_date, holder.is_current,
+                   device.name as device, device.hostname, device.device_type,
+                   device.serial_number, device.status
+            from `tabMSP Device Holder` holder
+            join `tabMSP Managed Device` device on device.name = holder.parent
+            where holder.parenttype = 'MSP Managed Device'
+              and holder.client_user = %(user)s
+            order by holder.is_current desc, holder.from_date desc
+            """,
+            {"user": person.name},
+            as_dict=True,
+        )
+
+    @staticmethod
+    def _device_history(holdings):
+        """The machines that passed through this person's hands, as they passed."""
+        return [
+            {
+                "period": spell.period,
+                "device": spell.device,
+                "hostname": spell.hostname,
+                "device_type": spell.device_type,
+                "serial_number": spell.serial_number,
+                "device_status": spell.status,
+                "from_date": spell.from_date,
+                "to_date": spell.to_date,
+                "is_current": bool(spell.is_current),
+            }
+            for spell in holdings
+        ]
+
+    @staticmethod
+    def _count_by_status(services):
+        counts = {}
+
+        for row in services:
+            counts[row["operational_status"]] = counts.get(row["operational_status"], 0) + 1
+
+        return counts
+
+    @staticmethod
+    def _service_portfolio(person, holdings=None, internal=True):
+        """Every non-Draft assignment this person's page is about, whatever state it is in.
+
+        Their own services are theirs. A service on a machine belongs to the machine and is
+        shown here only while they hold it, with the machine named so nobody reads it as
+        personal.
+        """
+        fields = """
+            sa.name, sa.service_item, sa.assignment_scope, sa.managed_device,
+            sa.operational_status, sa.billing_status, sa.quantity,
+            sa.effective_start_date, sa.effective_end_date, sa.source_request
+        """
+        rows = []
+
+        for row in frappe.db.sql(
+            f"""
+            select {fields}
+            from `tabMSP Service Assignment` sa
+            where sa.client_user = %(user)s and sa.assignment_scope = 'User'
+              and sa.operational_status != 'Draft'
+            """,
+            {"user": person.name},
+            as_dict=True,
+        ):
+            rows.append(
+                User360Service._portfolio_row(
+                    row, since=row.effective_start_date, until=row.effective_end_date, spell=None
+                )
+            )
+
+        spells = {}
+
+        for spell in holdings or []:
+            spells.setdefault(spell.device, []).append(spell)
+
+        if spells:
+            for row in frappe.db.sql(
+                f"""
+                select {fields}
+                from `tabMSP Service Assignment` sa
+                where sa.managed_device in %(devices)s and sa.assignment_scope = 'Device'
+                  and sa.operational_status != 'Draft'
+                """,
+                {"devices": tuple(spells)},
+                as_dict=True,
+            ):
+                # held twice, read twice: each spell is its own association
+                for spell in spells[row.managed_device]:
+                    window = association_window(
+                        row.effective_start_date,
+                        row.effective_end_date,
+                        spell.from_date,
+                        spell.to_date,
+                    )
+
+                    if window:
+                        rows.append(
+                            User360Service._portfolio_row(
+                                row, since=window[0], until=window[1], spell=spell
+                            )
+                        )
+
+        if not rows:
+            return []
+
+        names = list({row["name"] for row in rows})
+        items = [row["service_item"] for row in rows]
+        labels = ServiceDefinitionService.labels_by_item(items)
+        defined = ServiceDefinitionService.definitions_by_item(items)
+        pending = User360Service._pending_on(names, internal)
+        billed = User360Service._billed_through(names)
+
+        for row in rows:
+            row["service_name"] = labels.get(row["service_item"], row["service_item"])
+            # history reads whatever MSP once sold; only our own screens say it is legacy
+            row["legacy_service"] = internal and row["service_item"] not in defined
+            User360Service._describe_service(row, pending)
+            row["last_billed_on"] = billed.get(row["name"])
+
+        # what is still running first, then the most recent association
+        rows.sort(key=lambda row: str(row["association_from"] or "9999"), reverse=True)
+        rows.sort(key=lambda row: row["operational_status"] in ("Ended", "Cancelled"))
+
+        return rows
+
+    @staticmethod
+    def _portfolio_row(row, since, until, spell):
+        """One service as this person's page reads it: theirs, or a machine's while they held it."""
+        return {
+            "name": row.name,
+            "assignment": row.name,
+            "service_item": row.service_item,
+            "assignment_scope": row.assignment_scope,
+            "managed_device": spell.device if spell else None,
+            "hostname": spell.hostname if spell else None,
+            "device_serial_number": spell.serial_number if spell else None,
+            "holding_period": spell.period if spell else None,
+            # false once the machine has left their hands: acting on it is the next holder's
+            "current_holding": bool(spell.is_current) if spell else True,
+            "target": (spell.hostname or spell.device) if spell else "Person",
+            "association_from": since,
+            "association_until": until,
+            "operational_status": row.operational_status,
+            "billing_status": row.billing_status,
+            "quantity": row.quantity,
+            "effective_start_date": row.effective_start_date,
+            "effective_end_date": row.effective_end_date,
+            "source_request": row.source_request,
+        }
+
+    @staticmethod
     def _closed_personal_services(person):
         rows = frappe.db.sql(
             """
@@ -285,7 +480,7 @@ class User360Service:
         )
 
         row["allowed_actions"] = list(
-            request_intents.ALLOWED_ACTIONS.get(row["operational_status"], ())
+            request_intents.allowed_actions(row["operational_status"])
         )
         row["pending_request"] = asked
 
@@ -556,17 +751,6 @@ class User360Service:
                         f"{len(devices)} device(s).",
                     }
                 )
-
-        if personal["current"] and not (person.username or "").strip():
-            signals.append(
-                {
-                    "code": "ACCOUNT_NAME_MISSING",
-                    "severity": "warning",
-                    "entity_type": "User",
-                    "entity": person.name,
-                    "message": "No username is recorded for the services issued to them.",
-                }
-            )
 
         for request in requests:
             if request.status == "Submitted":

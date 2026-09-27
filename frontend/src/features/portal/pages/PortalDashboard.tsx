@@ -10,9 +10,8 @@ import {
   PowerOff,
   Receipt,
   ReceiptText,
-  ShieldAlert,
-  UserMinus,
   UserPlus,
+  Users,
 } from 'lucide-react';
 import KpiCard from '@/shared/components/KpiCard';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
@@ -30,8 +29,6 @@ import {
 const KPI_DESCRIPTIONS: Record<KpiName, string> = {
   active_services: 'Every service currently running for your company.',
   open_requests: 'Requests still being processed by Nexgen.',
-  reclaimable_licences: 'Services still running for users who have left — cancel them to stop being billed.',
-  devices_without_services: 'Active devices with no active service.',
 };
 
 const REQUEST_COLUMNS = ['Request', 'Type', 'Priority', 'Status', 'Created', ''];
@@ -96,7 +93,8 @@ export default function PortalDashboard() {
           accent="emerald"
           label="Active services"
           value={summary.data?.active_services ?? 0}
-          caption={`${summary.data?.catalogue_size ?? 0} services in catalogue`}
+          caption="Currently running service assignments"
+
           loading={summary.isLoading}
           onView={() => openKpi('active_services')}
         />
@@ -110,24 +108,20 @@ export default function PortalDashboard() {
           onView={() => openKpi('open_requests')}
         />
         <KpiCard
-          icon={UserMinus}
-          tone="alert"
-          accent="slate"
-          label="Licences to reclaim"
-          value={summary.data?.reclaimable_licences ?? 0}
-          caption="Disabled users with active services"
+          icon={Users}
+          accent="indigo"
+          label="Active users"
+          value={summary.data?.active_client_users ?? 0}
+          caption="Managed people currently active"
           loading={summary.isLoading}
-          onView={() => openKpi('reclaimable_licences')}
         />
         <KpiCard
-          icon={ShieldAlert}
-          tone="alert"
+          icon={Laptop}
           accent="slate"
-          label="Devices without services"
-          value={summary.data?.devices_without_services ?? 0}
-          caption="Active devices without security"
+          label="Active devices"
+          value={summary.data?.active_devices ?? 0}
+          caption="Devices currently deployed"
           loading={summary.isLoading}
-          onView={() => openKpi('devices_without_services')}
         />
       </div>
 

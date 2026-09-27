@@ -86,7 +86,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Operational Status",
-   "options": "Draft\nPending Setup\nActive\nSuspended\nPending Removal\nEnded\nCancelled",
+   "options": "Draft\nPending Setup\nActive\nSuspended\nEnded\nCancelled",
    "reqd": 1
   },
   {
@@ -165,7 +165,7 @@
    "fieldtype": "Date",
    "in_list_view": 1,
    "label": "Effective Start Date",
-   "mandatory_depends_on": "eval:[\"Active\",\"Suspended\",\"Pending Removal\",\"Ended\"].includes(doc.operational_status)"
+   "mandatory_depends_on": "eval:[\"Active\",\"Suspended\",\"Ended\"].includes(doc.operational_status)"
   },
   {
    "fieldname": "column_break_period",
@@ -296,10 +296,11 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-08-13 18:39:19.723327",
+ "modified": "2026-09-25 03:36:49.472922",
  "modified_by": "Administrator",
  "module": "Nexgen MSP",
  "name": "MSP Service Assignment",
+ "naming_rule": "By \"Naming Series\" field",
  "owner": "Administrator",
  "permissions": [
   {

@@ -49,6 +49,15 @@ export type RequestAction = {
 export type RequestDetailLine = {
   idx: number;
   action: string;
+  /** what the customer built this line from: the person, and the act they added */
+  subject_key: string | null;
+  action_group_key: string | null;
+  /** the operation the line asks for, and who it names when it is about a machine */
+  operation_code: string | null;
+  operation_payload: string | null;
+  state_snapshot: string | null;
+  requested_holder: string | null;
+  requested_holder_name: string | null;
   action_label: string | null;
   action_description: string | null;
   target_scope: string;
@@ -105,6 +114,9 @@ export type RequestDetail = {
   can_decide_lines: boolean;
   review: RequestReview | null;
   people?: Record<string, PersonFacts>;
+  /** the people and the acts the customer built, when the request was raised the V3 way */
+  subjects?: import('./portal').RequestSubjectSnapshot[];
+  action_groups?: import('./portal').RequestActionGroupSnapshot[];
 };
 
 export type PersonFacts = {
@@ -218,11 +230,25 @@ export type WorkPersonCard = {
 };
 
 export type WorkCard = {
+  /** the act the customer added that this unit of work came from */
+  action_group_key?: string | null;
+  /** what this unit is still owed before it can run */
+  requirements?: WorkRequirement[];
   name: string;
   plan_key: string;
-  work_type: 'Service Action' | 'User Setup' | 'Device Provisioning';
-  action: string;
-  request_action?: string | null;
+  work_type: 'Service Action' | 'User Setup' | 'Device Provisioning' | 'Device Operation';
+  action: string | null;
+  /** the operation this work carries out, and what it was asked to do */
+  operation_code: string | null;
+  requested_holder?: string | null;
+  requested_holder_name?: string | null;
+  override_reason?: string | null;
+  /** who holds the machine now, and who held it when the change was asked for */
+  current_holder?: string | null;
+  current_holder_name?: string | null;
+  snapshot_holder?: string | null;
+  snapshot_holder_name?: string | null;
+  holder_changed?: boolean;
   status: string;
   target_scope: string | null;
   subject_key: string | null;
@@ -262,6 +288,8 @@ export type WorkCard = {
     quantity: number;
     effective_start_date: string | null;
     effective_end_date: string | null;
+    /** the last day already invoiced for this assignment, when it ever was */
+    billed_to?: string | null;
   } | null;
 };
 
@@ -282,6 +310,8 @@ export type SubjectWorkGroup = {
     device: WorkDeviceCard | null;
     work: WorkCard;
   }[];
+  /** acts on the machines themselves: who holds them, and who should */
+  device_operations: WorkCard[];
   services: WorkCard[];
 };
 
@@ -299,6 +329,8 @@ export type RequestContext = {
 };
 
 export type RecapEntry = {
+  /** the act the customer asked for, when this was one */
+  action_group_key?: string | null;
   work_order: string;
   subject_key: string | null;
   subject: string | null;
@@ -323,10 +355,11 @@ export type FulfilmentOutcome = {
 
 export type TechnicianOption = {
   key: string;
-  service_item: string;
+  /** an act on the machine itself names no service */
+  service_item: string | null;
   service_name: string;
-  action: string;
-  request_action: string;
+  action: string | null;
+  operation_code: string;
   action_label: string;
   description?: string | null;
   target_scope: 'User' | 'Device';
@@ -345,6 +378,10 @@ export type ExecutionPlan = {
   outcome: FulfilmentOutcome;
   stages: { stages: WorkStage[]; current: WorkStage['key'] };
   groups: SubjectWorkGroup[];
+  /** the same Work Orders, read act by act rather than person by person */
+  action_groups?: ActionWorkGroup[];
+  /** what the whole request is still waiting on, gathered per record */
+  requirements?: WorkRequirement[];
   rejected: { idx: number; service: string; reason: string | null }[];
   summary: {
     people: number;
@@ -393,9 +430,77 @@ export const executeServiceAction = (payload: {
   notes?: string;
   customer_note?: string;
   confirm_billed?: number;
-  action?: string;
+  operation_code?: string;
   service_item?: string;
 }) => post<ExecutionPlan>(`${BASE}.execute_service_action`, payload);
+
+export const executeDeviceOperation = (payload: {
+  work_order: string;
+  effective_date?: string;
+  execution_holder?: string;
+  override_reason?: string;
+  notes?: string;
+  customer_note?: string;
+}) => post<ExecutionPlan>(`${BASE}.execute_device_operation`, payload);
+
+/** What one unit of work is still owed, said by the server and never inferred on screen. */
+export type WorkRequirement = {
+  key: string;
+  kind: 'username' | 'serial_number' | 'device_resolution' | 'client_user_creation' | 'other';
+  blocking: boolean;
+  satisfied: boolean;
+  owner_type?: string | null;
+  owner_name?: string | null;
+  owner_label?: string | null;
+  owner_department?: string | null;
+  owner_username?: string | null;
+  owner_email?: string | null;
+  owner_modified?: string | null;
+  label: string;
+  current_value?: string | null;
+  reason: string;
+  can_batch_edit: boolean;
+  work_orders?: string[];
+  /** the one unit of work a preparation row settles, and who it is for */
+  work_order?: string | null;
+  subject_key?: string | null;
+};
+
+export const saveRequiredIdentifiers = (payload: {
+  request: string;
+  values: { kind: string; owner: string; value: string; modified?: string | null }[];
+}) =>
+  post<
+    GroupOutcome<{ saved: number; plan: ExecutionPlan }> & {
+      results: { owner: string; kind: string; ok: boolean; message: string | null; code: string | null }[];
+    }
+  >(`${BASE}.save_required_identifiers`, {
+    request: payload.request,
+    values: JSON.stringify(payload.values),
+  });
+
+export type ActionWorkGroup = {
+  group_key: string | null;
+  operation_code: string | null;
+  label: string;
+  scope_label: string | null;
+  origin: 'Customer' | 'Technician';
+  total: number;
+  remaining: number;
+  ready: number;
+  needs_information: number;
+  by_status: Record<string, number>;
+  work: WorkCard[];
+};
+
+export const executeWorkOrders = (payload: {
+  request: string;
+  executions: { work_order: string; inputs?: Record<string, unknown> }[];
+}) =>
+  post<GroupOutcome<{ completed: number; skipped: number; plan: ExecutionPlan }>>(
+    `${BASE}.execute_work_orders`,
+    { request: payload.request, executions: JSON.stringify(payload.executions) }
+  );
 
 export const executeServiceActions = (payload: {
   work_orders: string[];
@@ -424,6 +529,62 @@ export const addTechnicianAction = (payload: {
     ...payload,
     option: JSON.stringify(payload.option),
   });
+
+export type ItemIntegrityRow = {
+  item_code: string;
+  item_name: string | null;
+  disabled: number;
+  modified: string | null;
+  modified_by: string | null;
+  is_stock_item: number;
+  is_sales_item: number;
+  stock_uom: string | null;
+  sales_uom: string | null;
+  has_month_uom: boolean;
+  month_conversion_factor: number | null;
+  msp_service_scope: string | null;
+  msp_invoice_label: string | null;
+  msp_service_enabled: number;
+  open_msp_assignments: number;
+  historical_msp_assignments: number;
+  msp_contract_references: number;
+  msp_billing_line_references: number;
+  import_mapping_reference: boolean;
+  disabled_last_changed_at: string | null;
+  disabled_last_changed_by: string | null;
+  previous_disabled_value: number | string | null;
+  stock_uom_last_changed_at: string | null;
+  previous_stock_uom: string | null;
+  sales_uom_last_changed_at: string | null;
+  previous_sales_uom: string | null;
+  evidence_level: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
+  group: 'Safe to restore' | 'Needs review' | 'No change recommended';
+  restorable: Record<string, { previous: string | number; current: string | number; changed_at: string; changed_by: string; source_of_evidence: string }>;
+};
+
+export type ItemIntegrityAudit = {
+  rows: ItemIntegrityRow[];
+  groups: Record<string, ItemIntegrityRow[]>;
+  generated_at: string;
+};
+
+export type ItemRestoreResult = {
+  results: { item: string; ok: boolean; code?: string; message?: string; restored?: Record<string, unknown> }[];
+  restored: number;
+  failed: number;
+};
+
+export const auditItemIntegrity = (signal?: AbortSignal) =>
+  get<ItemIntegrityAudit>(`${BASE}.audit_item_integrity`, undefined, signal);
+
+export const restoreItemState = (selections: { item: string; fields: Record<string, string | number> }[]) =>
+  post<ItemRestoreResult>(`${BASE}.restore_item_state`, { selections });
+
+export const resolveAccountAccess = (payload: {
+  email: string;
+  source?: 'contact' | 'permission';
+  customers?: string[];
+}) => post<TeamMemberDetail>(`${BASE}.resolve_account_access`, payload);
 
 export const settleWorkDoneElsewhere = (name: string) =>
   post<ExecutionPlan>(`${BASE}.settle_request_work_done_elsewhere`, { name });
@@ -525,7 +686,6 @@ export type InternalDashboard = {
   };
   queue: DashboardQueueRow[];
   pending_lines: DashboardPendingLine[];
-  hygiene: { devices_without_services: number; reclaimable_licences: number };
   portfolio?: DashboardPortfolio;
 };
 
@@ -543,8 +703,8 @@ export type UserFilterOptions = {
 export type UserStats = {
   active_users: number;
   without_device: number;
-  disabled_with_services: number;
-  users_with_idle_device: number;
+  disabled_with_personal_services: number;
+  disabled_holding_device: number;
 };
 
 export type UserRow = {
@@ -564,6 +724,9 @@ export type UserRow = {
   device_type: string | null;
   active_services: number;
   inactive_services: number;
+  /** said apart, because "inactive" never said which of the two it meant */
+  suspended_services: number;
+  ended_services: number;
   personal_services: number;
   device_services: number;
   current_devices: number;
@@ -595,6 +758,8 @@ export type UserDeviceHistory = Pick<
 > & { holder_record: string };
 
 export type UserServiceRow = {
+  /** an Item MSP once sold with no MSP service definition on file; internal screens only */
+  legacy_service?: boolean;
   name: string;
   service_item: string;
   service_name: string;
@@ -643,6 +808,30 @@ export type UserServiceEntry = {
   allowed_actions: string[];
   pending_request: string | null;
   last_billed_on?: string | null;
+};
+
+/**
+ * One service as a person's page reads it, in any state.
+ *
+ * A Device service appears once per spell the person held its machine, and only for the days
+ * that spell and the service overlap: `association_until` is when the person stopped being
+ * associated with it, not when the service ended.
+ */
+export type UserPortfolioEntry = UserServiceEntry & {
+  assignment: string;
+  assignment_scope: 'User' | 'Device';
+  managed_device: string | null;
+  hostname: string | null;
+  device_serial_number?: string | null;
+  holding_period: string | null;
+  /** false once the machine has left their hands: acting on it is the next holder's business */
+  current_holding: boolean;
+  association_from: string | null;
+  association_until: string | null;
+  /** the person, or the machine the service belongs to */
+  target: string;
+  /** an Item MSP once sold with no MSP service definition on file; internal screens only */
+  legacy_service?: boolean;
 };
 
 export type ServiceHistoryEntry = Omit<
@@ -730,6 +919,19 @@ export type UserDetail = {
     open_requests: number;
     attention_count: number;
   };
+  services: UserPortfolioEntry[];
+  service_counts: Record<string, number>;
+  device_history: {
+    period: string;
+    device: string;
+    hostname: string | null;
+    device_type: string | null;
+    serial_number: string | null;
+    device_status: string;
+    from_date: string | null;
+    to_date: string | null;
+    is_current: boolean;
+  }[];
   personal_services: {
     current: UserServiceEntry[];
     available: ServiceOffer[];
@@ -802,6 +1004,19 @@ export type DeviceDetail = {
   interfaces: DeviceInterface[];
   services: (UserServiceRow & { last_billed_on: string | null; internal_notes: string | null })[];
   requests: { name: string; status: string; priority: string; request_type: string; creation: string }[];
+  /** a change already asked for this machine that nobody has carried out yet */
+  pending_operation: {
+    request: string;
+    status: string;
+    operation_code: string;
+    label: string;
+    current_holder: string | null;
+    current_holder_name: string | null;
+    requested_holder: string | null;
+    requested_holder_name: string | null;
+  } | null;
+  /** what a customer may still ask of this machine, for the state it is in */
+  customer_operations: { code: string; label: string; description?: string | null }[];
   /** what the forms on our side need; a customer's reading carries none of it */
   catalogue?: { name: string; item_name: string; scope: string; already_open: boolean }[];
   customer_requests?: CustomerRequestRef[];
@@ -1629,7 +1844,6 @@ export const createManagedDevice = (payload: {
   });
 
 export type InternalKpiName =
-  | 'reclaimable_licences'
   | 'devices_without_services'
   | 'billable_services'
   | 'services_added'
@@ -1658,28 +1872,113 @@ export type CatalogueOptions = {
   external_systems: string[];
 };
 
+export type MspCompatibilityStatus =
+  | 'Ready'
+  | 'Needs Configuration'
+  | 'ERPNext Disabled'
+  | 'Stock Item'
+  | 'Historical Only';
+
+/** What MSP says about a service, and what ERPNext says about its Item: two separate axes. */
+export type MspAvailability = 'Available' | 'Not available' | 'Needs configuration';
+
+export type ErpnextItemStatus = 'Enabled' | 'Disabled' | 'Stock item';
+
 export type CatalogueRow = {
+  /** the MSP Service Definition, which is the catalogue row itself */
+  definition: string;
   name: string;
   item_name: string;
+  service_name: string;
   disabled: number;
   stock_uom: string;
+  sales_uom: string | null;
+  is_stock_item: number;
+  is_sales_item: number;
   scope: string | null;
   description: string | null;
   open_assignments: number;
   customers: number;
   priced_contracts: number;
   invoice_label: string | null;
+  msp_enabled: number;
+  month_ready: boolean;
+  ready: boolean;
+  msp_availability: MspAvailability;
+  erpnext_status: ErpnextItemStatus;
+  compatibility_status: MspCompatibilityStatus;
+  blockers: string[];
+};
+
+export type CatalogueSearchRow = {
+  name: string;
+  item_name: string;
+  item_group: string | null;
+  disabled: number;
+  is_stock_item: number;
+  is_sales_item: number;
+  stock_uom: string | null;
+  sales_uom: string | null;
+  definition: string | null;
+  in_msp: boolean;
+  msp_enabled: boolean;
+  scope: string | null;
+  month_ready: boolean;
+};
+
+export type ItemMspCompatibility = {
+  item: {
+    name: string;
+    item_name: string;
+    description: string | null;
+    item_group: string | null;
+    disabled: number;
+    is_stock_item: number;
+    is_sales_item: number;
+    stock_uom: string | null;
+    sales_uom: string | null;
+  };
+  msp: {
+    definition: string | null;
+    in_msp: boolean;
+    enabled: boolean;
+    scope: string | null;
+    invoice_label: string | null;
+  };
+  billing: { required_uom: string; has_required_uom: boolean; conversion_factor: number | null };
+  compatibility_status: MspCompatibilityStatus;
+  blockers: string[];
+  repairs: { code: string; field: string; label: string; message: string }[];
+  warnings: string[];
+  can_enable_in_place: boolean;
+  /** the Item facts this preview was read from, sent back when changes are applied */
+  fingerprint: Record<string, number | string | null>;
 };
 
 export type ServiceDetail = {
   service: {
     name: string;
     item_name: string;
+    service_name: string;
+    definition: string | null;
+    in_msp: boolean;
     invoice_label: string | null;
     scope: string | null;
     description: string | null;
     uom: string | null;
     disabled: number;
+    msp_enabled: boolean;
+    is_stock_item: number;
+    is_sales_item: number;
+    stock_uom: string | null;
+    sales_uom: string | null;
+    has_month_uom: boolean;
+    month_conversion_factor: number | null;
+    month_ready: boolean;
+    billing_uom: string;
+    compatibility_status: MspCompatibilityStatus;
+    blockers: string[];
+    ready: boolean;
   };
   customers: {
     customer: string;
@@ -1713,16 +2012,63 @@ export const listServices = (params: ServiceListParams = {}, signal?: AbortSigna
 export const exportServices = (params: ServiceListParams = {}, picks?: ExportPicks) =>
   exportSheet('export_services', { ...params, ...picked(picks) }, 'services.xlsx');
 
-export const saveService = (payload: {
-  name?: string;
-  item_code?: string;
-  item_name: string;
-  scope?: string;
-  description?: string;
-  uom?: string;
-  disabled?: number;
+export const searchCatalogueItems = (
+  params: { search?: string; start?: number; page_length?: number } = {},
+  signal?: AbortSignal
+) =>
+  get<{ rows: CatalogueSearchRow[]; total: number; start: number; page_length: number }>(
+    `${BASE}.search_catalogue_items`,
+    params,
+    signal
+  );
+
+export const getItemMspCompatibility = (item: string, signal?: AbortSignal) =>
+  get<ItemMspCompatibility>(`${BASE}.get_item_msp_compatibility`, { item }, signal);
+
+export const enableItemForMsp = (payload: {
+  item: string;
+  scope: string;
   invoice_label?: string;
-}) => post<{ name: string; item_name: string; scope: string }>(`${BASE}.save_service`, payload);
+  item_name?: string;
+  description?: string;
+  enable_item?: number;
+  allow_sales?: number;
+  add_month_uom?: number;
+  fix_month_factor?: number;
+  seen?: string;
+}) =>
+  post<{
+    name: string;
+    item_name: string;
+    definition: string;
+    scope: string;
+    erpnext_enabled: boolean;
+  }>(`${BASE}.enable_item_for_msp`, payload);
+
+export const createMspService = (payload: {
+  item_code: string;
+  item_name: string;
+  scope: string;
+  invoice_label?: string;
+  description?: string;
+}) =>
+  post<{ name: string; item_name: string; definition: string; scope: string }>(
+    `${BASE}.create_msp_service`,
+    payload
+  );
+
+export const removeServiceFromMsp = (payload: {
+  item: string;
+  mode: 'keep' | 'end';
+  effective_date?: string;
+  reason?: string;
+}) =>
+  post<{
+    name: string;
+    open_assignments: number;
+    ended: number;
+    failed: { assignment: string; message: string }[];
+  }>(`${BASE}.remove_service_from_msp`, payload);
 
 export type ContractRate = {
   name: string;
@@ -2132,36 +2478,6 @@ export const listActivity = (params: ActivityQuery = {}, signal?: AbortSignal) =
     signal
   );
 
-export type RequestActionRow = {
-  name: string;
-  title: string;
-  action_type: string;
-  description: string | null;
-  enabled: number;
-  sort_order: number | null;
-  used: number;
-};
-
-export type SettingsOptions = { action_types: string[] };
-
-export const getSettingsOptions = (signal?: AbortSignal) =>
-  get<SettingsOptions>(`${BASE}.get_settings_options`, undefined, signal);
-
-export const listRequestActions = (signal?: AbortSignal) =>
-  get<RequestActionRow[]>(`${BASE}.list_request_actions`, undefined, signal);
-
-export const saveRequestAction = (payload: {
-  name?: string;
-  action: Partial<RequestActionRow>;
-}) =>
-  post<RequestActionRow[]>(`${BASE}.save_request_action`, {
-    name: payload.name,
-    action: JSON.stringify(payload.action),
-  });
-
-export const deleteRequestAction = (name: string) =>
-  post<RequestActionRow[]>(`${BASE}.delete_request_action`, { name });
-
 export type DepartmentRow = {
   name: string;
   department_name: string;
@@ -2360,6 +2676,25 @@ export type SignIn = {
   creation: string;
 };
 
+export type AccountAccess = {
+  status:
+    | 'HEALTHY'
+    | 'REPAIRED_CONTACT_LINK'
+    | 'REPAIRED_USER_PERMISSION'
+    | 'MISSING_CUSTOMER_REFERENCE'
+    | 'CUSTOMER_REFERENCE_CONFLICT'
+    | 'ROLE_FAMILY_CONFLICT'
+    | 'NOT_CUSTOMER_ACCOUNT';
+  message: string | null;
+  customer_roles: string[];
+  internal_roles: string[];
+  contact_customers: string[];
+  permission_customers: string[];
+  added_contact_links: string[];
+  added_permissions: string[];
+  removed_permissions: string[];
+};
+
 export type TeamMemberDetail = {
   name: string;
   full_name: string | null;
@@ -2377,6 +2712,7 @@ export type TeamMemberDetail = {
   roles: string[];
   desk_access: boolean;
   customers: string[];
+  access: AccountAccess;
   sign_ins: SignIn[];
   two_factor: boolean;
   is_self: boolean;

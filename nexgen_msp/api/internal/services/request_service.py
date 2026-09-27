@@ -234,8 +234,19 @@ class RequestService:
                     or exists (
                         select 1 from `tabMSP Service Request Line` srl
                         left join `tabMSP Client User` cu on cu.name = srl.client_user
+                        left join `tabMSP Client User` wanted on wanted.name = srl.requested_holder
+                        left join `tabMSP Managed Device` device on device.name = srl.managed_device
                         where srl.parent = sr.name
-                          and (cu.full_name like %(search)s or srl.new_user_full_name like %(search)s)
+                          and (
+                              cu.full_name like %(search)s
+                              or srl.new_user_full_name like %(search)s
+                              -- a Device request is found by the machine, not only by the person
+                              or wanted.full_name like %(search)s
+                              or device.hostname like %(search)s
+                              or device.serial_number like %(search)s
+                              or srl.new_device_label like %(search)s
+                              or srl.new_device_serial like %(search)s
+                          )
                     )
                 )"""
             )
@@ -382,9 +393,13 @@ class RequestService:
         lines = frappe.db.sql(
             """
             select
-                srl.idx, srl.action, srl.request_action,
-                coalesce(ra.title, srl.action) as action_label,
-                ra.description as action_description,
+                srl.idx, srl.action, srl.operation_code,
+                srl.subject_key, srl.action_group_key,
+                coalesce(srl.operation_label_snapshot, srl.action) as action_label,
+                srl.operation_payload, srl.state_snapshot,
+                srl.selection_origin, srl.selection_group_key, srl.selection_label,
+                srl.requested_holder,
+                wanted.full_name as requested_holder_name,
                 srl.target_scope, srl.is_new_user,
                 srl.client_user, srl.requested_for_user,
                 coalesce(cu.full_name, rfu.full_name, holder.full_name) as client_user_name,
@@ -408,7 +423,7 @@ class RequestService:
             left join `tabMSP Managed Device` device on device.name = srl.managed_device
             left join `tabMSP Client User` holder on holder.name = device.assigned_client_user
             left join `tabItem` item on item.name = srl.requested_service
-            left join `tabMSP Request Action` ra on ra.name = srl.request_action
+            left join `tabMSP Client User` wanted on wanted.name = srl.requested_holder
             where srl.parent = %(parent)s
             order by srl.idx asc
             """,
@@ -462,6 +477,39 @@ class RequestService:
             "reviewed_at": doc.technical_approved_at,
             "rejection_reason": doc.rejection_reason,
             "lines": lines,
+            # the acts the customer built, so review reads their intent and not our lines
+            "subjects": [
+                {
+                    "subject_key": row.subject_key,
+                    "client_user": row.client_user,
+                    "is_new_user": bool(row.is_new_user),
+                    "full_name": row.full_name_snapshot,
+                    "department": row.department_snapshot,
+                    "email": row.email_snapshot,
+                    "username": row.username_snapshot,
+                    "added_via": row.added_via,
+                    "selection_label": row.selection_label,
+                }
+                for row in doc.get("subjects") or []
+            ],
+            "action_groups": [
+                {
+                    "group_key": row.group_key,
+                    "operation_code": row.operation_code,
+                    "operation_label_snapshot": row.operation_label_snapshot,
+                    "domain": row.domain,
+                    "service_item": row.service_item,
+                    "group_origin": row.group_origin,
+                    "source_scope_type": row.source_scope_type,
+                    "source_scope_key": row.source_scope_key,
+                    "source_scope_label": row.source_scope_label,
+                    "selected_subject_count": row.selected_subject_count,
+                    "applicable_target_count": row.applicable_target_count,
+                    "excluded_subject_count": row.excluded_subject_count,
+                    "impact": frappe.parse_json(row.impact_snapshot_json or "[]"),
+                }
+                for row in doc.get("action_groups") or []
+            ],
             "available_actions": RequestService._allowed_actions(doc.status),
             "can_decide_lines": doc.status in ("Submitted", "Under Review")
             and RequestService._can("approve"),
@@ -531,7 +579,7 @@ class RequestService:
              and holder.parenttype = 'MSP Managed Device'
              and holder.is_current = 1
             where coalesce(sa.client_user, holder.client_user) in %(people)s
-              and sa.operational_status in ('Active', 'Suspended', 'Pending Removal', 'Pending Setup')
+              and sa.operational_status in ('Active', 'Suspended', 'Pending Setup')
             order by service_name
             """,
             {"people": people},
@@ -766,11 +814,12 @@ class RequestService:
 
     @staticmethod
     def _service_scope(service_item):
-        """Declared on the Item; left empty, the service may go to a person or a machine."""
-        declared = frappe.db.get_value("Item", service_item, "msp_service_scope")
+        """Declared by the MSP definition; a service with none may go to a person or a machine."""
+        from nexgen_msp.api.internal.services.service_definition_service import (
+            ServiceDefinitionService,
+        )
 
-        # a service that does not say where it is sold is sold to both
-        return declared or "Both"
+        return ServiceDefinitionService.scope_of(service_item)
 
     @staticmethod
     def _find_open_assignment(
@@ -976,7 +1025,7 @@ class RequestService:
                             "service_item": row.requested_service,
                             "operational_status": (
                                 "in",
-                                ("Pending Setup", "Active", "Suspended", "Pending Removal"),
+                                ("Pending Setup", "Active", "Suspended"),
                             ),
                         },
                         "name",

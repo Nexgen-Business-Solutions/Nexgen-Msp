@@ -1,4 +1,8 @@
 import frappe
+
+from nexgen_msp.api.internal.services.service_definition_service import (
+    ServiceDefinitionService,
+)
 from frappe.utils import flt, getdate
 
 from nexgen_msp.api.internal.services.contract_service import ContractService
@@ -66,7 +70,7 @@ class MSPContractService:
             ),
             "services": frappe.get_all(
                 "Item",
-                filters={"disabled": 0, "is_stock_item": 0},
+                filters={"name": ["in", ServiceDefinitionService.available_items()]},
                 fields=["name as value", "item_name as label"],
                 order_by="item_name asc",
             ),

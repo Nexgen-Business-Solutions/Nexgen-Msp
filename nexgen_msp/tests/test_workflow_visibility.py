@@ -51,7 +51,7 @@ class TestWhoSeesWhatAndMayDoWhat(MSPTestCase):
 
     def line(self):
         return {
-            "request_action": self.action(),
+            "operation_code": self.operation(),
             "action": "Add",
             "target_scope": "User",
             "client_user": self.person,

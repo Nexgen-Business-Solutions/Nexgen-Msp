@@ -12,7 +12,6 @@ const PALETTE: Record<string, string> = {
   'Awaiting Verification': WAITING,
   'On Hold': WAITING,
   'Pending Setup': WAITING,
-  'Pending Removal': WAITING,
   Suspended: WAITING,
   'Invoice Drafted': WAITING,
   Urgent: OFF,

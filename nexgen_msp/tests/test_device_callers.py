@@ -171,13 +171,32 @@ class TestDeviceCallers(MSPTestCase):
         self.assertEqual(self.reload(device).assigned_client_user, self.alice)
 
     # --------------------------------------------------------------- out of service, back
+    def test_retiring_a_machine_leaves_its_services_alone_unless_it_is_asked(self):
+        """Taking a machine out of service is not a decision about what it was billed for.
+
+        Ending somebody's services costs them money, so it is asked for in as many words on
+        the way out and never assumed from the fact that the machine is going.
+        """
+        device = self.make_device(
+            self.customer, hostname="ST0", holder=self.alice, serial="ZZTEST-SN-ST0"
+        )
+        _, assignment = self.open_service_on(device, "ST0", self.alice)
+
+        out = DeviceService.change_device_status(device=device, action="Retire")
+
+        self.assertEqual(self.reload(device).status, "Retired")
+        self.assertEqual(out["closed_assignments"], [])
+        self.assertEqual(self.assignment_state(assignment).operational_status, "Active")
+
     def test_retiring_a_held_machine_closes_its_spell_and_its_services(self):
         device = self.make_device(
             self.customer, hostname="ST1", holder=self.alice, serial="ZZTEST-SN-ST1"
         )
         _, assignment = self.open_service_on(device, "ST1", self.alice)
 
-        out = DeviceService.change_device_status(device=device, action="Retire")
+        out = DeviceService.change_device_status(
+            device=device, action="Retire", end_services=1
+        )
         doc = self.reload(device)
 
         self.assertEqual(doc.status, "Retired")

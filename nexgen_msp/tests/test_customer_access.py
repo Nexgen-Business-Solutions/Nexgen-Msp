@@ -108,9 +108,25 @@ class TestBothProofsAreNeeded(AccessCase):
         self.assertEqual(self.reach(self.manager), [self.acme])
 
     def test_a_permission_alone_is_not_enough(self):
-        self.undeclare(self.manager, self.acme)
+        # written straight to the table: saving the contact would have the reconciliation
+        # put the missing reference back, which is what it is there for
+        for contact in frappe.get_all("Contact", filters={"user": self.manager}, pluck="name"):
+            frappe.db.sql(
+                "delete from `tabDynamic Link` where parenttype='Contact' and parent=%s and link_name=%s",
+                (contact, self.acme),
+            )
+        frappe.db.commit()
 
         self.assertEqual(self.reach(self.manager), [])
+
+    def test_the_missing_reference_is_written_back_from_the_permission(self):
+        from nexgen_msp.utils import permissions
+
+        self.undeclare(self.manager, self.acme)
+
+        # the contact was saved, so the reconciliation ran on it
+        self.assertEqual(permissions.customers_from_contacts(self.manager), {self.acme})
+        self.assertEqual(self.reach(self.manager), [self.acme])
 
     def test_naming_a_company_they_cannot_reach_is_refused(self):
         frappe.clear_cache(user=self.manager)

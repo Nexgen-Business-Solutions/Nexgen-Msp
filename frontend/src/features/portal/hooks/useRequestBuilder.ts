@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { NewRequestLine, PortalRequestDetail, RequestAction } from '@/lib/api/portal';
+import type {
+  NewRequestLine,
+  PortalRequestDetail,
+  RequestActionGroupDraft,
+  RequestExclusion,
+  RequestOperation,
+  RequestSubjectDraft,
+  RequestTarget,
+} from '@/lib/api/portal';
 import {
   useCreateServiceRequest,
   useDiscardRequestDraft,
@@ -16,12 +24,18 @@ import {
 export type RequestIntent = {
   key: string;
   subjectKey: string;
-  action: string;
-  requestAction: string;
+  /** the operation asked for, as the application performs it */
+  operationCode: string;
   actionLabel: string;
   serviceItem: string;
   serviceLabel: string;
   targetScope: 'User' | 'Device';
+  /** who should hold the machine, for an operation that decides that */
+  requestedHolder?: string;
+  requestedHolderLabel?: string;
+  /** who holds it today, so the review reads as a handover rather than a name */
+  currentHolder?: string;
+  currentHolderLabel?: string;
   sourceServiceAssignment?: string;
   managedDevice?: string;
   deviceLabel?: string;
@@ -37,6 +51,50 @@ export type RequestIntent = {
   machineSource?: 'existing' | 'new';
 };
 
+/**
+ * An act on a machine, started from that machine's own page.
+ *
+ * The page it comes from mutates nothing: it hands the builder the operation, the machine and
+ * the people it concerns, and the customer can add more to the request before sending it.
+ */
+export type RequestSeed = {
+  operationCode: string;
+  actionLabel: string;
+  managedDevice: string;
+  deviceLabel: string;
+  subject: { clientUser: string; fullName: string; department?: string | null };
+  requestedHolder?: string;
+  requestedHolderLabel?: string;
+  currentHolder?: string;
+  currentHolderLabel?: string;
+  requestedEffectiveDate?: string;
+  comment?: string;
+};
+
+/** How a person came to be in this request: picked by hand, or through a group. */
+export type SelectionOrigin = 'Individual' | 'Department' | 'Company';
+
+/**
+ * One act the customer added in the Actions workspace, kept exactly as they built it.
+ *
+ * A group is the customer's own unit of intent: the scope it was chosen from, the targets
+ * it actually reaches, and the subjects it leaves untouched with the reason why. The atomic
+ * lines are derived from it by the server, never the other way round.
+ */
+export type RequestActionGroup = {
+  groupKey: string;
+  operationCode: string;
+  operationLabelSnapshot: string;
+  domain: 'Service' | 'Device' | 'People';
+  serviceItem?: string | null;
+  sourceScopeType: 'All' | 'Department' | 'Person';
+  sourceScopeKey?: string | null;
+  sourceScopeLabel: string;
+  selectedSubjectCount: number;
+  targets: RequestTarget[];
+  exclusions: RequestExclusion[];
+};
+
 /** The person a group of intentions is about, whether or not they exist yet. */
 export type RequestSubject = {
   key: string;
@@ -45,6 +103,11 @@ export type RequestSubject = {
   fullName?: string;
   department?: string;
   email?: string;
+  /** the snapshot this person came from, kept on every line they end up on */
+  selectionOrigin?: SelectionOrigin;
+  selectionGroupKey?: string;
+  selectionLabel?: string;
+  selectionSnapshotAt?: string;
   /** optional: some customers know the account name they want, most do not */
   username?: string;
   /** for somebody with no machine: which one the customer suggests, if any */
@@ -57,6 +120,19 @@ export type RequestSubject = {
 };
 
 const newKey = () => Math.random().toString(36).slice(2, 10);
+
+/**
+ * The key one subject keeps for the life of the request.
+ *
+ * An existing person is keyed on the record they already are, so the same person reached
+ * twice — by hand and through their Department — is one subject wherever it is read. Somebody
+ * who does not exist yet gets a draft key, never one derived from the name they were typed as.
+ */
+export const subjectKeyOf = (clientUser?: string) =>
+  clientUser ? `user:${clientUser}` : `new:${newKey()}`;
+
+/** Whether an operation acts on the machine itself rather than on a service. */
+export const isMachineOperation = (code: string) => code.startsWith('device.');
 
 export const today = () => new Date().toISOString().slice(0, 10);
 
@@ -89,7 +165,7 @@ export const fromSavedRequest = (saved: PortalRequestDetail) => {
 
       if (existing) return existing;
 
-      const key = newKey();
+      const key = line.subject_key || subjectKeyOf();
       keyOfPerson.set(identity, key);
       subjects.push({
         key,
@@ -109,7 +185,7 @@ export const fromSavedRequest = (saved: PortalRequestDetail) => {
 
     if (existing) return existing;
 
-    const key = newKey();
+    const key = line.subject_key || subjectKeyOf(person ?? undefined);
     keyOfPerson.set(identity, key);
     subjects.push({
       key,
@@ -126,9 +202,8 @@ export const fromSavedRequest = (saved: PortalRequestDetail) => {
     intents.push({
       key: newKey(),
       subjectKey: subjectFor(line),
-      action: line.action,
-      requestAction: line.request_action ?? '',
-      actionLabel: line.action_label || line.action,
+      operationCode: line.operation_code ?? '',
+      actionLabel: line.operation_label_snapshot || line.action_label || line.action,
       serviceItem: line.requested_service ?? '',
       serviceLabel: line.service_name || line.requested_service || '',
       targetScope: line.managed_device ? ('Device' as const) : ('User' as const),
@@ -142,6 +217,10 @@ export const fromSavedRequest = (saved: PortalRequestDetail) => {
       deviceHostname: line.new_device_label ?? undefined,
       deviceSerial: line.new_device_serial ?? undefined,
       deviceType: line.new_device_type ?? undefined,
+      requestedHolder: line.requested_holder ?? undefined,
+      requestedHolderLabel: line.requested_holder_name ?? undefined,
+      currentHolder: line.requested_for_user ?? undefined,
+      currentHolderLabel: line.device_holder ?? undefined,
     });
   });
 
@@ -164,10 +243,13 @@ export const useRequestBuilder = (
   /** the person a page sent us here about, so nobody searches for who they were just reading */
   about?: string,
   /** a machine nobody holds: the request starts about somebody still to be described */
-  startNew?: boolean
+  startNew?: boolean,
+  /** an act on a machine, brought here from that machine's page */
+  seed?: RequestSeed | null
 ) => {
   const [subjects, setSubjects] = useState<RequestSubject[]>([]);
   const [intents, setIntents] = useState<RequestIntent[]>([]);
+  const [actionGroups, setActionGroups] = useState<RequestActionGroup[]>([]);
   const [priority, setPriority] = useState('Medium');
   const [details, setDetails] = useState('');
   const [defaultDate, setDefaultDate] = useState(today());
@@ -205,9 +287,44 @@ export const useRequestBuilder = (
   }, [source, loaded, seeded.data]);
 
   useEffect(() => {
+    if (source || loaded || !seed) return;
+
+    const key = newKey();
+    setSubjects([
+      {
+        key,
+        kind: 'existing',
+        clientUser: seed.subject.clientUser,
+        fullName: seed.subject.fullName,
+        department: seed.subject.department ?? undefined,
+      },
+    ]);
+    setIntents([
+      {
+        key: newKey(),
+        subjectKey: key,
+        operationCode: seed.operationCode,
+        actionLabel: seed.actionLabel,
+        serviceItem: '',
+        serviceLabel: seed.deviceLabel,
+        targetScope: 'Device',
+        managedDevice: seed.managedDevice,
+        deviceLabel: seed.deviceLabel,
+        requestedHolder: seed.requestedHolder,
+        requestedHolderLabel: seed.requestedHolderLabel,
+        currentHolder: seed.currentHolder,
+        currentHolderLabel: seed.currentHolderLabel,
+        requestedEffectiveDate: seed.requestedEffectiveDate,
+        comment: seed.comment,
+      },
+    ]);
+    setLoaded(true);
+  }, [source, loaded, seed]);
+
+  useEffect(() => {
     if (source || about || loaded || !startNew) return;
 
-    setSubjects([{ key: newKey(), kind: 'new' }]);
+    setSubjects([{ key: subjectKeyOf(), kind: 'new' }]);
     setLoaded(true);
   }, [source, about, loaded, startNew]);
 
@@ -223,17 +340,25 @@ export const useRequestBuilder = (
   }, [source, loaded, saved.data]);
 
   // ------------------------------------------------------------------ subjects
-  const addExistingSubject = (person: {
-    name: string;
-    full_name: string;
-    department?: string | null;
-    email?: string | null;
-  }) => {
+  const addExistingSubject = (
+    person: {
+      name: string;
+      full_name: string;
+      department?: string | null;
+      email?: string | null;
+    },
+    from?: {
+      selectionOrigin: SelectionOrigin;
+      selectionGroupKey?: string;
+      selectionLabel?: string;
+      selectionSnapshotAt?: string;
+    }
+  ) => {
     const already = subjects.find((subject) => subject.clientUser === person.name);
 
     if (already) return already.key;
 
-    const key = newKey();
+    const key = subjectKeyOf(person.name);
     setSubjects((current) => [
       ...current,
       {
@@ -243,14 +368,55 @@ export const useRequestBuilder = (
         fullName: person.full_name,
         department: person.department ?? undefined,
         email: person.email ?? undefined,
+        selectionOrigin: from?.selectionOrigin ?? 'Individual',
+        selectionGroupKey: from?.selectionGroupKey,
+        selectionLabel: from?.selectionLabel,
+        selectionSnapshotAt: from?.selectionSnapshotAt,
       },
     ]);
 
     return key;
   };
 
+  /**
+   * Everyone a group selection resolved to, added at once.
+   *
+   * The snapshot is what was resolved: somebody already picked by hand stays as they were, and
+   * the count of what was already there is reported so the screen can say it plainly.
+   */
+  const addGroupSubjects = (
+    people: { name: string; full_name: string; department?: string | null; email?: string | null }[],
+    from: {
+      selectionOrigin: SelectionOrigin;
+      selectionGroupKey?: string;
+      selectionLabel?: string;
+      selectionSnapshotAt?: string;
+    }
+  ) => {
+    const known = new Set(subjects.map((subject) => subject.clientUser));
+    const fresh = people.filter((person) => !known.has(person.name));
+
+    setSubjects((current) => [
+      ...current,
+      ...fresh.map((person) => ({
+        key: subjectKeyOf(person.name),
+        kind: 'existing' as const,
+        clientUser: person.name,
+        fullName: person.full_name,
+        department: person.department ?? undefined,
+        email: person.email ?? undefined,
+        selectionOrigin: from.selectionOrigin,
+        selectionGroupKey: from.selectionGroupKey,
+        selectionLabel: from.selectionLabel,
+        selectionSnapshotAt: from.selectionSnapshotAt,
+      })),
+    ]);
+
+    return { added: fresh.length, duplicates: people.length - fresh.length };
+  };
+
   const addNewSubject = () => {
-    const key = newKey();
+    const key = subjectKeyOf();
     setSubjects((current) => [...current, { key, kind: 'new' }]);
 
     return key;
@@ -261,9 +427,29 @@ export const useRequestBuilder = (
       current.map((subject) => (subject.key === key ? { ...subject, ...patch } : subject))
     );
 
+  /** Take the people a refusal named out of the request, and everything asked for them. */
+  const removeSubjectsFor = (clientUsers: string[]) => {
+    const unwanted = new Set(clientUsers);
+    const keys = new Set(
+      subjects.filter((subject) => unwanted.has(subject.clientUser ?? '')).map((s) => s.key)
+    );
+
+    setSubjects((current) => current.filter((subject) => !keys.has(subject.key)));
+    setIntents((current) => current.filter((intent) => !keys.has(intent.subjectKey)));
+  };
+
   const removeSubject = (key: string) => {
     setSubjects((current) => current.filter((subject) => subject.key !== key));
     setIntents((current) => current.filter((intent) => intent.subjectKey !== key));
+    setActionGroups((current) =>
+      current
+        .map((group) => ({
+          ...group,
+          targets: group.targets.filter((target) => target.subject_key !== key),
+          exclusions: group.exclusions.filter((row) => row.subject_key !== key),
+        }))
+        .filter((group) => group.targets.length > 0)
+    );
   };
 
   // ------------------------------------------------------------------ intents
@@ -278,6 +464,18 @@ export const useRequestBuilder = (
 
   const removeIntent = (key: string) =>
     setIntents((current) => current.filter((intent) => intent.key !== key));
+
+  // ------------------------------------------------------------------ action groups
+  const addActionGroup = (group: Omit<RequestActionGroup, 'groupKey'>) => {
+    const groupKey = `grp:${newKey()}`;
+
+    setActionGroups((current) => [...current, { ...group, groupKey }]);
+
+    return groupKey;
+  };
+
+  const removeActionGroup = (groupKey: string) =>
+    setActionGroups((current) => current.filter((group) => group.groupKey !== groupKey));
 
   const reportStaleIntents = useCallback((subjectIntentKeys: string[], staleKeys: string[]) => {
     setStaleIntentKeys((current) => {
@@ -309,12 +507,29 @@ export const useRequestBuilder = (
 
     return intents.map((intent) => {
       const subject = bySubject.get(intent.subjectKey);
+
+      // an act on the machine itself names the machine and, when it decides that, who is
+      // to hold it: no service is involved at all
+      if (isMachineOperation(intent.operationCode)) {
+        return {
+          operation_code: intent.operationCode,
+          target_scope: 'Device',
+          managed_device: intent.managedDevice,
+          requested_holder: intent.requestedHolder,
+          requested_effective_date: intent.requestedEffectiveDate || defaultDate,
+          comment: intent.comment,
+        };
+      }
+
       const line: NewRequestLine = {
-        request_action: intent.requestAction,
-        action: intent.action,
+        operation_code: intent.operationCode,
         target_scope: intent.targetScope,
         requested_service: intent.serviceItem,
         requested_effective_date: intent.requestedEffectiveDate || defaultDate,
+        selection_origin: subject?.selectionOrigin ?? 'Individual',
+        selection_group_key: subject?.selectionGroupKey,
+        selection_label: subject?.selectionLabel,
+        selection_snapshot_at: subject?.selectionSnapshotAt,
       };
 
       if (intent.requestedQuantity) line.requested_quantity = intent.requestedQuantity;
@@ -335,9 +550,10 @@ export const useRequestBuilder = (
         line.new_user_department = subject.department;
         line.new_user_email = subject.email;
         if (subject.username) line.new_user_username = subject.username;
-        // a machine for somebody who does not exist yet is the technician's to identify
+        // a machine for somebody who does not exist yet is the technician's to identify,
+        // and the line stays about the machine
         if (intent.targetScope === 'Device' || intent.isNewDevice) {
-          line.target_scope = 'User';
+          line.target_scope = 'Device';
           line.is_new_device = 1;
         }
 
@@ -349,7 +565,6 @@ export const useRequestBuilder = (
         line.requested_for_user = subject?.clientUser;
 
         if (intent.isNewDevice) {
-          line.target_scope = 'User';
           line.is_new_device = 1;
           delete line.managed_device;
         }
@@ -363,10 +578,64 @@ export const useRequestBuilder = (
     });
   }, [intents, subjects, defaultDate]);
 
-  const payload = () => ({ priority, lines, details: details.trim() || undefined });
+  /** The people, as the server reads a snapshot. */
+  const subjectDrafts = useMemo<RequestSubjectDraft[]>(
+    () =>
+      subjects.map((subject) => ({
+        subject_key: subject.key,
+        client_user: subject.clientUser ?? null,
+        is_new_user: subject.kind === 'new',
+        full_name: subject.fullName,
+        department: subject.department ?? null,
+        email: subject.email ?? null,
+        username: subject.username ?? null,
+        added_via:
+          subject.kind === 'new'
+            ? 'New'
+            : subject.selectionOrigin === 'Department'
+              ? 'Department'
+              : subject.selectionOrigin === 'Company'
+                ? 'Company'
+                : 'Existing',
+        selection_label: subject.selectionLabel ?? null,
+      })),
+    [subjects]
+  );
+
+  const groupDrafts = useMemo<RequestActionGroupDraft[]>(
+    () =>
+      actionGroups.map((group) => ({
+        group_key: group.groupKey,
+        operation_code: group.operationCode,
+        operation_label_snapshot: group.operationLabelSnapshot,
+        domain: group.domain,
+        service_item: group.serviceItem ?? null,
+        source_scope_type: group.sourceScopeType,
+        source_scope_key: group.sourceScopeKey ?? null,
+        source_scope_label: group.sourceScopeLabel,
+        selected_subject_count: group.selectedSubjectCount,
+        targets: group.targets,
+        exclusions: group.exclusions,
+      })),
+    [actionGroups]
+  );
+
+  /** How many concrete targets the whole request stands for. */
+  const targetCount = actionGroups.reduce((total, group) => total + group.targets.length, 0);
+
+  const payload = () =>
+    actionGroups.length
+      ? {
+          priority,
+          details: details.trim() || undefined,
+          subjects: subjectDrafts,
+          action_groups: groupDrafts,
+        }
+      : { priority, lines, details: details.trim() || undefined };
 
   const hasStaleIntents = intents.some((intent) => staleIntentKeys.has(intent.key));
-  const canSend = subjects.length > 0 && intents.length > 0 && !hasStaleIntents;
+  const canSend =
+    subjects.length > 0 && (actionGroups.length > 0 || intents.length > 0) && !hasStaleIntents;
 
   const send = async () => {
     if (!canSend) return null;
@@ -376,13 +645,14 @@ export const useRequestBuilder = (
     setDraft(null);
     setSubjects([]);
     setIntents([]);
+    setActionGroups([]);
     onCreated?.(created);
 
     return created;
   };
 
   const putAside = async () => {
-    if (!intents.length) return null;
+    if (!intents.length && !actionGroups.length && !subjects.length) return null;
 
     const saved = await saveDraft.mutateAsync({ ...payload(), name: draft || undefined });
     setDraft(saved.name);
@@ -398,11 +668,17 @@ export const useRequestBuilder = (
 
     setSubjects([]);
     setIntents([]);
+    setActionGroups([]);
   };
 
   return {
     subjects,
     intents,
+    subjectDrafts,
+    actionGroups,
+    addActionGroup,
+    removeActionGroup,
+    targetCount,
     priority,
     setPriority,
     details,
@@ -412,9 +688,11 @@ export const useRequestBuilder = (
     draft,
     setDraft,
     addExistingSubject,
+    addGroupSubjects,
     addNewSubject,
     updateSubject,
     removeSubject,
+    removeSubjectsFor,
     addIntent,
     updateIntent,
     removeIntent,
@@ -448,11 +726,11 @@ export const useRequestBuilder = (
 export const staleReason = (
   intent: RequestIntent,
   context?: {
-    personal_services: { current: { assignment: string; service_item: string; label: string; status: string; allowed_request_actions: RequestAction[]; pending_request: string | null }[] };
+    personal_services: { current: { assignment: string; service_item: string; label: string; status: string; allowed_operations: RequestOperation[]; pending_request: string | null }[] };
     devices: {
       name: string;
       services: {
-        current: { assignment: string; service_item: string; label: string; status: string; allowed_request_actions: RequestAction[]; pending_request: string | null }[];
+        current: { assignment: string; service_item: string; label: string; status: string; allowed_operations: RequestOperation[]; pending_request: string | null }[];
       };
     }[];
   }
@@ -488,14 +766,11 @@ export const staleReason = (
     return `${running.label} is already being changed by request ${running.pending_request}.`;
   }
 
-  const allowed = running.allowed_request_actions.some(
-    (action) => action.action_type === intent.action
+  const allowed = running.allowed_operations.some(
+    (operation) => operation.code === intent.operationCode
   );
 
   return allowed
     ? null
     : `${running.label} is now ${running.status.toLowerCase()}, so ${intent.actionLabel} no longer applies.`;
 };
-
-/** The act a button stands for, as the administrator named it. */
-export const actionLabel = (action: RequestAction) => action.title || action.action_type;

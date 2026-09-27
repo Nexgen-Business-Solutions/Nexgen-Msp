@@ -115,7 +115,7 @@ class DeviceLifecycleService:
         return DeviceLifecycleService._outcome(doc)
 
     @staticmethod
-    def repossess(device=None, effective_date=None, note=None):
+    def repossess(device=None, effective_date=None, note=None, _commit=True):
         """Take a machine back onto the shelf.
 
         Nothing it is billed for is closed: it goes back out to the next person with its
@@ -141,12 +141,13 @@ class DeviceLifecycleService:
             f"Taken back from {current.full_name or current.client_user} on "
             f"{frappe.utils.formatdate(on_date)}",
             note,
+            commit=_commit,
         )
 
         return DeviceLifecycleService._outcome(doc)
 
     @staticmethod
-    def retire(device=None, effective_date=None, note=None, end_services=0):
+    def retire(device=None, effective_date=None, note=None, end_services=0, _commit=True):
         """Take a machine out of service, optionally ending its open services."""
         RequestService._guard_internal()
 
@@ -186,7 +187,11 @@ class DeviceLifecycleService:
         doc.retired_date = on_date
 
         DeviceLifecycleService._write(
-            doc, "Retired", f"Out of service on {frappe.utils.formatdate(on_date)}", note
+            doc,
+            "Retired",
+            f"Out of service on {frappe.utils.formatdate(on_date)}",
+            note,
+            commit=_commit,
         )
 
         outcome = DeviceLifecycleService._outcome(doc)
@@ -195,7 +200,7 @@ class DeviceLifecycleService:
         return outcome
 
     @staticmethod
-    def reinstate(device=None, effective_date=None, client_user=None, note=None):
+    def reinstate(device=None, effective_date=None, client_user=None, note=None, _commit=True):
         """Bring a machine back into service, onto the shelf or straight into somebody's hands.
 
         Services are left exactly as retirement recorded them. Nothing is restarted here.
@@ -236,7 +241,11 @@ class DeviceLifecycleService:
             else "Back in service, on the shelf"
         )
         DeviceLifecycleService._write(
-            doc, "Reinstated", f"{line} on {frappe.utils.formatdate(on_date)}", note
+            doc,
+            "Reinstated",
+            f"{line} on {frappe.utils.formatdate(on_date)}",
+            note,
+            commit=_commit,
         )
 
         return DeviceLifecycleService._outcome(doc)
@@ -349,9 +358,15 @@ class DeviceLifecycleService:
 
     @staticmethod
     def _write(doc, action, line, note, *, commit=True):
-        remarks_util.add(doc, line + (f" — {note}" if (note or "").strip() else ""))
+        """Record the act, and keep the note log for what people actually wrote.
+
+        What happened is already told by the activity comment below; repeating it as a note
+        fills the log with sentences nobody typed, and then nobody reads the ones somebody did.
+        """
+        remarks_util.add(doc, note)
         doc.save()
-        doc.add_comment("Comment", f"{action} by {frappe.session.user}.")
+        # what happened, said once, where history is read
+        doc.add_comment("Comment", f"{line} — {action.lower()} by {frappe.session.user}.")
         if commit:
             frappe.db.commit()
 

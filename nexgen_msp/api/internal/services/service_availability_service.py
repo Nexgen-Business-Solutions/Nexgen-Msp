@@ -8,6 +8,9 @@ covers is offered; a covered service with no rate yet is shown with a warning be
 import frappe
 
 from nexgen_msp.api.internal.services.request_service import ADMIN_ROLES, RequestService
+from nexgen_msp.api.internal.services.service_definition_service import (
+    ServiceDefinitionService,
+)
 from nexgen_msp.api.internal.services.service_lifecycle_service import (
     ACTIVATABLE_DEVICE_STATUSES,
     ACTIVATABLE_USER_LIFECYCLE,
@@ -174,25 +177,24 @@ class ServiceAvailabilityService:
 
         pricing = ServiceLifecycleService._rate(customer, service_item, on_date)
         if pricing.get("price_source") == "Unpriced":
-            warnings.append("No billing rate is on file yet.")
+            warnings.append(
+                "No valid customer service rate is available yet. Configure a rate before "
+                "generating billable coverage for these services."
+            )
 
         return " ".join(warnings) or None
 
     @staticmethod
     def _catalogue(scopes):
-        """Every service the catalogue still sells at these scopes."""
-        items = frappe.get_all(
-            "Item",
-            filters={"disabled": 0, "is_stock_item": 0},
-            fields=["name", "item_name", "msp_service_scope"],
-            order_by="item_name asc",
-        )
-
-        # a service that does not say where it is sold is sold to both
-        for item in items:
-            item.msp_service_scope = item.msp_service_scope or "Both"
-
-        return [item for item in items if item.msp_service_scope in scopes]
+        """Every service the MSP catalogue still sells at these scopes."""
+        return [
+            frappe._dict(
+                name=row["name"],
+                item_name=row["item_name"],
+                service_scope=row["service_scope"],
+            )
+            for row in ServiceDefinitionService.available_rows(scopes)
+        ]
 
     @staticmethod
     def _current(customer, scope, target):
@@ -218,9 +220,7 @@ class ServiceAvailabilityService:
 
         for row in rows:
             row["item_name"] = ServiceLifecycleService._label(row["service_item"])
-            row["service_scope"] = (
-                frappe.db.get_value("Item", row["service_item"], "msp_service_scope") or "Both"
-            )
+            row["service_scope"] = ServiceDefinitionService.scope_of(row["service_item"])
 
         return rows
 
@@ -229,7 +229,7 @@ class ServiceAvailabilityService:
         entry = {
             "service_item": item.name,
             "item_name": item.item_name or item.name,
-            "service_scope": item.msp_service_scope,
+            "service_scope": item.service_scope,
         }
 
         if reason:

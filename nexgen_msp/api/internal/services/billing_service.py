@@ -8,12 +8,15 @@ from nexgen_msp.api.internal.services.accounting_dimension_service import (
     AccountingDimensionService,
 )
 from nexgen_msp.api.internal.services.contract_service import ContractService
+from nexgen_msp.api.internal.services.service_definition_service import (
+    ServiceDefinitionService,
+)
 from nexgen_msp.utils.catalogue import BILLING_UOM
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 # a suspended service belongs here too: it was provided over the days before it was paused,
 # and those days are billed — the pause itself comes off in the arithmetic below
-BILLABLE_OPERATIONAL = ("Pending Setup", "Active", "Suspended", "Pending Removal", "Ended")
+BILLABLE_OPERATIONAL = ("Pending Setup", "Active", "Suspended", "Ended")
 
 BILLABLE_BILLING_STATUS = ("Billable", "On Hold", "Ended")
 
@@ -1654,7 +1657,12 @@ class BillingService:
         if conversion_rate:
             payload["conversion_rate"] = flt(conversion_rate)
 
-        order = AccountingDimensionService.stamp(frappe.get_doc(payload), dimensions).insert()
+        # a Sales Order is an ERPNext record, and no MSP role holds rights on it. The
+        # authorisation happened in `finalise`, at `_guard_admin`: that is this application's
+        # boundary, and the generic document API stays shut to everybody either way.
+        order = AccountingDimensionService.stamp(frappe.get_doc(payload), dimensions).insert(
+            ignore_permissions=True
+        )
         order.submit()
 
         return order
@@ -1672,7 +1680,7 @@ class BillingService:
         if conversion_rate:
             invoice.conversion_rate = flt(conversion_rate)
 
-        return AccountingDimensionService.stamp(invoice, dimensions).insert()
+        return AccountingDimensionService.stamp(invoice, dimensions).insert(ignore_permissions=True)
 
     @staticmethod
     def _period_label(doc):
@@ -1760,11 +1768,8 @@ class BillingService:
         items = []
 
         for (service_item, rate, discount), bucket in grouped.items():
-            names = frappe.db.get_value(
-                "Item", service_item, ["item_name", "msp_invoice_label"], as_dict=True
-            )
             # what the customer reads, which the catalogue name is not always fit for
-            item_name = (names.msp_invoice_label or names.item_name or service_item) if names else service_item
+            item_name = ServiceDefinitionService.label_of(service_item)
 
             item = {
                 "item_code": service_item,
@@ -2362,6 +2367,9 @@ class BillingService:
             )
 
         invoice = frappe.get_doc("Sales Invoice", doc.sales_invoice)
+        # posting is authorised above, at `_guard_admin`; the invoice itself is an ERPNext
+        # record no MSP role holds rights on
+        invoice.flags.ignore_permissions = True
 
         if invoice.docstatus == 1:
             raise ValidationError(
@@ -2572,14 +2580,9 @@ class BillingService:
 
         # the customer reads this file next to their invoice, so the two must name a
         # service the same way
-        labels = {
-            row.name: (row.msp_invoice_label or row.item_name or row.name)
-            for row in frappe.get_all(
-                "Item",
-                filters={"name": ("in", [line["service_item"] for line in detail["lines"]] or [""])},
-                fields=["name", "item_name", "msp_invoice_label"],
-            )
-        }
+        labels = ServiceDefinitionService.labels_by_item(
+            [line["service_item"] for line in detail["lines"]]
+        )
 
         blocks = {}
 

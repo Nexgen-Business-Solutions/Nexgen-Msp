@@ -41,6 +41,33 @@ const person = {
     open_requests: 0,
     attention_count: 0,
   },
+  services: [
+    {
+      name: 'SA-1',
+      service_item: 'M365',
+      service_name: 'Microsoft 365',
+      assignment_scope: 'User',
+      managed_device: null,
+      hostname: null,
+      target: 'Person',
+      operational_status: 'Active',
+      billing_status: 'Billable',
+      effective_start_date: '2025-02-01',
+      effective_end_date: null,
+      source_request: null,
+      last_billed_on: '2026-08-31',
+      allowed_actions: [],
+      pending_request: null,
+      quantity: 1,
+      assignment: 'SA-1',
+      holding_period: null,
+      current_holding: true,
+      association_from: '2025-02-01',
+      association_until: null,
+    },
+  ],
+  service_counts: { Active: 1 },
+  device_history: [],
   personal_services: {
     current: [
       {
@@ -219,7 +246,7 @@ describe('the machine file a customer reads', () => {
     for (const label of [/edit device/i, /assign to user/i, /^transfer$/i, /return to stock/i, /^retire$/i, /^delete$/i, /add service/i]) {
       expect(screen.queryByRole('button', { name: label })).not.toBeInTheDocument();
     }
-    expect(screen.queryByText('Remarks')).not.toBeInTheDocument();
+    expect(screen.queryByText('Internal notes')).not.toBeInTheDocument();
     expect(screen.queryByTitle('More options')).not.toBeInTheDocument();
   });
 });

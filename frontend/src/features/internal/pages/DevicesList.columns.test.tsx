@@ -134,7 +134,7 @@ describe('a new device from the list', () => {
     const add = within(dialog).getByRole('button', { name: /^add device$/i });
 
     // nothing on the existing-machine side: nobody is named yet to hand one to
-    expect(within(dialog).queryByRole('button', { name: /existing device/i })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: /use existing stock device/i })).not.toBeInTheDocument();
 
     fireEvent.change(within(dialog).getByPlaceholderText('SN-HYS-JDUPONT'), { target: { value: 'NEW-PC' } });
     fireEvent.change(within(dialog).getByPlaceholderText('What is engraved on the case'), {

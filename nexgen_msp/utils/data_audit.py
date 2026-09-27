@@ -113,7 +113,7 @@ def services():
                        coalesce(client_user, managed_device) as target
                 from `tabMSP Service Assignment`
                 where operational_status in ('Active', 'Suspended', 'Pending Setup',
-                                             'Pending Removal')
+                                             'Suspended')
                   and coalesce(client_user, managed_device) is not null
                 group by customer, service_item, assignment_scope, target
                 having count(*) > 1

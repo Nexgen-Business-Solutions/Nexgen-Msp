@@ -16,6 +16,7 @@ import {
   UserPlus,
 } from 'lucide-react';
 import StatusBadge from '@/shared/components/StatusBadge';
+import Select from '@/shared/components/Select';
 import { useSession } from '@/shared/hooks/useSession';
 import RemarkLog from '@/shared/components/RemarkLog';
 import RowActionsMenu, { type RowAction } from '@/shared/components/RowActionsMenu';
@@ -28,6 +29,7 @@ import RepossessDeviceModal from '../components/RepossessDeviceModal';
 import RetireDeviceModal from '../components/RetireDeviceModal';
 import ReinstateDeviceModal from '../components/ReinstateDeviceModal';
 import ServiceActionModal, { type ServiceAction } from '../components/ServiceActionModal';
+import RequestDeviceOperationModal from '@/features/portal/components/RequestDeviceOperationModal';
 import type { DeviceDetail as DeviceDetailData, DeviceRow, UserServiceRow } from '@/lib/api/internal';
 import { deviceKeys, useDeleteDevice, useDeviceDetail } from '../hooks/useDevices';
 import { usePortalDeviceFile } from '@/features/portal/hooks/usePortal';
@@ -43,6 +45,23 @@ const INTERFACE_LABEL: Record<string, string> = {
 };
 
 type LifecycleModal = 'assign' | 'transfer' | 'repossess' | 'retire' | 'reinstate' | null;
+
+// a machine's service history stays on its page: the filter narrows it, it never hides it
+const SERVICE_VIEWS = [
+  ['all', 'All services'],
+  ['current', 'Current'],
+  ['suspended', 'Suspended'],
+  ['ended', 'Ended'],
+] as const;
+
+/** The acts a customer may ask for on a machine, which they never carry out themselves. */
+type CustomerOperation = 'device.assign' | 'device.transfer' | 'device.repossess';
+
+const CUSTOMER_ICON: Record<CustomerOperation, typeof UserPlus> = {
+  'device.assign': UserPlus,
+  'device.transfer': ArrowRightLeft,
+  'device.repossess': Undo2,
+};
 
 const Panel = ({
   title,
@@ -133,6 +152,8 @@ export default function DeviceDetail({ portal = false }: { portal?: boolean } = 
   const [lifecycleModal, setLifecycleModal] = useState<LifecycleModal>(null);
   const [deleting, setDeleting] = useState(false);
   const [target, setTarget] = useState<{ row: UserServiceRow; action: ServiceAction } | null>(null);
+  const [asking, setAsking] = useState<{ code: CustomerOperation; label: string } | null>(null);
+  const [serviceView, setServiceView] = useState<(typeof SERVICE_VIEWS)[number][0]>('all');
 
   if (detail.isLoading) {
     return (
@@ -152,9 +173,37 @@ export default function DeviceDetail({ portal = false }: { portal?: boolean } = 
     );
   }
 
-  const { device, interfaces, services, requests, customer_requests, holder_log } = detail.data;
+  const {
+    device,
+    interfaces,
+    services,
+    requests,
+    customer_requests,
+    holder_log,
+    pending_operation: pending,
+    customer_operations: askable,
+  } = detail.data;
   const currentSpell = (holder_log ?? []).find((spell) => spell.is_current);
   const lastSpell = (holder_log ?? []).length > 0 ? holder_log[holder_log.length - 1] : null;
+  const countOf = (view: (typeof SERVICE_VIEWS)[number][0]) =>
+    view === 'all'
+      ? services.length
+      : services.filter((row) =>
+          view === 'current'
+            ? ['Pending Setup', 'Active', 'Suspended'].includes(row.operational_status)
+            : view === 'suspended'
+              ? row.operational_status === 'Suspended'
+              : row.operational_status === 'Ended'
+        ).length;
+  const shownServices = services.filter((row) =>
+    serviceView === 'current'
+      ? ['Pending Setup', 'Active', 'Suspended'].includes(row.operational_status)
+      : serviceView === 'suspended'
+        ? row.operational_status === 'Suspended'
+        : serviceView === 'ended'
+          ? row.operational_status === 'Ended'
+          : true
+  );
   const openServices = services.filter(
     (row) => !['Ended', 'Cancelled'].includes(row.operational_status)
   );
@@ -186,6 +235,28 @@ export default function DeviceDetail({ portal = false }: { portal?: boolean } = 
                 Edit device
               </button>
               )}
+
+              {/* a customer asks; nothing on the machine moves until Nexgen carries it out */}
+              {portal &&
+                (askable ?? [])
+                  .filter((operation): operation is { code: CustomerOperation; label: string } =>
+                    operation.code in CUSTOMER_ICON
+                  )
+                  .map((operation) => {
+                    const Icon = CUSTOMER_ICON[operation.code];
+
+                    return (
+                      <button
+                        key={operation.code}
+                        type="button"
+                        onClick={() => setAsking({ code: operation.code, label: operation.label })}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+                      >
+                        <Icon size={13} />
+                        {operation.label}
+                      </button>
+                    );
+                  })}
 
               {canAct && isAvailable(device.status) && (
                 <button
@@ -335,26 +406,38 @@ export default function DeviceDetail({ portal = false }: { portal?: boolean } = 
 
       
 
-      <Panel title={`Services (${openServices.length} running)`}
+      <Panel title="Services"
       action={
-        canAct ? (
-        <button
-            type="button"
-            onClick={() => setAddingService(true)}
-            disabled={!isDeployed(device.status)}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Plus size={15} />
-            Add service
-          </button>
-        ) : undefined
+        <div className="flex items-center gap-2">
+          <Select
+            className="w-44"
+            value={serviceView}
+            onChange={(value) => setServiceView(value as (typeof SERVICE_VIEWS)[number][0])}
+            options={SERVICE_VIEWS.map(([value, label]) => ({
+              value,
+              label,
+              description: `${countOf(value)} service assignment(s)`,
+            }))}
+          />
+          {canAct && (
+            <button
+              type="button"
+              onClick={() => setAddingService(true)}
+              disabled={!isDeployed(device.status)}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Plus size={15} />
+              Add service
+            </button>
+          )}
+        </div>
       }
       >
         <table className="w-full">
           <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
             <tr>
               <Th>Service</Th>
-              <Th>Since</Th>
+              <Th>Started</Th>
               <Th>Ended</Th>
               {seesBilling && <Th>Billing</Th>}
               {seesBilling && <Th>Billed up to</Th>}
@@ -363,16 +446,30 @@ export default function DeviceDetail({ portal = false }: { portal?: boolean } = 
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {services.length === 0 && (
+            {shownServices.length === 0 && (
               <Empty span={seesBilling ? 7 : 5}>
-                Nothing runs on this machine, so it is billed for nothing.
+                {serviceView === 'current'
+                  ? 'No current service assignment is recorded for this Device.'
+                  : 'No service assignment is recorded for this Device.'}
               </Empty>
             )}
-            {services.map((row) => {
+            {shownServices.map((row) => {
               return (
                 <tr key={row.name} className="transition-colors hover:bg-slate-50">
                   <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
                     {row.service_name}
+                    {canAct && row.legacy_service && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          navigate(`/msp/services/detail?item=${encodeURIComponent(row.service_item)}`)
+                        }
+                        className="mt-0.5 flex items-center gap-1 text-xs font-medium text-amber-700 hover:underline"
+                        title="Legacy MSP service"
+                      >
+                        Legacy MSP service · Configure for MSP
+                      </button>
+                    )}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
                     {fmtDate(row.effective_start_date)}
@@ -400,7 +497,7 @@ export default function DeviceDetail({ portal = false }: { portal?: boolean } = 
                         actions={
                           [
                             {
-                              label: 'Suspend service',
+                              label: 'Suspend',
                               icon: PauseCircle,
                               onClick: () => setTarget({
                                 row: {
@@ -413,7 +510,7 @@ export default function DeviceDetail({ portal = false }: { portal?: boolean } = 
                               disabled: row.operational_status !== 'Active',
                             },
                             {
-                              label: 'Resume service',
+                              label: 'Resume',
                               icon: PlayCircle,
                               onClick: () => setTarget({
                                 row: {
@@ -439,7 +536,7 @@ export default function DeviceDetail({ portal = false }: { portal?: boolean } = 
                               disabled: !['Active', 'Suspended'].includes(row.operational_status),
                             },
                             {
-                              label: 'Close service',
+                              label: 'Stop service',
                               icon: CircleX,
                               onClick: () => setTarget({
                                 row: {
@@ -450,7 +547,7 @@ export default function DeviceDetail({ portal = false }: { portal?: boolean } = 
                                 action: 'End',
                               }),
                               danger: true,
-                              disabled: !['Active', 'Suspended', 'Pending Removal'].includes(
+                              disabled: !['Active', 'Suspended'].includes(
                                 row.operational_status
                               ),
                             },
@@ -553,6 +650,35 @@ export default function DeviceDetail({ portal = false }: { portal?: boolean } = 
           </table>
         </Panel>
 
+        {pending && (
+          <Panel title="Pending request">
+            <div className="px-5 pb-5">
+              <p className="text-sm text-slate-700">
+                {pending.operation_code === 'device.transfer' &&
+                  `Holder change requested: ${
+                    pending.current_holder_name || 'Unassigned'
+                  } → ${pending.requested_holder_name || 'Unassigned'}`}
+                {pending.operation_code === 'device.assign' &&
+                  `Assignment requested: Unassigned → ${
+                    pending.requested_holder_name || 'Unassigned'
+                  }`}
+                {pending.operation_code === 'device.repossess' &&
+                  `Return to stock requested for ${pending.current_holder_name || 'Unassigned'}`}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                Request {pending.request} · {pending.status}
+              </p>
+              <button
+                type="button"
+                onClick={() => navigate(`/msp/requests/${pending.request}`)}
+                className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+              >
+                View request
+              </button>
+            </div>
+          </Panel>
+        )}
+
         <Panel title="Requests about this device">
           <table className="w-full">
             <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
@@ -589,7 +715,7 @@ export default function DeviceDetail({ portal = false }: { portal?: boolean } = 
           </table>
         </Panel>
         {canAct && (
-        <Panel title="Remarks">
+        <Panel title="Internal notes">
         <RemarkLog
           entries={device.remark_log ?? []}
           target={{ doctype: 'MSP Managed Device', name: device.name }}
@@ -598,6 +724,25 @@ export default function DeviceDetail({ portal = false }: { portal?: boolean } = 
       </Panel>
         )}
       </div>
+
+      {asking && (
+        <RequestDeviceOperationModal
+          code={asking.code}
+          label={asking.label}
+          device={{
+            name: device.name,
+            hostname: device.hostname,
+            serial_number: device.serial_number,
+          }}
+          currentHolder={device.assigned_client_user}
+          currentHolderName={device.user_name}
+          onClose={() => setAsking(null)}
+          onContinue={(seed) => {
+            setAsking(null);
+            navigate('/msp/requests/new', { state: { seed } });
+          }}
+        />
+      )}
 
       {canAct && (
       <>

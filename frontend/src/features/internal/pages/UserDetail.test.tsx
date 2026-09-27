@@ -6,6 +6,7 @@ import * as internal from '@/lib/api/internal';
 import type {
   HeldDevice,
   UserDetail as UserDetailData,
+  UserPortfolioEntry,
   UserServiceEntry,
 } from '@/lib/api/internal';
 import UserDetail from './UserDetail';
@@ -38,6 +39,21 @@ const service = (overrides: Partial<UserServiceEntry> = {}): UserServiceEntry =>
   source_request: null,
   allowed_actions: ['Change', 'Suspend', 'Remove'],
   pending_request: null,
+  ...overrides,
+});
+
+const portfolio = (overrides: Partial<UserPortfolioEntry> = {}): UserPortfolioEntry => ({
+  ...service(),
+  assignment: 'SA-001',
+  assignment_scope: 'User',
+  managed_device: null,
+  hostname: null,
+  device_serial_number: null,
+  holding_period: null,
+  current_holding: true,
+  association_from: '2026-01-10',
+  association_until: null,
+  target: 'Person',
   ...overrides,
 });
 
@@ -78,6 +94,33 @@ const detail = (overrides: Partial<UserDetailData> = {}): UserDetailData => ({
     open_requests: 0,
     attention_count: 0,
   },
+  services: [
+    portfolio(),
+    portfolio({
+      name: 'SA-DEV',
+      assignment: 'SA-DEV',
+      service_name: 'Sophos Endpoint',
+      assignment_scope: 'Device',
+      managed_device: 'DEV-001',
+      hostname: 'LAPTOP-JDOE',
+      holding_period: 'HOLD-1',
+      target: 'LAPTOP-JDOE',
+    }),
+  ],
+  service_counts: { Active: 2 },
+  device_history: [
+    {
+      period: 'HOLD-1',
+      device: 'DEV-001',
+      hostname: 'LAPTOP-JDOE',
+      device_type: 'Laptop',
+      serial_number: 'DELL-93821',
+      device_status: 'Active',
+      from_date: '2026-09-11',
+      to_date: null,
+      is_current: true,
+    },
+  ],
   personal_services: {
     current: [service()],
     available: [{ service_item: 'VPN', item_name: 'VPN', service_scope: 'User' }],
@@ -239,15 +282,15 @@ describe('Nexgen acts directly from here', () => {
     expect(screen.getByRole('button', { name: /assign a device/i })).toBeInTheDocument();
   });
 
-  it('offers suspend, change and close in the row menu of a running service', async () => {
+  it('offers suspend, change and stop in the row menu of a running service', async () => {
     await renderPage(detail());
 
     const row = screen.getByText('Microsoft 365').closest('tr') as HTMLElement;
     fireEvent.click(within(row).getByTitle('More options'));
 
-    expect(await screen.findByRole('button', { name: 'Suspend' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Change' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
+    expect(await screen.findByRole('menuitem', { name: 'Suspend' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Change service' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Stop service' })).toBeInTheDocument();
   });
 
   it('offers transfer and return to stock in the row menu of a machine', async () => {
@@ -256,8 +299,8 @@ describe('Nexgen acts directly from here', () => {
     const row = screen.getAllByText('LAPTOP-JDOE').map((cell) => cell.closest('tr') as HTMLElement).find((tr) => within(tr).queryByText(/DELL-93821/)) as HTMLElement;
     fireEvent.click(within(row).getByTitle('More options'));
 
-    expect(await screen.findByRole('button', { name: /transfer to someone else/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /return to stock/i })).toBeInTheDocument();
+    expect(await screen.findByRole('menuitem', { name: /transfer to someone else/i })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /return to stock/i })).toBeInTheDocument();
   });
 
   it('opens no request from Nexgen\'s side', async () => {
@@ -270,6 +313,7 @@ describe('Nexgen acts directly from here', () => {
   it('still acts on a service a request is about, and says which request', async () => {
     await renderPage(
       detail({
+        services: [portfolio({ allowed_actions: [], pending_request: 'SR-0125' })],
         personal_services: {
           current: [service({ allowed_actions: [], pending_request: 'SR-0125' })],
           available: [],
@@ -282,7 +326,7 @@ describe('Nexgen acts directly from here', () => {
     const row = screen.getByText(/in request SR-0125/i).closest('tr') as HTMLElement;
     fireEvent.click(within(row).getByTitle('More options'));
 
-    expect(await screen.findByRole('button', { name: 'Suspend' })).toBeInTheDocument();
+    expect(await screen.findByRole('menuitem', { name: 'Suspend' })).toBeInTheDocument();
   });
 });
 
@@ -347,12 +391,15 @@ describe('the past is asked for, not carried', () => {
     expect(internal.getUserHistory).not.toHaveBeenCalled();
   });
 
-  it('loads past devices on demand', async () => {
+  it('loads the older activity on demand, without repeating the tables above', async () => {
     await renderPage(detail());
 
     fireEvent.click(screen.getByRole('button', { name: /load older activity/i }));
 
-    expect(await screen.findByText(/LAPTOP-17/)).toBeInTheDocument();
+    expect(await screen.findByText(/closed requests/i)).toBeInTheDocument();
+    // the machines they gave back and the services that ended are in the page's own tables
+    expect(screen.queryByText(/past devices/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/past personal services/i)).not.toBeInTheDocument();
   });
 });
 

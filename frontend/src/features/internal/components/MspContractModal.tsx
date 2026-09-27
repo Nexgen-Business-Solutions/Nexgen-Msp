@@ -114,6 +114,7 @@ const MspContractModal: React.FC<Props> = ({ open, customer, contract, onClose }
           <div className="sm:col-span-2 lg:col-span-1">
             <FieldLabel required>Title</FieldLabel>
             <input
+              aria-label="Title"
               type="text"
               value={draft.title ?? ''}
               onChange={(event) => set({ title: event.target.value })}
@@ -141,6 +142,7 @@ const MspContractModal: React.FC<Props> = ({ open, customer, contract, onClose }
           <div>
             <FieldLabel required>Start date</FieldLabel>
             <input
+              aria-label="Start date"
               type="date"
               value={(draft.start_date ?? '').slice(0, 10)}
               onChange={(event) => set({ start_date: event.target.value })}

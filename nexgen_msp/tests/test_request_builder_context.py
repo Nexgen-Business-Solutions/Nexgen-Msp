@@ -4,7 +4,7 @@ The old screen loaded the whole catalogue, every person of the company and a han
 state lookups, then tried to decide in React what could be asked for. Everything it needed
 is decided here instead: what this person already has, what they may be given, which
 machines they hold and what runs on each — with the acts each of those can still receive,
-named the way the administrator named them.
+named the way this application performs them.
 """
 
 import frappe
@@ -13,6 +13,7 @@ from nexgen_msp.api.internal.services.authority_service import AuthorityService
 from nexgen_msp.api.internal.services.service_lifecycle_service import ServiceLifecycleService
 from nexgen_msp.api.portal.services.portal_service import PortalService
 from nexgen_msp.api.portal.services.request_builder_service import RequestBuilderService
+from nexgen_msp.utils import operations
 
 from .base import MSPTestCase
 
@@ -151,7 +152,7 @@ class TestEachTargetIsReadOnItsOwn(RequestBuilderCase):
 
 class TestOnlyTheActsThatApplyAreOffered(RequestBuilderCase):
     def acts(self, entry):
-        return {row["action_type"] for row in entry["allowed_request_actions"]}
+        return {row["code"] for row in entry["allowed_operations"]}
 
     def test_a_running_service_offers_change_suspend_and_remove(self):
         service = self.offering("ACTA")
@@ -159,7 +160,9 @@ class TestOnlyTheActsThatApplyAreOffered(RequestBuilderCase):
 
         entry = self.context()["personal_services"]["current"][0]
 
-        self.assertEqual(self.acts(entry), {"Change", "Suspend", "Remove"})
+        self.assertEqual(
+            self.acts(entry), {"service.change", "service.suspend", "service.end"}
+        )
 
     def test_a_paused_service_offers_resume_and_remove(self):
         service = self.offering("ACTB")
@@ -168,7 +171,7 @@ class TestOnlyTheActsThatApplyAreOffered(RequestBuilderCase):
 
         entry = self.context()["personal_services"]["current"][0]
 
-        self.assertEqual(self.acts(entry), {"Resume", "Remove"})
+        self.assertEqual(self.acts(entry), {"service.resume", "service.end"})
         self.assertEqual(entry["status"], "Suspended")
 
     def test_a_service_waiting_to_be_set_up_offers_nothing_contradictory(self):
@@ -186,28 +189,24 @@ class TestOnlyTheActsThatApplyAreOffered(RequestBuilderCase):
         self.assertEqual(entry["status"], "Pending Setup")
         self.assertEqual(self.acts(entry), set())
 
-    def test_an_act_the_administrator_switched_off_is_not_offered(self):
+    def test_an_act_this_application_does_not_perform_is_not_offered(self):
         service = self.offering("ACTD")
         self.running(service, client_user=self.john)
-        suspend = frappe.db.get_value("MSP Request Action", {"action_type": "Suspend"}, "name")
 
-        frappe.db.set_value("MSP Request Action", suspend, "enabled", 0)
-        frappe.db.commit()
-        try:
-            entry = self.context()["personal_services"]["current"][0]
-            self.assertNotIn("Suspend", self.acts(entry))
-        finally:
-            frappe.db.set_value("MSP Request Action", suspend, "enabled", 1)
-            frappe.db.commit()
+        entry = self.context()["personal_services"]["current"][0]
 
-    def test_the_acts_are_named_the_way_the_administrator_named_them(self):
+        self.assertNotIn("service.add", self.acts(entry))
+        self.assertTrue(self.acts(entry).issubset(set(operations.REGISTRY)))
+
+    def test_every_act_offered_is_named_and_explained(self):
         service = self.offering("ACTE")
         self.running(service, client_user=self.john)
 
         entry = self.context()["personal_services"]["current"][0]
-        titles = {row["action_type"]: row["title"] for row in entry["allowed_request_actions"]}
 
-        self.assertTrue(all(titles.values()), "a customer reads a title, never an action type")
+        for row in entry["allowed_operations"]:
+            self.assertTrue(row["label"], "a customer reads a label, never a code")
+            self.assertTrue(row["description"])
 
 
 class TestSomethingAlreadyAskedForIsSaidSo(RequestBuilderCase):
@@ -221,7 +220,7 @@ class TestSomethingAlreadyAskedForIsSaidSo(RequestBuilderCase):
                 request_type="Suspend",
                 lines=[
                     {
-                        "request_action": self.action("Suspend"),
+                        "operation_code": self.operation("Suspend"),
                         "action": "Suspend",
                         "target_scope": "User",
                         "client_user": self.john,
@@ -236,7 +235,7 @@ class TestSomethingAlreadyAskedForIsSaidSo(RequestBuilderCase):
         entry = self.context()["personal_services"]["current"][0]
 
         self.assertEqual(entry["pending_request"], name)
-        self.assertEqual(entry["allowed_request_actions"], [])
+        self.assertEqual(entry["allowed_operations"], [])
 
 
 class TestTheFormForSomebodyWhoDoesNotExistYet(RequestBuilderCase):

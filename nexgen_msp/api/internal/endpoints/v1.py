@@ -151,6 +151,26 @@ def execute_device_provisioning(
 
 @frappe.whitelist()
 @handle_errors
+def execute_device_operation(
+    work_order=None,
+    effective_date=None,
+    execution_holder=None,
+    override_reason=None,
+    notes=None,
+    customer_note=None,
+):
+    return _execution().execute_device_operation(
+        work_order=work_order,
+        effective_date=effective_date,
+        execution_holder=execution_holder,
+        override_reason=override_reason,
+        notes=notes,
+        customer_note=customer_note,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
 def execute_service_action(
     work_order=None,
     effective_date=None,
@@ -161,6 +181,7 @@ def execute_service_action(
     customer_note=None,
     confirm_billed=0,
     action=None,
+    operation_code=None,
     service_item=None,
 ):
     return _execution().execute_service_action(
@@ -173,6 +194,7 @@ def execute_service_action(
         customer_note=customer_note,
         confirm_billed=confirm_billed,
         action=action,
+        operation_code=operation_code,
         service_item=service_item,
     )
 
@@ -197,6 +219,28 @@ def add_technician_action(name=None, subject_key=None, option=None, reason=None)
     return _execution().add_technician_action(
         request=name, subject_key=subject_key, option=option, reason=reason
     )
+
+
+@frappe.whitelist()
+@handle_errors
+def resolve_account_access(email=None, source=None, customers=None):
+    return _team().resolve_access_references(email=email, source=source, customers=customers)
+
+
+@frappe.whitelist()
+@handle_errors
+def audit_item_integrity(since=None, until=None, limit=None):
+    from nexgen_msp.diagnostics import item_integrity
+
+    return item_integrity.audit(since=since, until=until, limit=limit)
+
+
+@frappe.whitelist()
+@handle_errors
+def restore_item_state(selections=None):
+    from nexgen_msp.diagnostics import item_integrity
+
+    return item_integrity.restore(selections=selections)
 
 
 @frappe.whitelist()
@@ -270,19 +314,20 @@ EXPORT_COLUMNS = {
         ("open_requests", "Open requests"),
         ("last_billed_on", "Last billed on"),
         ("covered_until", "Billed up to"),
-        ("remarks", "Remarks"),
+        ("remarks", "Internal notes"),
         ("name", "Reference"),
     ],
     "services": [
-        ("item_name", "Service"),
-        ("name", "Code"),
-        ("scope", "Billed per"),
+        ("service_name", "Service"),
+        ("name", "ERPNext Item"),
+        ("scope", "Scope"),
         ("stock_uom", "Unit"),
         ("invoice_label", "Invoice label"),
+        ("msp_availability", "MSP availability"),
+        ("erpnext_status", "ERPNext status"),
         ("open_assignments", "Open assignments"),
         ("customers", "Customers"),
         ("priced_contracts", "Priced contracts"),
-        ("state", "Status"),
         ("description", "Description"),
     ],
     "devices": [
@@ -307,7 +352,7 @@ EXPORT_COLUMNS = {
         ("inactive_service_names", "Ended services"),
         ("active_services", "Active services"),
         ("inactive_services", "Inactive services"),
-        ("remarks", "Remarks"),
+        ("remarks", "Internal notes"),
         ("name", "Reference"),
     ],
     "requests": [
@@ -1136,9 +1181,6 @@ def export_services(search=None, scope=None, status=None, columns=None):
 
     rows = _catalogue().list_services(search=search, scope=scope, status=status)
 
-    for row in rows:
-        row["state"] = "Disabled" if row.get("disabled") else "Active"
-
     return listing_export.respond(
         "services.xlsx", "Services", export_columns.chosen(EXPORT_COLUMNS["services"], columns), rows
     )
@@ -1146,25 +1188,63 @@ def export_services(search=None, scope=None, status=None, columns=None):
 
 @frappe.whitelist()
 @handle_errors
-def save_service(
-    name=None,
-    item_code=None,
-    item_name=None,
+def search_catalogue_items(search=None, start=0, page_length=20):
+    return _catalogue().search_catalogue_items(search=search, start=start, page_length=page_length)
+
+
+@frappe.whitelist()
+@handle_errors
+def get_item_msp_compatibility(item=None):
+    return _catalogue().get_item_msp_compatibility(item=item)
+
+
+@frappe.whitelist()
+@handle_errors
+def enable_item_for_msp(
+    item=None,
     scope=None,
-    description=None,
-    uom=None,
-    disabled=None,
     invoice_label=None,
+    item_name=None,
+    description=None,
+    enable_item=0,
+    allow_sales=0,
+    add_month_uom=0,
+    fix_month_factor=0,
+    seen=None,
 ):
-    return _catalogue().save_service(
-        name=name,
+    return _catalogue().enable_item_for_msp(
+        item=item,
+        scope=scope,
+        invoice_label=invoice_label,
+        item_name=item_name,
+        description=description,
+        enable_item=enable_item,
+        allow_sales=allow_sales,
+        add_month_uom=add_month_uom,
+        fix_month_factor=fix_month_factor,
+        seen=seen,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def create_msp_service(
+    item_code=None, item_name=None, scope=None, invoice_label=None, description=None
+):
+    return _catalogue().create_msp_service(
         item_code=item_code,
         item_name=item_name,
         scope=scope,
-        description=description,
-        uom=uom,
-        disabled=disabled,
         invoice_label=invoice_label,
+        description=description,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def remove_service_from_msp(item=None, mode="keep", effective_date=None, reason=None):
+    return _catalogue().remove_service_from_msp(
+        item=item, mode=mode, effective_date=effective_date, reason=reason
     )
 
 
@@ -1426,30 +1506,6 @@ def _settings():
     return SettingsService
 
 
-@frappe.whitelist()
-@handle_errors
-def get_settings_options():
-    return _settings().options()
-
-
-@frappe.whitelist()
-@handle_errors
-def list_request_actions():
-    return _settings().list_request_actions()
-
-
-@frappe.whitelist()
-@handle_errors
-def save_request_action(name=None, action=None):
-    return _settings().save_request_action(name=name, action=action)
-
-
-@frappe.whitelist()
-@handle_errors
-def delete_request_action(name=None):
-    return _settings().delete_request_action(name=name)
-
-
 def _departments():
     from nexgen_msp.api.internal.services.department_service import DepartmentService
 
@@ -1669,3 +1725,15 @@ def set_billing_line_discount(name=None, service_assignment=None, discount_perce
     return _billing().set_line_discount(
         name=name, service_assignment=service_assignment, discount_percent=discount_percent
     )
+
+
+@frappe.whitelist()
+@handle_errors
+def execute_work_orders(request=None, executions=None):
+    return _execution().execute_work_orders(request=request, executions=executions)
+
+
+@frappe.whitelist()
+@handle_errors
+def save_required_identifiers(request=None, values=None):
+    return _execution().save_required_identifiers(request=request, values=values)

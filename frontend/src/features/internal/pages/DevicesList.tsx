@@ -4,13 +4,12 @@ import * as internal from '@/lib/api/internal';
 import {
   Eye,
   Laptop,
+  Layers,
   Pencil,
   Plus,
   PowerOff,
   RotateCcw,
-  ShieldAlert,
   UserX,
-  Wifi,
 } from 'lucide-react';
 import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
 import ColumnsModal from '@/shared/components/ColumnsModal';
@@ -44,9 +43,13 @@ const INTERFACE_LABEL: Record<string, string> = {
 const INTERFACE_ORDER = ['Wi-Fi', 'LAN', 'Extra', 'Other'];
 
 const COVERAGE_OPTIONS = [
-  { value: 'no_service', label: 'No active service', description: 'Active, nothing running on it' },
+  {
+    value: 'no_service',
+    label: 'No current service',
+    description: 'Active Devices with no current Device-scoped service assignment.',
+  },
   { value: 'stock', label: 'In stock', description: 'Available, nobody holds it' },
-  { value: 'no_mac', label: 'No MAC recorded', description: 'Identification incomplete' },
+  { value: 'no_mac', label: 'No MAC recorded', description: 'Devices with no MAC address recorded.' },
 ];
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
@@ -197,7 +200,7 @@ export default function DevicesList() {
 
   return (
     <div className="space-y-5 px-6 pb-6 pt-4">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <KpiCard
           icon={Laptop}
           accent="blue"
@@ -208,12 +211,11 @@ export default function DevicesList() {
           onView={() => patch({ status: 'Active', coverage: '' })}
         />
         <KpiCard
-          icon={ShieldAlert}
-          tone="alert"
+          icon={Layers}
           accent="slate"
-          label="No service"
+          label="No current service"
           value={stats.data?.devices_without_services ?? 0}
-          caption="Active devices with no active service"
+          caption="Active Devices with no current Device-scoped service assignment"
           loading={stats.isLoading}
           onView={() => patch({ coverage: 'no_service', status: '' })}
         />
@@ -225,16 +227,6 @@ export default function DevicesList() {
           caption="Available, nobody holds them"
           loading={stats.isLoading}
           onView={() => patch({ coverage: 'stock', status: '' })}
-        />
-        <KpiCard
-          icon={Wifi}
-          tone="alert"
-          accent="slate"
-          label="No MAC recorded"
-          value={stats.data?.devices_without_mac ?? 0}
-          caption="Identification still incomplete"
-          loading={stats.isLoading}
-          onView={() => patch({ coverage: 'no_mac', status: '' })}
         />
       </div>
 

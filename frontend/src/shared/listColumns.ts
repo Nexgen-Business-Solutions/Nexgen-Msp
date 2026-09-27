@@ -48,14 +48,15 @@ export const INTERNAL_USER_LIST: ExportCatalogue = {
     { key: 'serial_numbers', label: 'Serial numbers', section: 'Devices' },
     { key: 'current_devices', label: 'Devices held', section: 'Devices' },
     { key: 'active_services', label: 'Active services', section: 'Services' },
-    { key: 'inactive_services', label: 'Inactive services', section: 'Services' },
-    { key: 'personal_services', label: 'Personal services', section: 'Services' },
-    { key: 'device_services', label: 'Device services', section: 'Services' },
+    { key: 'suspended_services', label: 'Suspended', section: 'Services' },
+    { key: 'ended_services', label: 'Ended', section: 'Services' },
+    { key: 'personal_services', label: 'Of their own', section: 'Services' },
+    { key: 'device_services', label: 'On their machines', section: 'Services' },
     { key: 'services', label: 'Services', section: 'Services' },
     { key: 'last_billed_on', label: 'Last billed on', section: 'Billing' },
     { key: 'covered_until', label: 'Billed up to', section: 'Billing' },
   ],
-  defaults: ['user', 'department', 'status', 'devices', 'active_services', 'inactive_services'],
+  defaults: ['user', 'department', 'status', 'devices', 'active_services', 'ended_services'],
 };
 
 export const INTERNAL_REQUEST_LIST: ExportCatalogue = {
@@ -83,16 +84,22 @@ export const INTERNAL_SERVICE_LIST: ExportCatalogue = {
   limit: LIST_LIMIT,
   columns: [
     { key: 'service', label: 'Service', section: 'Identity', required: true },
-    { key: 'scope', label: 'Billed per', section: 'Identity' },
+    { key: 'scope', label: 'Scope', section: 'Identity' },
     { key: 'stock_uom', label: 'Unit', section: 'Identity' },
     { key: 'invoice_label', label: 'Invoice label', section: 'Identity' },
+    { key: 'msp_availability', label: 'MSP availability', section: 'Usage' },
     { key: 'open_assignments', label: 'Open assignments', section: 'Usage' },
-    { key: 'customers', label: 'Customers', section: 'Usage' },
-    { key: 'status', label: 'Status', section: 'Usage' },
+    { key: 'customers', label: 'Companies using it', section: 'Usage' },
     { key: 'priced_contracts', label: 'Priced contracts', section: 'Billing' },
     { key: 'description', label: 'Description', section: 'Notes' },
   ],
-  defaults: ['service', 'scope', 'open_assignments', 'customers', 'status', 'priced_contracts'],
+  defaults: [
+    'service',
+    'scope',
+    'msp_availability',
+    'customers',
+    'open_assignments',
+  ],
 };
 
 export const PORTAL_DEVICE_LIST: ExportCatalogue = {
@@ -106,5 +113,5 @@ export const PORTAL_USER_LIST: ExportCatalogue = {
   id: 'listing:portal:users',
   limit: LIST_LIMIT,
   columns: INTERNAL_USER_LIST.columns.filter((column) => column.key !== 'customer'),
-  defaults: ['user', 'department', 'status', 'devices', 'active_services', 'inactive_services'],
+  defaults: ['user', 'department', 'status', 'devices', 'active_services', 'ended_services'],
 };

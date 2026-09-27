@@ -141,7 +141,7 @@ const EditClientUserModal: React.FC<Props> = ({ open, user, onClose, onDone }) =
               type="text"
               value={username}
               onChange={(event) => setUsername(event.target.value)}
-              placeholder="The account their licences are issued against"
+              placeholder="The username services are issued against"
               className={inputClass}
             />
           </div>

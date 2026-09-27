@@ -1,12 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Check } from 'lucide-react';
 import type { ExecutionPlan, RecapEntry } from '@/lib/api/internal';
 import { banner, btnPrimary, fmtStamp, nextBar, pill, warnBar } from '../../lib/fulfilmentStyles';
 
 const TAG: Record<RecapEntry['kind'], { label: string; tone: 'blue' | 'violet' | 'emerald' }> = {
-  requested: { label: 'Request line', tone: 'blue' },
-  technician: { label: 'Additional action', tone: 'violet' },
-  object: { label: 'Created / prepared', tone: 'emerald' },
+  requested: { label: 'REQUESTED', tone: 'blue' },
+  technician: { label: 'ADDITIONAL ACTION', tone: 'violet' },
+  object: { label: 'CREATED / PREPARED', tone: 'emerald' },
 };
 
 const Stat: React.FC<{ label: string; value: number }> = ({ label, value }) => (
@@ -19,11 +19,31 @@ const Stat: React.FC<{ label: string; value: number }> = ({ label, value }) => (
 /** Step 3: what was actually done, read from the work that did it. Not a list to tick. */
 const ExecutionRecap: React.FC<{ plan: ExecutionPlan; onContinue?: () => void }> = ({ plan, onContinue }) => {
   const recap = plan.recap;
-  const bySubject = new Map<string, RecapEntry[]>();
+  // grouped execution is now the ordinary way to work, so the recap opens on the act
+  const [reading, setReading] = useState<'action' | 'person'>('action');
+
+  const gathered = new Map<string, { title: string; hint: string; entries: RecapEntry[] }>();
 
   for (const entry of recap) {
-    const key = entry.subject_key ?? entry.work_order;
-    bySubject.set(key, [...(bySubject.get(key) ?? []), entry]);
+    const asked =
+      reading === 'action'
+        ? plan.action_groups?.find((row) => row.group_key === entry.action_group_key)
+        : undefined;
+    const key =
+      reading === 'action'
+        ? (entry.action_group_key ?? (entry.kind === 'requested' ? entry.title : 'technician'))
+        : (entry.subject_key ?? entry.work_order);
+    const found = gathered.get(key) ?? {
+      title:
+        reading === 'action'
+          ? (asked?.label ?? (entry.kind === 'requested' ? entry.title : 'Additional actions'))
+          : (entry.subject ?? 'Unnamed person'),
+      hint: reading === 'action' ? (asked?.scope_label ?? '') : (entry.department ?? ''),
+      entries: [],
+    };
+
+    found.entries.push(entry);
+    gathered.set(key, found);
   }
 
   return (
@@ -36,6 +56,24 @@ const ExecutionRecap: React.FC<{ plan: ExecutionPlan; onContinue?: () => void }>
         </p>
       </div>
 
+      <div className="flex items-center gap-1.5">
+        {(['action', 'person'] as const).map((value) => (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={reading === value}
+            onClick={() => setReading(value)}
+            className={`rounded-lg border px-3 py-2.5 text-xs font-semibold transition-colors ${
+              reading === value
+                ? 'border-blue-200 bg-blue-50 text-blue-700'
+                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            By {value}
+          </button>
+        ))}
+      </div>
+
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
         <Stat label="Total operations" value={recap.length} />
         <Stat label="Requested actions" value={recap.filter((row) => row.kind === 'requested').length} />
@@ -46,12 +84,12 @@ const ExecutionRecap: React.FC<{ plan: ExecutionPlan; onContinue?: () => void }>
       {recap.length === 0 ? (
         <p className={warnBar}>No operation has been recorded yet.</p>
       ) : (
-        [...bySubject.values()].map((entries) => (
+        [...gathered.values()].map(({ title, hint, entries }) => (
           <div key={entries[0].work_order} className="overflow-hidden rounded-xl border border-slate-200">
             <div className="border-b border-slate-100 bg-slate-50 px-4 py-2.5">
-              <p className="text-sm font-bold text-slate-900">{entries[0].subject ?? 'Unnamed person'}</p>
+              <p className="text-sm font-bold text-slate-900">{title}</p>
               <p className="text-xs text-slate-500">
-                {[entries[0].department, `${entries.length} operation${entries.length > 1 ? 's' : ''}`]
+                {[hint, `${entries.length} operation${entries.length > 1 ? 's' : ''}`]
                   .filter(Boolean)
                   .join(' · ')}
               </p>
@@ -68,9 +106,18 @@ const ExecutionRecap: React.FC<{ plan: ExecutionPlan; onContinue?: () => void }>
                   <Check size={14} />
                 </span>
                 <div className="min-w-0">
-                  <p className="text-sm font-semibold text-slate-900">{entry.title}</p>
+                  {/* the group already names one side of it; the row names the other */}
+                  <p className="text-sm font-semibold text-slate-900">
+                    {reading === 'action' ? (entry.subject ?? entry.title) : entry.title}
+                  </p>
                   <p className="mt-0.5 text-xs text-slate-500">
-                    {[entry.detail, fmtStamp(entry.at), entry.by].filter(Boolean).join(' · ')}
+                    {[
+                      reading === 'action' ? entry.department : entry.detail,
+                      fmtStamp(entry.at),
+                      entry.by,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
                   </p>
                   {entry.reason && <p className="mt-0.5 text-xs text-violet-700">{entry.reason}</p>}
                 </div>

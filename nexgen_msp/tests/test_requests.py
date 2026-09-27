@@ -5,6 +5,7 @@ import frappe
 from nexgen_msp.api.internal.services.request_service import RequestService, effective_line_status
 from nexgen_msp.api.portal.services.portal_service import PortalService
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
+from nexgen_msp.utils import operations
 
 from .base import MSPTestCase
 
@@ -25,7 +26,7 @@ class TestRequests(MSPTestCase):
 
     def line(self, service, **extra):
         base = {
-            "request_action": self.action(),
+            "operation_code": self.operation(),
             "action": "Add",
             "target_scope": "User",
             "client_user": self.person,
@@ -151,7 +152,7 @@ class TestBothScopeClosing(MSPTestCase):
 
     def open_line(self, target):
         base = {
-            "request_action": self.action(),
+            "operation_code": self.operation(),
             "action": "Add",
             "requested_service": self.service,
             "line_status": "Approved",
@@ -213,7 +214,7 @@ class TestBothScopeClosing(MSPTestCase):
                     "requester": frappe.session.user,
                     "lines": [
                         {
-                            "request_action": self.action(),
+                            "operation_code": self.operation(),
                             "action": "Add",
                             "requested_service": self.service,
                             "target_scope": "User",
@@ -245,7 +246,7 @@ class TestWhoHearsAboutANewRequest(MSPTestCase):
             request_type="Add",
             lines=[
                 {
-                    "request_action": self.action(),
+                    "operation_code": self.operation(),
                     "action": "Add",
                     "target_scope": "User",
                     "client_user": self.person,
@@ -311,7 +312,7 @@ class TestWhoHearsAboutANewRequest(MSPTestCase):
             request_type="Add",
             lines=[
                 {
-                    "request_action": self.action(),
+                    "operation_code": self.operation(),
                     "action": "Add",
                     "target_scope": "User",
                     "client_user": self.person,
@@ -342,7 +343,7 @@ class TestDrafts(MSPTestCase):
 
     def line(self, person):
         return {
-            "request_action": self.action(),
+            "operation_code": self.operation(),
             "action": "Add",
             "target_scope": "User",
             "client_user": person,
@@ -497,7 +498,7 @@ class TestDraftsAreNotWork(MSPTestCase):
             request_type="Add",
             lines=[
                 {
-                    "request_action": self.action(),
+                    "operation_code": self.operation(),
                     "action": "Add",
                     "target_scope": "User",
                     "client_user": self.person,
@@ -528,7 +529,7 @@ class TestDraftsAreNotWork(MSPTestCase):
             request_type="Add",
             lines=[
                 {
-                    "request_action": self.action(),
+                    "operation_code": self.operation(),
                     "action": "Add",
                     "target_scope": "User",
                     "client_user": self.person,
@@ -569,7 +570,7 @@ class TestDraftsAreNotChecked(MSPTestCase):
     def half_written(self):
         return [
             {
-                "request_action": self.action(),
+                "operation_code": self.operation(),
                 "action": "Add",
                 "target_scope": "User",
                 "client_user": self.person,
@@ -623,7 +624,7 @@ class TestDraftsAreNotChecked(MSPTestCase):
             with self.assertRaises(ValidationError):
                 PortalService.create_request(
                     customer=self.customer, request_type="Add",
-                    lines=[{"request_action": self.action(), "action": "Add", "target_scope": "User", "requested_service": self.device_service}],
+                    lines=[{"operation_code": self.operation(), "action": "Add", "target_scope": "User", "requested_service": self.device_service}],
                 )
         finally:
             frappe.set_user("Administrator")
@@ -641,7 +642,7 @@ class TestDraftsAreNotChecked(MSPTestCase):
             request_type="Add",
             lines=[
                 {
-                    "request_action": self.action(),
+                    "operation_code": self.operation(),
                     "action": "Add",
                     "target_scope": "Device",
                     "managed_device": self.device,
@@ -695,14 +696,14 @@ class TestTheTechnicianSeesWhatWasSupplied(MSPTestCase):
     def test_the_facts_on_file_reach_the_technician(self):
         name = self.raise_with(
             {
-                "request_action": self.action(),
+                "operation_code": self.operation(),
                 "action": "Add",
                 "target_scope": "User",
                 "client_user": self.person,
                 "requested_service": self.service,
             },
             {
-                "request_action": self.action(),
+                "operation_code": self.operation(),
                 "action": "Add",
                 "target_scope": "Device",
                 "managed_device": self.device,
@@ -721,7 +722,7 @@ class TestTheTechnicianSeesWhatWasSupplied(MSPTestCase):
         department = self.make_department("Sales")
         name = self.raise_with(
             {
-                "request_action": self.action(),
+                "operation_code": self.operation(),
                 "action": "Add",
                 "target_scope": "User",
                 "is_new_user": 1,
@@ -744,7 +745,7 @@ class TestTheTechnicianSeesWhatWasSupplied(MSPTestCase):
     def test_what_the_customer_typed_for_a_new_machine_reaches_the_technician(self):
         name = self.raise_with(
             {
-                "request_action": self.action(),
+                "operation_code": self.operation(),
                 "action": "Add",
                 "target_scope": "Device",
                 "client_user": self.person,
@@ -765,7 +766,7 @@ class TestTheTechnicianSeesWhatWasSupplied(MSPTestCase):
     def test_the_action_the_customer_picked_is_named_not_only_its_verb(self):
         name = self.raise_with(
             {
-                "request_action": self.action(),
+                "operation_code": self.operation(),
                 "action": "Add",
                 "target_scope": "User",
                 "client_user": self.person,
@@ -776,10 +777,7 @@ class TestTheTechnicianSeesWhatWasSupplied(MSPTestCase):
         line = self.as_tech(name)["lines"][0]
 
         self.assertTrue(line["action_label"])
-        self.assertEqual(
-            line["action_label"],
-            frappe.db.get_value("MSP Request Action", line["request_action"], "title"),
-        )
+        self.assertEqual(line["action_label"], operations.label(line["operation_code"]))
 
 
 class TestOneNoteForTheWholeRequest(MSPTestCase):
@@ -798,7 +796,7 @@ class TestOneNoteForTheWholeRequest(MSPTestCase):
     def lines(self):
         return [
             {
-                "request_action": self.action(),
+                "operation_code": self.operation(),
                 "action": "Add",
                 "target_scope": "User",
                 "client_user": self.person,
@@ -877,7 +875,7 @@ class TestCreatingThePersonARequestAskedFor(MSPTestCase):
 
     def new_person_line(self, service, full_name="Fresh Face"):
         return {
-            "request_action": self.action(),
+            "operation_code": self.operation(),
             "action": "Add",
             "target_scope": "User",
             "is_new_user": 1,
@@ -986,7 +984,7 @@ class TestNothingClosesOnSomeoneWhoDoesNotExist(MSPTestCase):
     def test_a_person_still_to_be_created_blocks_the_closure(self):
         name = self.in_progress(
             {
-                "request_action": self.action(),
+                "operation_code": self.operation(),
                 "action": "Add",
                 "target_scope": "User",
                 "is_new_user": 1,
@@ -1007,7 +1005,7 @@ class TestNothingClosesOnSomeoneWhoDoesNotExist(MSPTestCase):
 
         name = self.in_progress(
             {
-                "request_action": self.action(),
+                "operation_code": self.operation(),
                 "action": "Add",
                 "target_scope": "Device",
                 "client_user": person,
@@ -1029,7 +1027,7 @@ class TestNothingClosesOnSomeoneWhoDoesNotExist(MSPTestCase):
         person = self.make_person(self.customer, "Holder")
         name = self.in_progress(
             {
-                "request_action": self.action(),
+                "operation_code": self.operation(),
                 "action": "Add",
                 "target_scope": "Device",
                 "client_user": person,
@@ -1039,7 +1037,7 @@ class TestNothingClosesOnSomeoneWhoDoesNotExist(MSPTestCase):
                 "requested_service": self.device_service,
             },
             {
-                "request_action": self.action(),
+                "operation_code": self.operation(),
                 "action": "Add",
                 "target_scope": "Device",
                 "client_user": person,
@@ -1084,7 +1082,7 @@ class TestNothingClosesOnSomeoneWhoDoesNotExist(MSPTestCase):
         person = self.make_person(self.customer, "Holder")
         name = self.in_progress(
             {
-                "request_action": self.action(),
+                "operation_code": self.operation(),
                 "action": "Add",
                 "target_scope": "Device",
                 "client_user": person,
@@ -1115,7 +1113,7 @@ class TestNothingClosesOnSomeoneWhoDoesNotExist(MSPTestCase):
         person = self.make_person(self.customer, "Holder")
         name = self.in_progress(
             {
-                "request_action": self.action(),
+                "operation_code": self.operation(),
                 "action": "Add",
                 "target_scope": "Device",
                 "client_user": person,

@@ -40,15 +40,12 @@ class MSPServiceRequest(Document):
 		self.sync_status_with_lines()
 
 	def sync_request_type(self):
+		from nexgen_msp.utils import operations
+
 		if self.request_type == DISPUTE_TYPE:
 			return
 
-		actions = {row.action for row in self.lines if row.action}
-
-		if not actions:
-			return
-
-		self.request_type = actions.pop() if len(actions) == 1 else "Mixed"
+		self.request_type = operations.request_type_of(self.lines, self.request_type) or self.request_type
 
 	def validate_has_lines(self):
 		# a dispute is about an invoice, not about services to grant or remove
@@ -83,10 +80,21 @@ class MSPServiceRequest(Document):
 			if row.requested_quantity is not None and row.requested_quantity <= 0:
 				frappe.throw(_("Row {0}: quantity must be greater than zero.").format(row.idx))
 
-			target = request_intents.subject_key(row) if row.get("is_new_user") else row.get(
-				SCOPE_FIELD.get(row.target_scope) or ""
+			# what the line is about: the person, or the machine it needs — a machine still to
+			# be prepared is one target per person, not one target for everybody
+			if row.get("is_new_user"):
+				target = request_intents.subject_key(row)
+			elif row.target_scope == "Device":
+				target = request_intents.device_requirement_key(row)
+			else:
+				target = row.get(SCOPE_FIELD.get(row.target_scope) or "")
+
+			key = (
+				row.target_scope,
+				target,
+				row.requested_service,
+				row.get("operation_code") or row.get("action"),
 			)
-			key = (row.target_scope, target, row.requested_service, row.get("action"))
 			if key in seen:
 				frappe.throw(
 					_("Row {0}: the same service is already requested for this target.").format(row.idx)
@@ -141,11 +149,19 @@ class MSPServiceRequest(Document):
 		return asked(self) != asked(previous)
 
 	def validate_line_scope(self, row):
+		from nexgen_msp.utils import request_intents
+
+		# an act on a service names the service; an act on the machine itself names none
+		if not request_intents.is_device_operation(row) and not row.get("requested_service"):
+			frappe.throw(_("Row {0}: say which service this line is about.").format(row.idx))
+
 		if row.get("is_new_user"):
 			from nexgen_msp.api.internal.services.department_service import DepartmentService
 
+			# the customer is asked for a name and nothing else; a Department they do not
+			# know is completed during fulfilment, and one they do give is still checked
 			row.new_user_department = DepartmentService.validate_department(
-				row.get("new_user_department"), required=True
+				row.get("new_user_department")
 			)
 
 		if row.get("is_new_device"):

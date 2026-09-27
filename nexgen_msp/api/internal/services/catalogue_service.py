@@ -1,16 +1,33 @@
+"""The service catalogue: the ERPNext Items Nexgen MSP is configured to sell, and nothing else.
+
+A catalogue row is an `MSP Service Definition` joined to its ERPNext Item. Availability inside
+MSP belongs to the definition; `Item.disabled`, `is_stock_item` and the unit table stay
+ERPNext's own. Removing a service from MSP never switches an Item off for the rest of the site,
+and an Item is only repaired when somebody says, field by field, that it should be.
+"""
+
 import frappe
 
 from nexgen_msp.api.internal.services.contract_service import ContractService
+from nexgen_msp.api.internal.services.service_definition_service import (
+    DEFINITION,
+    SCOPES,
+    ServiceDefinitionService,
+)
+from nexgen_msp.utils import catalogue as msp_items
+from nexgen_msp.utils.assignments import OPEN_ASSIGNMENT_STATUSES
+from nexgen_msp.utils.catalogue import BILLING_UOM
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 ITEM_GROUP = "Services"
 
-# a service is billed in months, and a month can be a half: an integer-only
-# unit would make the first half-month invoice fail
-from nexgen_msp.utils.catalogue import BILLING_UOM
-from nexgen_msp.utils.assignments import OPEN_ASSIGNMENT_STATUSES
+# what the catalogue says about MSP itself, and what it says about ERPNext: two axes, never one
+MSP_AVAILABILITY = {True: "Available", False: "Not available"}
 
-SCOPES = ("User", "Device", "Both")
+STALE_ITEM = (
+    "This ERPNext Item changed while you were configuring it. "
+    "Review the current Item state before continuing."
+)
 
 
 class CatalogueService:
@@ -49,42 +66,35 @@ class CatalogueService:
             ],
         }
 
+    # ------------------------------------------------------------------ the catalogue
     @staticmethod
     def list_services(search=None, scope=None, status=None):
-        """Every sellable service, with how much of the estate depends on it.
-
-        Narrowed the same way the people and the machines are, so the three registers are
-        read with the same gestures.
-        """
+        """Every ERPNext Item configured for Nexgen MSP, with both of its status axes."""
         CatalogueService._guard_admin()
 
-        conditions = ["item.is_stock_item = 0"]
+        conditions = []
         values = {"open": OPEN_ASSIGNMENT_STATUSES}
 
         if search:
             conditions.append(
                 "(item.item_name like %(search)s or item.name like %(search)s"
-                " or item.msp_invoice_label like %(search)s or item.description like %(search)s)"
+                " or msp_def.name like %(search)s or msp_def.invoice_label like %(search)s)"
             )
             values["search"] = f"%{search}%"
 
         if scope:
-            conditions.append("ifnull(item.msp_service_scope, 'Both') = %(scope)s")
+            conditions.append("msp_def.service_scope = %(scope)s")
             values["scope"] = scope
 
-        if status == "active":
-            conditions.append("item.disabled = 0")
-        elif status == "disabled":
-            conditions.append("item.disabled = 1")
-
-        where = " and ".join(conditions)
-
-        return frappe.db.sql(
+        where = (" and " + " and ".join(conditions)) if conditions else ""
+        rows = frappe.db.sql(
             f"""
             select
-                item.name, item.item_name, item.disabled, item.stock_uom,
-                item.msp_service_scope as scope, item.description,
-                item.msp_invoice_label as invoice_label,
+                msp_def.name as definition, msp_def.enabled as msp_enabled,
+                msp_def.service_scope as scope, msp_def.invoice_label,
+                item.name, item.item_name, item.description,
+                item.disabled, item.stock_uom, item.sales_uom,
+                item.is_stock_item, item.is_sales_item,
                 (select count(*) from `tabMSP Service Assignment` sa
                     where sa.service_item = item.name
                       and sa.operational_status in %(open)s) as open_assignments,
@@ -94,109 +104,539 @@ class CatalogueService:
                 (select count(*) from `tabMSP Service Eligibility` se
                     where se.service_item = item.name and se.is_eligible = 1
                       and se.negotiated_rate > 0) as priced_contracts
-            from `tabItem` item
-            where {where}
-            order by item.disabled asc, item.item_name asc
+            from `tab{DEFINITION}` msp_def
+            join `tabItem` item on item.name = msp_def.item
+            where 1 = 1{where}
+            order by coalesce(msp_def.creation, item.creation) desc
             """,
             values,
             as_dict=True,
         )
 
+        for row in rows:
+            CatalogueService._stamp_status(row)
+
+        if status:
+            rows = [row for row in rows if row["compatibility_status"] == status]
+
+        return rows
+
     @staticmethod
-    def save_service(
-        name=None,
-        item_code=None,
-        item_name=None,
-        scope=None,
-        description=None,
-        uom=None,
-        disabled=None,
-        invoice_label=None,
-    ):
-        """Create or update a service. Its code never changes once assignments point at it."""
+    def _stamp_status(row):
+        """The two axes, the blockers, and the name the catalogue shows this service under."""
+        definition = {
+            "name": row.get("definition"),
+            "enabled": frappe.utils.cint(row.get("msp_enabled")),
+            "service_scope": row.get("scope"),
+            "invoice_label": row.get("invoice_label"),
+        }
+        card = {
+            "disabled": row.get("disabled"),
+            "is_stock_item": row.get("is_stock_item"),
+            "is_sales_item": row.get("is_sales_item"),
+            "month_ready": msp_items.month_is_ready(row["name"]),
+        }
+
+        row["msp_enabled"] = definition["enabled"]
+        row["month_ready"] = card["month_ready"]
+        row["service_name"] = (row.get("invoice_label") or "").strip() or row.get("item_name") or row["name"]
+        row["blockers"] = ServiceDefinitionService.blockers(
+            row["name"], definition=definition, card=card
+        )
+        row["compatibility_status"] = ServiceDefinitionService.compatibility(
+            row["name"], definition=definition, card=card
+        )
+        row["ready"] = ServiceDefinitionService.is_ready(
+            row["name"], definition=definition, card=card
+        )
+        row["msp_availability"] = (
+            "Needs configuration"
+            if definition["enabled"] and not row["ready"]
+            else MSP_AVAILABILITY[bool(definition["enabled"])]
+        )
+        row["erpnext_status"] = (
+            "Stock item"
+            if frappe.utils.cint(row.get("is_stock_item"))
+            else "Disabled"
+            if frappe.utils.cint(row.get("disabled"))
+            else "Enabled"
+        )
+
+        return row
+
+    # ------------------------------------------------------------------ adopting an Item
+    @staticmethod
+    def search_catalogue_items(search=None, start=0, page_length=20):
+        """Every Item the site holds, MSP or not, so one can be adopted deliberately.
+
+        Disabled Items and stock Items are included on purpose: an administrator looking for a
+        service has to be able to find the one that is there, and be told why it cannot be used
+        as it stands.
+        """
         CatalogueService._guard_admin()
 
-        if not item_name:
-            raise ValidationError("item_name is required.", "VALIDATION_ERROR")
+        start = frappe.utils.cint(start)
+        page_length = min(max(frappe.utils.cint(page_length) or 20, 1), 100)
+        conditions = []
+        values = {"start": start, "page_length": page_length}
 
-        if scope and scope not in SCOPES:
-            raise ValidationError(f"'{scope}' is not a valid scope.", "VALIDATION_ERROR")
+        if search:
+            conditions.append("(item.item_name like %(search)s or item.name like %(search)s)")
+            values["search"] = f"%{search}%"
 
-        if name:
-            if not frappe.db.exists("Item", name):
-                raise NotFoundError(f"Item {name} not found.", "NOT_FOUND")
-            doc = frappe.get_doc("Item", name)
-        else:
-            code = (item_code or "").strip().upper()
+        where = (" where " + " and ".join(conditions)) if conditions else ""
+        total = frappe.db.sql(f"select count(*) from `tabItem` item {where}", values)[0][0]
+        rows = frappe.db.sql(
+            f"""
+            select item.name, item.item_name, item.item_group, item.disabled,
+                   item.is_stock_item, item.is_sales_item, item.stock_uom, item.sales_uom
+            from `tabItem` item
+            {where}
+            order by item.item_name asc
+            limit %(page_length)s offset %(start)s
+            """,
+            values,
+            as_dict=True,
+        )
 
-            if not code:
-                raise ValidationError("item_code is required for a new service.", "VALIDATION_ERROR")
+        definitions = ServiceDefinitionService.definitions_by_item([row.name for row in rows])
 
-            # reusing a code means editing that service, not colliding with it
-            if frappe.db.exists("Item", code):
-                doc = frappe.get_doc("Item", code)
-            else:
-                doc = frappe.new_doc("Item")
-                doc.item_code = code
-                doc.item_group = CatalogueService._ensure_group()
-                doc.is_stock_item = 0
+        for row in rows:
+            definition = definitions.get(row.name)
+            row["definition"] = definition.name if definition else None
+            row["in_msp"] = bool(definition)
+            row["msp_enabled"] = bool(definition and frappe.utils.cint(definition.enabled))
+            row["scope"] = definition.service_scope if definition else None
+            row["month_ready"] = msp_items.month_is_ready(row.name)
+
+        return {"rows": rows, "total": total, "start": start, "page_length": page_length}
+
+    @staticmethod
+    def get_item_msp_compatibility(item=None):
+        """What stands between this Item and MSP, and exactly what would have to change."""
+        CatalogueService._guard_admin()
+
+        diagnostics = ServiceDefinitionService.diagnostics(item) if item else None
+
+        if not diagnostics:
+            raise NotFoundError("This Item no longer exists in ERPNext.", "NOT_FOUND")
+
+        card = frappe._dict(diagnostics)
+        repairs = []
+        warnings = []
+
+        if frappe.utils.cint(card.disabled):
+            repairs.append(
+                {
+                    "code": "ITEM_DISABLED",
+                    "field": "enable_item",
+                    "label": "Enable this Item in ERPNext",
+                    "message": (
+                        "This Item is disabled globally in ERPNext. "
+                        "It must be enabled before it can be available in MSP."
+                    ),
+                }
+            )
+
+        if not frappe.utils.cint(card.is_sales_item):
+            repairs.append(
+                {
+                    "code": "ITEM_NOT_SELLABLE",
+                    "field": "allow_sales",
+                    "label": "Allow this Item to be sold",
+                    "message": "This Item is not marked as a sales Item.",
+                }
+            )
+
+        if not card.has_month_uom:
+            repairs.append(
+                {
+                    "code": "MSP_BILLING_UOM_MISSING",
+                    "field": "add_month_uom",
+                    "label": f"Add {BILLING_UOM} with conversion factor 1",
+                    "message": f"{BILLING_UOM} is not configured for this Item.",
+                }
+            )
+        elif not card.month_ready:
+            repairs.append(
+                {
+                    "code": "MSP_BILLING_UOM_MISSING",
+                    "field": "fix_month_factor",
+                    "label": f"Set {BILLING_UOM} conversion factor to 1",
+                    "message": (
+                        f"{BILLING_UOM} currently uses conversion factor "
+                        f"{card.month_conversion_factor}. MSP billing requires conversion factor 1."
+                    ),
+                }
+            )
+
+        if not card.site_uom_allows_halves:
+            warnings.append(
+                f"The site {BILLING_UOM} unit must allow halves before MSP can bill a part month."
+            )
+
+        if card.stock_uom and frappe.db.get_value("UOM", card.stock_uom, "must_be_whole_number"):
+            warnings.append(
+                f"This Item is stocked in {card.stock_uom}, which ERPNext only accepts in whole "
+                "numbers. Whole months can be billed on it; a half month cannot."
+            )
+
+        return {
+            "item": {
+                "name": card.name,
+                "item_name": card.item_name,
+                "description": card.description,
+                "item_group": card.item_group,
+                "disabled": frappe.utils.cint(card.disabled),
+                "is_stock_item": frappe.utils.cint(card.is_stock_item),
+                "is_sales_item": frappe.utils.cint(card.is_sales_item),
+                "stock_uom": card.stock_uom,
+                "sales_uom": card.sales_uom,
+            },
+            "msp": {
+                "definition": card.definition,
+                "in_msp": card.in_msp,
+                "enabled": card.msp_enabled,
+                "scope": card.service_scope,
+                "invoice_label": card.invoice_label,
+            },
+            "billing": {
+                "required_uom": BILLING_UOM,
+                "has_required_uom": card.has_month_uom,
+                "conversion_factor": card.month_conversion_factor,
+            },
+            "compatibility_status": card.compatibility_status,
+            "blockers": card.blockers,
+            "repairs": repairs,
+            "warnings": warnings,
+            "can_enable_in_place": not frappe.utils.cint(card.is_stock_item),
+            # what the screen saw, sent back when it applies changes so nothing moved meanwhile
+            "fingerprint": CatalogueService._fingerprint(card),
+        }
+
+    @staticmethod
+    def _fingerprint(card):
+        """The Item facts a configuration decision was taken against."""
+        return {
+            "disabled": frappe.utils.cint(card.get("disabled")),
+            "is_stock_item": frappe.utils.cint(card.get("is_stock_item")),
+            "is_sales_item": frappe.utils.cint(card.get("is_sales_item")),
+            "month_conversion_factor": card.get("month_conversion_factor"),
+        }
+
+    @staticmethod
+    def enable_item_for_msp(
+        item=None,
+        scope=None,
+        invoice_label=None,
+        item_name=None,
+        description=None,
+        enable_item=0,
+        allow_sales=0,
+        add_month_uom=0,
+        fix_month_factor=0,
+        seen=None,
+    ):
+        """Adopt an existing Item, changing only what was explicitly consented to.
+
+        A stock Item is never converted in place: its inventory history is the site's, and a
+        service made from it is a new Item of our own. The Item is read again first: a decision
+        taken against a state that has since moved is refused rather than half applied.
+        """
+        CatalogueService._guard_admin()
+
+        card = msp_items.read_item(item) if item else None
+
+        if not card:
+            raise NotFoundError("This Item no longer exists in ERPNext.", "NOT_FOUND")
+
+        CatalogueService._refuse_if_changed(card, seen)
+
+        if frappe.utils.cint(card.is_stock_item):
+            raise ValidationError(msp_items.BLOCKERS["MSP_STOCK_ITEM"], "MSP_STOCK_ITEM")
+
+        if scope not in SCOPES:
+            raise ValidationError(msp_items.BLOCKERS["INVALID_MSP_SCOPE"], "INVALID_MSP_SCOPE")
+
+        if frappe.utils.cint(card.disabled) and not frappe.utils.cint(enable_item):
+            raise ValidationError(msp_items.BLOCKERS["ITEM_DISABLED"], "ITEM_DISABLED")
+
+        if not frappe.utils.cint(card.is_sales_item) and not frappe.utils.cint(allow_sales):
+            raise ValidationError(msp_items.BLOCKERS["ITEM_NOT_SELLABLE"], "ITEM_NOT_SELLABLE")
+
+        if not card.month_ready and not (
+            frappe.utils.cint(add_month_uom) or frappe.utils.cint(fix_month_factor)
+        ):
+            raise ValidationError(
+                msp_items.BLOCKERS["MSP_BILLING_UOM_MISSING"], "MSP_BILLING_UOM_MISSING"
+            )
+
+        savepoint = "enable_item_for_msp"
+        frappe.db.savepoint(savepoint)
+
+        try:
+            doc = frappe.get_doc("Item", card.name)
+            enabled_here = False
+
+            if frappe.utils.cint(enable_item) and doc.disabled:
+                doc.disabled = 0
+                enabled_here = True
+
+            if frappe.utils.cint(allow_sales):
                 doc.is_sales_item = 1
-                doc.is_purchase_item = 0
-                doc.stock_uom = uom or BILLING_UOM
 
-        doc.item_name = item_name
-        doc.description = description or item_name
-        doc.msp_service_scope = scope or "User"
+            if frappe.utils.cint(add_month_uom) or frappe.utils.cint(fix_month_factor):
+                CatalogueService._ensure_month_uom(doc)
 
-        if invoice_label is not None:
-            doc.msp_invoice_label = (invoice_label or "").strip() or None
+            if item_name:
+                doc.item_name = item_name
 
-        if disabled is not None:
-            wanted = frappe.utils.cint(disabled)
+            if description is not None:
+                doc.description = description or doc.item_name
 
-            if wanted and not doc.disabled:
-                open_count = frappe.db.count(
-                    "MSP Service Assignment",
-                    {
-                        "service_item": doc.name or doc.item_code,
-                        "operational_status": ("in", OPEN_ASSIGNMENT_STATUSES),
-                    },
-                )
-                if open_count:
-                    raise ValidationError(
-                        f"{open_count} assignment(s) still use this service. End them before "
-                        "retiring it from the catalogue.",
-                        "VALIDATION_ERROR",
-                    )
+            doc.save()
 
-            doc.disabled = wanted
+            definition = CatalogueService._write_definition(doc.name, scope, invoice_label)
 
-        doc.save()
+            if not ServiceDefinitionService.is_ready(doc.name):
+                blockers = ServiceDefinitionService.blockers(doc.name)
+                code = blockers[0] if blockers else "MSP_SERVICE_UNAVAILABLE"
+                raise ValidationError(msp_items.BLOCKERS.get(code, STALE_ITEM), code)
+
+            doc.add_comment("Comment", f"Added to Nexgen MSP by {frappe.session.user}.")
+        except Exception:
+            frappe.db.rollback(save_point=savepoint)
+            raise
+
         frappe.db.commit()
 
-        return {"name": doc.name, "item_name": doc.item_name, "scope": doc.msp_service_scope}
+        return {
+            "name": doc.name,
+            "item_name": doc.item_name,
+            "definition": definition,
+            "scope": scope,
+            "erpnext_enabled": enabled_here,
+        }
 
+    @staticmethod
+    def _refuse_if_changed(card, seen):
+        """A configuration decision is applied to the Item it was taken against, or not at all."""
+        seen = frappe.parse_json(seen) if isinstance(seen, str) else seen
+
+        if not seen:
+            return
+
+        current = CatalogueService._fingerprint(card)
+
+        for field, value in seen.items():
+            if field not in current:
+                continue
+
+            if str(current[field] if current[field] is not None else "") != str(
+                value if value is not None else ""
+            ):
+                raise ValidationError(STALE_ITEM, "ITEM_CHANGED_DURING_CONFIGURATION")
+
+    @staticmethod
+    def _write_definition(item, scope, invoice_label):
+        """The MSP configuration of this Item: created the first time, corrected after."""
+        name = frappe.db.get_value(DEFINITION, {"item": item}, "name")
+        doc = frappe.get_doc(DEFINITION, name) if name else frappe.new_doc(DEFINITION)
+
+        doc.item = item
+        doc.service_scope = scope
+        doc.invoice_label = (invoice_label or "").strip() or None
+        doc.enabled = 1
+        doc.save(ignore_permissions=True)
+
+        return doc.name
+
+    @staticmethod
+    def _ensure_month_uom(doc):
+        """The billing unit on this Item alone, at factor 1, leaving its own units alone."""
+        for row in doc.uoms:
+            if row.uom == BILLING_UOM:
+                row.conversion_factor = 1
+
+                return
+
+        doc.append("uoms", {"uom": BILLING_UOM, "conversion_factor": 1})
+
+    @staticmethod
+    def create_msp_service(
+        item_code=None, item_name=None, scope=None, invoice_label=None, description=None
+    ):
+        """A new non-stock Item and its MSP definition, both or neither."""
+        CatalogueService._guard_admin()
+
+        code = (item_code or "").strip().upper()
+
+        if not code:
+            raise ValidationError("A service code is required.", "VALIDATION_ERROR")
+
+        if not (item_name or "").strip():
+            raise ValidationError("A name is required.", "VALIDATION_ERROR")
+
+        if scope not in SCOPES:
+            raise ValidationError(msp_items.BLOCKERS["INVALID_MSP_SCOPE"], "INVALID_MSP_SCOPE")
+
+        if frappe.db.exists("Item", code):
+            raise ValidationError(
+                f'An Item with code "{code}" already exists. Choose "Use existing Item" instead.',
+                "ITEM_CODE_EXISTS",
+            )
+
+        savepoint = "create_msp_service"
+        frappe.db.savepoint(savepoint)
+
+        try:
+            doc = frappe.new_doc("Item")
+            doc.item_code = code
+            doc.item_name = item_name.strip()
+            doc.description = (description or "").strip() or doc.item_name
+            doc.item_group = CatalogueService._ensure_group()
+            doc.is_stock_item = 0
+            doc.is_sales_item = 1
+            doc.is_purchase_item = 0
+            doc.disabled = 0
+            doc.stock_uom = BILLING_UOM
+            doc.sales_uom = BILLING_UOM
+            doc.append("uoms", {"uom": BILLING_UOM, "conversion_factor": 1})
+            doc.insert()
+
+            definition = CatalogueService._write_definition(doc.name, scope, invoice_label)
+        except Exception:
+            frappe.db.rollback(save_point=savepoint)
+            raise
+
+        frappe.db.commit()
+
+        return {
+            "name": doc.name,
+            "item_name": doc.item_name,
+            "definition": definition,
+            "scope": scope,
+        }
+
+    # ------------------------------------------------------------------ withdrawing
+    @staticmethod
+    def remove_service_from_msp(item=None, mode="keep", effective_date=None, reason=None):
+        """Stop offering a service. The ERPNext Item is left exactly as it is.
+
+        What is already running is the customer's: it keeps running and keeps being billed
+        unless somebody says, in as many words, to end all of it.
+        """
+        from nexgen_msp.api.internal.services.service_lifecycle_service import (
+            ServiceLifecycleService,
+        )
+
+        CatalogueService._guard_admin()
+
+        if not item or not frappe.db.exists("Item", item):
+            raise NotFoundError("This Item no longer exists in ERPNext.", "NOT_FOUND")
+
+        definition = ServiceDefinitionService.for_item(item)
+
+        if not definition:
+            raise NotFoundError("This service is not configured for MSP.", "NOT_FOUND")
+
+        if mode not in ("keep", "end"):
+            raise ValidationError("Say what happens to the open assignments.", "VALIDATION_ERROR")
+
+        open_assignments = frappe.get_all(
+            "MSP Service Assignment",
+            filters={"service_item": item, "operational_status": ("in", OPEN_ASSIGNMENT_STATUSES)},
+            pluck="name",
+        )
+        results = []
+
+        if mode == "end":
+            if not (reason or "").strip():
+                raise ValidationError(
+                    "Say why these service assignments are being ended.", "VALIDATION_ERROR"
+                )
+
+            for assignment in open_assignments:
+                try:
+                    ServiceLifecycleService.end(
+                        assignment=assignment,
+                        effective_date=effective_date,
+                        notes=reason,
+                    )
+                    results.append({"assignment": assignment, "ok": True})
+                except Exception as error:
+                    results.append(
+                        {"assignment": assignment, "ok": False, "message": str(error)}
+                    )
+
+        frappe.db.set_value(DEFINITION, definition.name, "enabled", 0)
+        frappe.get_doc("Item", item).add_comment(
+            "Comment", f"Removed from Nexgen MSP by {frappe.session.user}."
+        )
+        frappe.db.commit()
+
+        return {
+            "name": item,
+            "definition": definition.name,
+            "open_assignments": len(open_assignments),
+            "ended": len([row for row in results if row["ok"]]),
+            "failed": [row for row in results if not row["ok"]],
+            "results": results,
+        }
+
+    @staticmethod
+    def contracts_using(item):
+        """The live contracts that still name this service."""
+        return frappe.db.sql_list(
+            """
+            select distinct c.name
+            from `tabMSP Contract` c
+            join `tabMSP Contract Service` cs on cs.parent = c.name
+            where cs.service_item = %s and c.status in ('Active', 'Suspended')
+            """,
+            item,
+        )
+
+    # ------------------------------------------------------------------ one service
     @staticmethod
     def get_service(name=None):
         """One service: how it is sold, who runs it, and what it earns."""
         CatalogueService._guard_admin()
 
-        if not name or not frappe.db.exists("Item", name):
-            raise NotFoundError(f"Service {name} not found.", "NOT_FOUND")
+        if not name:
+            raise ValidationError("No service was selected.", "VALIDATION_ERROR")
 
-        doc = frappe.db.get_value(
-            "Item",
-            name,
-            [
-                "name",
-                "item_name",
-                "msp_invoice_label as invoice_label",
-                "msp_service_scope as scope",
-                "description",
-                "stock_uom as uom",
-                "disabled",
-            ],
-            as_dict=True,
+        diagnostics = ServiceDefinitionService.diagnostics(name)
+
+        if not diagnostics:
+            raise NotFoundError("This Item no longer exists in ERPNext.", "NOT_FOUND")
+
+        card = frappe._dict(diagnostics)
+        doc = frappe._dict(
+            {
+                "name": card.name,
+                "item_name": card.item_name,
+                "service_name": (card.invoice_label or "").strip() or card.item_name or card.name,
+                "definition": card.definition,
+                "in_msp": card.in_msp,
+                "invoice_label": card.invoice_label,
+                "scope": card.service_scope,
+                "description": card.description,
+                "uom": card.stock_uom,
+                "disabled": frappe.utils.cint(card.disabled),
+                "msp_enabled": card.msp_enabled,
+                "is_stock_item": frappe.utils.cint(card.is_stock_item),
+                "is_sales_item": frappe.utils.cint(card.is_sales_item),
+                "stock_uom": card.stock_uom,
+                "sales_uom": card.sales_uom,
+                "has_month_uom": card.has_month_uom,
+                "month_conversion_factor": card.month_conversion_factor,
+                "month_ready": card.month_ready,
+                "billing_uom": BILLING_UOM,
+                "compatibility_status": card.compatibility_status,
+                "blockers": card.blockers,
+                "ready": card.ready,
+            }
         )
 
         customers = frappe.db.sql(

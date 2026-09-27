@@ -15,6 +15,8 @@ export type ConfirmModalProps = {
   error?: string | null;
   onConfirm: () => void;
   onCancel: () => void;
+  /** what exactly is about to change, when a sentence is not enough */
+  children?: React.ReactNode;
 };
 
 const toneStyles: Record<
@@ -52,6 +54,7 @@ const ConfirmModal: React.FC<ConfirmModalProps> = ({
   error,
   onConfirm,
   onCancel,
+  children,
 }) => {
   useEffect(() => {
     if (!open) return;
@@ -103,6 +106,7 @@ const ConfirmModal: React.FC<ConfirmModalProps> = ({
               {description && (
                 <p className="mt-1.5 text-sm leading-relaxed text-slate-500">{description}</p>
               )}
+              {children}
               {error && (
                 <p className="mt-3 whitespace-pre-line rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
                   {error}

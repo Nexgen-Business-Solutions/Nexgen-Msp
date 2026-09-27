@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertCircle, ArrowLeft, ArrowRight, Info, Save, Trash2 } from 'lucide-react';
+import { FrappeError } from '@/lib/api/client';
 import ConfirmModal from '@/shared/components/ConfirmModal';
 import WorkflowHeader, { primaryBtn, quietBtn, secondaryBtn } from '@/shared/components/WorkflowHeader';
 import WorkflowStepper from '@/shared/components/WorkflowStepper';
@@ -11,23 +12,25 @@ import { isPortalOnly } from '@/shared/layout/navigation';
 import { useUserFilterOptions } from '@/features/internal/hooks/useUsers';
 import { usePortalFilters } from '../store/usePortalFilters';
 import { useMyApprovalRights } from '../hooks/usePortal';
-import { useRequestBuilder } from '../hooks/useRequestBuilder';
-import RequestSubjectStep from '../components/RequestSubjectStep';
-import RequestChangesStep from '../components/RequestChangesStep';
+import { useRequestBuilder, type RequestSeed } from '../hooks/useRequestBuilder';
+import RequestPeopleStep from '../components/RequestPeopleStep';
+import RequestActionsStep from '../components/RequestActionsStep';
 import RequestScheduleStep from '../components/RequestScheduleStep';
 import RequestReviewStep from '../components/RequestReviewStep';
 
 const STEPS = [
-  { key: 'person', label: 'Users' },
-  { key: 'changes', label: 'Changes' },
-  { key: 'when', label: 'Details' },
+  { key: 'people', label: 'People' },
+  { key: 'actions', label: 'Actions' },
+  { key: 'details', label: 'Details' },
   { key: 'review', label: 'Review' },
 ];
 
 export default function NewServiceRequest() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const [step, setStep] = useState(0);
+  // an act started from a machine's own page arrives with the machine and the people on it
+  const seed = (useLocation().state as { seed?: RequestSeed } | null)?.seed ?? null;
+  const [step, setStep] = useState(seed ? 1 : 0);
   const [givingUp, setGivingUp] = useState(false);
   const rights = useMyApprovalRights();
   // a draft is picked up where it was left; a refused request is read back and corrected
@@ -36,7 +39,8 @@ export default function NewServiceRequest() {
     params.get('draft') ?? undefined,
     params.get('from') ?? undefined,
     params.get('client_user') ?? undefined,
-    params.get('new_user') === '1'
+    params.get('new_user') === '1',
+    seed
   );
 
   // staff serve every customer, so they must say who they are acting for; a contact has
@@ -72,14 +76,30 @@ export default function NewServiceRequest() {
     );
   }
 
+  // a selection that moved between writing and sending: the people are named, never dropped
+  const refusal = builder.error instanceof FrappeError ? builder.error : null;
+  const stale =
+    refusal?.code === 'REQUEST_SCOPE_CHANGED'
+      ? ((refusal.detail?.people ?? []) as { client_user: string; full_name: string; reason: string }[])
+      : null;
+
   const hasSubjects = builder.subjects.length > 0;
-  const canLeaveStep = [hasSubjects, builder.intents.length > 0, true, builder.canSend][step];
+  const hasActions = builder.actionGroups.length > 0 || builder.intents.length > 0;
+  const canLeaveStep = [hasSubjects, hasActions, true, builder.canSend][step];
+  // the stepper counts what the customer has built so far, and says nothing when empty
+  const steps = STEPS.map((entry) =>
+    entry.key === 'people' && builder.subjects.length
+      ? { ...entry, label: `People · ${builder.subjects.length}` }
+      : entry.key === 'actions' && builder.actionGroups.length
+        ? { ...entry, label: `Actions · ${builder.actionGroups.length}` }
+        : entry
+  );
 
   return (
     <div className="space-y-5 px-6 pb-6 pt-4">
       <WorkflowHeader
         title="New request"
-        subtitle="Say who it is for and what should change. We work out how to carry it out."
+        subtitle="Build one request for one person, a Department, or the whole company."
         onBack={() => navigate('/msp/requests')}
         backLabel="Back to requests"
         actions={
@@ -95,7 +115,7 @@ export default function NewServiceRequest() {
               </button>
             )}
 
-            {builder.intents.length > 0 && (
+            {(builder.subjects.length > 0 || builder.intents.length > 0) && (
               <button
                 type="button"
                 onClick={() => builder.putAside()}
@@ -146,7 +166,7 @@ export default function NewServiceRequest() {
         }
         stepper={
           <WorkflowStepper
-            steps={stepsInOrder(STEPS, step)}
+            steps={stepsInOrder(steps, step)}
             canGo={(key) => STEPS.findIndex((entry) => entry.key === key) < step}
             onGo={(key) => setStep(STEPS.findIndex((entry) => entry.key === key))}
           />
@@ -169,6 +189,15 @@ export default function NewServiceRequest() {
         </div>
       )}
 
+      {seed && (
+        <div className="flex items-start gap-2.5 rounded-xl border border-blue-100 bg-blue-50/60 p-4">
+          <Info size={16} className="mt-0.5 shrink-0 text-blue-700" />
+          <p className="text-sm text-blue-900">
+            1 action added from {seed.deviceLabel}. You can add more changes before submitting.
+          </p>
+        </div>
+      )}
+
       {builder.correcting && (
         <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
           <Info size={16} className="mt-0.5 shrink-0 text-amber-700" />
@@ -185,16 +214,69 @@ export default function NewServiceRequest() {
         </p>
       )}
 
-      {step === 0 && <RequestSubjectStep builder={builder} />}
-      {step === 1 && <RequestChangesStep builder={builder} />}
+      {step === 1 && !hasActions && (
+        <p className="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm text-amber-900">
+          Add at least one requested action before continuing.
+        </p>
+      )}
+
+      {step === 0 && !hasSubjects && (
+        <p className="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm text-amber-900">
+          Add at least one person before continuing.
+        </p>
+      )}
+
+      {step === 0 && <RequestPeopleStep builder={builder} />}
+      {step === 1 && <RequestActionsStep builder={builder} />}
       {step === 2 && <RequestScheduleStep builder={builder} />}
       {step === 3 && <RequestReviewStep builder={builder} />}
 
-      {builder.error && (
-        <div className="flex items-start gap-2.5 rounded-xl border border-red-100 bg-red-50 p-4">
-          <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
-          <span className="text-sm font-medium text-red-700">{builder.error.message}</span>
+      {stale ? (
+        <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+          <div>
+            <p className="text-sm font-semibold text-amber-900">
+              Some selected people changed after they were added to this request.
+            </p>
+            <p className="mt-0.5 text-sm text-amber-800">
+              Review the affected people before submitting. Newly added people are never included
+              automatically.
+            </p>
+          </div>
+
+          <ul className="space-y-1">
+            {stale.map((person) => (
+              <li key={person.client_user} className="text-sm text-amber-900">
+                <span className="font-semibold">{person.full_name}</span> — {person.reason}
+              </li>
+            ))}
+          </ul>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setStep(0)}
+              className={`${secondaryBtn} border-amber-300 text-amber-900 hover:bg-amber-100`}
+            >
+              Review people
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                builder.removeSubjectsFor(stale.map((person) => person.client_user))
+              }
+              className={`${secondaryBtn} border-amber-300 text-amber-900 hover:bg-amber-100`}
+            >
+              Remove unavailable people
+            </button>
+          </div>
         </div>
+      ) : (
+        builder.error && (
+          <div className="flex items-start gap-2.5 rounded-xl border border-red-100 bg-red-50 p-4">
+            <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
+            <span className="text-sm font-medium text-red-700">{builder.error.message}</span>
+          </div>
+        )
       )}
 
       <ConfirmModal

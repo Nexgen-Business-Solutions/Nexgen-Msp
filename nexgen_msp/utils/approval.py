@@ -111,6 +111,40 @@ def covers_line(rights, row):
     return bool(department) and department == wanted
 
 
+def company_wide_approver(customer):
+    """Whether anyone at this customer decides for the whole company, not one Department."""
+    doc = authority_for(customer)
+
+    if not doc:
+        return None
+
+    row = next(
+        (
+            line
+            for line in doc.approvers
+            if line.can_approve and not (line.department or "").strip()
+        ),
+        None,
+    )
+
+    return row.user if row else None
+
+
+def subject_departments(rows):
+    """Which Departments these lines are about. `None` stands for a subject in no Department."""
+    from nexgen_msp.utils import request_intents
+
+    return {
+        request_intents.subject_department(row if isinstance(row, dict) else row.as_dict())
+        for row in rows
+    }
+
+
+def reaches_several_departments(rows):
+    """Whether these lines reach more than one Department, which no Department approver covers."""
+    return len({department for department in subject_departments(rows) if department}) > 1
+
+
 # ---------------------------------------------------------------- the gaps
 def gaps(customer):
     """Whether this company still has someone to raise a request, and someone to agree.

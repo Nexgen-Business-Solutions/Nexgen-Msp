@@ -249,7 +249,7 @@ const AddDeviceModal: React.FC<Props> = ({
       onClose={onClose}
       icon={Laptop}
       tone="indigo"
-      title={workOrder ? 'Assign a device' : standalone ? 'New device' : 'Add a device'}
+      title={workOrder ? 'Prepare Device' : standalone ? 'New device' : 'Add a device'}
       subtitle={
         standalone
           ? 'Register a machine for a customer. Leave the holder empty to keep it in stock.'
@@ -353,7 +353,7 @@ const AddDeviceModal: React.FC<Props> = ({
               mode === 'new' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
             }`}
           >
-            New device
+            Register new Device
           </button>
           <button
             type="button"
@@ -362,7 +362,7 @@ const AddDeviceModal: React.FC<Props> = ({
               mode === 'existing' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
             }`}
           >
-            Existing device
+            Use existing stock Device
           </button>
         </div>
         )}
@@ -516,20 +516,20 @@ const AddDeviceModal: React.FC<Props> = ({
               value={hostname}
               onChange={(event) => setHostname(event.target.value)}
               placeholder="SN-HYS-JDUPONT"
+              aria-label="Hostname"
               className={`${inputClass} uppercase`}
             />
             {taken && (
               <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5">
                 <p className="text-xs text-amber-800">
-                  <span className="font-semibold">{taken.hostname}</span> is already taken —{' '}
+                  <span className="font-semibold">{taken.hostname}</span> is already exist and taken —{' '}
                   {taken.same_customer
                     ? taken.holder_name
                       ? `held by ${taken.holder_name} since ${fmtDate(taken.held_since)}`
                       : 'held by nobody'
                     : `it belongs to ${taken.customer}`}
                   {taken.status !== 'Active' ? ` · ${taken.status.toLowerCase()}` : ''}. You may
-                  still register another machine under that name — what has to be unique is the
-                  serial number.
+                  still register another machine with this Hostname, but need unique serial number.
                 </p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <button
@@ -574,6 +574,7 @@ const AddDeviceModal: React.FC<Props> = ({
               value={serial}
               onChange={(event) => setSerial(event.target.value)}
               placeholder="What is engraved on the case"
+              aria-label="Serial number"
               className={inputClass}
             />
             {serialTaken && (

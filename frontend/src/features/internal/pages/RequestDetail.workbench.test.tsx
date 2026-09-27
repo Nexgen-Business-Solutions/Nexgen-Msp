@@ -72,6 +72,7 @@ const card = (overrides: Partial<WorkCard>): WorkCard =>
     plan_key: 'SR-0001:service:x',
     work_type: 'Service Action',
     action: 'Add',
+    operation_code: 'service.add',
     status: 'Open',
     target_scope: 'User',
     subject_key: 'user:CU-1',
@@ -113,6 +114,7 @@ const group = (overrides: Partial<SubjectWorkGroup> = {}): SubjectWorkGroup => (
   },
   user_setup: null,
   devices: [],
+  device_operations: [],
   services: [card({})],
   ...overrides,
 });
@@ -326,8 +328,7 @@ describe('step 1 — review lines', () => {
     await renderPage(reviewing());
 
     // one person at a time: the list says what is left for each, the chosen one is shown
-    expect(await screen.findAllByText('Decision required')).toHaveLength(1);
-    const people = screen.getByRole('navigation', { name: 'People' });
+    const people = await screen.findByRole('navigation', { name: 'People' });
     expect(within(people).getAllByText('1 decision remaining')).toHaveLength(2);
     expect(screen.getByText(/every request line needs a decision/i)).toBeInTheDocument();
     expect(internal.getRequestExecutionPlan).not.toHaveBeenCalled();
@@ -346,7 +347,7 @@ describe('step 1 — review lines', () => {
       request: detail,
     });
 
-    fireEvent.click(await screen.findByRole('button', { name: /accept 2 vpn lines/i }));
+    fireEvent.click((await screen.findAllByRole('button', { name: /accept all 2/i }))[0]);
 
     await waitFor(() =>
       expect(internal.setRequestLineStatuses).toHaveBeenCalledWith({
@@ -458,7 +459,7 @@ describe('step 2 — execute', () => {
       'Disable user',
       'Stop all services',
     ]) {
-      expect(await screen.findByRole('button', { name: label })).toBeInTheDocument();
+      expect(await screen.findByRole('menuitem', { name: label })).toBeInTheDocument();
     }
     expect(screen.queryByRole('button', { name: /^actions$/i })).not.toBeInTheDocument();
   });
@@ -472,6 +473,7 @@ describe('step 2 — execute', () => {
             services: [
               card({
                 action: 'Suspend',
+                operation_code: 'service.suspend',
                 action_label: 'Suspend',
                 source_service_assignment: 'SA-1',
                 current: {
@@ -492,11 +494,11 @@ describe('step 2 — execute', () => {
     expect(menus).toHaveLength(2);
     fireEvent.click(menus[1]);
 
-    expect(await screen.findByRole('button', { name: 'Change' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Resume' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^block$/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /mark failed/i })).not.toBeInTheDocument();
+    expect(await screen.findByRole('menuitem', { name: 'Change service' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Stop service' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Resume' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: /^block$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: /mark failed/i })).not.toBeInTheDocument();
   });
 
   it('asks for the Client User first and creates it from a modal', async () => {
@@ -504,7 +506,7 @@ describe('step 2 — execute', () => {
       groups: [
         group({
           person: { name: null, full_name: 'Chloe Mbarga', department: 'Finance', email: 'c@acme.com', username: null, lifecycle_status: null, is_new: true },
-          user_setup: card({ name: 'WO-USER', work_type: 'User Setup', action: 'Create User', service_item: null, service_name: null }),
+          user_setup: card({ name: 'WO-USER', work_type: 'User Setup', action: 'Create User', operation_code: 'client_user.create', service_item: null, service_name: null }),
           services: [card({ name: 'WO-SVC', ready: false, waiting_on: 'the person to be created' })],
         }),
       ],
@@ -534,7 +536,7 @@ describe('step 2 — execute', () => {
             {
               device_requirement_key: 'new-device:user:CU-1',
               device: null,
-              work: card({ name: 'WO-DEV', work_type: 'Device Provisioning', action: 'Assign Device', service_item: null, service_name: null, device_requirement_key: 'new-device:user:CU-1' }),
+              work: card({ name: 'WO-DEV', work_type: 'Device Provisioning', action: 'Assign Device', operation_code: 'device.assign', service_item: null, service_name: null, device_requirement_key: 'new-device:user:CU-1' }),
             },
           ],
           services: [card({ name: 'WO-SOPHOS', target_scope: 'Device', service_name: 'Sophos', device_requirement_key: 'new-device:user:CU-1', ready: false, waiting_on: 'the machine to be prepared' })],
@@ -545,9 +547,9 @@ describe('step 2 — execute', () => {
     await renderPage(request(), owed);
 
     expect(await screen.findByText(/device required/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /assign a device/i }));
+    fireEvent.click(screen.getByRole('button', { name: /prepare device/i }));
     const dialog = await screen.findByRole('dialog');
-    fireEvent.click(within(dialog).getByRole('button', { name: /existing device/i }));
+    fireEvent.click(within(dialog).getByRole('button', { name: /use existing stock device/i }));
     fireEvent.click(await within(dialog).findByRole('button', { name: /search a hostname or a serial/i }));
     fireEvent.click(await screen.findByRole('option', { name: /LAPTOP-STOCK-14/ }));
     fireEvent.click(within(dialog).getByRole('button', { name: /hand it over/i }));
@@ -569,7 +571,7 @@ describe('step 2 — execute', () => {
             {
               device_requirement_key: 'new-device:user:CU-1',
               device: null,
-              work: card({ name: 'WO-DEV', work_type: 'Device Provisioning', action: 'Assign Device', service_item: null, service_name: null, device_requirement_key: 'new-device:user:CU-1' }),
+              work: card({ name: 'WO-DEV', work_type: 'Device Provisioning', action: 'Assign Device', operation_code: 'device.assign', service_item: null, service_name: null, device_requirement_key: 'new-device:user:CU-1' }),
             },
           ],
           services: [card({ name: 'WO-SOPHOS', target_scope: 'Device', service_name: 'Sophos', device_requirement_key: 'new-device:user:CU-1', ready: false, waiting_on: 'the machine to be prepared' })],
@@ -581,10 +583,10 @@ describe('step 2 — execute', () => {
 
     fireEvent.click((await screen.findAllByTitle('More options'))[0]);
     // the menu entry, not the line's own button
-    fireEvent.click((await screen.findAllByRole('button', { name: 'Assign a device' })).at(-1) as HTMLElement);
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Assign a device' }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText(/needed by sophos/i)).toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole('button', { name: /existing device/i }));
+    fireEvent.click(within(dialog).getByRole('button', { name: /use existing stock device/i }));
     fireEvent.click(await within(dialog).findByRole('button', { name: /search a hostname or a serial/i }));
     fireEvent.click(await screen.findByRole('option', { name: /LAPTOP-STOCK-14/ }));
     fireEvent.click(within(dialog).getByRole('button', { name: /hand it over/i }));
@@ -609,6 +611,7 @@ describe('step 2 — execute', () => {
                 name: 'WO-DEV',
                 work_type: 'Device Provisioning',
                 action: 'Assign Device',
+                operation_code: 'device.assign',
                 service_item: null,
                 service_name: null,
                 device_requirement_key: 'new-device:user:CU-1',
@@ -624,7 +627,7 @@ describe('step 2 — execute', () => {
     vi.mocked(internal.executeDeviceProvisioning).mockResolvedValue(owed);
     await renderPage(request(), owed);
 
-    fireEvent.click(await screen.findByRole('button', { name: /assign a device/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /prepare device/i }));
     const dialog = await screen.findByRole('dialog');
     const assign = await within(dialog).findByRole('button', { name: /hand it over/i });
     await waitFor(() => expect(assign).toBeEnabled());
@@ -656,7 +659,7 @@ describe('step 2 — execute', () => {
 
   it('asks for the new service when a change the customer asked for is run', async () => {
     const changing = plan({
-      groups: [group({ services: [card({ action: 'Change', action_label: 'Change a service' })] })],
+      groups: [group({ services: [card({ action: 'Change', operation_code: 'service.change', action_label: 'Change a service' })] })],
     });
     vi.mocked(internal.userServiceAvailability).mockResolvedValue({
       available: [{ service_item: 'SVC-NEW', item_name: 'Replacement', service_scope: 'User' }],
@@ -707,7 +710,7 @@ describe('step 2 — execute', () => {
     });
     await renderPage(request(), two);
 
-    fireEvent.click(await screen.findByRole('button', { name: /add · microsoft 365 for 2 people/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /execute 2 ready/i }));
 
     await waitFor(() =>
       expect(internal.executeServiceActions).toHaveBeenCalledWith({ work_orders: ['WO-0001', 'WO-0002'] })
@@ -723,6 +726,7 @@ describe('step 2 — execute', () => {
             services: [
               card({
                 action: 'Suspend',
+                operation_code: 'service.suspend',
                 action_label: 'Suspend',
                 source_service_assignment: 'SA-1',
                 current: {
@@ -741,15 +745,15 @@ describe('step 2 — execute', () => {
     await renderPage(request(), work);
 
     fireEvent.click((await screen.findAllByTitle('More options'))[1]);
-    fireEvent.click(await screen.findByRole('button', { name: 'Close' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Stop service' }));
     const dialog = await screen.findByRole('dialog');
-    expect(within(dialog).getByText(/it will be recorded as close/i)).toBeInTheDocument();
-    fireEvent.click(within(dialog).getByText('Close', { selector: 'button' }));
+    expect(within(dialog).getByText(/it will be recorded as stop service/i)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByText('Stop service', { selector: 'button' }));
 
     await waitFor(() =>
       expect(vi.mocked(internal.executeServiceAction).mock.calls[0][0]).toMatchObject({
         work_order: 'WO-0001',
-        action: 'Remove',
+        operation_code: 'service.end',
       })
     );
   });
@@ -762,8 +766,8 @@ describe('step 3 — verify', () => {
     expect(await screen.findByText(/what was actually done/i)).toBeInTheDocument();
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
     expect(screen.getByText('Microsoft 365 · Grant a service')).toBeInTheDocument();
-    expect(screen.getByText('Request line')).toBeInTheDocument();
-    expect(screen.getByText('Additional action')).toBeInTheDocument();
+    expect(screen.getByText('REQUESTED')).toBeInTheDocument();
+    expect(screen.getByText('ADDITIONAL ACTION')).toBeInTheDocument();
     expect(screen.getByText('Needed for remote work')).toBeInTheDocument();
   });
 });
@@ -775,7 +779,11 @@ describe('step 4 — final validation', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /continue to final validation/i }));
 
-    expect(await screen.findByText(/1 accepted request line completed · 1 rejected · 1 additional action completed/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/1 accepted request line completed/i)
+    ).toBeInTheDocument();
+    expect(screen.getByText(/1 rejected request line/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 additional technician action completed/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /validate & complete request/i }));
     fireEvent.click(screen.getByRole('button', { name: /validate & complete request/i }));

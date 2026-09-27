@@ -7,11 +7,12 @@ from frappe.model.document import Document
 
 
 class MSPRequestAction(Document):
-	"""How one of the engine's acts is offered to a customer.
+	"""Deprecated: what a request may ask for is no longer configuration.
 
-	The act itself is the engine's: Remove ends a service and nothing configured here can
-	change that. What an administrator settles is the wording, the order and whether the act
-	is offered at all.
+	The operations this application performs are declared in `nexgen_msp/utils/operations.py`.
+	Nothing at runtime reads this table any more; it is kept, with the request line and work
+	order fields that point at it, only until the migration has been verified in production,
+	and is removed after that.
 	"""
 
 	def validate(self):
