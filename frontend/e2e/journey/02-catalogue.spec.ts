@@ -88,29 +88,60 @@ test.describe('Phase 2 — the contract and its rates', () => {
 
     const dialog = page.getByRole('dialog');
 
-    // a rate cannot exist without a price list, so the contract is given one on the way in
-    for (const [label, option] of [
+    /**
+     * The terms the later phases depend on.
+     *
+     * These used to be set in a loop that skipped anything it could not find, which meant a
+     * contract could be created without the proration method the billing phase exists to
+     * check — and the run would go on and bill full months without ever saying why. A field
+     * that is required here is required: if it is not on the form, this fails.
+     */
+    const required = [
       ['Status', /^Active/],
       ['Billing frequency', /^Month/],
-      ['Billing timing', /Arrears|Advance/],
-      // a method that counts the days actually consumed: the whole point of the billing phase is
-      // that a pause, an end and a late start do not all bill a full month
+      // days actually consumed: a pause, an end and a late start must not all bill a month
       ['Proration', /Daily Actual Days/],
+    ] as const;
+
+    const optional = [
+      ['Billing timing', /Arrears|Advance/],
       ['Invoice grouping', /./],
       ['Price list', /Selling|Standard|./],
-    ] as const) {
-      const control = dialog
+    ] as const;
+
+    const control = (label: string) =>
+      dialog
         .locator('div')
         .filter({ hasText: new RegExp(`^${label}`) })
         .getByRole('button')
         .first();
 
-      if (await control.count()) {
-        await control.click();
-        const choice = page.getByRole('option', { name: option }).first();
-        if (await choice.count()) await choice.click();
-        else await page.keyboard.press('Escape');
-      }
+    for (const [label, option] of required) {
+      const field = control(label);
+
+      await expect(field, `the contract form has no ${label}`).toBeVisible({ timeout: 20_000 });
+      await field.click();
+
+      const choice = page.getByRole('option', { name: option }).first();
+
+      await expect(choice, `${label} does not offer ${option}`).toBeVisible({ timeout: 20_000 });
+      await choice.click();
+
+      // and it holds what was chosen, rather than closing on nothing
+      await expect(control(label), `${label} did not keep what was chosen`).toHaveText(option);
+    }
+
+    for (const [label, option] of optional) {
+      const field = control(label);
+
+      if (!(await field.count())) continue;
+
+      await field.click();
+
+      const choice = page.getByRole('option', { name: option }).first();
+
+      if (await choice.count()) await choice.click();
+      else await page.keyboard.press('Escape');
     }
 
     // the services the contract covers: a rate alone does not make a service orderable, the

@@ -614,6 +614,11 @@ def journey_ground():
         "operator": _journey_account(
             "customer", "MSP Customer Operator", "joperator", rights={"can_submit": 0, "can_approve": 0}
         ),
+        # raises requests but decides nothing: what they send waits for the manager's accord,
+        # which is the only way the run ever reaches that screen
+        "requester": _journey_account(
+            "customer", "MSP Customer Manager", "jasker", rights={"can_submit": 1, "can_approve": 0}
+        ),
     }
     frappe.db.commit()
 
@@ -622,7 +627,7 @@ def journey_ground():
             {
                 "customer": JOURNEY,
                 "password": PASSWORD,
-                "departments": [f"{PREFIX} Finance", f"{PREFIX} Support"],
+                "departments": [f"{PREFIX} Finance", f"{PREFIX} Support", f"{PREFIX} Logistics"],
                 **{
                     f"{who}{suffix}": value
                     for who, row in accounts.items()

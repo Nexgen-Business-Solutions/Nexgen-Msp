@@ -91,6 +91,8 @@ export type RequestActionGroup = {
   sourceScopeKey?: string | null;
   sourceScopeLabel: string;
   selectedSubjectCount: number;
+  /** the day this act was asked to take effect, when the customer named one */
+  requestedEffectiveDate?: string | null;
   targets: RequestTarget[];
   exclusions: RequestExclusion[];
 };
@@ -332,8 +334,53 @@ export const useRequestBuilder = (
     if (!source || loaded || !saved.data) return;
 
     const rebuilt = fromSavedRequest(saved.data);
-    setSubjects(rebuilt.subjects);
-    setIntents(rebuilt.intents);
+    const groups = saved.data.action_groups ?? [];
+    const snapshotted = saved.data.subjects ?? [];
+
+    // a V3 request is its people and its grouped acts. Rebuilding only the atomic lines gave
+    // back an approximation of what was saved and silently dropped the groups, so a draft
+    // reopened and saved again lost what the customer had configured.
+    if (groups.length && snapshotted.length) {
+      setSubjects(
+        snapshotted.map((row) => ({
+          key: row.subject_key,
+          kind: row.is_new_user ? ('new' as const) : ('existing' as const),
+          clientUser: row.client_user ?? undefined,
+          fullName: row.full_name,
+          department: row.department ?? undefined,
+          email: row.email ?? undefined,
+          selectionLabel: row.selection_label ?? undefined,
+        }))
+      );
+      setIntents([]);
+      setActionGroups(
+        groups.map((group) => ({
+          groupKey: group.group_key,
+          operationCode: group.operation_code,
+          operationLabelSnapshot: group.operation_label_snapshot,
+          domain: (group.domain || 'Service') as RequestActionGroup['domain'],
+          serviceItem: group.service_item,
+          sourceScopeType: (group.source_scope_type ||
+            'All') as RequestActionGroup['sourceScopeType'],
+          sourceScopeKey: group.source_scope_key,
+          sourceScopeLabel: group.source_scope_label ?? '',
+          selectedSubjectCount: group.selected_subject_count,
+          requestedEffectiveDate: group.configuration?.requested_effective_date ?? null,
+          targets: group.configuration?.targets ?? [],
+          exclusions: group.configuration?.exclusions ?? [],
+        }))
+      );
+
+      const asked = groups.find((group) => group.configuration?.requested_effective_date);
+
+      if (asked?.configuration?.requested_effective_date) {
+        setDefaultDate(asked.configuration.requested_effective_date);
+      }
+    } else {
+      setSubjects(rebuilt.subjects);
+      setIntents(rebuilt.intents);
+    }
+
     if (rebuilt.priority) setPriority(rebuilt.priority);
     setDetails(rebuilt.details);
     setLoaded(true);
@@ -614,10 +661,13 @@ export const useRequestBuilder = (
         source_scope_key: group.sourceScopeKey ?? null,
         source_scope_label: group.sourceScopeLabel,
         selected_subject_count: group.selectedSubjectCount,
+        // the date the customer picked on the schedule step: without it the group reaches the
+        // server with nothing to say, and every line it becomes is dated by default instead
+        requested_effective_date: group.requestedEffectiveDate ?? defaultDate ?? null,
         targets: group.targets,
         exclusions: group.exclusions,
       })),
-    [actionGroups]
+    [actionGroups, defaultDate]
   );
 
   /** How many concrete targets the whole request stands for. */
@@ -676,6 +726,7 @@ export const useRequestBuilder = (
     intents,
     subjectDrafts,
     actionGroups,
+    groupDrafts,
     addActionGroup,
     removeActionGroup,
     targetCount,

@@ -1,3 +1,4 @@
+import { keyOfPerson, nameOfPerson } from './personOfLine';
 import React, { useMemo, useState } from 'react';
 import { AlertCircle, Check, Laptop, TriangleAlert, UserRound, X } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
@@ -24,16 +25,8 @@ type Props = {
 };
 
 // a machine still to be prepared names its person as the one it is requested for
-const personKey = (line: RequestDetailLine) =>
-  line.client_user ||
-  line.requested_for_user ||
-  line.device_holder ||
-  `new:${line.new_user_full_name ?? line.idx}`;
-
-const personName = (line: RequestDetailLine) =>
-  (line.is_new_user && !line.client_user ? line.new_user_full_name : line.client_user_name) ||
-  line.device_holder ||
-  'Unnamed person';
+const personKey = keyOfPerson;
+const personName = nameOfPerson;
 
 const serviceOf = (line: RequestDetailLine) => line.requested_service_name || line.requested_service;
 const actOf = (line: RequestDetailLine) => line.action_label || line.action;

@@ -2,10 +2,10 @@
   "cookies": [
     {
       "name": "sid",
-      "value": "1f3fa062b53ed2500532ed65fca00948ec0897c7bad8a6a89b6348da",
+      "value": "cd9d9793086f20cfd2715b1a4cfc387fddbad69065143f2a1cbc3427",
       "domain": "msp.localhost",
       "path": "/",
-      "expires": 1791090721.883,
+      "expires": 1791181432.8,
       "httpOnly": true,
       "secure": false,
       "sameSite": "Lax"

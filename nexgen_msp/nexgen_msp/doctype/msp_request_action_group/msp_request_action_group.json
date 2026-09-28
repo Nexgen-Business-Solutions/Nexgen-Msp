@@ -21,7 +21,8 @@
   "applicable_target_count",
   "excluded_subject_count",
   "section_impact",
-  "impact_snapshot_json"
+  "impact_snapshot_json",
+  "configuration_snapshot_json"
  ],
  "fields": [
   {
@@ -116,6 +117,13 @@
    "fieldname": "impact_snapshot_json",
    "fieldtype": "Code",
    "label": "Impact Snapshot",
+   "options": "JSON",
+   "reqd": 1
+  },
+  {
+   "fieldname": "configuration_snapshot_json",
+   "fieldtype": "Code",
+   "label": "Configuration Snapshot JSON",
    "options": "JSON",
    "reqd": 1
   }

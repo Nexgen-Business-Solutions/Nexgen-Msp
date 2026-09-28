@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { Link, Navigate, useLocation } from 'react-router-dom';
 import {
   AlertCircleIcon,
@@ -11,6 +11,7 @@ import { completeLogin, preLogin } from '@/lib/api/auth2fa';
 import { mayEnterApplication } from '@/lib/api/session';
 import { AppLogo } from '@/shared/components/appLogo';
 import { useSession } from '@/shared/hooks/useSession';
+import { errorMessageFor } from '../signInRefusals';
 import { safeMspRedirect } from '../authRedirect';
 import TwoFactorChallenge from '../components/TwoFactorChallenge';
 import TwoFactorSetup from '../components/TwoFactorSetup';
@@ -21,22 +22,6 @@ const FORM_HEADER = 'Sign in';
 const FORM_DESCRIPTION =
   'Use your Nexgen account to access your users, devices, services and requests.';
 
-const errorMessageFor = (err: unknown) => {
-  if (err instanceof FrappeError) {
-    if (err.status === 401) return 'Incorrect username or password.';
-    if (err.status === 403) return 'Your account is not allowed to sign in.';
-    if (err.status === 417) return err.message || 'Sign-in refused.';
-    if (err.status === 428) return err.message || 'A verification code is required.';
-    if (err.status === 429) return err.message || 'Too many attempts. Try again shortly.';
-    if (err.status === 429) return 'Too many attempts. Try again in a few minutes.';
-    if (err.status >= 500) return 'The server is unavailable. Please try again later.';
-    return err.message || 'Sign-in failed.';
-  }
-
-  if (err instanceof TypeError) return 'Cannot reach the server. Check your connection.';
-
-  return 'An unexpected error occurred.';
-};
 
 export default function LoginScreen() {
   const location = useLocation();
@@ -50,6 +35,8 @@ export default function LoginScreen() {
   // the password alone opens nothing: it buys a token the code turns into a session
   const [pending, setPending] = useState<{ token: string; fullName: string } | null>(null);
   const [step, setStep] = useState<'credentials' | 'code' | 'setup'>('credentials');
+  /** the one code already sent for the sign-in in hand, so it is never sent twice */
+  const sent = useRef('');
   const [notice, setNotice] = useState('');
 
   if (mayEnterApplication(session.data)) return <Navigate to="/msp" replace />;
@@ -93,6 +80,12 @@ export default function LoginScreen() {
   const submitCode = async (code: string) => {
     if (!pending || code.length !== 6 || loginLoading) return;
 
+    // a sign-in is spent by the first code it accepts. The field sends the code the moment the
+    // sixth digit lands, and the button sends it too: without this, pressing both spends the
+    // sign-in on the first and reports the second as expired — having just let you in.
+    if (sent.current === `${pending.token}:${code}`) return;
+
+    sent.current = `${pending.token}:${code}`;
     setLoginLoading(true);
     setError('');
 
@@ -106,8 +99,12 @@ export default function LoginScreen() {
     } catch (err) {
       setError(errorMessageFor(err));
 
-      if (err instanceof FrappeError && err.code === 'PENDING_LOGIN_INVALID') {
-        // the token died under us; the password has to be typed again
+      // the two refusals that leave no sign-in behind: the server says it dropped the token,
+      // so a code screen would only be a form with nothing to send to
+      if (
+        err instanceof FrappeError &&
+        (err.code === 'PENDING_LOGIN_INVALID' || err.code === 'RATE_LIMITED')
+      ) {
         backToCredentials();
       }
     } finally {
@@ -116,6 +113,7 @@ export default function LoginScreen() {
   };
 
   const backToCredentials = () => {
+    sent.current = '';
     setPending(null);
     setStep('credentials');
     setCredentials((current) => ({ ...current, password: '' }));

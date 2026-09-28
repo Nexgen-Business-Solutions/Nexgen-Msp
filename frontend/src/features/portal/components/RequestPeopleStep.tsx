@@ -219,12 +219,10 @@ const NewUser: React.FC<{ builder: Builder; onClose: () => void }> = ({ builder,
             value={username}
             aria-label="Username"
             onChange={(event) => setUsername(event.target.value)}
-            placeholder="The username they will use on the services asked for"
+            placeholder="for his services"
             className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
           />
-          <p className="mt-1 text-xs text-slate-500">
-            Giving it here is what lets the work be carried out without asking for it again.
-          </p>
+          
         </div>
       </div>
     </Modal>

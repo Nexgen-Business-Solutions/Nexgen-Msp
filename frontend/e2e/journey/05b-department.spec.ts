@@ -116,7 +116,10 @@ test.describe('A Department, minus one', () => {
 
     await expect(page.getByText('Confirm the exact snapshot and requested actions.')).toBeVisible();
     await page.getByRole('button', { name: 'Submit request' }).click();
-    await page.waitForURL(/\/msp\/requests/, { timeout: 30_000 });
+    await page.waitForURL(
+      (url) => /\/msp\/requests/.test(url.pathname) && !url.pathname.endsWith('/new'),
+      { timeout: 30_000 }
+    );
   });
 });
 

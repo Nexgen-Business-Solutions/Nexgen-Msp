@@ -510,7 +510,12 @@ def evaluate_request_scope(customer=None, subjects=None):
 
 @frappe.whitelist()
 @handle_errors
-def evaluate_request_operations(customer=None, subjects=None, subject_keys=None):
+def evaluate_request_operations(
+    customer=None, subjects=None, subject_keys=None, action_groups=None
+):
     return _request_v3().operation_options(
-        customer=customer, subjects=subjects, subject_keys=subject_keys
+        customer=customer,
+        subjects=subjects,
+        subject_keys=subject_keys,
+        action_groups=action_groups,
     )

@@ -52,7 +52,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Request Type",
-   "options": "Add\nChange\nSuspend\nResume\nRemove\nDevice\nMixed\nBilling Dispute",
+   "options": "Add\nChange\nSuspend\nResume\nRemove\nEnd\nDevice\nMixed\nBilling Dispute",
    "read_only": 1
   },
   {

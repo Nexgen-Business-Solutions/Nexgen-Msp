@@ -511,17 +511,28 @@ export const useRequestScope = (subjects: portal.RequestSubjectDraft[]) => {
 /** What may be asked of the chosen scope, decided by the server and grouped by domain. */
 export const useRequestOperations = (
   subjects: portal.RequestSubjectDraft[],
-  subjectKeys: string[]
+  subjectKeys: string[],
+  actionGroups: portal.RequestActionGroupDraft[] = []
 ) => {
   const customer = usePortalFilters((state) => state.customer);
   const scope = subjectKeys.join('|');
   const all = subjects.map((subject) => subject.subject_key).join('|');
+  // adding a machine changes what may be asked of the person who gets it, so the evaluation
+  // is read again the moment the draft does
+  const asked = actionGroups
+    .map((group) => `${group.group_key}:${group.targets.length}`)
+    .join('|');
 
   return useQuery({
-    queryKey: [...requestBuilderKeys.all, 'operations', customer, all, scope] as const,
+    queryKey: [...requestBuilderKeys.all, 'operations', customer, all, scope, asked] as const,
     queryFn: ({ signal }) =>
       portal.evaluateRequestOperations(
-        { customer: customer || undefined, subjects, subject_keys: subjectKeys },
+        {
+          customer: customer || undefined,
+          subjects,
+          subject_keys: subjectKeys,
+          action_groups: actionGroups,
+        },
         signal
       ),
     enabled: subjectKeys.length > 0,

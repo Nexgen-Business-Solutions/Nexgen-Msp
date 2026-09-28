@@ -21,8 +21,15 @@ const OtpField: React.FC<Props> = ({ value, onChange, onComplete, disabled, auto
 
   const push = (next: string) => {
     const clean = next.replace(/\D/g, '').slice(0, SIZE);
+    const wasComplete = value.replace(/\D/g, '').length === SIZE;
+
     onChange(clean);
-    if (clean.length === SIZE) onComplete?.(clean);
+
+    // only when it becomes complete, not every time it happens to be: editing a digit of an
+    // already-full code used to send it again, and a code sent twice spends a sign-in that
+    // only works once
+    if (clean.length === SIZE && !wasComplete) onComplete?.(clean);
+
     return clean;
   };
 

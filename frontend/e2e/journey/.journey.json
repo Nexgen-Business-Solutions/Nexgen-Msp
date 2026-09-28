@@ -3,14 +3,17 @@
   "password": "Zze2e-Headless-2026",
   "departments": [
     "ZZE2E Finance",
-    "ZZE2E Support"
+    "ZZE2E Support",
+    "ZZE2E Logistics"
   ],
   "admin": "zze2e.jadmin@example.invalid",
-  "admin_secret": "DZUKM3TXAUXCZHTWRMPDYJ5BORFSJQ4R",
+  "admin_secret": "CW73VFKT54NUBONW62M5C3BQ6FMIEHAL",
   "technician": "zze2e.jtech@example.invalid",
-  "technician_secret": "MUVDFYX7C624ZKH2KJQJGS5Z7QXBEI4M",
+  "technician_secret": "SNQJVJ52CN4QYQZBLNJBHVNEBNGSIHOO",
   "manager": "zze2e.jmanager@example.invalid",
-  "manager_secret": "BA6ZOJQPZX3LAGN22LTKW3E6W3A67GAZ",
+  "manager_secret": "DTL5AHHAXRCQJJ6G6Q5AXP72ISWKQGJB",
   "operator": "zze2e.joperator@example.invalid",
-  "operator_secret": "TTRTJEVGPK22PVOQXNHES3BDT7MVLKXC"
+  "operator_secret": "UX473QIFE22XJTTOTW4KRULZ2RSALMEG",
+  "requester": "zze2e.jasker@example.invalid",
+  "requester_secret": "BSYWOZWCOTG4HHNOI3IZYQPZZXCQLHR3"
 }

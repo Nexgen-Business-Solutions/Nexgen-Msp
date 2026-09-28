@@ -235,6 +235,7 @@ class RequestService:
                         select 1 from `tabMSP Service Request Line` srl
                         left join `tabMSP Client User` cu on cu.name = srl.client_user
                         left join `tabMSP Client User` wanted on wanted.name = srl.requested_holder
+                        left join `tabMSP Client User` forwhom on forwhom.name = srl.requested_for_user
                         left join `tabMSP Managed Device` device on device.name = srl.managed_device
                         where srl.parent = sr.name
                           and (
@@ -242,6 +243,8 @@ class RequestService:
                               or srl.new_user_full_name like %(search)s
                               -- a Device request is found by the machine, not only by the person
                               or wanted.full_name like %(search)s
+                              -- a machine asked for somebody names them here, not as a holder
+                              or forwhom.full_name like %(search)s
                               or device.hostname like %(search)s
                               or device.serial_number like %(search)s
                               or srl.new_device_label like %(search)s
@@ -295,10 +298,15 @@ class RequestService:
                 (select count(*) from `tabMSP Service Request Line` srl
                     where srl.parent = sr.name and srl.line_status = 'Pending') as pending_lines,
                 coalesce(
-                    (select group_concat(distinct coalesce(cu.full_name, srl.new_user_full_name)
+                    (select group_concat(distinct coalesce(
+                            cu.full_name, forwhom.full_name, srl.new_user_full_name)
                         order by srl.idx separator ', ')
                         from `tabMSP Service Request Line` srl
                         left join `tabMSP Client User` cu on cu.name = srl.client_user
+                        -- a machine line carries no service holder: the person it is wanted
+                        -- for is who the request is about
+                        left join `tabMSP Client User` forwhom
+                            on forwhom.name = srl.requested_for_user
                         where srl.parent = sr.name),
                     -- a dispute carries no service line, so whoever raised it is the person
                     (select u.full_name from `tabUser` u where u.name = sr.requester)
@@ -507,6 +515,7 @@ class RequestService:
                     "applicable_target_count": row.applicable_target_count,
                     "excluded_subject_count": row.excluded_subject_count,
                     "impact": frappe.parse_json(row.impact_snapshot_json or "[]"),
+                    "configuration": frappe.parse_json(row.configuration_snapshot_json or "{}"),
                 }
                 for row in doc.get("action_groups") or []
             ],

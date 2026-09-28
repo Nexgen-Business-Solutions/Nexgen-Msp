@@ -11,6 +11,9 @@ from nexgen_msp.api.internal.services.request_service import effective_line_stat
 from nexgen_msp.utils import approval, operations, permissions, request_intents
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
+# "no row like this yet", told apart from a row whose action group is None
+_UNSEEN = object()
+
 CLIENT_USER_FIELDS = [
     "name",
     "full_name",
@@ -831,6 +834,7 @@ class PortalService:
                     "applicable_target_count": row.applicable_target_count,
                     "excluded_subject_count": row.excluded_subject_count,
                     "impact": frappe.parse_json(row.impact_snapshot_json or "[]"),
+                    "configuration": frappe.parse_json(row.configuration_snapshot_json or "{}"),
                 }
                 for row in doc.get("action_groups") or []
             ],
@@ -1019,6 +1023,14 @@ class PortalService:
             return line
 
         if line.get("is_new_user"):
+            # a machine act for somebody who does not exist yet is still about the machine.
+            # The one they were shown in stock stays on the line: it is what they asked for,
+            # and fulfilment stays free to hand over a different one and say so
+            if request_intents.is_device_operation(line):
+                line["target_scope"] = "Device"
+
+                return line
+
             line["target_scope"] = "User"
             line["managed_device"] = None
 
@@ -1086,6 +1098,35 @@ class PortalService:
 
             return line
 
+        # asking for a machine names a person, not a machine: which one it turns out to be is
+        # settled during fulfilment, so there is nothing here to check it against
+        if code == "device.assign" and not line.get("managed_device"):
+            # the same word every machine operation writes on a line: what changed is the
+            # machine, and the operation code is what says which change it was
+            line["action"] = "Change"
+            line["target_scope"] = "Device"
+            line["is_new_device"] = 1
+            # a machine line records its person the way every machine line does: as the one it
+            # is wanted for, not as the holder of a service
+            line["requested_for_user"] = line.get("requested_for_user") or line.get("client_user")
+            line["client_user"] = None
+            line["requested_service"] = None
+
+            return line
+
+        # a machine that already belongs to somebody is still a legitimate answer to "which
+        # one": what was asked for is that this person end up with it, and the act that does
+        # that is a change of holder. The customer said what they want, not how we do it.
+        if code == "device.assign" and line.get("managed_device"):
+            holder = frappe.db.get_value(
+                "MSP Managed Device", line["managed_device"], "assigned_client_user"
+            )
+
+            if holder and holder != line.get("requested_holder"):
+                code = "device.transfer"
+                line["operation_code"] = code
+                line["operation_label_snapshot"] = operations.get(code)["label"]
+
         return PortalService._scoped_device_operation(line, customer, code)
 
     @staticmethod
@@ -1128,28 +1169,35 @@ class PortalService:
             )
 
         if code in ("device.assign", "device.transfer"):
-            if not wanted:
+            # the person meant to hold it may be one this request still has to create: there
+            # is no name to check yet, and the line already says who they are
+            awaited = bool(line.get("is_new_user")) and not wanted
+
+            if not wanted and not awaited:
                 raise ValidationError("Say who should hold this Device.", "VALIDATION_ERROR")
 
-            person = frappe.db.get_value(
-                "MSP Client User", wanted, ["customer", "lifecycle_status"], as_dict=True
-            )
-
-            if not person or person.customer != customer:
-                raise ValidationError(
-                    "The selected person does not belong to this Customer.", "VALIDATION_ERROR"
+            if not awaited:
+                person = frappe.db.get_value(
+                    "MSP Client User", wanted, ["customer", "lifecycle_status"], as_dict=True
                 )
 
-            if person.lifecycle_status not in ("Pending", "Active"):
-                raise ValidationError(
-                    "The selected person cannot receive this Device in their current lifecycle state.",
-                    "VALIDATION_ERROR",
-                )
+                if not person or person.customer != customer:
+                    raise ValidationError(
+                        "The selected person does not belong to this Customer.",
+                        "VALIDATION_ERROR",
+                    )
 
-            if wanted == holder:
-                raise ValidationError(
-                    "The selected person already holds this Device.", "VALIDATION_ERROR"
-                )
+                if person.lifecycle_status not in ("Pending", "Active"):
+                    raise ValidationError(
+                        "The selected person cannot receive this Device in their current "
+                        "lifecycle state.",
+                        "VALIDATION_ERROR",
+                    )
+
+                if wanted == holder:
+                    raise ValidationError(
+                        "The selected person already holds this Device.", "VALIDATION_ERROR"
+                    )
 
         pending = PortalService._pending_holder_request(device)
 
@@ -1161,7 +1209,10 @@ class PortalService:
 
         line["target_scope"] = "Device"
         line["client_user"] = None
-        line["requested_for_user"] = holder
+        # who the machine is leaving, when it is leaving somebody. A line raised for a person
+        # this request has yet to create names nobody here: they have no record to name, and
+        # the machine's own history is in the snapshot below
+        line["requested_for_user"] = None if line.get("is_new_user") else holder
         line["requested_service"] = None
         line["is_new_device"] = 0
         line["action"] = "Change"
@@ -1283,6 +1334,16 @@ class PortalService:
                         "is_new_device": 1
                         if target.get("target_scope") == "Device" and not target.get("managed_device")
                         else 0,
+                        # what the customer said about the machine they want, none of it
+                        # required: a hostname they use, a serial they read off the box, a type
+                        "new_device_label": target.get("new_device_label"),
+                        "new_device_type": target.get("new_device_type"),
+                        "new_device_serial": target.get("new_device_serial"),
+                        # a machine asked for somebody names them here, the way every machine
+                        # line does: the person it is wanted for, not the holder of a service
+                        "requested_for_user": target.get("client_user")
+                        if code == "device.assign"
+                        else None,
                         "requested_service": group.get("service_item"),
                         "source_service_assignment": target.get("source_service_assignment"),
                         "requested_holder": target.get("requested_holder"),
@@ -1303,7 +1364,37 @@ class PortalService:
         return lines
 
     @staticmethod
-    def _snapshot_rows(subjects, action_groups):
+    def _subject_context(customer, subjects):
+        """What each person really held when the request was made, read from the database.
+
+        The browser is not authoritative for this. It shows the customer a picture, and that
+        picture is what the snapshot has to keep — but the picture has to be taken here, or a
+        stale tab could write a version of the past that never happened.
+        """
+        if not subjects:
+            return {}
+
+        from nexgen_msp.api.portal.services.request_v3_service import RequestV3Service
+
+        try:
+            projected = RequestV3Service.scope_projection(customer=customer, subjects=subjects)
+        except Exception:
+            # a snapshot is worth having, but never at the cost of the request itself
+            return {}
+
+        return {
+            row["subject_key"]: {
+                "devices": row.get("devices") or [],
+                "current_services": row.get("current_services") or [],
+                "last_billed": row.get("last_billed"),
+                "department": row.get("department"),
+                "taken_at": frappe.utils.now(),
+            }
+            for row in projected.get("subjects") or []
+        }
+
+    @staticmethod
+    def _snapshot_rows(subjects, action_groups, customer=None):
         """The two child tables that keep the customer's own view of what they asked."""
         subjects = frappe.parse_json(subjects) if isinstance(subjects, str) else (subjects or [])
         groups = (
@@ -1311,6 +1402,7 @@ class PortalService:
             if isinstance(action_groups, str)
             else (action_groups or [])
         )
+        context = PortalService._subject_context(customer, subjects)
         subject_rows = [
             {
                 "subject_key": row.get("subject_key"),
@@ -1322,7 +1414,11 @@ class PortalService:
                 "username_snapshot": row.get("username"),
                 "added_via": row.get("added_via") or "Existing",
                 "selection_label": row.get("selection_label"),
-                "context_snapshot_json": frappe.as_json(row.get("context") or {}),
+                # written here, from the database, and not from whatever the browser sent:
+                # the snapshot is what we can stand behind six months later
+                "context_snapshot_json": frappe.as_json(
+                    context.get(row.get("subject_key")) or {}
+                ),
             }
             for row in subjects
         ]
@@ -1347,6 +1443,17 @@ class PortalService:
                     "applicable_target_count": len(targets),
                     "excluded_subject_count": len(
                         {row.get("subject_key") for row in exclusions} - reached
+                    ),
+                    # the impact snapshot below says who was reached and why the others were
+                    # not; this one keeps the configuration itself, so a draft reopened weeks
+                    # later is the draft that was saved and not an approximation of it
+                    "configuration_snapshot_json": frappe.as_json(
+                        {
+                            "requested_effective_date": group.get("requested_effective_date"),
+                            "comment": group.get("comment"),
+                            "targets": targets,
+                            "exclusions": exclusions,
+                        }
                     ),
                     "impact_snapshot_json": frappe.as_json(
                         [
@@ -1451,9 +1558,15 @@ class PortalService:
         """The same operation on the same target belongs in the request once.
 
         A person can be picked by hand and again through their Department; the request says
-        what is to be done, and doing it twice is not a second thing to do.
+        what is to be done, and doing it twice is not a second thing to do. That holds inside
+        one act. Across two it does not: two acts are two deliberate asks, and folding them
+        together here is how a request came to announce four actions and carry three.
+
+        So: silent inside one act; two lines when two acts each ask for a machine without
+        naming one, because that is two machines; and a refusal for everything else, since
+        the one thing this may not do is decide by itself that the customer meant it once.
         """
-        seen = set()
+        seen = {}
         kept = []
 
         for row in rows:
@@ -1477,11 +1590,30 @@ class PortalService:
                 bool(row.get("is_new_device")),
             )
 
-            if key in seen:
+            first = seen.get(key, _UNSEEN)
+
+            if first is _UNSEEN:
+                seen[key] = row.get("action_group_key")
+                kept.append(row)
                 continue
 
-            seen.add(key)
-            kept.append(row)
+            if first == row.get("action_group_key"):
+                # one act reaching the same person twice over: still one thing to do
+                continue
+
+            # two acts asking for a machine without naming one are two machines: that is
+            # what the requirement key already prepares for. Named twice, it is one machine
+            # asked for twice, and that is the duplicate this refuses
+            if request_intents.is_device_operation(row) and not row.get("managed_device"):
+                kept.append(row)
+                continue
+
+            raise ValidationError(
+                f"{row.get('operation_label_snapshot') or row.get('operation_code')}: this "
+                "request asks for the same thing twice for the same person. Remove one of "
+                "the two actions.",
+                "VALIDATION_ERROR",
+            )
 
         return kept
 
@@ -1551,7 +1683,7 @@ class PortalService:
         customer = PortalService._resolve_customer(customer)
         # a draft is the start of a request: whoever may not raise one may not start one
         PortalService._guard_may_submit(customer)
-        subject_rows, group_rows = PortalService._snapshot_rows(subjects, action_groups)
+        subject_rows, group_rows = PortalService._snapshot_rows(subjects, action_groups, customer)
 
         if group_rows:
             lines = PortalService.compose_from_groups(customer, subjects, action_groups)
@@ -1613,7 +1745,7 @@ class PortalService:
         action_groups=None,
     ):
         customer = PortalService._resolve_customer(customer)
-        subject_rows, group_rows = PortalService._snapshot_rows(subjects, action_groups)
+        subject_rows, group_rows = PortalService._snapshot_rows(subjects, action_groups, customer)
 
         if group_rows:
             # the customer built people and grouped actions; the lines are ours to derive

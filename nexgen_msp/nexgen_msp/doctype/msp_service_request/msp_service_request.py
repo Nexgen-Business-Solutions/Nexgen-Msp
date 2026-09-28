@@ -80,12 +80,14 @@ class MSPServiceRequest(Document):
 			if row.requested_quantity is not None and row.requested_quantity <= 0:
 				frappe.throw(_("Row {0}: quantity must be greater than zero.").format(row.idx))
 
-			# what the line is about: the person, or the machine it needs — a machine still to
-			# be prepared is one target per person, not one target for everybody
-			if row.get("is_new_user"):
-				target = request_intents.subject_key(row)
-			elif row.target_scope == "Device":
+			# what the line is about: the machine it needs, or the person. A line about a
+			# machine is about that machine even when the person is one this request has yet
+			# to create — asked the other way round, two machines for one newcomer read as
+			# one target asked for twice, and the second was refused
+			if row.target_scope == "Device":
 				target = request_intents.device_requirement_key(row)
+			elif row.get("is_new_user"):
+				target = request_intents.subject_key(row)
 			else:
 				target = row.get(SCOPE_FIELD.get(row.target_scope) or "")
 

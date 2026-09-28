@@ -448,4 +448,33 @@ describe('somebody leaving, and coming back', () => {
 
     await waitFor(() => expect(internal.reactivateClientUser).toHaveBeenCalledWith(data.user.name));
   });
+
+  it('shows every machine that has been in their hands, open spell and closed', async () => {
+    const data = detail();
+
+    await renderPage({
+      ...data,
+      device_history: [
+        ...data.device_history,
+        {
+          period: 'HOLD-0',
+          device: 'DEV-002',
+          hostname: 'LAPTOP-OLD',
+          device_type: 'Laptop',
+          serial_number: 'DELL-11111',
+          device_status: 'Retired',
+          from_date: '2026-01-05',
+          to_date: '2026-09-10',
+          is_current: false,
+        },
+      ],
+    });
+
+    expect(await screen.findByText('Device history · 2')).toBeInTheDocument();
+
+    // the one they still hold says so; the one they gave back says when
+    expect(screen.getByText('Still held')).toBeInTheDocument();
+    expect(screen.getByText('LAPTOP-OLD')).toBeInTheDocument();
+    expect(screen.getByText('DELL-11111')).toBeInTheDocument();
+  });
 });

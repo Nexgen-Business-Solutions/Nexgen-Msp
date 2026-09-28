@@ -34,6 +34,9 @@ DEVICE_PROVISIONING = "Device Provisioning"
 DEVICE_OPERATION = "Device Operation"
 CONTEXT_ACTION = "Context Action"
 
+# the machine acts that put a machine in somebody's hands
+HANDED_OVER = ("device.assign", "device.transfer")
+
 # the request has been decided and the work may exist
 PLANNABLE_STATUSES = ("Approved", "In Progress", "Completed")
 
@@ -99,6 +102,11 @@ class RequestExecutionService:
 		if not request_intents.is_device_operation(row):
 			return
 
+		# asking for a machine names no machine: there is nothing to act on yet, so the work is
+		# to provision one, which `_plan_device_provisioning` picks up from the same line
+		if not row.managed_device:
+			return
+
 		RequestExecutionService._work_order(
 			doc,
 			plan_key=f"{doc.name}:operation:{row.name}",
@@ -123,8 +131,10 @@ class RequestExecutionService:
 		Handing a machine from one person to the next is never silent. It is work of its own,
 		visible before anything is activated on that machine.
 		"""
-		if request_intents.is_device_operation(row):
-			# the machine's own operation settles who holds it; nothing is prepared for it
+		if request_intents.is_device_operation(row) and row.managed_device:
+			# the machine's own operation settles who holds it; nothing is prepared for it.
+			# Asking for a machine names nobody's machine, though: there the preparation is
+			# the whole point, so it falls through to the provisioning branch below.
 			return
 
 		key = row.device_requirement_key
@@ -2331,6 +2341,10 @@ class RequestExecutionService:
 
 		A line that lands on a machine keeps naming the machine: the person is held beside
 		it, so the line does not lose them the day the machine changes hands.
+
+		A machine asked for them names nobody as its holder while they do not exist. Now they
+		do, so it names them — otherwise the technician who has just created the person is
+		asked, on the very next screen, who the machine is for.
 		"""
 		for row in doc.lines:
 			if row.subject_key != subject_key:
@@ -2342,13 +2356,28 @@ class RequestExecutionService:
 			if row.target_scope == "User" and not row.is_new_device:
 				row.db_set("client_user", client_user)
 
+			# only an act that hands a machine over names a holder; sending one back to
+			# stock names nobody, and must go on naming nobody
+			if row.operation_code in HANDED_OVER and not row.requested_holder:
+				row.db_set("requested_holder", client_user)
+
 		for order in frappe.get_all(
 			WORK_ORDER,
 			filters={"service_request": doc.name, "subject_key": subject_key},
-			fields=["name", "work_type", "target_scope", "client_user"],
+			fields=[
+				"name",
+				"work_type",
+				"target_scope",
+				"client_user",
+				"operation_code",
+				"requested_holder",
+			],
 		):
 			if order.work_type == SERVICE_ACTION and order.target_scope == "User":
 				frappe.db.set_value(WORK_ORDER, order.name, "client_user", client_user)
+
+			if order.operation_code in HANDED_OVER and not order.requested_holder:
+				frappe.db.set_value(WORK_ORDER, order.name, "requested_holder", client_user)
 
 	@staticmethod
 	def _propagate_device(doc, requirement_key, device):

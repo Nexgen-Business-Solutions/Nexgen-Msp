@@ -18,7 +18,12 @@ export type Ground = {
   manager_secret: string;
   operator: string;
   operator_secret: string;
+  requester: string;
+  requester_secret: string;
 };
+
+/** Everybody the journey signs in as. */
+export type Who = 'admin' | 'technician' | 'manager' | 'operator' | 'requester';
 
 /** The company and the four ways in — the only two things a browser cannot make for itself. */
 export const buildGround = async (): Promise<Ground> => {
@@ -33,7 +38,7 @@ export const buildGround = async (): Promise<Ground> => {
 
   mkdirSync(new URL('./.auth/', import.meta.url), { recursive: true });
 
-  for (const who of ['admin', 'technician', 'manager', 'operator'] as const) {
+  for (const who of ['admin', 'technician', 'manager', 'operator', 'requester'] as const) {
     const context = await playwrightRequest.newContext({ baseURL: BASE });
     const first = await context.post('/api/method/nexgen_msp.api.auth.endpoints.v1.pre_login', {
       form: { username: ground[who], password: ground.password },
@@ -76,7 +81,7 @@ export const ground: Ground = (() => {
   }
 })();
 
-export const as = (who: 'admin' | 'technician' | 'manager' | 'operator') => ({
+export const as = (who: Who) => ({
   storageState: new URL(`./.auth/${who}.json`, import.meta.url).pathname,
 });
 
@@ -249,7 +254,11 @@ export const runReadyWork = async (page: Page, primaryLabel: string, username: s
     await expect(dialog).toHaveCount(0, { timeout: 25_000 });
   }
 
-  const done = page.getByText('Execution complete');
+  // the step says so, or it has already handed over to the recap, which says the same thing
+  const done = page
+    .getByText('Execution complete')
+    .or(page.getByText('What was actually done'))
+    .first();
 
   for (let guard = 0; guard < 24; guard += 1) {
     if (await done.count()) return;

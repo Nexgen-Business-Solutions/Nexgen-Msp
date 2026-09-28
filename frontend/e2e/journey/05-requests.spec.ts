@@ -57,7 +57,10 @@ test.describe.serial('A request, raised and carried out', () => {
       ).toBeVisible();
 
       await page.getByRole('button', { name: 'Submit request' }).click();
-      await page.waitForURL(/\/msp\/requests/, { timeout: 30_000 });
+      await page.waitForURL(
+      (url) => /\/msp\/requests/.test(url.pathname) && !url.pathname.endsWith('/new'),
+      { timeout: 30_000 }
+    );
     });
 
     test('the request they raised reads back as the act they added', async ({ page }) => {
@@ -136,8 +139,10 @@ test.describe.serial('A request, raised and carried out', () => {
 
       await page.getByRole('button', { name: /Validate & complete request/ }).click();
 
-      // closing hands the technician back to the queue, and the request is out of it
-      await expect(page.getByRole('heading', { name: 'Requests' }).first()).toBeVisible({
+      // closing hands the technician back to the queue. The breadcrumb says "Requests" on the
+      // detail page too, so waiting on that alone lets the run move while the page is still
+      // finishing: the queue's own control is what says we are really back on it.
+      await expect(page.getByRole('button', { name: 'Refresh' }).first()).toBeVisible({
         timeout: 30_000,
       });
 

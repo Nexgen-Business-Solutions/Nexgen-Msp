@@ -2,10 +2,10 @@
   "cookies": [
     {
       "name": "sid",
-      "value": "73c59f28dc926d47b4ad64ff9e2bc1349c1b7b1229d1135a8fb7e2e5",
+      "value": "26fab1e86f3a35098dbdd87876a89f876ee3c79678c7a9a51a3f0f0d",
       "domain": "msp.localhost",
       "path": "/",
-      "expires": 1791181440.686,
+      "expires": 1791181445.582,
       "httpOnly": true,
       "secure": false,
       "sameSite": "Lax"
@@ -22,7 +22,7 @@
     },
     {
       "name": "full_name",
-      "value": "ZZE2E%20jmanager",
+      "value": "ZZE2E%20jasker",
       "domain": "msp.localhost",
       "path": "/",
       "expires": -1,
@@ -32,7 +32,7 @@
     },
     {
       "name": "user_id",
-      "value": "zze2e.jmanager%40example.invalid",
+      "value": "zze2e.jasker%40example.invalid",
       "domain": "msp.localhost",
       "path": "/",
       "expires": -1,

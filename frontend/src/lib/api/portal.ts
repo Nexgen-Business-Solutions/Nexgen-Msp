@@ -402,6 +402,13 @@ export type RequestActionGroupSnapshot = {
   selected_subject_count: number;
   applicable_target_count: number;
   excluded_subject_count: number;
+  /** the configuration as it was saved, so a draft reopens as the draft it was */
+  configuration?: {
+    requested_effective_date?: string | null;
+    comment?: string | null;
+    targets?: RequestTarget[];
+    exclusions?: RequestExclusion[];
+  } | null;
   impact: {
     subject_key: string;
     status: 'selected' | 'inapplicable';
@@ -980,6 +987,10 @@ export type RequestTarget = {
   current_holder?: string | null;
   current_holder_label?: string | null;
   requested_holder?: string | null;
+  /** a machine the customer described rather than picked: none of it is required */
+  new_device_label?: string | null;
+  new_device_type?: string | null;
+  new_device_serial?: string | null;
 };
 
 export type RequestExclusion = {
@@ -1004,7 +1015,12 @@ export type RequestOperationOption = {
   applicable_subject_count: number;
   excluded_subject_count: number;
   device_count?: number;
-  holder_options?: { value: string; label: string }[];
+  without_device_count?: number;
+  holder_options?: { value: string; label: string; description?: string | null }[];
+  stock_options?: { value: string; label: string; description?: string | null }[];
+  device_types?: string[];
+  /** offered but shut, and why: the act reaches nobody for a reason worth reading */
+  blocked_reason?: string | null;
 };
 
 export type RequestServiceOption = {
@@ -1030,6 +1046,8 @@ export type RequestActionGroupDraft = {
   source_scope_key?: string | null;
   source_scope_label: string;
   selected_subject_count: number;
+  /** the day the customer asked for, carried on every line the group becomes */
+  requested_effective_date?: string | null;
   targets: RequestTarget[];
   exclusions: RequestExclusion[];
 };
@@ -1045,7 +1063,12 @@ export const evaluateRequestScope = (
   );
 
 export const evaluateRequestOperations = (
-  payload: { customer?: string; subjects: RequestSubjectDraft[]; subject_keys: string[] },
+  payload: {
+    customer?: string;
+    subjects: RequestSubjectDraft[];
+    subject_keys: string[];
+    action_groups?: RequestActionGroupDraft[];
+  },
   signal?: AbortSignal
 ) =>
   get<{
@@ -1058,6 +1081,8 @@ export const evaluateRequestOperations = (
       customer: payload.customer,
       subjects: JSON.stringify(payload.subjects),
       subject_keys: JSON.stringify(payload.subject_keys),
+      // what the request already asks for: a machine it hands somebody counts as theirs
+      action_groups: payload.action_groups ? JSON.stringify(payload.action_groups) : undefined,
     },
     signal
   );

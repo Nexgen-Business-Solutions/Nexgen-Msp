@@ -47,6 +47,9 @@ REASON_TEXT = {
 SERVICE_CODES = ("service.add", "service.suspend", "service.resume", "service.end")
 DEVICE_CODES = ("device.transfer", "device.repossess")
 
+# asking for a machine is offered from the people who hold none, so it is built on its own
+# rather than from the machines the scope already holds
+
 # what the card offers, in the order the prototype shows them
 SHORT_LABEL = {
     "service.add": "Add",
@@ -74,8 +77,13 @@ class RequestV3Service:
 
     # ------------------------------------------------------------------ Actions workspace
     @staticmethod
-    def operation_options(customer=None, subjects=None, subject_keys=None):
-        """The acts available to this scope, by domain, with their exact targets."""
+    def operation_options(customer=None, subjects=None, subject_keys=None, action_groups=None):
+        """The acts available to this scope, by domain, with their exact targets.
+
+        The acts already in the draft are read too, and for one reason: a machine this same
+        request puts in somebody's hands counts as a machine they have. Without it, asking
+        for a laptop and asking for what runs on it could not be the same request.
+        """
         from nexgen_msp.api.portal.services.portal_service import PortalService
 
         customer = PortalService._resolve_customer(customer)
@@ -89,6 +97,7 @@ class RequestV3Service:
             )
 
         state = _load_state(customer, drafts)
+        state["arriving"] = _machines_arriving(customer, _parse(action_groups))
         rows = [_project(draft, state) for draft in scoped]
         domains = []
 
@@ -143,6 +152,57 @@ def _load_state(customer, drafts):
         "in_flight": _in_flight(customer),
         "offered": _offered(customer),
         "labels": {},
+        "arriving": {},
+    }
+
+
+def _machines_arriving(customer, groups):
+    """The machines this request is itself about to put in somebody's hands.
+
+    Only a machine that was named counts. An act asking for "a machine, your choice" settles
+    nothing here: there is none yet for a service to run on, and pretending otherwise would
+    owe the technician a service on a machine nobody has picked.
+    """
+    wanted = {}
+
+    for group in groups or []:
+        code = group.get("operation_code")
+
+        if code not in ("device.assign", "device.transfer"):
+            continue
+
+        for target in group.get("targets") or []:
+            device = target.get("managed_device")
+
+            if not device:
+                continue
+
+            if code == "device.assign":
+                keys = [target.get("subject_key"), target.get("client_user")]
+            else:
+                holder = target.get("requested_holder")
+                keys = [f"user:{holder}", holder] if holder else []
+
+            for key in keys:
+                if key:
+                    wanted.setdefault(key, device)
+
+    if not wanted:
+        return {}
+
+    labels = {
+        row.name: row.hostname or row.serial_number or row.name
+        for row in frappe.get_all(
+            DEVICE,
+            filters={"name": ("in", sorted(set(wanted.values()))), "customer": customer},
+            fields=["name", "hostname", "serial_number"],
+        )
+    }
+
+    return {
+        key: {"name": device, "label": labels[device], "status": "Active"}
+        for key, device in wanted.items()
+        if device in labels
     }
 
 
@@ -392,8 +452,9 @@ def _service_domain(customer, rows, state):
 
         for code in SERVICE_CODES:
             outcome = evaluated[code]
+            blocked = _blocked_for_want_of_a_machine(code, outcome)
 
-            if not outcome["applicable_target_count"]:
+            if not outcome["applicable_target_count"] and not blocked:
                 continue
 
             card["actions"].append(
@@ -401,6 +462,10 @@ def _service_domain(customer, rows, state):
                     "operation_code": code,
                     "operation_label": SHORT_LABEL[code],
                     "operation_label_snapshot": f"{SHORT_LABEL[code]} {catalogue[item]}",
+                    # offered but shut, with the reason: a service that runs on a machine has
+                    # nowhere to go until the person has one, and saying so is more use than
+                    # quietly leaving the act out of the list
+                    "blocked_reason": blocked,
                     **outcome,
                 }
             )
@@ -411,10 +476,29 @@ def _service_domain(customer, rows, state):
     return {"key": "Service", "label": "Services", "options": options}
 
 
+def _blocked_for_want_of_a_machine(code, outcome):
+    """Whether this act reaches nobody only because nobody in the scope holds a machine."""
+    if code != "service.add" or outcome["applicable_target_count"]:
+        return None
+
+    reasons = {entry.get("reason_code") for entry in outcome["exclusions"]}
+
+    if reasons != {"NO_CURRENT_DEVICE"}:
+        return None
+
+    return "Give them a Device first: this service runs on a machine, and they hold none."
+
+
 def _evaluate_service(code, item, scope, rows, state):
-    """Who this act can reach inside the scope, and why it misses the others."""
+    """Who this act can reach inside the scope, and why it misses the others.
+
+    `Both` is a permission, not a scope: it says a new assignment may be made against the
+    person or against one of their machines. It is never the scope of a concrete target, so it
+    is resolved here into the two real ones and never reaches a line.
+    """
     available = item in state["offered"]
     targets, exclusions = [], []
+    wanted = ("User", "Device") if scope == "Both" else (scope,)
 
     for row in rows:
         if not row["usable"]:
@@ -422,27 +506,51 @@ def _evaluate_service(code, item, scope, rows, state):
             continue
 
         if row["is_new_user"]:
-            # a person who does not exist yet can only be given something new
+            # a person who does not exist yet can only be given something new. A Device-scoped
+            # service is still legitimate for them: the machine is simply not settled yet, and
+            # saying so is what puts it on the preparation list. Offered at both scopes, they
+            # get it on themselves, since they hold no machine for it to run on.
             if code == "service.add" and available:
-                targets.append(_target(row, scope, None, None))
+                targets.append(_target(row, "User" if scope == "Both" else scope, None, None))
             else:
                 exclusions.append(_exclusion(row, "NEW_PERSON"))
 
             continue
 
-        if scope == "Device":
-            devices = [device for device in row["devices"] if device["status"] == "Active"]
+        before = len(targets)
+        refused = []
 
-            if not devices:
-                exclusions.append(_exclusion(row, "NO_CURRENT_DEVICE"))
+        for concrete in wanted:
+            if concrete == "Device":
+                devices = [device for device in row["devices"] if device["status"] == "Active"]
+
+                if not devices:
+                    # a machine this same request hands them is a machine they will have
+                    coming = state["arriving"].get(row["subject_key"]) or (
+                        state["arriving"].get(row["client_user"]) if row["client_user"] else None
+                    )
+
+                    if not coming:
+                        refused.append(_exclusion(row, "NO_CURRENT_DEVICE"))
+                        continue
+
+                    devices = [coming]
+
+                for device in devices:
+                    _sort_service(
+                        code, item, concrete, row, device, state, available, targets, refused
+                    )
+
                 continue
 
-            for device in devices:
-                _sort_service(code, item, scope, row, device, state, available, targets, exclusions)
+            _sort_service(code, item, concrete, row, None, state, available, targets, refused)
 
-            continue
+        # a service offered at both scopes reaches the person if either one works: holding no
+        # machine is not a refusal when the service can run on them instead
+        if len(targets) > before and scope == "Both":
+            refused = [entry for entry in refused if entry.get("reason_code") == "ALREADY_ACTIVE"]
 
-        _sort_service(code, item, scope, row, None, state, available, targets, exclusions)
+        exclusions.extend(refused)
 
     reached = {entry["subject_key"] for entry in targets}
 
@@ -503,7 +611,7 @@ def _sort_service(code, item, scope, row, device, state, available, targets, exc
 
 
 def _device_domain(rows, state):
-    """What can be asked of the machines the scope actually holds."""
+    """What can be asked about machines: the ones the scope holds, and the ones it lacks."""
     held = [
         {"device": device, "row": row}
         for row in rows
@@ -511,6 +619,10 @@ def _device_domain(rows, state):
         if row["usable"] and device["status"] == "Active"
     ]
     options = []
+    assign = _assign_option(rows, held)
+
+    if assign:
+        options.append(assign)
 
     if not held:
         return {"key": "Device", "label": "Devices", "options": options}
@@ -548,19 +660,154 @@ def _device_domain(rows, state):
                 ],
                 "applicable_target_count": len(targets),
                 "applicable_subject_count": len(people),
+                # the same people the exclusions above name, and no others: counting "holds no
+                # machine at all" while excluding on "holds no *active* machine" made the two
+                # disagree, and the screen showed a figure its own list did not support
                 "excluded_subject_count": len(
-                    [row for row in rows if not row["devices"] and row["usable"]]
+                    {
+                        row["subject_key"]
+                        for row in rows
+                        if row["usable"]
+                        and not [d for d in row["devices"] if d["status"] == "Active"]
+                    }
+                    - {entry["row"]["subject_key"] for entry in held}
                 ),
                 "device_count": len({entry["device"]["name"] for entry in held}),
-                "holder_options": [
-                    {"value": row["client_user"], "label": row["full_name"]}
-                    for row in rows
-                    if row["client_user"] and row["usable"]
-                ],
+                # everybody of the company, not only the people this request happens to name:
+                # handing a machine to a colleague is not a reason to add that colleague to
+                # the request, and a picker that cannot offer them is simply empty
+                "holder_options": _people_of(state["customer"]),
             }
         )
 
     return {"key": "Device", "label": "Devices", "options": options}
+
+
+def _people_of(customer):
+    """Every person on file at this company, for a picker that has to name one."""
+    from nexgen_msp.api.portal.services.portal_service import PortalService
+
+    try:
+        rows = PortalService.list_user_choices(customer)
+    except Exception:
+        return []
+
+    return [
+        {
+            "value": row["name"],
+            "label": row.get("full_name") or row["name"],
+            "description": row.get("department") or None,
+        }
+        for row in rows
+    ]
+
+
+def _assign_option(rows, held):
+    """Asking for a machine.
+
+    Every other machine act starts from a machine the person already holds, which left the case
+    that matters most with nothing to ask: a new joiner needs a laptop. Here the targets are the
+    people, not the machines. The customer may name one that is in stock, describe one that does
+    not exist yet, or say nothing at all and leave the choice to us.
+    """
+    definition = operations.get("device.assign")
+
+    if not definition or not definition.get("customer_requestable"):
+        return None
+
+    with_machine = {entry["row"]["subject_key"] for entry in held}
+    # everybody the scope can act on: a person who already holds one may still be given
+    # another, and the ones who hold none are simply the obvious case
+    wanted = [row for row in rows if row["usable"]]
+
+    if not wanted:
+        return None
+
+    return {
+        "operation_code": "device.assign",
+        "operation_label": definition["label"],
+        "operation_label_snapshot": definition["label"],
+        "object_key": None,
+        "object_label": definition["label"],
+        "targets": [
+            {
+                "subject_key": row["subject_key"],
+                "client_user": row["client_user"],
+                "full_name": row["full_name"],
+                "target_scope": "Device",
+                "managed_device": None,
+                "device_label": None,
+                "current_holder": None,
+                "current_holder_label": None,
+                # who the machine is for, which is also who it has to end up with when the one
+                # they pick already belongs to somebody else
+                "requested_holder": row["client_user"],
+                "source_service_assignment": None,
+            }
+            for row in wanted
+        ],
+        "exclusions": [
+            _exclusion(row, row["reason_code"] or "PERSON_DISABLED")
+            for row in rows
+            if not row["usable"]
+        ],
+        "applicable_target_count": len(wanted),
+        "applicable_subject_count": len(wanted),
+        "excluded_subject_count": len([row for row in rows if not row["usable"]]),
+        "device_count": len({entry["device"]["name"] for entry in held}),
+        "without_device_count": len(
+            [row for row in wanted if row["subject_key"] not in with_machine]
+        ),
+        "holder_options": [],
+        "stock_options": _stock_options(),
+        # a closed list on the record, so the form offers it rather than letting somebody type
+        # something the server will refuse when the request is sent
+        "device_types": _device_types(),
+    }
+
+
+def _device_types():
+    from nexgen_msp.utils.meta import select_options
+
+    try:
+        return select_options("MSP Managed Device", "device_type")
+    except Exception:
+        return []
+
+
+def _stock_options():
+    """Every machine of the company, for a customer who has one in mind.
+
+    Not only the ones nobody holds: a machine already with somebody is a legitimate answer to
+    "which one" — handing it over is exactly what the work will do.
+    """
+    from nexgen_msp.api.portal.services.portal_service import PortalService
+
+    try:
+        devices = PortalService.list_device_choices()
+    except Exception:
+        return []
+
+    return [
+        {
+            "value": device["name"],
+            "label": device.get("hostname") or device["name"],
+            "description": " · ".join(
+                part
+                for part in (
+                    device.get("serial_number"),
+                    device.get("device_type"),
+                    f"held by {device['assigned_user_name']}"
+                    if device.get("assigned_user_name")
+                    else "in stock",
+                )
+                if part
+            )
+            or None,
+        }
+        for device in devices
+        if device.get("status") != "Retired"
+    ]
 
 
 def _target(row, scope, device, current):

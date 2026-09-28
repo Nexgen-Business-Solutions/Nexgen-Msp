@@ -449,7 +449,55 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
         </div>
       </Panel>
 
-      
+      <Panel title={`Device history · ${data.device_history.length}`}>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-slate-50">
+              <tr>
+                <Th>Device</Th>
+                <Th>Type</Th>
+                <Th>Serial</Th>
+                <Th>From</Th>
+                <Th>To</Th>
+                <Th>Status</Th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {data.device_history.length === 0 && (
+                <Empty span={6}>No machine has ever been in their hands.</Empty>
+              )}
+
+              {data.device_history.map((spell) => (
+                <tr key={spell.period} className={spell.is_current ? '' : 'text-slate-500'}>
+                  <td className="px-4 py-2.5">
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/msp/devices/${spell.device}`)}
+                      className="text-sm font-semibold text-slate-900 transition-colors hover:text-blue-700"
+                    >
+                      {spell.hostname || spell.device}
+                    </button>
+                  </td>
+                  <td className="px-4 py-2.5 text-sm text-slate-600">
+                    {spell.device_type || 'N/A'}
+                  </td>
+                  <td className="px-4 py-2.5 text-sm text-slate-600">
+                    {spell.serial_number || 'No serial'}
+                  </td>
+                  <td className="px-4 py-2.5 text-sm text-slate-600">{fmtDate(spell.from_date)}</td>
+                  <td className="px-4 py-2.5 text-sm text-slate-600">
+                    {/* still theirs: the spell is open, which is not the same as having no end */}
+                    {spell.is_current ? 'Still held' : fmtDate(spell.to_date)}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <StatusBadge value={spell.device_status} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
 
       <div className="grid gap-4 lg:grid-cols-2">
         {seesBilling && (

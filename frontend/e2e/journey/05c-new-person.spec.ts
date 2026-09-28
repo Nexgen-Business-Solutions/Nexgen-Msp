@@ -58,12 +58,56 @@ test.describe('The customer asks for somebody who is not on file', () => {
     await impact.getByRole('button', { name: 'Add action' }).click();
     await expect(impact).toHaveCount(0, { timeout: 20_000 });
 
+    // a new joiner needs a machine as well, and asking for one is its own act: every other
+    // machine act starts from a machine they already hold, which they do not
+    const machines = page
+      .locator('tbody tr')
+      .filter({ hasText: 'Give a Device' })
+      .first();
+
+    await expect(machines, 'a Device can be asked for somebody who holds none').toBeVisible({
+      timeout: 20_000,
+    });
+    await machines.getByRole('button', { name: 'Ask for a Device' }).click();
+
+    const forMachine = page.getByRole('dialog');
+
+    await expect(forMachine.getByText(/hold no Device/)).toBeVisible({ timeout: 20_000 });
+    await expect(forMachine.getByLabel(`Include ${NEWCOMER}`)).toBeChecked();
+
+    // described rather than picked, and none of it required
+    const theirRow = forMachine.locator('tbody tr').filter({ hasText: NEWCOMER }).first();
+
+    await theirRow.getByRole('button', { name: 'One already on file' }).click();
+    await page.getByRole('option', { name: 'A new one' }).click();
+    await forMachine.getByRole('button', { name: 'Type' }).click();
+    await page.getByRole('option', { name: 'Laptop', exact: true }).click();
+    await forMachine.getByRole('button', { name: 'Add action' }).click();
+    await expect(forMachine).toHaveCount(0, { timeout: 20_000 });
+
+    // a second machine for the same person: asking twice is two machines, not a duplicate
+    await machines.getByRole('button', { name: 'Ask for a Device' }).click();
+
+    const second = page.getByRole('dialog');
+
+    await expect(second.getByLabel(`Include ${NEWCOMER}`)).toBeEnabled();
+    await second.getByRole('button', { name: 'Add action' }).click();
+    await expect(second).toHaveCount(0, { timeout: 20_000 });
+
+    await expect(
+      page.getByText(/Assign device/).first(),
+      'both machine requests are on the recap'
+    ).toBeVisible();
+
     await page.getByRole('button', { name: /Continue/ }).click();
     await page.getByRole('button', { name: /Continue/ }).click();
 
     await expect(page.getByText('Confirm the exact snapshot and requested actions.')).toBeVisible();
     await page.getByRole('button', { name: 'Submit request' }).click();
-    await page.waitForURL(/\/msp\/requests/, { timeout: 30_000 });
+    await page.waitForURL(
+      (url) => /\/msp\/requests/.test(url.pathname) && !url.pathname.endsWith('/new'),
+      { timeout: 30_000 }
+    );
   });
 });
 
@@ -142,6 +186,12 @@ test.describe('Nexgen creates them while doing the work', () => {
       page.getByRole('button', { name: /Complete \d+ usernames/ }),
       'the username was given when the request was raised'
     ).toHaveCount(0);
+
+    // and the machine they asked for is on the preparation list, not invented as a service
+    await expect(
+      page.getByRole('button', { name: /Prepare \d+ Devices/ }),
+      'the Device asked for is work to prepare'
+    ).toBeVisible({ timeout: 25_000 });
 
     const create = page.getByRole('button', { name: /Create \d+ Client Users/ });
 

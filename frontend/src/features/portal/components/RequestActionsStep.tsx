@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ArrowRightLeft, Info, Layers, PackageOpen, Users, X } from 'lucide-react';
+import { ArrowRightLeft, Info, Laptop, Layers, PackageOpen, Users, X } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
 import Select from '@/shared/components/Select';
 import type {
@@ -9,6 +9,7 @@ import type {
   RequestSubjectRow,
   RequestTarget,
 } from '@/lib/api/portal';
+import { askedAmong, askedFrom, askedIndex, keyOf } from '../askedScope';
 import { useRequestOperations, useRequestScope } from '../hooks/usePortal';
 import type { useRequestBuilder } from '../hooks/useRequestBuilder';
 
@@ -262,9 +263,15 @@ const Transfers: React.FC<{
                       }))
                     }
                     placeholder="No change"
-                    options={(option.holder_options ?? []).filter(
-                      (holder) => holder.value !== target.client_user
-                    )}
+                    // everybody but whoever holds it today: handing it to its own holder
+                    // would be no change at all
+                    options={(option.holder_options ?? [])
+                      .filter((holder) => holder.value !== target.current_holder)
+                      .map((holder) => ({
+                        value: holder.value,
+                        label: holder.label,
+                        description: holder.description ?? undefined,
+                      }))}
                   />
                 </td>
               </tr>
@@ -277,6 +284,202 @@ const Transfers: React.FC<{
 };
 
 /** Which of the Devices in scope should go back to stock. */
+/** Asking for a machine: the person is the target, and which machine it is may be left open. */
+const AssignDevice: React.FC<{
+  option: RequestOperationOption;
+  onClose: () => void;
+  onAdd: (targets: RequestTarget[]) => void;
+}> = ({ option, onClose, onAdd }) => {
+  const [kept, setKept] = useState(() => new Set(option.targets.map(keyOf)));
+  const [choice, setChoice] = useState<Record<string, 'stock' | 'new'>>({});
+  const [stock, setStock] = useState<Record<string, string>>({});
+  const [described, setDescribed] = useState<
+    Record<string, { hostname?: string; type?: string; serial?: string }>
+  >({});
+
+  const stockOptions = (option.stock_options ?? []).map((row) => ({
+    value: row.value,
+    label: row.label,
+    description: row.description ?? undefined,
+  }));
+
+  const settled = (target: RequestTarget): RequestTarget => {
+    const id = keyOf(target);
+    const how = choice[id] ?? 'stock';
+
+    if (how === 'stock' && stock[id]) {
+      const picked = stockOptions.find((row) => row.value === stock[id]);
+
+      return { ...target, managed_device: stock[id], device_label: picked?.label ?? null };
+    }
+
+    if (how === 'new') {
+      const said = described[id] ?? {};
+
+      return {
+        ...target,
+        new_device_label: said.hostname?.trim() || null,
+        new_device_type: said.type?.trim() || null,
+        new_device_serial: said.serial?.trim() || null,
+      };
+    }
+
+    return target;
+  };
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      icon={Laptop}
+      title="Ask for a Device"
+      subtitle={`${option.without_device_count ?? 0} of ${option.targets.length} selected hold no Device.`}
+      widthClass="max-w-3xl"
+      footer={
+        <div className="flex items-center justify-end gap-2">
+          <button type="button" onClick={onClose} className={quietBtn}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={kept.size === 0}
+            onClick={() =>
+              onAdd(option.targets.filter((target) => kept.has(keyOf(target))).map(settled))
+            }
+            className={primaryBtn}
+          >
+            Add action
+          </button>
+        </div>
+      }
+    >
+      <p className="mb-3 text-xs text-slate-500">
+        Name one the company already has, or describe one that does not exist yet. What you
+        describe is not required to be complete.
+      </p>
+
+      <div className="max-h-[26rem] overflow-auto rounded-lg border border-slate-200">
+        <table className="w-full">
+          <thead className="sticky top-0 bg-slate-50">
+            <tr>
+              <Th />
+              <Th>Person</Th>
+              <Th>Holds today</Th>
+              <Th>Which Device</Th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {option.targets.map((target) => {
+              const id = keyOf(target);
+              const how = choice[id] ?? 'stock';
+              const on = kept.has(id);
+
+              return (
+                <tr key={id}>
+                  <td className="px-3 py-2 align-top">
+                    <input
+                      type="checkbox"
+                      aria-label={`Include ${target.full_name}`}
+                      checked={on}
+                      onChange={(event) =>
+                        setKept((current) => {
+                          const next = new Set(current);
+                          if (event.target.checked) next.add(id);
+                          else next.delete(id);
+                          return next;
+                        })
+                      }
+                      className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600"
+                    />
+                  </td>
+                  <td className="px-3 py-2 align-top text-sm font-medium text-slate-900">
+                    {target.full_name}
+                  </td>
+                  <td className="px-3 py-2 align-top text-xs text-slate-500">
+                    {target.device_label ?? 'No Device'}
+                  </td>
+                  <td className="px-3 py-2 align-top">
+                    <Select
+                      className="w-full"
+                      value={how}
+                      onChange={(value) =>
+                        setChoice((current) => ({
+                          ...current,
+                          [id]: value as 'stock' | 'new',
+                        }))
+                      }
+                      options={[
+                        { value: 'stock', label: 'One already exist' },
+                        { value: 'new', label: 'A new one' },
+                      ]}
+                    />
+
+                    {on && how === 'stock' && (
+                      <Select
+                        searchable
+                        className="mt-2 w-full"
+                        value={stock[id] ?? ''}
+                        onChange={(value) =>
+                          setStock((current) => ({ ...current, [id]: value }))
+                        }
+                        placeholder={
+                          stockOptions.length ? 'Pick a Device' : 'No Device on file yet'
+                        }
+                        options={stockOptions}
+                      />
+                    )}
+
+                    {on && how === 'new' && (
+                      <div className="mt-2 grid gap-1.5 sm:grid-cols-3">
+                        {(
+                          [
+                            ['hostname', 'Hostname'],
+                            ['serial', 'Serial number'],
+                          ] as const
+                        ).map(([field, label]) => (
+                          <input
+                            key={field}
+                            value={described[id]?.[field] ?? ''}
+                            aria-label={`${label} for ${target.full_name}`}
+                            placeholder={label}
+                            onChange={(event) =>
+                              setDescribed((current) => ({
+                                ...current,
+                                [id]: { ...current[id], [field]: event.target.value },
+                              }))
+                            }
+                            className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                          />
+                        ))}
+
+                        <Select
+                          className="w-full"
+                          value={described[id]?.type ?? ''}
+                          onChange={(value) =>
+                            setDescribed((current) => ({
+                              ...current,
+                              [id]: { ...current[id], type: value },
+                            }))
+                          }
+                          placeholder="Type"
+                          options={(option.device_types ?? []).map((type) => ({
+                            value: type,
+                            label: type,
+                          }))}
+                        />
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Modal>
+  );
+};
+
 const ReturnToStock: React.FC<{
   option: RequestOperationOption;
   onClose: () => void;
@@ -403,8 +606,6 @@ const ScopePeople: React.FC<{ rows: RequestSubjectRow[]; onClose: () => void }> 
   </Modal>
 );
 
-const keyOf = (target: RequestTarget) =>
-  `${target.subject_key}|${target.managed_device ?? ''}|${target.source_service_assignment ?? ''}`;
 
 /**
  * What the customer wants done, for everybody at once, one Department, or one person.
@@ -435,7 +636,8 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
 
   const operations = useRequestOperations(
     builder.subjectDrafts,
-    scoped.map((row) => row.subject_key)
+    scoped.map((row) => row.subject_key),
+    builder.groupDrafts
   );
   const domains = operations.data?.domains ?? [];
   const departments = [...new Set(rows.map((row) => row.department).filter(Boolean) as string[])];
@@ -447,22 +649,13 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
    * Nothing stopped the same act being added twice for the same person, and the recap then
    * showed it twice — two identical lines for one thing the customer wants once.
    */
-  const alreadyAsked = useMemo(() => {
-    const found = new Map<string, Set<string>>();
+  const alreadyAsked = useMemo(() => askedIndex(builder.actionGroups), [builder.actionGroups]);
 
-    for (const group of builder.actionGroups) {
-      const key = `${group.operationCode}|${group.serviceItem ?? ''}`;
-      const covered = found.get(key) ?? new Set<string>();
-
-      group.targets.forEach((target) => covered.add(keyOf(target)));
-      found.set(key, covered);
-    }
-
-    return found;
-  }, [builder.actionGroups]);
-
-  const askedFor = (operationCode: string, serviceItem?: string | null) =>
-    alreadyAsked.get(`${operationCode}|${serviceItem ?? ''}`) ?? new Set<string>();
+  const askedHere = (
+    targets: RequestTarget[],
+    operationCode: string,
+    serviceItem?: string | null
+  ) => askedAmong(alreadyAsked, targets, operationCode, serviceItem);
 
   const add = (
     option: RequestOperationOption,
@@ -633,26 +826,28 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
                           <td className="px-3 py-2.5 align-middle">
                             <div className="flex flex-wrap items-center justify-end gap-1.5">
                               {card.actions.map((action) => {
-                                const asked = askedFor(action.operation_code, card.object_key);
-                                const left = action.targets.filter(
-                                  (target) => !asked.has(keyOf(target))
-                                ).length;
-                                const all = asked.size > 0 && left === 0;
+                                const here = askedHere(
+                                  action.targets,
+                                  action.operation_code,
+                                  card.object_key
+                                );
+                                const left = action.targets.length - here;
+                                const all = here > 0 && left === 0;
+                                const shut = action.blocked_reason ?? null;
 
                                 return (
                                   <React.Fragment key={action.operation_code}>
-                                    {asked.size > 0 && (
+                                    {here > 0 && (
                                       <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
-                                        {all ? 'Asked' : `${asked.size} asked`}
+                                        {all ? 'Asked' : `${here} asked`}
                                       </span>
                                     )}
                                     <button
                                       type="button"
-                                      disabled={all}
+                                      disabled={all || Boolean(shut)}
                                       title={
-                                        all
-                                          ? 'Already asked for in this request'
-                                          : undefined
+                                        shut ??
+                                        (all ? 'Already asked for in this request' : undefined)
                                       }
                                       onClick={() => setService({ option: action, card })}
                                       className={`${
@@ -661,8 +856,8 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
                                           : quickBtn
                                       } disabled:cursor-not-allowed disabled:opacity-40`}
                                     >
-                                      {action.operation_label} ·{' '}
-                                      {all ? action.applicable_target_count : left}
+                                      {action.operation_label}
+                                      {shut ? '' : ` · ${all ? action.applicable_target_count : left}`}
                                     </button>
                                   </React.Fragment>
                                 );
@@ -701,41 +896,48 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
                             <p className="mt-0.5 text-[10px] text-slate-500">
                               {option.operation_code === 'device.transfer'
                                 ? 'Transfer current Devices to another holder'
-                                : 'Take current Devices back into stock'}
+                                : option.operation_code === 'device.assign'
+                                  ? 'Give a Device: one on file, a new one, or our choice'
+                                  : 'Take current Devices back into stock'}
                             </p>
                           </td>
                           <td className="px-3 py-2.5 align-middle">
                             <div className="flex items-center gap-2">
                               <p className="text-xs font-semibold text-slate-900">
-                                {option.device_count} Device(s)
+                                {option.operation_code === 'device.assign'
+                                  ? `${option.without_device_count ?? 0} without a Device`
+                                  : `${option.device_count} Device(s)`}
                               </p>
                               <span className="shrink-0 rounded-full bg-blue-50 px-1.5 py-0.5 text-[9px] font-bold text-blue-700">
                                 {option.applicable_subject_count} people
                               </span>
                             </div>
                             <p className="mt-0.5 text-[10px] text-slate-500">
-                              Only configured transfers create request lines
+                              Only what you configure creates request lines
                             </p>
                           </td>
                           <td className="px-3 py-2.5 align-middle">
                             <div className="flex items-center justify-end gap-1.5">
-                              {askedFor(option.operation_code).size > 0 && (
+                              {askedHere(option.targets, option.operation_code) > 0 && (
                                 <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
-                                  {askedFor(option.operation_code).size} asked
+                                  {askedHere(option.targets, option.operation_code)} asked
                                 </span>
                               )}
                               <button
                                 type="button"
                                 onClick={() => setDevice(option)}
                                 className={
-                                  option.operation_code === 'device.transfer'
+                                  option.operation_code === 'device.transfer' ||
+                                  option.operation_code === 'device.assign'
                                     ? quickPrimary
                                     : quickBtn
                                 }
                               >
                                 {option.operation_code === 'device.transfer'
                                   ? 'Configure transfers'
-                                  : 'Review Devices'}
+                                  : option.operation_code === 'device.assign'
+                                    ? 'Ask for a Device'
+                                    : 'Review Devices'}
                               </button>
                             </div>
                           </td>
@@ -770,6 +972,15 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
                 </strong>
                 · {group.targets.length} target{group.targets.length === 1 ? '' : 's'} ·{' '}
                 {group.sourceScopeLabel}
+                {group.sourceScopeType === 'All' &&
+                  group.selectedSubjectCount !== builder.subjects.length && (
+                    <span
+                      title={`Configured for ${group.selectedSubjectCount} people; the request now holds ${builder.subjects.length}. Add it again to reach the others.`}
+                      className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold text-amber-800"
+                    >
+                      people changed
+                    </span>
+                  )}
                 <button
                   type="button"
                   aria-label={`Remove ${group.operationLabelSnapshot}`}
@@ -796,7 +1007,7 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
           scope={scope}
           serviceItem={service.card.object_label}
           selectedSubjectCount={scoped.length}
-          asked={askedFor(service.option.operation_code, service.card.object_key)}
+          asked={askedFrom(alreadyAsked, service.option.operation_code, service.card.object_key)}
           onClose={() => setService(null)}
           onAdd={(targets, exclusions) =>
             add(service.option, targets, exclusions, 'Service', service.card.object_key)
@@ -807,6 +1018,12 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
       {device &&
         (device.operation_code === 'device.transfer' ? (
           <Transfers
+            option={device}
+            onClose={() => setDevice(null)}
+            onAdd={(targets) => add(device, targets, device.exclusions, 'Device')}
+          />
+        ) : device.operation_code === 'device.assign' ? (
+          <AssignDevice
             option={device}
             onClose={() => setDevice(null)}
             onAdd={(targets) => add(device, targets, device.exclusions, 'Device')}

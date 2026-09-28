@@ -170,7 +170,9 @@ export default function PortalRequestDetail() {
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button
                     type="button"
-                    disabled={decide.isLoading}
+                    // refusing without a word is refused by the server anyway, and the field
+                    // promises the person who asked will read this: the button waits for it
+                    disabled={decide.isLoading || (refusing && !reason.trim())}
                     onClick={() =>
                       refusing
                         ? decide.mutate({ name: data.name, approve: false, reason })

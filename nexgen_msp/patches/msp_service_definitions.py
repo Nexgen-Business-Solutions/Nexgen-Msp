@@ -56,16 +56,18 @@ def execute():
 
 
 def _items_msp_knows():
-    """Every Item MSP configured, sold, contracted or billed."""
-    found = set()
+    """Every Item MSP actually sold, contracted or billed — and nothing else.
 
-    for field in ("msp_service_scope", "msp_invoice_label", "msp_service_enabled"):
-        if frappe.db.has_column("Item", field):
-            found.update(
-                frappe.db.sql_list(
-                    f"select name from `tabItem` where ifnull(`{field}`, '') not in ('', '0')"
-                )
-            )
+    Carrying one of the old custom fields is not enough to be an MSP service. A scope can be
+    written on an Item by an import or by somebody opening the form once, and a site can have
+    hundreds of Items in that state that MSP has never touched. Making a definition for each
+    of them would turn the whole chart of accounts into a service catalogue.
+
+    So the question asked here is what MSP did with the Item, not what is written on it:
+    an assignment, a contract line or a billed line. The one exception is an Item the previous
+    release had explicitly switched on, which was a deliberate act on somebody's part.
+    """
+    found = set()
 
     found.update(frappe.db.sql_list("select distinct service_item from `tabMSP Service Assignment`"))
     found.update(frappe.db.sql_list("select distinct service_item from `tabMSP Contract Service`"))
@@ -74,6 +76,13 @@ def _items_msp_knows():
         if frappe.db.exists("DocType", "MSP Billing Run Line")
         else []
     )
+
+    if frappe.db.has_column("Item", "msp_service_enabled"):
+        found.update(
+            frappe.db.sql_list(
+                "select name from `tabItem` where ifnull(`msp_service_enabled`, 0) = 1"
+            )
+        )
 
     return {item for item in found if item and frappe.db.exists("Item", item)}
 

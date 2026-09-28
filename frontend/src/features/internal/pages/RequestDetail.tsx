@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { keyOfPerson, recordOfPerson } from '../components/fulfilment/personOfLine';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AlertCircle, TriangleAlert } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
@@ -61,7 +62,7 @@ const contextFrom = (data: Detail) => ({
       .filter(Boolean)
       .sort()[0] ?? null,
   priority: data.priority,
-  people: new Set(data.lines.map((line) => line.client_user || line.device_holder || line.new_user_full_name)).size,
+  people: new Set(data.lines.map(keyOfPerson)).size,
   lines: data.lines.length,
   details: data.details ?? null,
   customer_approved: true,
@@ -72,7 +73,7 @@ const CLOSED = ['Completed', 'Rejected', 'Cancelled'];
 
 /** A request line as the recap reads it: the person first, then what was asked for them. */
 const asPersonLine = (line: RequestDetailLine): PersonLine => {
-  const person = line.client_user || line.requested_for_user || line.device_holder || null;
+  const person = recordOfPerson(line);
   const isNewUser = Boolean(line.is_new_user) && !person;
   // an act on the machine itself names no service: what it is, is the act and the two holders
   const onMachine = (line.operation_code ?? '').startsWith('device.');

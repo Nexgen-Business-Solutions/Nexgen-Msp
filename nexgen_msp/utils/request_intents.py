@@ -443,7 +443,18 @@ def device_requirement_key(row):
 	if row.get("is_new_device"):
 		subject = subject_key(row)
 
-		return f"new-device:{subject}" if subject else None
+		if not subject:
+			return None
+
+		# asking for a machine is asking for one machine: ask twice and two are prepared. The
+		# services above share a machine because they run on whichever one the person gets;
+		# a machine asked for in its own right is its own thing.
+		if (row.get("operation_code") or "") == "device.assign":
+			group = row.get("action_group_key")
+
+			return f"new-device:{group}" if group else f"new-device:{subject}"
+
+		return f"new-device:{subject}"
 
 	device = row.get("managed_device")
 

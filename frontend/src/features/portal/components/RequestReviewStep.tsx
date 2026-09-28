@@ -92,7 +92,7 @@ const GroupedActionReview: React.FC<{ builder: Builder }> = ({ builder }) => {
         <div className="grid gap-2 p-5 sm:grid-cols-3">
           {[
             [builder.subjects.length, 'People in snapshot'],
-            [builder.actionGroups.length, 'Action groups'],
+            [builder.actionGroups.length, 'Requested actions'],
             [builder.targetCount, 'Concrete targets'],
           ].map(([value, label]) => (
             <div key={label as string} className="rounded-lg border border-slate-200 p-3">

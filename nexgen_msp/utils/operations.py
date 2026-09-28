@@ -253,6 +253,12 @@ def from_legacy_work(action):
 	return LEGACY_WORK_ACTIONS.get(action)
 
 
+# What a request made of one family of service acts is called. The family name on the line is
+# the one it has always had, because that is what the line's own `action` field holds; the
+# request above it says what was actually asked for, and ending a service is not removing one.
+REQUEST_TYPE_OF_FAMILY = {"Remove": "End"}
+
+
 def request_type_of(rows, asked=None):
 	"""What a request made of these lines is called.
 
@@ -281,7 +287,9 @@ def request_type_of(rows, asked=None):
 	if domains != {SERVICE}:
 		return "Mixed"
 
-	families = {REGISTRY[code]["legacy_action"] for code in codes}
+	families = {REQUEST_TYPE_OF_FAMILY.get(
+		REGISTRY[code]["legacy_action"], REGISTRY[code]["legacy_action"]
+	) for code in codes}
 
 	return families.pop() if len(families) == 1 else "Mixed"
 

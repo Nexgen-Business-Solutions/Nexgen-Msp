@@ -166,11 +166,28 @@ class TestWhatAskingChanges(DeviceOperationCase):
         self.assertEqual(caught.exception.code, "DEVICE_REQUEST_CONFLICT")
         self.assertIn(name, caught.exception.message)
 
-    def test_assigning_a_machine_somebody_holds_is_refused(self):
-        with self.assertRaises(ServiceRefused) as caught:
-            self.raised(self.transfer_line(operation_code="device.assign"))
+    def test_asking_for_a_machine_somebody_holds_becomes_a_change_of_holder(self):
+        """The customer says who should end up with it; we say how that happens.
 
-        self.assertIn("already has a holder", caught.exception.message)
+        Asking to be given a machine that already belongs to somebody used to be refused, with
+        an invitation to ask for a holder change instead. That is us arguing about our own
+        vocabulary: the wish is the same either way, and the act that grants it is a transfer.
+        """
+        name = self.raised(self.transfer_line(operation_code="device.assign"))
+        line = frappe.get_doc("MSP Service Request", name).lines[0]
+
+        self.assertEqual(line.operation_code, "device.transfer")
+        self.assertEqual(line.requested_holder, self.marie)
+        self.assertEqual(line.managed_device, self.device)
+
+    def test_asking_for_a_machine_nobody_holds_stays_an_assignment(self):
+        frappe.db.set_value("MSP Managed Device", self.device, "assigned_client_user", None)
+
+        name = self.raised(self.transfer_line(operation_code="device.assign"))
+        line = frappe.get_doc("MSP Service Request", name).lines[0]
+
+        self.assertEqual(line.operation_code, "device.assign")
+        self.assertEqual(line.requested_holder, self.marie)
 
     def test_the_same_person_is_not_a_change(self):
         with self.assertRaises(ServiceRefused) as caught:
