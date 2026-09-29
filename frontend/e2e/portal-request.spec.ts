@@ -223,7 +223,7 @@ test.describe('A request for somebody who is not on file yet, put aside and sent
       await expect(page.getByText(/1 target · All selected\s*NEW DEVICE/)).toBeVisible();
 
       await page.getByRole('button', { name: /Continue/ }).click();
-      await page.getByLabel('Business note').fill(NOTE);
+      await page.getByLabel('Request note').fill(NOTE);
       await page.getByRole('button', { name: 'Save draft' }).click();
       await expect(page.getByRole('button', { name: 'Discard' })).toBeVisible({ timeout: 20_000 });
 
@@ -254,7 +254,7 @@ test.describe('A request for somebody who is not on file yet, put aside and sent
       await expect(page.getByText(/1 target · All selected\s*NEW DEVICE/)).toBeVisible();
 
       await page.getByRole('button', { name: /Continue/ }).click();
-      await expect(page.getByLabel('Business note')).toHaveValue(NOTE);
+      await expect(page.getByLabel('Request note')).toHaveValue(NOTE);
 
       await page.getByRole('button', { name: /Continue/ }).click();
       await expect(page.getByRole('heading', { name: 'Review request' })).toBeVisible({

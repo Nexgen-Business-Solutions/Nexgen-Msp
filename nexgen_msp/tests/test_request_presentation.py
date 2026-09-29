@@ -139,6 +139,7 @@ class TestThePreview(PresentationCase):
                     "relationship": None,
                     "line_status": None,
                     "rejection_reason": None,
+                    "work_cancelled": False,
                 }
             ],
         )
@@ -425,7 +426,7 @@ class TestAPersistedRequest(PresentationCase):
                         "link": {"doctype": "MSP Managed Device", "name": device},
                     },
                 ],
-                "work": {"completed": 2, "unresolved": 0, "badge": "COMPLETED"},
+                "work": {"completed": 2, "unresolved": 0, "cancelled": 0, "badge": "COMPLETED"},
             },
         )
         self.assertEqual(self.portal_view(name)["fulfilment_outcome"], out["fulfilment_outcome"])

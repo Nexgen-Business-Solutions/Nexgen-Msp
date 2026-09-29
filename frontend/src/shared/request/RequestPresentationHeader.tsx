@@ -63,15 +63,15 @@ export default function RequestPresentationHeader({ presentation, mode, actions 
         {request.details ? (
           <div className="rounded-lg border border-blue-100 bg-blue-50/40 px-3 py-2.5">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-xs font-semibold text-blue-800">Business note</p>
+              <p className="text-xs font-semibold text-blue-800">Request note</p>
               {noteBy && <p className="text-[11px] text-slate-500">{noteBy}</p>}
             </div>
             <p className="mt-1 whitespace-pre-line text-sm text-slate-700">{request.details}</p>
           </div>
         ) : (
           <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2">
-            <p className="text-xs font-semibold text-slate-600">Business note</p>
-            <p className="text-xs text-slate-400">No business note.</p>
+            <p className="text-xs font-semibold text-slate-600">Request note</p>
+            <p className="text-xs text-slate-400">No request note.</p>
           </div>
         )}
       </div>

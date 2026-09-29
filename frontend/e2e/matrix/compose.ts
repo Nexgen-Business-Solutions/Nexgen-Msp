@@ -365,7 +365,7 @@ export const fillDetails = async (page: Page, s: Scenario, requestedDate?: numbe
 
   if (requestedDate !== undefined) await page.getByLabel('Requested date').fill(day(requestedDate));
 
-  await page.getByLabel('Business note').fill(noteOf(s));
+  await page.getByLabel('Request note').fill(noteOf(s));
 };
 
 const summaryOf = (page: Page, label: string) =>
@@ -462,7 +462,7 @@ export const compose = async (window: Window, s: Scenario): Promise<string> => {
     });
     await expect(page.getByRole('button', { name: `Actions · ${s.acts.length}` }), 'and so do the acts').toBeVisible();
     await applyChanges(page, s, s.send.changes ?? []);
-    await expect(page.getByLabel('Business note')).toHaveValue(noteOf(s));
+    await expect(page.getByLabel('Request note')).toHaveValue(noteOf(s));
   }
 
   await continueTo(page, 'Review request');

@@ -169,7 +169,7 @@ describe('one request, the same core in every mode', () => {
     }
   });
 
-  it('keeps the metadata strip, the dated business note and the four summary cells', () => {
+  it('keeps the metadata strip, the dated request note and the four summary cells', () => {
     renderMode('internal_detail');
 
     for (const [label, value] of [
@@ -183,7 +183,7 @@ describe('one request, the same core in every mode', () => {
       const cell = screen.getByText(label, { selector: 'p' }).parentElement as HTMLElement;
       expect(within(cell).getByText(value)).toBeInTheDocument();
     }
-    expect(screen.getByText('Business note')).toBeInTheDocument();
+    expect(screen.getByText('Request note')).toBeInTheDocument();
     expect(screen.getByText('Devteam Cam · 27 Sep 2026 · 08:42')).toBeInTheDocument();
 
     const summary = screen.getByRole('region', { name: 'Request summary' });
@@ -255,12 +255,12 @@ describe('what the server says, rendered as it is said', () => {
 });
 
 describe('what is only shown when there is something to show', () => {
-  it('says "No business note." in a compact row when there is none', () => {
+  it('says "No request note." in a compact row when there is none', () => {
     const presentation = presentationFixture();
     presentation.request.details = null;
     renderMode('internal_detail', presentation);
 
-    expect(screen.getByText('No business note.')).toBeInTheDocument();
+    expect(screen.getByText('No request note.')).toBeInTheDocument();
   });
 
   it('drops the requested entities and attention panels when they are empty', () => {

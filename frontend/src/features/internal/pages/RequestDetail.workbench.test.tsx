@@ -611,7 +611,7 @@ describe('the request stays in view at every step', () => {
       expect(within(header).getByText(badge)).toBeInTheDocument();
     }
     expect(await within(header).findByText('1 REQUESTED ENTITY')).toBeInTheDocument();
-    expect(within(header).getByText('Business note')).toBeInTheDocument();
+    expect(within(header).getByText('Request note')).toBeInTheDocument();
     expect(within(header).getByText('Please prepare everything before Monday.')).toBeInTheDocument();
     expect(header.textContent).not.toMatch(/assign|technician|owner/i);
   });
@@ -640,7 +640,7 @@ describe('a request sent to Nexgen, before the work starts', () => {
     expect(within(header).getByRole('button', { name: 'Start work' })).toBeEnabled();
     expect(within(header).getByRole('button', { name: 'Reject' })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Reject' })).toHaveLength(1);
-    for (const control of ['Accept', 'Accept all', 'Reject all', 'Reject line', 'Continue to Execute']) {
+    for (const control of ['Accept', 'Accept all', 'Accept all remaining', 'Reject all', 'Reject line', 'Continue to Execute']) {
       expect(screen.queryByRole('button', { name: control }), control).not.toBeInTheDocument();
     }
     expect(screen.queryByRole('heading', { name: 'Review lines' })).not.toBeInTheDocument();
@@ -722,6 +722,43 @@ describe('step 1 — review lines', () => {
         line_status: 'Approved',
       })
     );
+  });
+
+  it('accepts everything still to decide in one click, whatever group it sits in', async () => {
+    const detail = reviewing([line(1), line(2, { line_status: 'Rejected', rejection_reason: 'No' }), line(3), line(4)]);
+    await renderPage(
+      detail,
+      undefined,
+      presentationOf([target(1), target(2, { line_status: 'Rejected', rejection_reason: 'No' }), target(3), target(4)])
+    );
+    vi.mocked(internal.setRequestLineStatuses).mockResolvedValue({
+      results: [1, 3, 4].map((idx) => ({ idx, ok: true, message: null })),
+      decided: 3,
+      failed: 0,
+      request: detail,
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Accept all remaining' }));
+
+    await waitFor(() =>
+      expect(internal.setRequestLineStatuses).toHaveBeenCalledWith({
+        name: 'SR-0001',
+        idxs: [1, 3, 4],
+        line_status: 'Approved',
+      })
+    );
+    expect(internal.setRequestLineStatuses).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not offer it when a single decision is left, or none', async () => {
+    await renderPage(
+      reviewing([line(1), line(2, { line_status: 'Approved' })]),
+      undefined,
+      presentationOf([target(1), target(2, { line_status: 'Approved' })])
+    );
+
+    expect(await screen.findByRole('button', { name: 'Continue to Execute' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Accept all remaining' })).not.toBeInTheDocument();
   });
 
   it('rejects a whole group with a reason, for exactly its pending lines', async () => {

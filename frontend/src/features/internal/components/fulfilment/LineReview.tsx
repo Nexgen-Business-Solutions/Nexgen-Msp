@@ -210,7 +210,7 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
         renderTargetControls={decidable ? targetControls : undefined}
         footer={
           decidable ? (
-            <div className="flex flex-col items-stretch justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3 sm:flex-row sm:items-center">
+            <div className="sticky bottom-3 z-10 flex flex-col items-stretch justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 shadow-lg sm:flex-row sm:items-center">
               {pending.length > 0 ? (
                 <p className="text-xs text-slate-500">Every line must be accepted or rejected before execution.</p>
               ) : (
@@ -219,14 +219,26 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
                 </p>
               )}
               {pending.length > 0 || accepted.length > 0 ? (
-                <button
-                  type="button"
-                  disabled={continuing || pending.length > 0}
-                  onClick={onContinue}
-                  className={`${btnPrimary} py-2.5`}
-                >
-                  Continue to Execute
-                </button>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {pending.length > 1 && (
+                    <button
+                      type="button"
+                      disabled={many.isLoading || one.isLoading}
+                      onClick={() => decideMany(pending.map((line) => line.idx), 'Approved')}
+                      className={`${btnAccept} py-2.5`}
+                    >
+                      Accept all remaining
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    disabled={continuing || pending.length > 0}
+                    onClick={onContinue}
+                    className={`${btnPrimary} py-2.5`}
+                  >
+                    Continue to Execute
+                  </button>
+                </div>
               ) : (
                 <button type="button" onClick={onRejectRequest} className={`${btnReject} py-2.5`}>
                   Reject request

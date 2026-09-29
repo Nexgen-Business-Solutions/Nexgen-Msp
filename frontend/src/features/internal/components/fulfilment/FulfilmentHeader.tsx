@@ -59,7 +59,7 @@ const FulfilmentHeader: React.FC<Props> = ({
         {note && (
           <div className="mx-5 mb-3 rounded-lg border border-blue-100 bg-blue-50/40 px-3 py-2.5">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <p className="text-xs font-bold text-blue-900">Business note</p>
+              <p className="text-xs font-bold text-blue-900">Request note</p>
               {noteBy && <p className="text-[11px] text-slate-500">{noteBy}</p>}
             </div>
             <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-slate-700">{note.text}</p>

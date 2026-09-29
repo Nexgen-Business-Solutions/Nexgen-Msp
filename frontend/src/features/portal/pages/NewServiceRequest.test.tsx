@@ -932,7 +932,7 @@ describe('the review and the draft', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Add action' }));
     fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
     fireEvent.change(screen.getByLabelText('Requested date'), { target: { value: '2026-10-05' } });
-    fireEvent.change(screen.getByLabelText('Business note'), { target: { value: 'Before Monday.' } });
+    fireEvent.change(screen.getByLabelText('Request note'), { target: { value: 'Before Monday.' } });
     fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
 
     expect(await screen.findByText('Add Microsoft 365')).toBeInTheDocument();

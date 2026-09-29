@@ -53,13 +53,13 @@ const RequestDetailsStep: React.FC<{ builder: Builder }> = ({ builder }) => (
       </div>
 
       <div>
-        <FieldLabel>Business note</FieldLabel>
+        <FieldLabel>Request note</FieldLabel>
         <textarea
           rows={4}
           value={builder.details}
           onChange={(event) => builder.setDetails(event.target.value)}
           placeholder="Anything Nexgen should know about this request."
-          aria-label="Business note"
+          aria-label="Request note"
           className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
         />
       </div>
