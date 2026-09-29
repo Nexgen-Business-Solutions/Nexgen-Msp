@@ -85,9 +85,10 @@ test.describe('A customer raises a request, from the first click to the record',
     await page.getByRole('button', { name: 'Submit request' }).click();
     await expect(page.getByRole('button', { name: 'New request' })).toBeVisible({ timeout: 30_000 });
 
+    await expect.poll(() => topRequest(page), { timeout: 20_000 }).not.toBe(before);
+
     const raised = await topRequest(page);
 
-    expect(raised).not.toBe(before);
     await expect(page.locator('tbody tr').first()).toContainText('SUBMITTED');
 
     await openRequest(page, raised);

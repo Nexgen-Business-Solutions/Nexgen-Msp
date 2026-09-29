@@ -28,7 +28,6 @@ const FIELDS: [keyof RequestedDeviceValues, string][] = [
   ['hostname', 'Hostname'],
   ['device_type', 'Device type'],
   ['serial_number', 'Serial number'],
-  ['asset_tag', 'Asset tag'],
   ['manufacturer', 'Manufacturer'],
   ['model', 'Model'],
   ['operating_system', 'Operating system'],

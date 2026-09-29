@@ -11,7 +11,7 @@ export const MACHINES2: Scenario[] = [
     people: [{ existing: [{ kind: 'bare', at: 31 }] }],
     acts: [
       { assign: { kind: 'bare', at: 31 }, machine: { describe: { key: 'LA', type: 'Laptop', hostname: true, serial: true } } },
-      { assign: { kind: 'bare', at: 31 }, machine: { describe: { key: 'LB', type: 'Desktop', hostname: true, serial: true } } },
+      { assign: { kind: 'bare', at: 31 }, machine: { describe: { key: 'LB', type: 'PC', hostname: true, serial: true } } },
     ],
     send: 'now',
     sentLines: 2,
@@ -170,7 +170,7 @@ export const MACHINES2: Scenario[] = [
         {
           addAct: {
             assign: { kind: 'bare', at: 26 },
-            machine: { describe: { key: 'D2', type: 'Desktop', hostname: true, serial: true } },
+            machine: { describe: { key: 'D2', type: 'PC', hostname: true, serial: true } },
           },
         },
       ],

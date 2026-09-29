@@ -216,13 +216,17 @@ export const view = async (page: Page, entry: 'all' | string) => {
 };
 
 const entityRow = (page: Page, text: string) =>
-  workspace(page).locator('tr[data-requested-entity]').filter({ hasText: text });
+  workspace(page)
+    .locator('tr[data-requested-entity]')
+    .filter({ has: page.locator('td:first-child', { hasText: text }) });
 
 const cancelOne = async (page: Page, s: Scenario, step: Preparation, how: { cancel: string; takes: number }) => {
   const person = 'person' in step;
   const row = entityRow(page, person ? futureName(s, futureOf(s, step.person)) : requestedLabel(s, step.machine));
   const title = person ? 'Cancel requested user' : 'Cancel requested Device';
 
+  await row.getByTitle('More options').scrollIntoViewIfNeeded();
+  await expect(row.getByTitle('More options')).toBeInViewport({ ratio: 1 });
   await row.getByTitle('More options').click();
 
   const menu = page.getByRole('menu', { name: 'More options' });

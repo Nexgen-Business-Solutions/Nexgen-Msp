@@ -14,7 +14,6 @@ const inputClass =
 const FIELDS = [
   ['hostname', 'Hostname'],
   ['serial_number', 'Serial number'],
-  ['asset_tag', 'Asset tag'],
   ['manufacturer', 'Manufacturer'],
   ['model', 'Model'],
   ['operating_system', 'Operating system'],
@@ -35,7 +34,6 @@ const RequestNewDeviceModal: React.FC<{
   const [values, setValues] = useState<Record<Field, string>>({
     hostname: '',
     serial_number: '',
-    asset_tag: '',
     manufacturer: '',
     model: '',
     operating_system: '',
@@ -72,7 +70,7 @@ const RequestNewDeviceModal: React.FC<{
       device_type: deviceType || null,
       hostname: clean(values.hostname),
       serial_number: clean(values.serial_number),
-      asset_tag: clean(values.asset_tag),
+      asset_tag: null,
       manufacturer: clean(values.manufacturer),
       model: clean(values.model),
       operating_system: clean(values.operating_system),
@@ -124,7 +122,7 @@ const RequestNewDeviceModal: React.FC<{
               onChange={setDeviceType}
               placeholder="Not known yet"
               options={[
-                { value: '', label: 'Not known yet' },
+               
                 ...deviceTypes.map((type) => ({ value: type, label: type })),
               ]}
             />

@@ -481,9 +481,10 @@ describe('Prepare requested Device', () => {
     );
 
     fireEvent.click(within(dialog).getByRole('tab', { name: 'Register new Device' }));
-    for (const field of ['Hostname', 'Serial number', 'Asset tag', 'Manufacturer', 'Model', 'Operating system']) {
+    for (const field of ['Hostname', 'Serial number', 'Manufacturer', 'Model', 'Operating system']) {
       expect(within(dialog).getByRole('textbox', { name: field })).toBeInTheDocument();
     }
+    expect(within(dialog).queryByText('Asset tag')).not.toBeInTheDocument();
     expect(within(dialog).getByText('Device type')).toBeInTheDocument();
     const resolve = within(dialog).getByRole('button', { name: 'Save & resolve' });
     expect(resolve).toBeDisabled();

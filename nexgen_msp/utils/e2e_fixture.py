@@ -11,6 +11,7 @@ removes all of it whether the run finished or not.
 Never run it against production. It creates a customer, accounts and services.
 """
 
+import functools
 import json
 
 import frappe
@@ -28,6 +29,19 @@ from nexgen_msp.utils.auth_constants import DEFAULTS_PARENT_2FA
 PREFIX = "ZZE2E"
 PASSWORD = "Zze2e-Headless-2026"
 CUSTOMER = f"{PREFIX} Customer"
+
+
+def test_site_only(fn):
+    """Refuse to run on a site that does not allow tests, production first of all."""
+
+    @functools.wraps(fn)
+    def guarded(*args, **kwargs):
+        if not frappe.conf.allow_tests:
+            frappe.throw("This fixture only runs on a site that allows tests.")
+
+        return fn(*args, **kwargs)
+
+    return guarded
 
 
 def _customer():
@@ -221,6 +235,7 @@ def _account(kind, role, suffix, customer=None, rights=None):
     return {"email": email, "secret": secret}
 
 
+@test_site_only
 def setup():
     """Build the company, and say what the browser run should open.
 
@@ -344,6 +359,7 @@ def setup():
     )
 
 
+@test_site_only
 def submitted_request():
     """A request the fulfilment screens can be read against, raised the way a customer does.
 
@@ -410,6 +426,7 @@ def submitted_request():
     print(json.dumps({"request": out["name"], "targets": len(action["targets"])}, indent=2))
 
 
+@test_site_only
 def add_request():
     """A second request whose work cannot run until somebody enters two usernames.
 
@@ -505,6 +522,7 @@ def add_request():
     )
 
 
+@test_site_only
 def new_person_request():
     """A request for somebody who does not exist yet, and a machine nobody has settled.
 
@@ -607,6 +625,7 @@ def new_person_request():
 JOURNEY = f"{PREFIX} Journey"
 
 
+@test_site_only
 def journey_ground():
     """The only two things a browser run cannot do for itself: a company, and a way in.
 
@@ -679,6 +698,7 @@ def _journey_account(kind, role, suffix, rights=None):
     )
 
 
+@test_site_only
 def journey_teardown():
     """Take the journey's company away again, whatever state the run left it in."""
     frappe.set_user("Administrator")
@@ -772,6 +792,7 @@ def _purge_journey_account(email):
     frappe.db.sql("delete from tabUser where name=%s", email)
 
 
+@test_site_only
 def teardown():
     """Take every row the run wrote away again, children before parents."""
     frappe.set_user("Administrator")
@@ -902,11 +923,13 @@ def _matrix_counts():
     return counts
 
 
+@test_site_only
 def matrix_counts():
     """Print the register counts, the matrix's own apart from everybody else's."""
     print(json.dumps(_matrix_counts(), indent=2))
 
 
+@test_site_only
 def matrix_ground():
     """Build the matrix company: a pool of people and machines addressed by index, and five ways in."""
     frappe.set_user("Administrator")
@@ -1111,6 +1134,7 @@ def _matrix_residue():
     }
 
 
+@test_site_only
 def matrix_teardown():
     """Remove the matrix company by the names it owns, counting before and after."""
     frappe.set_user("Administrator")
@@ -1180,6 +1204,7 @@ def _matrix_holdings(client_user=None, managed_device=None):
     ]
 
 
+@test_site_only
 def matrix_facts(note=None, people=None, machines=None):
     """Read, and only read, what one matrix request left in the records."""
     frappe.set_user("Administrator")

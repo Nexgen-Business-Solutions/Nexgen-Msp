@@ -869,7 +869,6 @@ describe('machines and holders that do not exist yet', () => {
       'Device type',
       'Hostname',
       'Serial number',
-      'Asset tag',
       'Manufacturer',
       'Model',
       'Operating system',
@@ -877,6 +876,7 @@ describe('machines and holders that do not exist yet', () => {
     ]) {
       expect(within(modal).getByText(label)).toBeInTheDocument();
     }
+    expect(within(modal).queryByText('Asset tag')).not.toBeInTheDocument();
     expect(within(modal).getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
     fireEvent.click(within(modal).getByRole('button', { name: 'Add device' }));
 
