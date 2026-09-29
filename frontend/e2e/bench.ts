@@ -5,9 +5,11 @@ const SITE = process.env.MSP_SITE ?? 'msp.localhost';
 const CWD = process.env.MSP_BENCH_DIR ?? '/home/admindev1/frappe-bench';
 
 /** Run one fixture command on the site and hand back whatever it printed. */
-export function run(method: string): string {
+export function run(method: string, kwargs?: Record<string, unknown>): string {
+  const extra = kwargs ? ['--kwargs', JSON.stringify(kwargs)] : [];
+
   try {
-    return execFileSync(BENCH, ['--site', SITE, 'execute', method], {
+    return execFileSync(BENCH, ['--site', SITE, 'execute', method, ...extra], {
       cwd: CWD,
       encoding: 'utf8',
       timeout: 300_000,

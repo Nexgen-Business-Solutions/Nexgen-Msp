@@ -90,11 +90,18 @@ def _validate_bounds(doc):
 	today = frappe.utils.getdate(frappe.utils.today())
 	start = frappe.utils.getdate(doc.effective_start_date) if doc.effective_start_date else None
 	end = frappe.utils.getdate(doc.effective_end_date) if doc.effective_end_date else None
+	before = doc.get_doc_before_save() if not doc.is_new() else None
+	recorded = {
+		str(frappe.utils.getdate(row.suspended_on))
+		for row in (before.get(FIELD) if before else None) or []
+		if row.suspended_on
+	}
 
 	for row in doc.get(FIELD) or []:
 		suspended_on = frappe.utils.getdate(row.suspended_on)
+		planned = doc.flags.dated_by_request or str(suspended_on) in recorded
 
-		if suspended_on > today:
+		if suspended_on > today and not planned:
 			frappe.throw(_("Row {0}: a suspension cannot start in the future.").format(row.idx))
 
 		if start and suspended_on < start:

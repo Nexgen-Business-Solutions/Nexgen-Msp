@@ -113,20 +113,11 @@ export type ServiceRequestLine = {
   operation_code?: string | null;
   operation_label_snapshot?: string | null;
   requested_holder?: string | null;
-  is_new_user?: number;
-  new_user_full_name?: string | null;
-  new_user_department?: string | null;
-  new_user_email?: string | null;
-  new_user_username?: string | null;
   client_user: string | null;
   managed_device: string | null;
   /** the exact service period this line acts on, and who it was raised for */
   source_service_assignment?: string | null;
   requested_for_user?: string | null;
-  is_new_device?: number;
-  new_device_label?: string | null;
-  new_device_type?: string | null;
-  new_device_serial?: string | null;
   customer_site: string | null;
   requested_service: string;
   requested_quantity: number;
@@ -166,44 +157,6 @@ export type ListParams = {
   coverage?: string;
   start?: number;
   page_length?: number;
-};
-
-export type NewRequestLine = {
-  /** the operation asked for; the server derives the mechanical action type */
-  operation_code?: string;
-  action?: string;
-  target_scope: string;
-  is_new_user?: number;
-  /** opaque builder group: keeps two future colleagues with the same name distinct */
-  subject_key?: string;
-  client_user?: string;
-  new_user_full_name?: string;
-  new_user_department?: string;
-  new_user_email?: string;
-  /** never required of the customer, but kept when they happen to know it */
-  new_user_username?: string;
-  is_new_device?: number;
-  new_device_label?: string;
-  new_device_type?: string;
-  new_device_serial?: string;
-  managed_device?: string;
-  customer_site?: string;
-  /** the exact service period this line acts on — required for anything but Add */
-  source_service_assignment?: string;
-  /** who the line was raised for, kept even when it targets a machine */
-  requested_for_user?: string;
-  /** who should hold the machine, for an operation that decides that */
-  requested_holder?: string;
-  /** an act on the machine itself names no service */
-  requested_service?: string;
-  /** how this subject came into the request, kept exactly as it was selected */
-  selection_origin?: 'Individual' | 'Department' | 'Company';
-  selection_group_key?: string;
-  selection_label?: string;
-  selection_snapshot_at?: string;
-  requested_quantity?: number;
-  requested_effective_date?: string;
-  comment?: string;
 };
 
 export const getContext = (signal?: AbortSignal) =>
@@ -275,19 +228,6 @@ export const exportMyMachines = (params: MyExportParams = {}, picks?: ExportPick
 export const listUserChoices = (customer?: string, signal?: AbortSignal) =>
   get<UserChoice[]>(`${BASE}.list_user_choices`, { customer }, signal);
 
-export type DeviceChoice = {
-  name: string;
-  hostname: string;
-  device_type: string | null;
-  status: string;
-  serial_number: string | null;
-  assigned_client_user: string | null;
-  assigned_user_name: string | null;
-};
-
-export const listDeviceChoices = (customer?: string, signal?: AbortSignal) =>
-  get<DeviceChoice[]>(`${BASE}.list_device_choices`, { customer }, signal);
-
 export const listClientUsers = (params: ListParams = {}, signal?: AbortSignal) =>
   get<Paginated<ClientUser>>(`${BASE}.list_client_users`, params, signal);
 
@@ -316,17 +256,34 @@ export type PortalRequestLine = {
   action: string;
   line_status: string;
   rejection_reason: string | null;
-  is_new_user: number;
-  subject_key?: string | null;
-  new_user_full_name: string | null;
-  new_user_department: string | null;
-  is_new_device: number;
-  new_device_label: string | null;
+  operation_code: string | null;
+  operation_label_snapshot: string | null;
+  operation_payload: string | null;
+  state_snapshot: string | null;
+  requested_holder: string | null;
+  selection_origin: string | null;
+  selection_group_key: string | null;
+  selection_label: string | null;
+  target_scope: string | null;
+  subject_key: string | null;
+  device_requirement_key: string | null;
+  client_user: string | null;
+  managed_device: string | null;
+  requested_client_user: string | null;
+  requested_device: string | null;
+  requested_for_requested_client_user: string | null;
+  requested_holder_requested_client_user: string | null;
+  /** the exact service period this line acts on, and who it was raised for */
+  source_service_assignment: string | null;
+  requested_for_user: string | null;
+  requested_service: string | null;
   user_name: string | null;
   department: string | null;
   username: string | null;
-  service_name: string;
+  service_name: string | null;
   action_label: string | null;
+  requested_holder_name: string | null;
+  requested_device_label: string | null;
   hostname: string | null;
   serial_number: string | null;
   device_type: string | null;
@@ -336,25 +293,7 @@ export type PortalRequestLine = {
   service_status: string | null;
   service_start_date: string | null;
   delivered_on: string | null;
-  operation_code: string | null;
-  operation_label_snapshot: string | null;
-  operation_payload: string | null;
-  state_snapshot: string | null;
-  requested_holder: string | null;
-  requested_holder_name: string | null;
-  target_scope: string | null;
   service_scope: string;
-  client_user: string | null;
-  managed_device: string | null;
-  /** the exact service period this line acts on, and who it was raised for */
-  source_service_assignment: string | null;
-  requested_for_user: string | null;
-  requested_quantity: number | null;
-  requested_service: string | null;
-  new_user_email: string | null;
-  new_user_username: string | null;
-  new_device_type: string | null;
-  new_device_serial: string | null;
 };
 
 export type PortalRequestDetail = {
@@ -363,28 +302,41 @@ export type PortalRequestDetail = {
   request_type: string;
   status: string;
   priority: string;
-  details?: string | null;
+  details: string | null;
+  requested_date: string | null;
   source: string;
   creation: string;
   modified: string;
   rejection_reason: string | null;
-  refused_by_customer?: boolean;
+  refused_by_customer: boolean;
   reviewed_on: string | null;
   can_decide: boolean;
+  can_edit: boolean;
   has_approver: boolean;
   lines: PortalRequestLine[];
-  /** what the customer actually built, when the request was raised the V3 way */
-  subjects?: RequestSubjectSnapshot[];
-  action_groups?: RequestActionGroupSnapshot[];
+  subjects: RequestSubjectSnapshot[];
+  requested_devices: RequestedDeviceSnapshot[];
+  restorable: boolean;
+  action_groups: RequestActionGroupSnapshot[];
+};
+
+export type RequestedDeviceSnapshot = RequestedDeviceDraft & {
+  requested_device: string;
+  status: 'Open' | 'Resolved' | 'Cancelled';
+  intended_holder_requested_client_user: string | null;
 };
 
 export type RequestSubjectSnapshot = {
   subject_key: string;
+  kind: 'existing' | 'new';
   client_user: string | null;
-  is_new_user: boolean;
+  requested_client_user?: string | null;
   full_name: string;
   department: string | null;
   email: string | null;
+  username: string | null;
+  external_employee_id: string | null;
+  start_date: string | null;
   added_via: string;
   selection_label: string | null;
 };
@@ -403,12 +355,11 @@ export type RequestActionGroupSnapshot = {
   applicable_target_count: number;
   excluded_subject_count: number;
   /** the configuration as it was saved, so a draft reopens as the draft it was */
-  configuration?: {
-    requested_effective_date?: string | null;
+  configuration: {
     comment?: string | null;
     targets?: RequestTarget[];
     exclusions?: RequestExclusion[];
-  } | null;
+  };
   impact: {
     subject_key: string;
     status: 'selected' | 'inapplicable';
@@ -472,23 +423,28 @@ export type RequestPayload = {
   request_type?: string;
   priority?: string;
   details?: string;
-  lines?: NewRequestLine[];
-  subjects?: RequestSubjectDraft[];
-  action_groups?: RequestActionGroupDraft[];
+  requested_date?: string | null;
+  subjects: RequestSubjectDraft[];
+  requested_devices: RequestedDeviceDraft[];
+  action_groups: RequestActionGroupDraft[];
 };
 
 /** The snapshot travels as JSON: it is a document the server keeps, not a form field. */
 const packed = (payload: RequestPayload) => ({
   ...payload,
-  subjects: payload.subjects ? JSON.stringify(payload.subjects) : undefined,
-  action_groups: payload.action_groups ? JSON.stringify(payload.action_groups) : undefined,
+  subjects: JSON.stringify(payload.subjects),
+  requested_devices: JSON.stringify(payload.requested_devices),
+  action_groups: JSON.stringify(payload.action_groups),
 });
 
 export const createRequest = (payload: RequestPayload) =>
-  post<ServiceRequestDetail>(`${BASE}.create_request`, packed(payload));
+  post<PortalRequestDetail>(`${BASE}.create_request`, packed(payload));
+
+export const updateRequest = (payload: RequestPayload & { name: string }) =>
+  post<PortalRequestDetail>(`${BASE}.update_request`, packed(payload));
 
 export const saveRequestDraft = (payload: RequestPayload) =>
-  post<ServiceRequestDetail>(`${BASE}.save_request_draft`, packed(payload));
+  post<PortalRequestDetail>(`${BASE}.save_request_draft`, packed(payload));
 
 export const discardRequestDraft = (name: string) =>
   post<{ discarded: string }>(`${BASE}.discard_request_draft`, { name });
@@ -773,7 +729,7 @@ export type RequestUserResult = {
 export type RequestServiceOffer = {
   service_item: string;
   item_name: string;
-  service_scope: string | null;
+  service_scope: string;
   warning?: string | null;
   allowed_operations: RequestOperation[];
 };
@@ -822,7 +778,6 @@ export type RequestSubjectContext = {
   };
   target_reason: string | null;
   devices: RequestDeviceContext[];
-  new_device_services?: RequestServiceOffer[];
   assignable_devices?: {
     name: string;
     hostname: string;
@@ -834,7 +789,7 @@ export type RequestSubjectContext = {
   }[];
 };
 
-export type NewUserRequestContext = {
+export type NewPersonContext = {
   customer: string;
   departments: { value: string; label: string }[];
   available_user_services: RequestServiceOffer[];
@@ -879,42 +834,6 @@ export const getDepartmentSelection = (
 export const getCompanySelection = (customer?: string, signal?: AbortSignal) =>
   get<GroupSelection>(`${BASE}.get_company_selection`, { customer }, signal);
 
-export type BulkTarget = {
-  client_user: string;
-  full_name: string;
-  department?: string | null;
-  target_scope: 'User' | 'Device';
-  managed_device: string | null;
-  hostname: string | null;
-  source_service_assignment: string | null;
-};
-
-export type BulkExclusion = BulkTarget & { reason: string };
-
-export type BulkResolution = {
-  customer: string;
-  operation_code: string;
-  operation_label: string;
-  service_item: string;
-  service_scope: string;
-  eligible: BulkTarget[];
-  excluded: BulkExclusion[];
-  eligible_count: number;
-  excluded_count: number;
-  device_count: number;
-};
-
-export const resolveBulkTargets = (payload: {
-  customer?: string;
-  operation_code: string;
-  service_item: string;
-  people: string[];
-}) =>
-  post<BulkResolution>(`${BASE}.resolve_bulk_targets`, {
-    ...payload,
-    people: JSON.stringify(payload.people),
-  });
-
 export const searchRequestUsers = (
   params: { customer?: string; search?: string; limit?: number } = {},
   signal?: AbortSignal
@@ -927,40 +846,66 @@ export const getRequestSubjectContext = (clientUser: string, signal?: AbortSigna
     signal
   );
 
-export const getNewUserRequestContext = (customer?: string, signal?: AbortSignal) =>
-  get<NewUserRequestContext>(`${BASE}.get_new_user_request_context`, { customer }, signal);
+export const getNewPersonContext = (customer?: string, signal?: AbortSignal) =>
+  get<NewPersonContext>(`${BASE}.get_new_person_context`, { customer }, signal);
 
 export const getRequestSubmissionContext = (customer?: string, signal?: AbortSignal) =>
   get<RequestSubmissionContext>(`${BASE}.get_request_submission_context`, { customer }, signal);
 
 
-/* ------------------------------------------------------------------ Request Builder V3 */
+/* ------------------------------------------------------------------ Request Builder */
 
 /** One person in the request snapshot, whichever door they came in through. */
 export type RequestSubjectDraft = {
   subject_key: string;
-  client_user?: string | null;
-  is_new_user?: boolean;
-  full_name?: string;
+  kind: 'existing' | 'new';
+  client_user: string | null;
+  requested_client_user?: string | null;
+  full_name: string;
   department?: string | null;
   email?: string | null;
   username?: string | null;
-  added_via?: 'Existing' | 'New' | 'Department' | 'Company';
+  external_employee_id?: string | null;
+  start_date?: string | null;
+  added_via: 'Existing' | 'New' | 'Department' | 'Company';
   selection_label?: string | null;
+};
+
+export type RequestedDeviceDraft = {
+  device_requirement_key: string;
+  requested_device?: string | null;
+  display_label: string;
+  device_type?: string | null;
+  hostname?: string | null;
+  serial_number?: string | null;
+  asset_tag?: string | null;
+  manufacturer?: string | null;
+  model?: string | null;
+  operating_system?: string | null;
+  intended_holder_client_user?: string | null;
+  intended_holder_subject_key?: string | null;
 };
 
 /** The same person as the server reads them: what they hold and what runs on them today. */
 export type RequestSubjectRow = {
   subject_key: string;
+  kind: 'existing' | 'new';
   client_user: string | null;
-  is_new_user: 0 | 1;
+  requested_client_user: string | null;
   full_name: string;
   department: string | null;
   email: string | null;
   username: string | null;
   added_via: string;
   selection_label: string | null;
-  devices: { name: string; label: string; status: string }[];
+  devices: {
+    name: string;
+    label: string;
+    status: string;
+    hostname: string | null;
+    device_type: string | null;
+    serial_number: string | null;
+  }[];
   current_services: {
     assignment: string;
     service_item: string;
@@ -977,20 +922,21 @@ export type RequestSubjectRow = {
 export type RequestTarget = {
   subject_key: string;
   client_user: string | null;
+  requested_client_user?: string | null;
   full_name: string;
   department?: string | null;
   target_scope: 'User' | 'Device';
   managed_device: string | null;
+  device_requirement_key?: string | null;
+  requested_device?: string | null;
   device_label: string | null;
   source_service_assignment: string | null;
   current_state?: string | null;
   current_holder?: string | null;
   current_holder_label?: string | null;
   requested_holder?: string | null;
-  /** a machine the customer described rather than picked: none of it is required */
-  new_device_label?: string | null;
-  new_device_type?: string | null;
-  new_device_serial?: string | null;
+  requested_holder_subject_key?: string | null;
+  requested_holder_requested_client_user?: string | null;
 };
 
 export type RequestExclusion = {
@@ -999,6 +945,7 @@ export type RequestExclusion = {
   full_name: string;
   managed_device: string | null;
   device_label: string | null;
+  current_state: string | null;
   reason_code: string;
   reason: string;
 };
@@ -1016,11 +963,20 @@ export type RequestOperationOption = {
   excluded_subject_count: number;
   device_count?: number;
   without_device_count?: number;
-  holder_options?: { value: string; label: string; description?: string | null }[];
-  stock_options?: { value: string; label: string; description?: string | null }[];
+  holder_options?: { value: string; label: string; description: string | null }[];
+  stock_options?: RequestStockOption[];
   device_types?: string[];
-  /** offered but shut, and why: the act reaches nobody for a reason worth reading */
-  blocked_reason?: string | null;
+};
+
+export type RequestStockOption = {
+  value: string;
+  label: string;
+  description: string | null;
+  status: string;
+  current_holder: string | null;
+  current_holder_label: string | null;
+  selectable: boolean;
+  unavailable_reason: string | null;
 };
 
 export type RequestServiceOption = {
@@ -1046,8 +1002,6 @@ export type RequestActionGroupDraft = {
   source_scope_key?: string | null;
   source_scope_label: string;
   selected_subject_count: number;
-  /** the day the customer asked for, carried on every line the group becomes */
-  requested_effective_date?: string | null;
   targets: RequestTarget[];
   exclusions: RequestExclusion[];
 };
@@ -1056,7 +1010,7 @@ export const evaluateRequestScope = (
   payload: { customer?: string; subjects: RequestSubjectDraft[] },
   signal?: AbortSignal
 ) =>
-  get<{ customer: string; subjects: RequestSubjectRow[] }>(
+  post<{ customer: string; subjects: RequestSubjectRow[] }>(
     `${BASE}.evaluate_request_scope`,
     { customer: payload.customer, subjects: JSON.stringify(payload.subjects) },
     signal
@@ -1068,10 +1022,12 @@ export const evaluateRequestOperations = (
     subjects: RequestSubjectDraft[];
     subject_keys: string[];
     action_groups?: RequestActionGroupDraft[];
+    requested_devices?: RequestedDeviceDraft[];
+    request?: string;
   },
   signal?: AbortSignal
 ) =>
-  get<{
+  post<{
     customer: string;
     selected_subject_count: number;
     domains: RequestOperationDomain[];
@@ -1083,6 +1039,46 @@ export const evaluateRequestOperations = (
       subject_keys: JSON.stringify(payload.subject_keys),
       // what the request already asks for: a machine it hands somebody counts as theirs
       action_groups: payload.action_groups ? JSON.stringify(payload.action_groups) : undefined,
+      requested_devices: payload.requested_devices
+        ? JSON.stringify(payload.requested_devices)
+        : undefined,
+      request: payload.request,
     },
     signal
   );
+
+export type SelectableClientUser = {
+  name: string;
+  full_name: string;
+  department: string | null;
+  username: string | null;
+  email: string | null;
+  lifecycle_status: string;
+  selectable: boolean;
+  disabled_reason: string | null;
+};
+
+export type SelectableDevice = {
+  name: string;
+  hostname: string | null;
+  serial_number: string | null;
+  asset_tag: string | null;
+  device_type: string | null;
+  status: string;
+  current_holder: string | null;
+  current_holder_name: string | null;
+  selectable: boolean;
+  unavailable_reason: string | null;
+};
+
+export type SelectablePage<T> = { rows: T[]; total: number; truncated: boolean };
+
+export const listSelectableClientUsers = (
+  params: { customer?: string; search?: string; limit?: number } = {},
+  signal?: AbortSignal
+) => get<SelectablePage<SelectableClientUser>>(`${BASE}.list_selectable_client_users`, params, signal);
+
+export const listSelectableDevices = (
+  params: { customer?: string; search?: string; limit?: number } = {},
+  signal?: AbortSignal
+) => get<SelectablePage<SelectableDevice>>(`${BASE}.list_selectable_devices`, params, signal);

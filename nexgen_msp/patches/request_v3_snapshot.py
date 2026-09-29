@@ -1,4 +1,4 @@
-"""Give every existing Request the snapshot V3 reads: its subjects and its action groups.
+"""Give every existing Request the snapshot its screens read: its subjects and its action groups.
 
 Historical Requests were written one atomic line at a time, and the grouping the customer
 actually saw was never recorded. This patch does not pretend otherwise: it derives one
@@ -13,9 +13,9 @@ import json
 
 import frappe
 
-REQUEST = "MSP Service Request"
-LINE = "MSP Service Request Line"
-WORK_ORDER = "MSP Service Work Order"
+REQUEST = "MSP Request"
+LINE = "MSP Request Line"
+WORK_ORDER = "MSP Work Order"
 
 
 def execute():
@@ -69,7 +69,7 @@ def execute():
             stamped += 1
 
         for order in frappe.get_all(
-            WORK_ORDER, filters={"service_request": name}, fields=["name", "request_line_name"]
+            WORK_ORDER, filters={"request": name}, fields=["name", "request_line_name"]
         ):
             line = next((row for row in lines if row.name == order.request_line_name), None)
 
@@ -82,7 +82,7 @@ def execute():
 
     frappe.db.commit()
     print(
-        f"request v3 snapshot: {subjects} subject(s), {groups} legacy group(s), {stamped} line(s) stamped"
+        f"request snapshot: {subjects} subject(s), {groups} legacy group(s), {stamped} line(s) stamped"
     )
 
 

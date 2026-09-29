@@ -9,7 +9,6 @@ type Props = {
   /** what the request says, when they do not exist yet */
   asked?: { department?: string | null; email?: string | null; username?: string | null } | null;
   isNew?: boolean;
-  children?: React.ReactNode;
 };
 
 const Field: React.FC<{ label: string; children: React.ReactNode; wide?: boolean }> = ({
@@ -26,14 +25,13 @@ const Field: React.FC<{ label: string; children: React.ReactNode; wide?: boolean
 const orDash = (value?: string | null) => value || '—';
 
 /** Who a group of lines is for, with what is on file about them, each value under its label. */
-const PersonHeader: React.FC<Props> = ({ fullName, facts, asked, isNew, children }) => (
+const PersonHeader: React.FC<Props> = ({ fullName, facts, asked, isNew }) => (
   <div className="border-b border-slate-100 bg-slate-50 px-4 py-3">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-sm font-bold uppercase tracking-wide text-slate-900">{fullName}</p>
         {isNew && <span className={pill('blue')}>New person</span>}
       </div>
-      {children && <div className="flex flex-wrap items-center gap-1.5">{children}</div>}
     </div>
 
     {isNew ? (

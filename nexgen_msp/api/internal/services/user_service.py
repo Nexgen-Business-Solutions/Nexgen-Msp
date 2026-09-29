@@ -3,6 +3,7 @@ import frappe
 from nexgen_msp.api.internal.services.contract_service import ContractService
 from nexgen_msp.utils import identifiers
 from nexgen_msp.utils import remarks as remarks_util
+from nexgen_msp.utils import request_targets
 
 from nexgen_msp.utils.meta import select_options
 
@@ -74,11 +75,11 @@ DISABLED_HOLDING_DEVICE = """(
 )"""
 
 # a request still waiting inside the customer's own company has not reached us
-OPEN_REQUEST_FOR = """exists (
+OPEN_REQUEST_FOR = f"""exists (
     select 1
-    from `tabMSP Service Request Line` srl
-    join `tabMSP Service Request` sr on sr.name = srl.parent
-    where (srl.client_user = cu.name or srl.requested_for_user = cu.name)
+    from `tabMSP Request Line` srl
+    join `tabMSP Request` sr on sr.name = srl.parent
+    where {request_targets.line_of_person_sql("srl", "cu.name")}
       and sr.status in ('Submitted', 'Under Review', 'Approved', 'In Progress')
 )"""
 
@@ -319,9 +320,9 @@ class UserService:
                 (select count(*) from `tabMSP Managed Device` device
                     where device.assigned_client_user = cu.name) as current_devices,
                 (select count(distinct sr.name)
-                    from `tabMSP Service Request Line` srl
-                    join `tabMSP Service Request` sr on sr.name = srl.parent
-                    where (srl.client_user = cu.name or srl.requested_for_user = cu.name)
+                    from `tabMSP Request Line` srl
+                    join `tabMSP Request` sr on sr.name = srl.parent
+                    where {request_targets.line_of_person_sql("srl", "cu.name")}
                       and sr.status in ('Submitted', 'Under Review', 'Approved', 'In Progress'))
                     as open_requests,
                 {attention} as needs_attention,
@@ -437,7 +438,32 @@ class UserService:
         return UserService.get_user(client_user)
 
     @staticmethod
-    def _end_date_for(assignment, effective_date, allow_past=False):
+    def _request_floor(request):
+        """The first day the work of a request may be dated: the day the request was created."""
+        creation = frappe.db.get_value("MSP Request", request, "creation")
+
+        if not creation:
+            raise NotFoundError(f"Request {request} not found.", "NOT_FOUND")
+
+        return frappe.utils.getdate(creation)
+
+    @staticmethod
+    def _request_day(effective_date, request):
+        """The day an act of a request takes effect: from the day it was created, future included."""
+        on_date = frappe.utils.getdate(effective_date or frappe.utils.today())
+        floor = UserService._request_floor(request)
+
+        if on_date < floor:
+            raise ValidationError(
+                "The effective date cannot be before the request was created "
+                f"({frappe.utils.formatdate(floor)}).",
+                "VALIDATION_ERROR",
+            )
+
+        return on_date
+
+    @staticmethod
+    def _end_date_for(assignment, effective_date, allow_past=False, within_request=None):
         """The day a service stops.
 
         A service often stops before anyone gets round to recording it, so the date has to
@@ -459,7 +485,9 @@ class UserService:
                 "VALIDATION_ERROR",
             )
 
-        if end_on > today:
+        if within_request and not allow_past:
+            UserService._request_day(end_on, within_request)
+        elif not within_request and end_on > today:
             raise ValidationError("A service cannot be ended in the future.", "VALIDATION_ERROR")
 
         if end_on < today and not allow_past:
@@ -496,14 +524,14 @@ class UserService:
         if not source_request:
             return None
 
-        owner = frappe.db.get_value("MSP Service Request", source_request, "customer")
+        owner = frappe.db.get_value("MSP Request", source_request, "customer")
 
         if not owner:
-            raise NotFoundError(f"Service Request {source_request} not found.", "NOT_FOUND")
+            raise NotFoundError(f"Request {source_request} not found.", "NOT_FOUND")
 
         if owner != customer:
             raise ValidationError(
-                f"Service Request {source_request} belongs to {owner}, not {customer}.",
+                f"Request {source_request} belongs to {owner}, not {customer}.",
                 "VALIDATION_ERROR",
             )
 
@@ -677,18 +705,17 @@ class UserService:
         start_date=None,
         remarks=None,
         source_request=None,
-        request_line=None,
         department_already_agreed=False,
         _commit=True,
     ):
-        """Create the person a request asked for, and tie the line back to them."""
+        """Create the person a request asked for."""
         RequestService._guard_internal()
 
         if not full_name:
             raise ValidationError("full_name is required.", "VALIDATION_ERROR")
 
         if source_request and not customer:
-            customer = frappe.db.get_value("MSP Service Request", source_request, "customer")
+            customer = frappe.db.get_value("MSP Request", source_request, "customer")
 
         if not customer:
             raise ValidationError("customer is required.", "VALIDATION_ERROR")
@@ -717,38 +744,6 @@ class UserService:
         # a reason to refuse the person that request asked for
         doc.flags.department_already_agreed = bool(department_already_agreed)
         doc.insert()
-
-        if source_request and request_line:
-            request = frappe.get_doc("MSP Service Request", source_request)
-            row = next(
-                (line for line in request.lines if line.idx == frappe.utils.cint(request_line)),
-                None,
-            )
-            if row:
-                # the customer wrote this person once and asked for several things: every
-                # line describing them is now about the record just created, or the next
-                # line would offer to create them a second time
-                same_subject = row.subject_key
-                was_new = bool(row.is_new_user)
-
-                for line in request.lines:
-                    if line.client_user:
-                        continue
-                    if line.idx == row.idx or (
-                        was_new
-                        and line.is_new_user
-                        and line.subject_key == same_subject
-                    ):
-                        # no longer "new": the request must still save once they exist,
-                        # and a line about a machine names the machine, with the person it
-                        # is for beside it
-                        line.db_set("is_new_user", 0)
-
-                        if line.target_scope == "Device":
-                            if line.is_new_device and not line.requested_for_user:
-                                line.db_set("requested_for_user", doc.name)
-                        else:
-                            line.db_set("client_user", doc.name)
 
         reference = f" for {source_request}" if source_request else ""
         doc.add_comment("Comment", f"Created by {frappe.session.user}{reference}.")
@@ -965,7 +960,7 @@ class UserService:
             ),
             (
                 "request line(s)",
-                frappe.db.count("MSP Service Request Line", {"client_user": name}),
+                frappe.db.count("MSP Request Line", {"client_user": name}),
             ),
             (
                 "billed line(s)",

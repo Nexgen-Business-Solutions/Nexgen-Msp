@@ -24,7 +24,9 @@ from nexgen_msp.utils.errors import NotFoundError, ValidationError
 class DeviceLifecycleService:
     # ------------------------------------------------------------------ the acts
     @staticmethod
-    def assign(device=None, client_user=None, effective_date=None, note=None, _commit=True):
+    def assign(
+        device=None, client_user=None, effective_date=None, note=None, _commit=True, _within_request=None
+    ):
         """Give a machine on the shelf to somebody, from a stated day.
 
         Somebody who had it before may have it again: that is a new spell, not a mistake.
@@ -32,7 +34,7 @@ class DeviceLifecycleService:
         RequestService._guard_internal()
 
         doc = DeviceLifecycleService._device(device)
-        on_date = DeviceLifecycleService._day(effective_date)
+        on_date = DeviceLifecycleService._day(effective_date, _within_request)
         current = holders._open_row(doc)
 
         if current and current.client_user == client_user:
@@ -72,7 +74,9 @@ class DeviceLifecycleService:
         return DeviceLifecycleService._outcome(doc)
 
     @staticmethod
-    def transfer(device=None, client_user=None, effective_date=None, note=None, _commit=True):
+    def transfer(
+        device=None, client_user=None, effective_date=None, note=None, _commit=True, _within_request=None
+    ):
         """Pass a machine from the person who has it to somebody else, the same day.
 
         What the machine is billed for stays with the machine: a service follows the box,
@@ -81,7 +85,7 @@ class DeviceLifecycleService:
         RequestService._guard_internal()
 
         doc = DeviceLifecycleService._device(device)
-        on_date = DeviceLifecycleService._day(effective_date)
+        on_date = DeviceLifecycleService._day(effective_date, _within_request)
         current = holders._open_row(doc)
 
         if not current:
@@ -115,7 +119,7 @@ class DeviceLifecycleService:
         return DeviceLifecycleService._outcome(doc)
 
     @staticmethod
-    def repossess(device=None, effective_date=None, note=None, _commit=True):
+    def repossess(device=None, effective_date=None, note=None, _commit=True, _within_request=None):
         """Take a machine back onto the shelf.
 
         Nothing it is billed for is closed: it goes back out to the next person with its
@@ -124,7 +128,7 @@ class DeviceLifecycleService:
         RequestService._guard_internal()
 
         doc = DeviceLifecycleService._device(device)
-        on_date = DeviceLifecycleService._day(effective_date)
+        on_date = DeviceLifecycleService._day(effective_date, _within_request)
         current = holders._open_row(doc)
 
         if not current:
@@ -147,12 +151,14 @@ class DeviceLifecycleService:
         return DeviceLifecycleService._outcome(doc)
 
     @staticmethod
-    def retire(device=None, effective_date=None, note=None, end_services=0, _commit=True):
+    def retire(
+        device=None, effective_date=None, note=None, end_services=0, _commit=True, _within_request=None
+    ):
         """Take a machine out of service, optionally ending its open services."""
         RequestService._guard_internal()
 
         doc = DeviceLifecycleService._device(device)
-        on_date = DeviceLifecycleService._day(effective_date)
+        on_date = DeviceLifecycleService._day(effective_date, _within_request)
 
         if doc.status in TERMINAL_STATUSES:
             raise ValidationError(f"{doc.hostname} is already retired.", "INVALID_TRANSITION")
@@ -169,7 +175,7 @@ class DeviceLifecycleService:
             DeviceLifecycleService._after_history(doc, on_date)
 
         closed = (
-            DeviceLifecycleService._end_device_services(doc, on_date)
+            DeviceLifecycleService._end_device_services(doc, on_date, _within_request)
             if frappe.utils.cint(end_services)
             else []
         )
@@ -200,7 +206,9 @@ class DeviceLifecycleService:
         return outcome
 
     @staticmethod
-    def reinstate(device=None, effective_date=None, client_user=None, note=None, _commit=True):
+    def reinstate(
+        device=None, effective_date=None, client_user=None, note=None, _commit=True, _within_request=None
+    ):
         """Bring a machine back into service, onto the shelf or straight into somebody's hands.
 
         Services are left exactly as retirement recorded them. Nothing is restarted here.
@@ -208,7 +216,7 @@ class DeviceLifecycleService:
         RequestService._guard_internal()
 
         doc = DeviceLifecycleService._device(device)
-        on_date = DeviceLifecycleService._day(effective_date)
+        on_date = DeviceLifecycleService._day(effective_date, _within_request)
 
         if doc.status in DEPLOYED_STATUSES + AVAILABLE_STATUSES:
             raise ValidationError(
@@ -262,8 +270,13 @@ class DeviceLifecycleService:
         return frappe.get_doc("MSP Managed Device", device)
 
     @staticmethod
-    def _day(effective_date):
-        """The day it happened. Tomorrow has not happened yet."""
+    def _day(effective_date, within_request=None):
+        """The day it happened; tomorrow only for the work of a request, never before it was made."""
+        if within_request:
+            from nexgen_msp.api.internal.services.user_service import UserService
+
+            return UserService._request_day(effective_date, within_request)
+
         on_date = frappe.utils.getdate(effective_date or frappe.utils.today())
 
         if on_date > frappe.utils.getdate(frappe.utils.today()):
@@ -327,7 +340,7 @@ class DeviceLifecycleService:
             doc.assigned_date = on_date
 
     @staticmethod
-    def _end_device_services(doc, on_date):
+    def _end_device_services(doc, on_date, within_request=None):
         """Stop what the machine itself is billed for, on the day it left service.
 
         The day is the one the rest of the app works out for ending a service, invoices
@@ -351,6 +364,7 @@ class DeviceLifecycleService:
                 effective_date=on_date,
                 notes=f"Ended automatically when {doc.hostname} was retired.",
                 _commit=False,
+                _within_request=within_request,
             )
             closed.append(name)
 

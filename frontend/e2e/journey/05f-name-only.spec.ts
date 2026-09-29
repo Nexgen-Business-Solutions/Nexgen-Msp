@@ -29,7 +29,7 @@ test.describe('Only a name', () => {
     const dialog = page.getByRole('dialog');
 
     await dialog.getByLabel('Full name').fill(ONLY_A_NAME);
-    await dialog.getByRole('button', { name: 'Add to request' }).click();
+    await dialog.getByRole('button', { name: 'Add person' }).click();
     await expect(dialog).toHaveCount(0, { timeout: 20_000 });
 
     // step one: they are on the People table

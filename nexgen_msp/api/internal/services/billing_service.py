@@ -2043,8 +2043,8 @@ class BillingService:
         if not doc.disputed:
             raise ValidationError(f"{name} is not disputed.", "INVALID_TRANSITION")
 
-        if doc.dispute_request and frappe.db.exists("MSP Service Request", doc.dispute_request):
-            request = frappe.get_doc("MSP Service Request", doc.dispute_request)
+        if doc.dispute_request and frappe.db.exists("MSP Request", doc.dispute_request):
+            request = frappe.get_doc("MSP Request", doc.dispute_request)
             request.status = "Completed"
 
             if note:

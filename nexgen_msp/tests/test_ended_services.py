@@ -19,7 +19,7 @@ from nexgen_msp.utils import operations
 
 from .base import MSPTestCase
 
-WORK_ORDER = "MSP Service Work Order"
+WORK_ORDER = "MSP Work Order"
 
 
 class EndingCase(MSPTestCase):
@@ -101,7 +101,7 @@ class TestAskingForAServiceToEnd(EndingCase):
                 ],
             ),
         )
-        self.track("MSP Service Request", out["name"])
+        self.track("MSP Request", out["name"])
         card = self.state(assignment)
 
         self.assertEqual(card.operational_status, "Active")
@@ -127,8 +127,9 @@ class TestAskingForAServiceToEnd(EndingCase):
                 ],
             ),
         )
-        name = self.track("MSP Service Request", out["name"])
+        name = self.track("MSP Request", out["name"])
 
+        self.as_user(self.tech, lambda: RequestService.run_action(name=name, action="start_review"))
         self.as_user(
             self.tech, lambda: RequestService.set_line_status(name=name, idx=1, line_status="Approved")
         )
@@ -136,7 +137,7 @@ class TestAskingForAServiceToEnd(EndingCase):
 
         order = frappe.get_all(
             WORK_ORDER,
-            filters={"service_request": name, "work_type": "Service Action"},
+            filters={"request": name, "work_type": "Service Action"},
             fields=["name", "operation_code"],
         )[0]
         self.track(WORK_ORDER, order.name)

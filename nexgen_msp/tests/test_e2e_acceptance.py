@@ -19,6 +19,8 @@ from nexgen_msp.api.internal.services.device_lifecycle_service import DeviceLife
 from nexgen_msp.utils import operations
 from nexgen_msp.api.internal.services.request_execution_service import RequestExecutionService
 from nexgen_msp.api.internal.services.request_service import RequestService
+from nexgen_msp.api.internal.services.requested_client_user_service import RequestedClientUserService
+from nexgen_msp.api.internal.services.requested_device_service import RequestedDeviceService
 from nexgen_msp.api.internal.services.service_lifecycle_service import ServiceLifecycleService
 from nexgen_msp.api.internal.services.user_360_service import User360Service
 from nexgen_msp.api.portal.services.portal_service import PortalService
@@ -27,7 +29,9 @@ from nexgen_msp.utils.errors import NexgenError
 
 from .base import MSPTestCase
 
-WORK_ORDER = "MSP Service Work Order"
+WORK_ORDER = "MSP Work Order"
+REQUESTED_CLIENT_USER = "MSP Requested Client User"
+REQUESTED_DEVICE = "MSP Requested Device"
 
 
 class AcceptanceCase(MSPTestCase):
@@ -35,6 +39,7 @@ class AcceptanceCase(MSPTestCase):
 
     def setUp(self):
         super().setUp()
+        self.newcomers, self.owed = {}, {}
         self.tag = frappe.generate_hash(length=6)
         self.customer = self.make_customer(self.tag)
         self.track("MSP Approval Authority", self.customer)
@@ -105,10 +110,9 @@ class AcceptanceCase(MSPTestCase):
         return self.track("MSP Service Assignment", outcome["name"])
 
     # ------------------------------------------------------------------ the journey
-    def line(self, service, **fields):
+    def line(self, service, on_requested_device=False, **fields):
         action = fields.pop("action", "Add")
-
-        return {
+        row = {
             "operation_code": self.operation(action),
             "action": action,
             "target_scope": "User",
@@ -117,17 +121,48 @@ class AcceptanceCase(MSPTestCase):
             **fields,
         }
 
+        if on_requested_device:
+            owner = row.get("subject_key") or f"user:{row['client_user']}"
+            row["target_scope"] = "Device"
+            row["device_requirement_key"] = f"new-device:{owner}"
+            self.owed[row["device_requirement_key"]] = {
+                "device_requirement_key": row["device_requirement_key"],
+                "intended_holder_subject_key": owner if owner in self.newcomers else None,
+                "intended_holder_client_user": row.get("client_user"),
+            }
+
+        return row
+
+    def described(self, lines):
+        """The future people and the requested Devices a set of lines names."""
+        return {
+            "subjects": [
+                self.newcomers[key]
+                for key in dict.fromkeys(line.get("subject_key") for line in lines)
+                if key in self.newcomers
+            ],
+            "requested_devices": [
+                self.owed[key]
+                for key in dict.fromkeys(line.get("device_requirement_key") for line in lines)
+                if key in self.owed
+            ],
+        }
+
     def raise_request(self, *lines):
         out = self.customer_does(
             lambda: PortalService.create_request(
-                customer=self.customer, request_type="Add", lines=list(lines)
+                customer=self.customer,
+                request_type="Add",
+                lines=list(lines),
+                **self.described(lines),
             )
         )
 
-        return self.track("MSP Service Request", out["name"])
+        return self.track("MSP Request", out["name"])
 
     def approve_request(self, name):
-        doc = frappe.get_doc("MSP Service Request", name)
+        doc = frappe.get_doc("MSP Request", name)
+        self.technician_does(lambda: RequestService.run_action(name=name, action="start_review"))
 
         for row in doc.lines:
             self.technician_does(
@@ -142,7 +177,7 @@ class AcceptanceCase(MSPTestCase):
         return name
 
     def sweep(self, request):
-        for order in frappe.get_all(WORK_ORDER, filters={"service_request": request}, pluck="name"):
+        for order in frappe.get_all(WORK_ORDER, filters={"request": request}, pluck="name"):
             self.track(WORK_ORDER, order)
 
         for assignment in frappe.get_all(
@@ -153,7 +188,7 @@ class AcceptanceCase(MSPTestCase):
     def work(self, request, work_type, index=0):
         return frappe.get_all(
             WORK_ORDER,
-            filters={"service_request": request, "work_type": work_type},
+            filters={"request": request, "work_type": work_type},
             fields=["name", "action", "status", "service_item"],
             order_by="request_line_idx asc, creation asc",
         )[index]
@@ -202,7 +237,7 @@ class TestJourneyOfAnExistingPerson(AcceptanceCase):
 
         # §25: three atomic lines, each naming exactly what it acts on
         rows = frappe.get_all(
-            "MSP Service Request Line",
+            "MSP Request Line",
             filters={"parent": request},
             fields=[
                 "action",
@@ -223,9 +258,9 @@ class TestJourneyOfAnExistingPerson(AcceptanceCase):
         # §26: nothing to prepare — the person and the machine are both on file
         self.approve_request(request)
 
-        self.assertEqual(frappe.db.count(WORK_ORDER, {"service_request": request}), 3)
+        self.assertEqual(frappe.db.count(WORK_ORDER, {"request": request}), 3)
         self.assertEqual(
-            frappe.db.count(WORK_ORDER, {"service_request": request, "work_type": "User Setup"}), 0
+            frappe.db.count(WORK_ORDER, {"request": request, "work_type": "User Setup"}), 0
         )
 
         plan = self.technician_does(
@@ -236,7 +271,7 @@ class TestJourneyOfAnExistingPerson(AcceptanceCase):
         self.assertEqual(stages["execute"], "current")
 
         for order in frappe.get_all(
-            WORK_ORDER, filters={"service_request": request}, pluck="name"
+            WORK_ORDER, filters={"request": request}, pluck="name"
         ):
             self.carry_out(request, order)
 
@@ -244,7 +279,7 @@ class TestJourneyOfAnExistingPerson(AcceptanceCase):
 
         # §27: the final state, read off the records rather than off a screen
         self.assertEqual(
-            frappe.db.get_value("MSP Service Request", request, "status"), "Completed"
+            frappe.db.get_value("MSP Request", request, "status"), "Completed"
         )
         self.assertEqual(self.status_of(self.vpn_line), "Active")
 
@@ -264,27 +299,35 @@ class TestJourneyOfAnExistingPerson(AcceptanceCase):
 # §28-31 — a person who does not exist yet, and a machine nobody has chosen
 # ---------------------------------------------------------------------------------------
 class TestJourneyOfSomebodyNew(AcceptanceCase):
-    def new_person_line(self, service, **fields):
-        return self.line(
-            service,
-            client_user=None,
-            is_new_user=1,
-            new_user_full_name="Marie Dupont",
-            new_user_department=self.make_department("Human Resources"),
-            **fields,
-        )
+    def new_person_line(self, service, full_name="Marie Dupont", subject_key=None, **fields):
+        key = subject_key or f"new:{frappe.scrub(full_name)}"
+        self.newcomers[key] = {
+            "subject_key": key,
+            "kind": "new",
+            "full_name": full_name,
+            "department": self.make_department("Human Resources"),
+        }
+
+        return self.line(service, client_user=None, subject_key=key, **fields)
 
     def test_one_person_one_machine_however_many_services_were_asked_for(self):
         request = self.raise_request(
             self.new_person_line(self.offering("N365")),
             self.new_person_line(self.offering("NVPN")),
-            self.new_person_line(self.offering("NSOP", scope="Device"), is_new_device=1),
-            self.new_person_line(self.offering("NRMM", scope="Device"), is_new_device=1),
+            self.new_person_line(self.offering("NSOP", scope="Device"), on_requested_device=True),
+            self.new_person_line(self.offering("NRMM", scope="Device"), on_requested_device=True),
+            {
+                "operation_code": "device.assign",
+                "target_scope": "Device",
+                "subject_key": "new:marie_dupont",
+                "device_requirement_key": "new-device:new:marie_dupont",
+                "requested_holder_subject_key": "new:marie_dupont",
+            },
         )
 
         # §29: every line about Marie shares one subject; the two machine lines share one machine
         keys = frappe.get_all(
-            "MSP Service Request Line",
+            "MSP Request Line",
             filters={"parent": request},
             fields=["subject_key", "device_requirement_key"],
         )
@@ -297,42 +340,44 @@ class TestJourneyOfSomebodyNew(AcceptanceCase):
         self.approve_request(request)
 
         # §30: one account to open, one machine to settle, four acts
-        self.assertEqual(
-            frappe.db.count(WORK_ORDER, {"service_request": request, "work_type": "User Setup"}), 1
-        )
-        self.assertEqual(
-            frappe.db.count(
-                WORK_ORDER, {"service_request": request, "work_type": "Device Provisioning"}
-            ),
-            1,
-        )
+        person = frappe.get_all(REQUESTED_CLIENT_USER, filters={"request": request}, pluck="name")
+        machine = frappe.get_all(REQUESTED_DEVICE, filters={"request": request}, pluck="name")
+
+        self.assertEqual((len(person), len(machine)), (1, 1))
         self.assertEqual(
             frappe.db.count(
-                WORK_ORDER, {"service_request": request, "work_type": "Service Action"}
+                WORK_ORDER, {"request": request, "work_type": "Service Action"}
             ),
             4,
         )
-
-        setup = self.work(request, "User Setup")
-        self.technician_does(
-            lambda: RequestExecutionService.execute_user_setup(
-                work_order=setup.name, username=f"m.{self.tag}"
-            )
+        self.assertEqual(
+            frappe.db.count(WORK_ORDER, {"request": request, "work_type": "Device Operation"}), 1
         )
-        marie = frappe.db.get_value(WORK_ORDER, setup.name, "resulting_client_user")
+        self.assertEqual(
+            frappe.db.count(
+                WORK_ORDER,
+                {"request": request, "work_type": ("in", ("User Setup", "Device Provisioning"))},
+            ),
+            0,
+        )
+
+        marie = self.technician_does(
+            lambda: RequestedClientUserService.resolve_create(person[0], {"username": f"m.{self.tag}"})
+        )
         self.track("MSP Client User", marie)
 
-        provisioning = self.work(request, "Device Provisioning")
-        self.technician_does(
-            lambda: RequestExecutionService.execute_device_provisioning(
-                work_order=provisioning.name,
-                mode="new",
-                hostname=f"laptop-{self.tag}",
-                serial_number=f"NEW-{self.tag}",
+        device = self.technician_does(
+            lambda: RequestedDeviceService.resolve_new(
+                machine[0], {"hostname": f"laptop-{self.tag}", "serial_number": f"NEW-{self.tag}"}
             )
         )
-        device = frappe.db.get_value(WORK_ORDER, provisioning.name, "resulting_device")
         self.track("MSP Managed Device", device)
+
+        self.technician_does(
+            lambda: RequestExecutionService.execute_device_operation(
+                work_order=self.work(request, "Device Operation").name
+            )
+        )
 
         for index in range(4):
             self.carry_out(request, self.work(request, "Service Action", index).name)
@@ -352,7 +397,7 @@ class TestJourneyOfSomebodyNew(AcceptanceCase):
             frappe.db.count("MSP Service Assignment", {"source_request": request}), 4
         )
         self.assertEqual(
-            frappe.db.get_value("MSP Service Request", request, "status"), "Completed"
+            frappe.db.get_value("MSP Request", request, "status"), "Completed"
         )
 
 
@@ -549,7 +594,7 @@ class TestWhenTwoThingsHappenAtOnce(AcceptanceCase):
         self.carry_out(request, first.name)
 
         self.assertEqual(
-            frappe.db.get_value("MSP Service Request", request, "status"), "In Progress"
+            frappe.db.get_value("MSP Request", request, "status"), "In Progress"
         )
 
         with self.assertRaises(NexgenError) as caught:
@@ -567,7 +612,7 @@ class TestWhenTwoThingsHappenAtOnce(AcceptanceCase):
         self.technician_does(lambda: RequestExecutionService.complete_request(request=request))
 
         self.assertEqual(
-            frappe.db.get_value("MSP Service Request", request, "status"), "Completed"
+            frappe.db.get_value("MSP Request", request, "status"), "Completed"
         )
 
 

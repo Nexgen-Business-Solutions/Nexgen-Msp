@@ -48,7 +48,7 @@ test.describe('A technician', () => {
   test.use(asTechnician);
 
   test('works the queue and sees the fulfilment steps', async ({ page }) => {
-    await open(page, `/msp/requests/${fixture.request}`);
+    await open(page, `/msp/requests/${fixture.add_request}`);
 
     await expect(page.getByRole('button', { name: 'Review lines' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Execute', exact: true })).toBeVisible();

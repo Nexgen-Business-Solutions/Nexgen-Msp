@@ -9,10 +9,10 @@ has, or asking two contradictory things of the same service in one breath.
 The state a service is in is the Phase 2 record's own; this module only reads it.
 """
 
-import re
-
 import frappe
 from frappe import _
+
+from nexgen_msp.utils import request_targets
 
 ASSIGNMENT = "MSP Service Assignment"
 
@@ -33,6 +33,8 @@ IN_FLIGHT_STATUSES = (
 )
 
 TARGET_FIELD = {"User": "client_user", "Device": "managed_device"}
+
+TARGET_SQL = {"User": request_targets.line_person_sql, "Device": request_targets.line_device_sql}
 
 # the operations that decide who holds a machine, and so cannot be asked twice at once
 HOLDER_OPERATIONS = ("device.assign", "device.transfer", "device.repossess")
@@ -62,11 +64,11 @@ def pending_holder_request(device, exclude=None):
 		return None
 
 	rows = frappe.db.sql_list(
-		"""
+		f"""
 		select distinct sr.name
-		from `tabMSP Service Request Line` srl
-		join `tabMSP Service Request` sr on sr.name = srl.parent
-		where srl.managed_device = %(device)s
+		from `tabMSP Request Line` srl
+		join `tabMSP Request` sr on sr.name = srl.parent
+		where {request_targets.line_of_device_sql("srl", "%(device)s")}
 		  and srl.operation_code in %(holder)s
 		  and sr.status in %(in_flight)s
 		  and sr.name != %(exclude)s
@@ -82,6 +84,11 @@ def pending_holder_request(device, exclude=None):
 	return rows[0] if rows else None
 
 
+def requested_subject_of(row):
+	"""The Requested Client User a line is about, when its person is still to be created."""
+	return row.get("requested_client_user") or row.get("requested_for_requested_client_user") or None
+
+
 def subject_of(row):
 	"""The person a line is really about, whichever way it reaches its target.
 
@@ -89,7 +96,7 @@ def subject_of(row):
 	lost the moment the scope turns to Device — and a request has to keep saying who it was
 	raised for, even after the machine changes hands.
 	"""
-	if row.get("is_new_user"):
+	if requested_subject_of(row):
 		return None
 
 	return row.get("requested_for_user") or row.get("client_user") or None
@@ -102,8 +109,12 @@ def subject_department(row):
 	yet reads what the request itself says. A device line naming nobody has no department,
 	and that is the answer, not a missing one.
 	"""
-	if row.get("is_new_user"):
-		return (row.get("new_user_department") or "").strip() or None
+	requested = requested_subject_of(row)
+
+	if requested:
+		return (
+			frappe.db.get_value("MSP Requested Client User", requested, "department") or ""
+		).strip() or None
 
 	person = subject_of(row)
 
@@ -154,8 +165,8 @@ def in_flight_requests_for(assignment, exclude=None):
 	return frappe.db.sql_list(
 		"""
 		select distinct sr.name
-		from `tabMSP Service Request Line` srl
-		join `tabMSP Service Request` sr on sr.name = srl.parent
+		from `tabMSP Request Line` srl
+		join `tabMSP Request` sr on sr.name = srl.parent
 		where srl.source_service_assignment = %(assignment)s
 		  and sr.status in %(in_flight)s
 		  and sr.name != %(exclude)s
@@ -172,13 +183,13 @@ def in_flight_additions_for(customer, service_item, scope, target, exclude=None)
 	return frappe.db.sql_list(
 		f"""
 		select distinct sr.name
-		from `tabMSP Service Request Line` srl
-		join `tabMSP Service Request` sr on sr.name = srl.parent
+		from `tabMSP Request Line` srl
+		join `tabMSP Request` sr on sr.name = srl.parent
 		where sr.customer = %(customer)s
 		  and srl.requested_service = %(service)s
 		  and srl.action = 'Add'
 		  and srl.target_scope = %(scope)s
-		  and srl.`{TARGET_FIELD[scope]}` = %(target)s
+		  and {TARGET_SQL[scope]("srl")} = %(target)s
 		  and sr.status in %(in_flight)s
 		  and sr.name != %(exclude)s
 		""",
@@ -193,10 +204,70 @@ def in_flight_additions_for(customer, service_item, scope, target, exclude=None)
 	)
 
 
+HANDED_OVER = ("device.assign", "device.transfer")
+
+ONE_DESTINATION = (
+	"Two requested actions try to change the same target in incompatible ways. "
+	"Review the highlighted actions."
+)
+
+
+def machine_of(row):
+	"""The machine a line is about: the one on file or the requested one."""
+	return row.get("managed_device") or row.get("requested_device")
+
+
+def holder_wanted(row):
+	"""Who a line hands a machine to: the person on file or the requested one."""
+	return row.get("requested_holder") or row.get("requested_holder_requested_client_user")
+
+
+def target_key(row):
+	"""What a line acts on, whoever the line was raised for."""
+	if row.get("target_scope") == "Device":
+		target = ("machine", machine_of(row) or row.get("device_requirement_key"))
+	else:
+		target = ("person", row.get("client_user") or row.get("requested_client_user"))
+
+	return (
+		row.get("operation_code") or row.get("action"),
+		row.get("requested_service"),
+		target,
+		row.get("source_service_assignment"),
+	)
+
+
+def handed_over(rows):
+	"""The machines the lines hand over, each with the people it is handed to."""
+	found = {}
+
+	for row in rows:
+		if (row.get("operation_code") or "") in HANDED_OVER and machine_of(row):
+			found.setdefault(machine_of(row), set()).add(holder_wanted(row))
+
+	return found
+
+
+def machine_label(machine):
+	"""What a machine is called, on file or requested."""
+	return (
+		frappe.db.get_value("MSP Managed Device", machine, "hostname")
+		or frappe.db.get_value("MSP Requested Device", machine, "display_label")
+		or machine
+	)
+
+
+def validate_one_destination(rows):
+	"""Refuse a machine that the same request hands to two different people."""
+	for machine, holders in handed_over(rows).items():
+		if len(holders) > 1:
+			frappe.throw(f"{machine_label(machine)}: {ONE_DESTINATION}")
+
+
 def validate_subject(doc, row):
 	"""Who the line is for: named, ours, and consistent with the target it carries."""
-	if row.get("is_new_user"):
-		if row.get("requested_for_user"):
+	if requested_subject_of(row):
+		if row.get("requested_for_user") or row.get("client_user"):
 			frappe.throw(
 				_("Row {0}: a new person cannot also be an existing one.").format(row.idx)
 			)
@@ -232,8 +303,9 @@ def validate_subject(doc, row):
 	# was written about a state of the world that has since moved on
 	if row.target_scope == "Device" and row.get("managed_device"):
 		holder = frappe.db.get_value("MSP Managed Device", row.managed_device, "assigned_client_user")
+		arriving = person in handed_over(doc.lines).get(row.managed_device, set())
 
-		if holder and holder != person:
+		if holder and holder != person and not arriving:
 			frappe.throw(
 				_("Row {0}: {1} is no longer held by {2}. Review the request before sending it.").format(
 					row.idx,
@@ -250,9 +322,6 @@ def validate_subject(doc, row):
 
 def validate_action_against_state(doc, row):
 	"""The act asked for has to be one the service could actually receive today."""
-	if row.get("is_new_user"):
-		return
-
 	# a machine operation is read against the machine, not against a service on it, and that
 	# reading happens where the operation is accepted and again before it is carried out
 	if is_device_operation(row):
@@ -330,12 +399,9 @@ def validate_action_against_state(doc, row):
 
 def validate_no_open_conflict(doc, row):
 	"""One open request at a time may ask for something on the same service."""
-	if row.get("is_new_user"):
-		return
-
 	if is_device_operation(row):
 		if (row.get("operation_code") or "") in HOLDER_OPERATIONS:
-			other = pending_holder_request(row.get("managed_device"), exclude=doc.name)
+			other = pending_holder_request(request_targets.device_of_line(row), exclude=doc.name)
 
 			if other:
 				frappe.throw(
@@ -363,8 +429,12 @@ def validate_no_open_conflict(doc, row):
 	if row.get("action") != "Add":
 		return
 
-	field = TARGET_FIELD.get(row.target_scope)
-	target = row.get(field) if field else None
+	if row.target_scope == "User":
+		target = request_targets.person_of_line(row)
+	elif row.target_scope == "Device":
+		target = request_targets.device_of_line(row)
+	else:
+		target = None
 
 	if not target:
 		return
@@ -401,60 +471,30 @@ def validate_one_intent_per_service(doc):
 		seen[assignment] = row.idx
 
 
-def _slug(text):
-	return " ".join((text or "").split()).casefold()
-
-
 def subject_key(row):
-	"""Which person a line is about, written so every line about them reads the same.
+	"""Which person a line is about: the key of its Requested Client User, or its Client User record."""
+	requested = requested_subject_of(row)
 
-	The workbench works per person, not per line: one account is created for somebody the
-	customer wrote once and asked three things for. The key is derived here rather than
-	taken from the screen that raised the request, so it cannot drift — a person on file is
-	their record, a person still to be created is the name the customer wrote.
-	"""
-	if row.get("is_new_user"):
-		provided = (row.get("subject_key") or "").strip()
-
-		# The builder is the only place that can know whether two otherwise identical future
-		# colleagues are one person with several services or two different people. Accept
-		# that grouping hint only in a narrow opaque form; existing users are always derived
-		# from their record below and can never be forged through this field.
-		if provided.startswith("new-user:request:") and re.fullmatch(
-			r"new-user:request:[a-z0-9_-]{4,64}", provided
-		):
-			return provided
-
-		name = _slug(row.get("new_user_full_name"))
-
-		return f"new-user:{name}" if name else None
+	if requested:
+		return frappe.db.get_value("MSP Requested Client User", requested, "subject_key")
 
 	person = subject_of(row)
 
-	return f"user:{person}" if person else None
+	if person:
+		return f"user:{person}"
+
+	provided = (row.get("subject_key") or "").strip()
+
+	if provided and not provided.startswith("user:"):
+		return provided
+
+	return None
 
 
 def device_requirement_key(row):
-	"""Which machine a line needs, or None when it needs none.
-
-	Several device services asked for the same person go onto one machine, so they share a
-	key and a single machine is provisioned for all of them.
-	"""
-	if row.get("is_new_device"):
-		subject = subject_key(row)
-
-		if not subject:
-			return None
-
-		# asking for a machine is asking for one machine: ask twice and two are prepared. The
-		# services above share a machine because they run on whichever one the person gets;
-		# a machine asked for in its own right is its own thing.
-		if (row.get("operation_code") or "") == "device.assign":
-			group = row.get("action_group_key")
-
-			return f"new-device:{group}" if group else f"new-device:{subject}"
-
-		return f"new-device:{subject}"
+	"""Which machine a line needs: the key of its Requested Device, or its Managed Device record."""
+	if row.get("requested_device"):
+		return frappe.db.get_value("MSP Requested Device", row.get("requested_device"), "device_requirement_key")
 
 	device = row.get("managed_device")
 
@@ -464,5 +504,5 @@ def device_requirement_key(row):
 def stamp_keys(doc):
 	"""Give every line the two keys the execution plan groups its work by."""
 	for row in doc.lines:
-		row.subject_key = subject_key(row)
-		row.device_requirement_key = device_requirement_key(row)
+		row.subject_key = subject_key(row) or row.subject_key
+		row.device_requirement_key = device_requirement_key(row) or row.device_requirement_key

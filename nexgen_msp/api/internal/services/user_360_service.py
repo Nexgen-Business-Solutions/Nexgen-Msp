@@ -30,7 +30,7 @@ from nexgen_msp.api.internal.services.service_availability_service import (
     ServiceAvailabilityService,
 )
 from nexgen_msp.utils import remarks as remarks_util
-from nexgen_msp.utils import request_intents
+from nexgen_msp.utils import request_intents, request_targets
 from nexgen_msp.utils.assignments import OPEN_ASSIGNMENT_STATUSES
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
@@ -431,8 +431,8 @@ class User360Service:
         rows = frappe.db.sql(
             """
             select srl.source_service_assignment as assignment, min(sr.name) as request
-            from `tabMSP Service Request Line` srl
-            join `tabMSP Service Request` sr on sr.name = srl.parent
+            from `tabMSP Request Line` srl
+            join `tabMSP Request` sr on sr.name = srl.parent
             where srl.source_service_assignment in %(assignments)s
               and sr.status in %(in_flight)s
             group by srl.source_service_assignment
@@ -640,9 +640,9 @@ class User360Service:
             f"""
             select distinct sr.name, sr.status, sr.priority, sr.request_type,
                    sr.creation, sr.modified
-            from `tabMSP Service Request` sr
-            join `tabMSP Service Request Line` srl on srl.parent = sr.name
-            where (srl.client_user = %(user)s or srl.requested_for_user = %(user)s)
+            from `tabMSP Request` sr
+            join `tabMSP Request Line` srl on srl.parent = sr.name
+            where {request_targets.line_of_person_sql("srl", "%(user)s")}
               and sr.status in %(statuses)s
               and sr.status != %(hidden)s
             order by sr.creation desc
@@ -677,15 +677,16 @@ class User360Service:
     def _request_lines(request, person):
         """Only the lines of that request that are about this person."""
         return frappe.db.sql(
-            """
+            f"""
             select srl.idx, srl.action,
                    coalesce(item.item_name, srl.requested_service) as service_name,
                    srl.line_status, device.hostname
-            from `tabMSP Service Request Line` srl
+            from `tabMSP Request Line` srl
             left join `tabItem` item on item.name = srl.requested_service
-            left join `tabMSP Managed Device` device on device.name = srl.managed_device
+            left join `tabMSP Managed Device` device
+              on device.name = {request_targets.line_device_sql("srl")}
             where srl.parent = %(request)s
-              and (srl.client_user = %(user)s or srl.requested_for_user = %(user)s)
+              and {request_targets.line_of_person_sql("srl", "%(user)s")}
             order by srl.idx asc
             """,
             {"request": request, "user": person},
@@ -696,8 +697,8 @@ class User360Service:
     def _work_progress(request):
         """How far the technician has got, told by the work rather than by the status word."""
         rows = frappe.get_all(
-            "MSP Service Work Order",
-            filters={"service_request": request},
+            "MSP Work Order",
+            filters={"request": request},
             fields=["status"],
         )
 

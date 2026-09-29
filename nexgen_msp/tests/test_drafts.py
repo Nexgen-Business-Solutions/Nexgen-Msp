@@ -60,7 +60,7 @@ class TestTheDraft(MSPTestCase):
                 name=name, customer=self.customer, request_type="Add", lines=[self.line()]
             ),
         )
-        return self.track("MSP Service Request", out["name"]), out
+        return self.track("MSP Request", out["name"]), out
 
     def portal_names(self, email):
         listed = self.as_user(email, lambda: PortalService.list_requests(page_length=500))
@@ -76,7 +76,7 @@ class TestTheDraft(MSPTestCase):
 
         self.assertEqual(out["status"], "Draft")
         row = frappe.db.get_value(
-            "MSP Service Request", name, ["requester", "source", "customer"], as_dict=True
+            "MSP Request", name, ["requester", "source", "customer"], as_dict=True
         )
         self.assertEqual(row.requester, self.author)
         self.assertEqual(row.source, "Portal")
@@ -90,7 +90,7 @@ class TestTheDraft(MSPTestCase):
         self.assertEqual(again, name)
         self.assertEqual(out["status"], "Draft")
         self.assertEqual(
-            frappe.db.count("MSP Service Request", {"customer": self.customer, "status": "Draft"}), 1
+            frappe.db.count("MSP Request", {"customer": self.customer, "status": "Draft"}), 1
         )
 
     def test_a_draft_tells_nobody(self):
@@ -167,7 +167,7 @@ class TestTheDraft(MSPTestCase):
         with self.assertRaises(ValidationError):
             self.as_user(self.colleague, lambda: PortalService.discard_draft(name))
 
-        self.assertTrue(frappe.db.exists("MSP Service Request", name))
+        self.assertTrue(frappe.db.exists("MSP Request", name))
 
     def test_another_company_cannot_reach_it_at_all(self):
         elsewhere = self.make_customer(suffix="B")
@@ -184,14 +184,14 @@ class TestTheDraft(MSPTestCase):
             with self.assertRaises((NotFoundError, ValidationError, frappe.PermissionError)):
                 self.as_user(stranger, call)
 
-        self.assertTrue(frappe.db.exists("MSP Service Request", name))
+        self.assertTrue(frappe.db.exists("MSP Request", name))
 
     def test_throwing_it_away_leaves_nothing_behind(self):
         name, _ = self.draft_of(self.author)
 
         self.as_user(self.author, lambda: PortalService.discard_draft(name))
 
-        self.assertFalse(frappe.db.exists("MSP Service Request", name))
+        self.assertFalse(frappe.db.exists("MSP Request", name))
 
     # ------------------------------------------- the draft inside the process
     def rights_of_decider(self):
@@ -204,7 +204,7 @@ class TestTheDraft(MSPTestCase):
         with self.assertRaises((ValidationError, NotFoundError)):
             self.as_user(self.decider, lambda: PortalService.approve_request(name))
 
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Draft")
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "status"), "Draft")
 
     def test_sending_it_walks_the_same_road_as_any_other_request(self):
         self.rights_of_decider()
@@ -223,10 +223,10 @@ class TestTheDraft(MSPTestCase):
 
         self.as_user(self.decider, lambda: PortalService.approve_request(name))
 
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Submitted")
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "status"), "Submitted")
         self.assertIn(name, self.our_names())
         self.assertEqual(
-            frappe.db.get_value("MSP Service Request", name, "customer_approved_by"), self.decider
+            frappe.db.get_value("MSP Request", name, "customer_approved_by"), self.decider
         )
 
     def test_sent_by_someone_who_may_approve_it_reaches_us_at_once(self):
@@ -256,7 +256,7 @@ class TestTheDraft(MSPTestCase):
                 ),
             )
 
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Draft")
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "status"), "Draft")
 
     def test_once_sent_it_is_no_longer_a_draft_to_edit_or_throw_away(self):
         self.grant(self.author)
@@ -274,4 +274,4 @@ class TestTheDraft(MSPTestCase):
         with self.assertRaises(ValidationError):
             self.as_user(self.author, lambda: PortalService.discard_draft(name))
 
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Submitted")
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "status"), "Submitted")

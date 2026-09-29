@@ -19,7 +19,7 @@ from nexgen_msp.utils.errors import ValidationError as ServiceRefused
 
 from .base import MSPTestCase
 
-WORK_ORDER = "MSP Service Work Order"
+WORK_ORDER = "MSP Work Order"
 
 
 class DeviceOperationCase(MSPTestCase):
@@ -66,11 +66,12 @@ class DeviceOperationCase(MSPTestCase):
             lambda: PortalService.create_request(customer=self.customer, lines=list(lines)),
         )
 
-        return self.track("MSP Service Request", out["name"])
+        return self.track("MSP Request", out["name"])
 
     def approved(self, *lines):
         name = self.raised(*lines)
-        doc = frappe.get_doc("MSP Service Request", name)
+        doc = frappe.get_doc("MSP Request", name)
+        self.tech_does(lambda: RequestService.run_action(name=name, action="start_review"))
 
         for row in doc.lines:
             self.tech_does(
@@ -81,7 +82,7 @@ class DeviceOperationCase(MSPTestCase):
 
         self.tech_does(lambda: RequestService.run_action(name=name, action="approve"))
 
-        for order in frappe.get_all(WORK_ORDER, filters={"service_request": name}, pluck="name"):
+        for order in frappe.get_all(WORK_ORDER, filters={"request": name}, pluck="name"):
             self.track(WORK_ORDER, order)
 
         return name
@@ -89,7 +90,7 @@ class DeviceOperationCase(MSPTestCase):
     def order(self, request, work_type="Device Operation"):
         return frappe.get_all(
             WORK_ORDER,
-            filters={"service_request": request, "work_type": work_type},
+            filters={"request": request, "work_type": work_type},
             fields=["name", "operation_code", "requested_holder", "status"],
             order_by="request_line_idx asc, creation asc",
         )[0]
@@ -108,7 +109,7 @@ class TestWhatAskingChanges(DeviceOperationCase):
         )
 
         row = frappe.db.get_value(
-            "MSP Service Request Line",
+            "MSP Request Line",
             {"parent": name},
             ["operation_code", "operation_label_snapshot", "requested_holder", "requested_for_user", "state_snapshot"],
             as_dict=True,
@@ -136,7 +137,7 @@ class TestWhatAskingChanges(DeviceOperationCase):
         name = self.raised(self.transfer_line())
 
         self.assertEqual(
-            frappe.db.get_value("MSP Service Request", name, "request_type"), "Device"
+            frappe.db.get_value("MSP Request", name, "request_type"), "Device"
         )
 
     def test_the_machine_says_what_is_pending_and_offers_nothing_further(self):
@@ -174,7 +175,7 @@ class TestWhatAskingChanges(DeviceOperationCase):
         vocabulary: the wish is the same either way, and the act that grants it is a transfer.
         """
         name = self.raised(self.transfer_line(operation_code="device.assign"))
-        line = frappe.get_doc("MSP Service Request", name).lines[0]
+        line = frappe.get_doc("MSP Request", name).lines[0]
 
         self.assertEqual(line.operation_code, "device.transfer")
         self.assertEqual(line.requested_holder, self.marie)
@@ -184,7 +185,7 @@ class TestWhatAskingChanges(DeviceOperationCase):
         frappe.db.set_value("MSP Managed Device", self.device, "assigned_client_user", None)
 
         name = self.raised(self.transfer_line(operation_code="device.assign"))
-        line = frappe.get_doc("MSP Service Request", name).lines[0]
+        line = frappe.get_doc("MSP Request", name).lines[0]
 
         self.assertEqual(line.operation_code, "device.assign")
         self.assertEqual(line.requested_holder, self.marie)
@@ -320,7 +321,7 @@ class TestCarryingItOut(DeviceOperationCase):
         name = self.approved(self.transfer_line())
 
         types = frappe.get_all(
-            WORK_ORDER, filters={"service_request": name}, pluck="work_type"
+            WORK_ORDER, filters={"request": name}, pluck="work_type"
         )
 
         self.assertEqual(types, ["Device Operation"])
@@ -334,14 +335,13 @@ class TestTheOperationsAreNotAdministered(DeviceOperationCase):
         plan = self.tech_does(lambda: RequestExecutionService.get_execution_plan(name))
         detail = self.tech_does(lambda: RequestService.get_request(name))
 
-        self.assertEqual(plan["groups"][0]["device_operations"][0]["name"], order.name)
-        self.assertEqual(
-            plan["groups"][0]["device_operations"][0]["action_label"], "Change holder"
-        )
+        card = plan["action_groups"][0]["work"][0]
+
+        self.assertEqual(card["name"], order.name)
+        self.assertEqual(card["action_label"], "Change holder")
+        self.assertEqual(card["primary_action"]["label"], "Change holder")
         self.assertEqual(detail["lines"][0]["action_label"], "Change holder")
-        self.assertIsNone(
-            frappe.db.get_value("MSP Service Request Line", {"parent": name}, "request_action")
-        )
+        self.assertFalse(frappe.get_meta("MSP Request Line").has_field("request_action"))
 
     def test_what_a_technician_may_add_comes_from_the_state_of_the_machine(self):
         self.assertEqual(

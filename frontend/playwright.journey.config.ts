@@ -1,10 +1,12 @@
 import { defineConfig, devices } from '@playwright/test';
+import { E2E_STATE_DIR } from './e2e/state';
 
 /** The full journey runs on its own company, built and removed by itself. */
 export default defineConfig({
   testDir: './e2e/journey',
   globalSetup: './e2e/journey/setup.ts',
   globalTeardown: './e2e/journey/teardown.ts',
+  outputDir: `${E2E_STATE_DIR}/results/journey`,
   workers: 1,
   fullyParallel: false,
   // one company, one walk, in order: a phase that fails leaves the ones after it meaningless,

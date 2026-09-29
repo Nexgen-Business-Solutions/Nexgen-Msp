@@ -112,8 +112,8 @@ def _collect_raw_values():
 	for row in frappe.db.sql(
 		"""
 		select line.new_user_department as value, count(*) as cnt
-		from `tabMSP Service Request Line` line
-		join `tabMSP Service Request` request on request.name = line.parent
+		from `tabMSP Request Line` line
+		join `tabMSP Request` request on request.name = line.parent
 		where line.new_user_department is not null
 		  and trim(line.new_user_department) != ''
 		  and request.status not in %(closed)s
@@ -199,8 +199,8 @@ def _rewrite_open_request_lines(canonical_by_key):
 	for row in frappe.db.sql(
 		"""
 		select line.name, line.new_user_department as value
-		from `tabMSP Service Request Line` line
-		join `tabMSP Service Request` request on request.name = line.parent
+		from `tabMSP Request Line` line
+		join `tabMSP Request` request on request.name = line.parent
 		where line.new_user_department is not null
 		  and trim(line.new_user_department) != ''
 		  and request.status not in %(closed)s
@@ -214,7 +214,7 @@ def _rewrite_open_request_lines(canonical_by_key):
 			continue
 
 		frappe.db.set_value(
-			"MSP Service Request Line",
+			"MSP Request Line",
 			row.name,
 			"new_user_department",
 			canonical,

@@ -2,6 +2,7 @@ import { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as internal from '@/lib/api/internal';
+import { getInternalRequestPresentation } from '@/lib/api/requestPresentation';
 import { useDebouncedValue } from '@/shared/hooks/useDebouncedValue';
 
 export const requestKeys = {
@@ -11,6 +12,7 @@ export const requestKeys = {
   list: (params: internal.RequestListParams) => [...requestKeys.all, 'list', params] as const,
   detail: (name: string) => [...requestKeys.all, 'detail', name] as const,
   plan: (name: string) => [...requestKeys.all, 'plan', name] as const,
+  presentation: (name: string) => [...requestKeys.all, 'presentation', name] as const,
 };
 
 export type RequestFilterState = {
@@ -152,6 +154,7 @@ const useDetailMutation = <TVariables>(
     mutationFn,
     onSuccess: (detail) => {
       queryClient.setQueryData(requestKeys.detail(detail.name), detail);
+      queryClient.invalidateQueries({ queryKey: requestKeys.presentation(detail.name) });
       queryClient.invalidateQueries({ queryKey: [...requestKeys.all, 'list'] });
       queryClient.invalidateQueries({ queryKey: requestKeys.stats() });
     },
@@ -171,6 +174,7 @@ export const useSetLineStatuses = () => {
     mutationFn: internal.setRequestLineStatuses,
     onSuccess: (outcome) => {
       queryClient.setQueryData(requestKeys.detail(outcome.request.name), outcome.request);
+      queryClient.invalidateQueries({ queryKey: requestKeys.presentation(outcome.request.name) });
       queryClient.invalidateQueries({ queryKey: [...requestKeys.all, 'list'] });
     },
   });
@@ -181,6 +185,13 @@ export const useSetLineStatus = () =>
     (variables: { name: string; idx: number; line_status: string; reason?: string }) =>
       internal.setRequestLineStatus(variables)
   );
+
+export const useInternalRequestPresentation = (name?: string) =>
+  useQuery({
+    queryKey: requestKeys.presentation(name || ''),
+    queryFn: ({ signal }) => getInternalRequestPresentation(name as string, signal),
+    enabled: Boolean(name),
+  });
 
 /** The work an approved request turned into, as the technician's screen reads it. */
 export const useRequestExecutionPlan = (name?: string) =>
@@ -209,39 +220,76 @@ const usePlanMutation = <TVariables>(
   });
 };
 
-export const useExecuteUserSetup = () => usePlanMutation(internal.executeUserSetup);
-export const useExecuteDeviceProvisioning = () =>
-  usePlanMutation(internal.executeDeviceProvisioning);
-export const useExecuteServiceAction = () => usePlanMutation(internal.executeServiceAction);
-export const useExecuteDeviceOperation = () => usePlanMutation(internal.executeDeviceOperation);
-export const useVerifyWorkItem = () => usePlanMutation(internal.verifyWorkItem);
-export const useCompleteRequest = () => usePlanMutation(internal.completeRequest);
-export const useAddTechnicianAction = () => usePlanMutation(internal.addTechnicianAction);
-export const useRecordRequestActivity = () => usePlanMutation(internal.recordRequestActivity);
-export const useSettleWorkDoneElsewhere = () => usePlanMutation(internal.settleWorkDoneElsewhere);
-
-/** The same act for several people, run one by one; the outcome names each of them. */
-export const useExecuteServiceActions = () => {
+export const useCompleteRequest = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: internal.executeServiceActions,
+    mutationFn: internal.completeRequest,
+    onSuccess: async (plan) => {
+      queryClient.setQueryData(requestKeys.plan(plan.request), plan);
+      queryClient.invalidateQueries({ queryKey: [...requestKeys.all, 'list'] });
+      queryClient.invalidateQueries({ queryKey: requestKeys.stats() });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: requestKeys.detail(plan.request) }),
+        queryClient.invalidateQueries({ queryKey: requestKeys.presentation(plan.request) }),
+      ]);
+    },
+  });
+};
+export const useRecordRequestActivity = () => usePlanMutation(internal.recordRequestActivity);
+export const useSettleWorkDoneElsewhere = () => usePlanMutation(internal.settleWorkDoneElsewhere);
+
+const useRequestedEntityMutation = <TVariables>(
+  mutationFn: (variables: TVariables) => Promise<internal.RequestedEntityOutcome>
+) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn,
     onSuccess: (outcome) => {
       queryClient.setQueryData(requestKeys.plan(outcome.plan.request), outcome.plan);
       queryClient.invalidateQueries({ queryKey: requestKeys.detail(outcome.plan.request) });
+      queryClient.invalidateQueries({ queryKey: requestKeys.presentation(outcome.plan.request) });
       queryClient.invalidateQueries({ queryKey: ['internal', 'users'] });
       queryClient.invalidateQueries({ queryKey: ['internal', 'devices'] });
     },
   });
 };
 
-export const useTechnicianOptions = (name: string, subjectKey: string | null) =>
-  useQuery({
-    queryKey: [...requestKeys.plan(name), 'options', subjectKey ?? ''] as const,
-    queryFn: ({ signal }) => internal.getTechnicianOptions(name, subjectKey as string, signal),
-    enabled: Boolean(name && subjectKey),
-    staleTime: 0,
+export const useSaveRequestedClientUser = () =>
+  useRequestedEntityMutation(internal.saveRequestedClientUser);
+export const useResolveRequestedClientUser = () =>
+  useRequestedEntityMutation(internal.resolveRequestedClientUser);
+export const useSaveRequestedDevice = () => useRequestedEntityMutation(internal.saveRequestedDevice);
+export const useResolveRequestedDevice = () =>
+  useRequestedEntityMutation(internal.resolveRequestedDevice);
+export const useCancelRequestedClientUser = () =>
+  useRequestedEntityMutation(internal.cancelRequestedClientUser);
+export const useCancelRequestedDevice = () => useRequestedEntityMutation(internal.cancelRequestedDevice);
+
+export const useSelectableClientUsers = (customer: string | null, search: string) => {
+  const debounced = useDebouncedValue(search.trim(), 300);
+
+  return useQuery({
+    queryKey: [...requestKeys.all, 'selectableClientUsers', customer ?? '', debounced] as const,
+    queryFn: ({ signal }) =>
+      internal.listSelectableClientUsers(customer as string, debounced || undefined, signal),
+    enabled: Boolean(customer),
+    keepPreviousData: true,
   });
+};
+
+export const useSelectableDevices = (customer: string | null, search: string) => {
+  const debounced = useDebouncedValue(search.trim(), 300);
+
+  return useQuery({
+    queryKey: [...requestKeys.all, 'selectableDevices', customer ?? '', debounced] as const,
+    queryFn: ({ signal }) =>
+      internal.listSelectableDevices(customer as string, debounced || undefined, signal),
+    enabled: Boolean(customer),
+    keepPreviousData: true,
+  });
+};
 
 
 

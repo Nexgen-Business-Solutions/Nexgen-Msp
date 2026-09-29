@@ -5,7 +5,6 @@ line is still decided on its own, every work order still runs on its own, and th
 which ones went through and which did not.
 
 What the technician adds while on the job never becomes part of what the customer asked for.
-It is work of its own, marked as theirs, with the reason they gave.
 """
 
 import frappe
@@ -28,7 +27,7 @@ class FulfilmentCase(ExecutionCase):
             ),
         )
 
-        return self.track("MSP Service Request", out["name"])
+        return self.track("MSP Request", out["name"])
 
     def plan(self, name):
         return self.tech_does(lambda: RequestExecutionService.get_execution_plan(request=name))
@@ -37,6 +36,7 @@ class FulfilmentCase(ExecutionCase):
 class TestDecidingSeveralLinesAtOnce(FulfilmentCase):
     def test_every_line_takes_the_decision_on_its_own(self):
         name = self.raised(self.line(self.offering("GD1")), self.line(self.offering("GD2")))
+        self.tech_does(lambda: RequestService.run_action(name=name, action="start_review"))
 
         out = self.tech_does(
             lambda: RequestService.set_line_statuses(name=name, idxs=[1, 2], line_status="Approved")
@@ -44,12 +44,13 @@ class TestDecidingSeveralLinesAtOnce(FulfilmentCase):
 
         self.assertEqual(out["decided"], 2)
         self.assertEqual(
-            [row.line_status for row in frappe.get_doc("MSP Service Request", name).lines],
+            [row.line_status for row in frappe.get_doc("MSP Request", name).lines],
             ["Approved", "Approved"],
         )
 
     def test_a_group_rejection_still_needs_a_reason(self):
         name = self.raised(self.line(self.offering("GD3")), self.line(self.offering("GD4")))
+        self.tech_does(lambda: RequestService.run_action(name=name, action="start_review"))
 
         out = self.tech_does(
             lambda: RequestService.set_line_statuses(name=name, idxs=[1, 2], line_status="Rejected")
@@ -61,6 +62,7 @@ class TestDecidingSeveralLinesAtOnce(FulfilmentCase):
 
     def test_one_line_that_cannot_be_decided_does_not_stop_the_others(self):
         name = self.raised(self.line(self.offering("GD5")))
+        self.tech_does(lambda: RequestService.run_action(name=name, action="start_review"))
 
         out = self.tech_does(
             lambda: RequestService.set_line_statuses(name=name, idxs=[1, 9], line_status="Approved")
@@ -72,14 +74,15 @@ class TestDecidingSeveralLinesAtOnce(FulfilmentCase):
     def test_deciding_rewrites_nothing_the_customer_asked_for(self):
         service = self.offering("GD6")
         name = self.raised(self.line(service))
-        before = frappe.get_doc("MSP Service Request", name).lines[0]
+        self.tech_does(lambda: RequestService.run_action(name=name, action="start_review"))
+        before = frappe.get_doc("MSP Request", name).lines[0]
 
         self.tech_does(
             lambda: RequestService.set_line_statuses(
                 name=name, idxs=[1], line_status="Rejected", reason="Not covered"
             )
         )
-        after = frappe.get_doc("MSP Service Request", name).lines[0]
+        after = frappe.get_doc("MSP Request", name).lines[0]
 
         for field in ("requested_service", "action", "target_scope", "client_user", "operation_code"):
             self.assertEqual(after.get(field), before.get(field), field)
@@ -119,87 +122,94 @@ class TestExecutingTheSameActForSeveralPeople(FulfilmentCase):
 
 
 class TestWhatTheTechnicianAddsOnTheJob(FulfilmentCase):
+    """Extra work goes through the person's own detail actions, citing the request."""
+
     def setUp(self):
         super().setUp()
         self.extra = self.offering("TA1")
         self.name = self.approved(self.line(self.offering("TA0")))
         self.subject = f"user:{self.john}"
 
-    def options(self):
-        return self.tech_does(
-            lambda: RequestExecutionService.technician_options(
-                request=self.name, subject_key=self.subject
-            )
-        )["options"]
+    def add_from_the_menu(self, service=None):
+        from nexgen_msp.api.internal.services.user_service import UserService
 
-    def add(self, option, reason="The laptop needs it too"):
-        plan = self.tech_does(
-            lambda: RequestExecutionService.add_technician_action(
-                request=self.name, subject_key=self.subject, option=option, reason=reason
+        self.tech_does(
+            lambda: UserService.assign_service(
+                client_user=self.john, service_item=service or self.extra, source_request=self.name
             )
         )
         self.sweep(self.name)
 
-        return plan
+        return self.tech_does(
+            lambda: RequestExecutionService.settle_work_done_elsewhere(request=self.name)
+        )
 
     def test_the_choices_come_from_what_the_person_holds_today(self):
-        adds = [row for row in self.options() if row["action"] == "Add"]
-
-        self.assertIn(self.extra, [row["service_item"] for row in adds])
-        self.assertTrue(all(row["action_label"] for row in adds))
-
-    def test_what_is_already_planned_is_not_offered_again(self):
-        planned = frappe.db.get_value(WORK_ORDER, {"service_request": self.name}, "service_item")
-
-        self.assertNotIn(
-            (planned, "Add"), [(row["service_item"], row["action"]) for row in self.options()]
+        from nexgen_msp.api.internal.services.service_availability_service import (
+            ServiceAvailabilityService,
         )
 
-    def test_it_becomes_work_of_its_own_marked_as_the_technicians(self):
-        option = next(row for row in self.options() if row["service_item"] == self.extra)
-        lines_before = len(frappe.get_doc("MSP Service Request", self.name).lines)
+        available = ServiceAvailabilityService.read_user(self.john)["available"]
 
-        self.add(option)
+        self.assertIn(self.extra, [row["service_item"] for row in available])
 
-        order = frappe.db.get_value(
-            WORK_ORDER,
-            {"service_request": self.name, "service_item": self.extra},
-            ["origin", "technician_reason", "request_line_name", "client_user"],
-            as_dict=True,
+    def test_what_is_already_planned_is_settled_rather_than_done_twice(self):
+        planned = frappe.db.get_value(WORK_ORDER, {"request": self.name}, ["name", "service_item"], as_dict=True)
+
+        plan = self.add_from_the_menu(planned.service_item)
+
+        self.assertEqual(self.state(planned.name), "Completed")
+        self.assertEqual(
+            frappe.db.count("MSP Service Assignment", {"client_user": self.john, "service_item": planned.service_item}),
+            1,
         )
-        self.assertEqual(order.origin, "Technician")
-        self.assertEqual(order.technician_reason, "The laptop needs it too")
-        self.assertFalse(order.request_line_name)
-        self.assertEqual(order.client_user, self.john)
-        self.assertEqual(len(frappe.get_doc("MSP Service Request", self.name).lines), lines_before)
+        self.assertEqual([row["kind"] for row in plan["recap"]], ["requested"])
 
-    def test_it_needs_a_reason(self):
-        option = next(row for row in self.options() if row["service_item"] == self.extra)
+    def test_it_never_becomes_part_of_what_the_customer_asked_for(self):
+        lines_before = len(frappe.get_doc("MSP Request", self.name).lines)
+        orders_before = frappe.db.count(WORK_ORDER, {"request": self.name})
+
+        plan = self.add_from_the_menu()
+
+        self.assertEqual(len(frappe.get_doc("MSP Request", self.name).lines), lines_before)
+        self.assertEqual(frappe.db.count(WORK_ORDER, {"request": self.name}), orders_before)
+        extra = next(row for row in plan["recap"] if row["kind"] == "technician")
+        self.assertIn(frappe.db.get_value("Item", self.extra, "item_name"), extra["title"])
+        self.assertEqual(extra["subject_key"], self.subject)
+
+    def test_recording_an_activity_needs_to_say_what_it_was(self):
+        with self.assertRaises(Refused):
+            self.tech_does(
+                lambda: RequestExecutionService.record_context_action(
+                    request=self.name, subject_key=self.subject, label="  "
+                )
+            )
+
+    def test_an_act_the_service_can_no_longer_take_is_refused_not_forced(self):
+        opened = self.tech_does(
+            lambda: ServiceLifecycleService.activate(
+                customer=self.customer, service_item=self.extra, target_scope="User", client_user=self.john
+            )
+        )
+        self.track("MSP Service Assignment", opened["name"])
+        self.tech_does(lambda: ServiceLifecycleService.end(assignment=opened["name"]))
 
         with self.assertRaises(Refused):
-            self.add(option, reason="  ")
+            self.tech_does(
+                lambda: ServiceLifecycleService.suspend(assignment=opened["name"], source_request=self.name)
+            )
 
-    def test_an_action_no_longer_available_is_refused_not_forced(self):
-        with self.assertRaises(Refused) as caught:
-            self.add({"key": f"{self.extra}|Remove|{self.john}||SA-NOPE"})
-
-        self.assertIn("no longer available", str(caught.exception))
+        self.assertEqual(
+            [row["kind"] for row in self.plan(self.name)["recap"]],
+            [],
+            "nothing refused reaches the recap",
+        )
 
     def test_it_runs_through_the_same_door_and_shows_as_additional_in_the_recap(self):
-        option = next(row for row in self.options() if row["service_item"] == self.extra)
-        self.add(option)
-        added = frappe.db.get_value(
-            WORK_ORDER, {"service_request": self.name, "origin": "Technician"}, "name"
-        )
-        requested = frappe.db.get_value(
-            WORK_ORDER, {"service_request": self.name, "origin": ["!=", "Technician"]}, "name"
-        )
+        requested = frappe.db.get_value(WORK_ORDER, {"request": self.name}, "name")
 
-        for order in (requested, added):
-            self.tech_does(
-                lambda order=order: RequestExecutionService.execute_service_action(work_order=order)
-            )
-        self.sweep(self.name)
+        self.tech_does(lambda: RequestExecutionService.execute_service_action(work_order=requested))
+        self.add_from_the_menu()
 
         plan = self.plan(self.name)
         kinds = sorted(row["kind"] for row in plan["recap"])
@@ -211,20 +221,20 @@ class TestWhatTheTechnicianAddsOnTheJob(FulfilmentCase):
 
     def test_nothing_is_offered_for_somebody_not_created_yet(self):
         name = self.approved(self.new_person_line(self.offering("TA2")))
-        key = frappe.db.get_value(WORK_ORDER, {"service_request": name, "work_type": "User Setup"}, "subject_key")
 
-        out = self.tech_does(
-            lambda: RequestExecutionService.technician_options(request=name, subject_key=key)
-        )
+        plan = self.plan(name)
+        card = plan["action_groups"][0]["work"][0]
 
-        self.assertEqual(out["options"], [])
-        self.assertIn("Client User", out["reason"])
+        self.assertEqual(card["target"]["kind"], "requested_client_user")
+        self.assertIsNone(card["target"]["name"], "there is no record to act on from the menu")
+        self.assertEqual(plan["people"][0]["client_user"], None)
 
 
 class TestWhatStaysInViewThroughout(FulfilmentCase):
     def test_the_request_and_its_note_are_on_the_plan(self):
         name = self.raised(self.line(self.offering("CX1")), details="Before Monday please.")
-        for row in frappe.get_doc("MSP Service Request", name).lines:
+        self.tech_does(lambda: RequestService.run_action(name=name, action="start_review"))
+        for row in frappe.get_doc("MSP Request", name).lines:
             self.tech_does(
                 lambda idx=row.idx: RequestService.set_line_status(
                     name=name, idx=idx, line_status="Approved"
@@ -309,7 +319,7 @@ class TestTheTechnicianDecidesTheAct(FulfilmentCase):
         self.assertEqual((wo.action, wo.status), ("Suspend", "Completed"))
         self.assertIn("request asked for Remove", wo.execution_notes)
         self.assertEqual(
-            frappe.db.get_value("MSP Service Request Line", {"parent": name}, "action"), "Remove"
+            frappe.db.get_value("MSP Request Line", {"parent": name}, "action"), "Remove"
         )
 
     def test_a_change_can_move_the_person_onto_another_service(self):

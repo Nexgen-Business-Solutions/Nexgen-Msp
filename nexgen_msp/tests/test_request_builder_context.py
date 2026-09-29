@@ -13,6 +13,7 @@ from nexgen_msp.api.internal.services.authority_service import AuthorityService
 from nexgen_msp.api.internal.services.service_lifecycle_service import ServiceLifecycleService
 from nexgen_msp.api.portal.services.portal_service import PortalService
 from nexgen_msp.api.portal.services.request_builder_service import RequestBuilderService
+from nexgen_msp.api.portal.services.request_scope_service import RequestScopeService
 from nexgen_msp.utils import operations
 
 from .base import MSPTestCase
@@ -230,7 +231,7 @@ class TestSomethingAlreadyAskedForIsSaidSo(RequestBuilderCase):
                 ],
             )
         )
-        name = self.track("MSP Service Request", out["name"])
+        name = self.track("MSP Request", out["name"])
 
         entry = self.context()["personal_services"]["current"][0]
 
@@ -244,7 +245,7 @@ class TestTheFormForSomebodyWhoDoesNotExistYet(RequestBuilderCase):
         machine = self.offering("NEWD", scope="Device")
         self.make_department("Human Resources")
 
-        out = self.as_asker(lambda: RequestBuilderService.new_user_context(self.customer))
+        out = self.as_asker(lambda: RequestBuilderService.new_person_context(self.customer))
 
         self.assertIn(
             self.make_department("Human Resources"), [row["value"] for row in out["departments"]]
@@ -255,7 +256,7 @@ class TestTheFormForSomebodyWhoDoesNotExistYet(RequestBuilderCase):
     def test_a_service_outside_the_contract_is_not_offered_to_the_customer(self):
         uncovered = self.make_service(f"NOCON{self.tag[:3]}", scope="User")
 
-        out = self.as_asker(lambda: RequestBuilderService.new_user_context(self.customer))
+        out = self.as_asker(lambda: RequestBuilderService.new_person_context(self.customer))
 
         self.assertNotIn(
             uncovered, [row["service_item"] for row in out["available_user_services"]]
@@ -264,7 +265,7 @@ class TestTheFormForSomebodyWhoDoesNotExistYet(RequestBuilderCase):
     def test_staff_can_still_record_a_service_outside_the_contract(self):
         uncovered = self.make_service(f"INTERNAL{self.tag[:3]}", scope="User")
 
-        out = RequestBuilderService.new_user_context(self.customer)
+        out = RequestBuilderService.new_person_context(self.customer)
 
         offer = next(
             row for row in out["available_user_services"] if row["service_item"] == uncovered
@@ -344,22 +345,48 @@ class TestFindingThePerson(RequestBuilderCase):
 class TestAPersonWithNoMachine(RequestBuilderCase):
     def test_machine_services_are_still_offered_for_a_machine_to_come(self):
         sophos = self.offering("NM1", scope="Device")
+        subjects = [
+            {"subject_key": f"user:{self.john}", "kind": "existing", "client_user": self.john}
+        ]
+        requested_devices = [
+            {
+                "device_requirement_key": "new-device:john",
+                "display_label": "New laptop",
+                "intended_holder_client_user": self.john,
+            }
+        ]
 
-        offered = [row["service_item"] for row in self.context()["new_device_services"]]
+        options = self.as_asker(
+            lambda: RequestScopeService.operation_options(
+                customer=self.customer, subjects=subjects, requested_devices=requested_devices
+            )
+        )
+        offered = {
+            (card["object_key"], target["device_requirement_key"])
+            for domain in options["domains"]
+            if domain["key"] == "Service"
+            for card in domain["options"]
+            for action in card["actions"]
+            if action["operation_code"] == "service.add"
+            for target in action["targets"]
+        }
 
-        self.assertIn(sophos, offered)
+        self.assertIn((sophos, "new-device:john"), offered)
 
     def test_every_machine_of_the_company_can_be_suggested_with_its_holder(self):
         shelf = self.make_device(self.customer, f"NM-{self.tag}", serial=f"ZZTEST-NM-{self.tag}")
         colleague = self.make_person(self.customer, "Colleague", department="Accounting")
         held = self.make_device(self.customer, f"NH-{self.tag}", holder=colleague)
 
-        rows = {row["name"]: row for row in self.context()["assignable_devices"]}
+        page = self.as_asker(lambda: PortalService.list_selectable_devices(customer=self.customer))
+        rows = {row["name"]: row for row in page["rows"]}
+        self.assertEqual((page["total"], page["truncated"]), (len(page["rows"]), False))
 
         self.assertIn(shelf, rows)
-        self.assertIsNone(rows[shelf]["holder_name"])
+        self.assertIsNone(rows[shelf]["current_holder_name"])
         self.assertIn(held, rows, "a machine somebody holds may still be asked for")
-        self.assertEqual(rows[held]["assigned_client_user"], colleague)
+        self.assertEqual(rows[held]["current_holder"], colleague)
+        self.assertTrue(rows[held]["selectable"])
 
 
 class TestThePersonIsDescribed(RequestBuilderCase):

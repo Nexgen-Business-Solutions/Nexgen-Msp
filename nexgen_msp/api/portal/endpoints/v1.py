@@ -1,5 +1,8 @@
 import frappe
 
+from nexgen_msp.api.internal.services.request_presentation_service import (
+    RequestPresentationService,
+)
 from nexgen_msp.api.portal.services.portal_service import PortalService
 from nexgen_msp.utils.wrapper_error_decorator import handle_errors
 
@@ -256,6 +259,34 @@ def get_request(name=None):
 
 @frappe.whitelist()
 @handle_errors
+def get_request_presentation(name=None):
+    return RequestPresentationService.for_portal(name=name)
+
+
+@frappe.whitelist()
+@handle_errors
+def preview_request(
+    customer=None,
+    priority=None,
+    details=None,
+    requested_date=None,
+    subjects=None,
+    requested_devices=None,
+    action_groups=None,
+):
+    return RequestPresentationService.for_draft(
+        customer=customer,
+        priority=priority,
+        details=details,
+        requested_date=requested_date,
+        subjects=subjects,
+        requested_devices=requested_devices,
+        action_groups=action_groups,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
 def create_request(
     name=None,
     customer=None,
@@ -265,6 +296,8 @@ def create_request(
     details=None,
     subjects=None,
     action_groups=None,
+    requested_devices=None,
+    requested_date=None,
 ):
     return PortalService.create_request(
         name=name,
@@ -275,6 +308,36 @@ def create_request(
         details=details,
         subjects=subjects,
         action_groups=action_groups,
+        requested_devices=requested_devices,
+        requested_date=requested_date,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def update_request(
+    name=None,
+    customer=None,
+    request_type=None,
+    priority=None,
+    lines=None,
+    details=None,
+    subjects=None,
+    action_groups=None,
+    requested_devices=None,
+    requested_date=None,
+):
+    return PortalService.update_request(
+        name=name,
+        customer=customer,
+        request_type=request_type,
+        priority=priority,
+        lines=lines,
+        details=details,
+        subjects=subjects,
+        action_groups=action_groups,
+        requested_devices=requested_devices,
+        requested_date=requested_date,
     )
 
 
@@ -289,6 +352,8 @@ def save_request_draft(
     details=None,
     subjects=None,
     action_groups=None,
+    requested_devices=None,
+    requested_date=None,
 ):
     return PortalService.save_draft(
         name=name,
@@ -299,6 +364,8 @@ def save_request_draft(
         details=details,
         subjects=subjects,
         action_groups=action_groups,
+        requested_devices=requested_devices,
+        requested_date=requested_date,
     )
 
 
@@ -469,25 +536,14 @@ def get_company_selection(customer=None):
 
 @frappe.whitelist()
 @handle_errors
-def resolve_bulk_targets(customer=None, operation_code=None, service_item=None, people=None):
-    return _request_builder().bulk_targets(
-        customer=customer,
-        operation_code=operation_code,
-        service_item=service_item,
-        people=people,
-    )
-
-
-@frappe.whitelist()
-@handle_errors
 def get_request_subject_context(client_user=None):
     return _request_builder().subject_context(client_user=client_user)
 
 
 @frappe.whitelist()
 @handle_errors
-def get_new_user_request_context(customer=None):
-    return _request_builder().new_user_context(customer=customer)
+def get_new_person_context(customer=None):
+    return _request_builder().new_person_context(customer=customer)
 
 
 @frappe.whitelist()
@@ -496,26 +552,45 @@ def get_request_submission_context(customer=None):
     return _request_builder().submission_context(customer=customer)
 
 
-def _request_v3():
-    from nexgen_msp.api.portal.services.request_v3_service import RequestV3Service
+def _request_scope():
+    from nexgen_msp.api.portal.services.request_scope_service import RequestScopeService
 
-    return RequestV3Service
+    return RequestScopeService
 
 
 @frappe.whitelist()
 @handle_errors
 def evaluate_request_scope(customer=None, subjects=None):
-    return _request_v3().scope_projection(customer=customer, subjects=subjects)
+    return _request_scope().scope_projection(customer=customer, subjects=subjects)
 
 
 @frappe.whitelist()
 @handle_errors
 def evaluate_request_operations(
-    customer=None, subjects=None, subject_keys=None, action_groups=None
+    customer=None,
+    subjects=None,
+    subject_keys=None,
+    action_groups=None,
+    requested_devices=None,
+    request=None,
 ):
-    return _request_v3().operation_options(
+    return _request_scope().operation_options(
         customer=customer,
         subjects=subjects,
         subject_keys=subject_keys,
         action_groups=action_groups,
+        requested_devices=requested_devices,
+        request=request,
     )
+
+
+@frappe.whitelist()
+@handle_errors
+def list_selectable_client_users(customer=None, search=None, limit=None):
+    return PortalService.list_selectable_client_users(customer=customer, search=search, limit=limit)
+
+
+@frappe.whitelist()
+@handle_errors
+def list_selectable_devices(customer=None, search=None, limit=None):
+    return PortalService.list_selectable_devices(customer=customer, search=search, limit=limit)

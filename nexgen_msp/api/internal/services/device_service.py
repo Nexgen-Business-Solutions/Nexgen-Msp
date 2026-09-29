@@ -9,6 +9,7 @@ from nexgen_msp.utils import device_holders as holders
 from nexgen_msp.utils import identifiers
 from nexgen_msp.utils import operations
 from nexgen_msp.utils import remarks as remarks_util
+from nexgen_msp.utils import request_targets
 
 
 from nexgen_msp.api.internal.services.request_service import CUSTOMER_STATUS, RequestService
@@ -288,7 +289,7 @@ class DeviceService:
                 select sr.name, sr.request_type, sr.status, sr.priority, sr.source,
                        coalesce(requester.full_name, sr.requester) as requester,
                        sr.creation, sr.customer
-                from `tabMSP Service Request` sr
+                from `tabMSP Request` sr
                 left join `tabUser` requester on requester.name = sr.requester
                 where sr.customer = %(customer)s
                   and sr.status != %(customer_status)s
@@ -318,12 +319,12 @@ class DeviceService:
         from nexgen_msp.utils import request_intents
 
         row = frappe.db.sql(
-            """
+            f"""
             select sr.name as request, sr.status, srl.operation_code, srl.requested_holder,
                    srl.requested_for_user
-            from `tabMSP Service Request Line` srl
-            join `tabMSP Service Request` sr on sr.name = srl.parent
-            where srl.managed_device = %(device)s
+            from `tabMSP Request Line` srl
+            join `tabMSP Request` sr on sr.name = srl.parent
+            where {request_targets.line_of_device_sql("srl", "%(device)s")}
               and srl.operation_code in %(holder)s
               and sr.status in %(in_flight)s
             order by sr.creation desc
@@ -451,11 +452,11 @@ class DeviceService:
         )
 
         requests = frappe.db.sql(
-            """
+            f"""
             select distinct sr.name, sr.status, sr.priority, sr.request_type, sr.creation
-            from `tabMSP Service Request` sr
-            join `tabMSP Service Request Line` srl on srl.parent = sr.name
-            where srl.managed_device = %(device)s
+            from `tabMSP Request` sr
+            join `tabMSP Request Line` srl on srl.parent = sr.name
+            where {request_targets.line_of_device_sql("srl", "%(device)s")}
               and sr.status != %(customer_status)s
             order by sr.creation desc
             limit 10
@@ -529,7 +530,7 @@ class DeviceService:
                 select sr.name, sr.request_type, sr.status, sr.priority, sr.source,
                        coalesce(requester.full_name, sr.requester) as requester,
                        sr.creation, sr.customer
-                from `tabMSP Service Request` sr
+                from `tabMSP Request` sr
                 left join `tabUser` requester on requester.name = sr.requester
                 where sr.customer = %(customer)s
                   and sr.status != %(customer_status)s
@@ -571,7 +572,7 @@ class DeviceService:
             ),
             (
                 "request line(s)",
-                frappe.db.count("MSP Service Request Line", {"managed_device": device}),
+                frappe.db.count("MSP Request Line", {"managed_device": device}),
             ),
             (
                 "past holder(s)",
@@ -849,6 +850,7 @@ class DeviceService:
         manufacturer=None,
         model=None,
         operating_system=None,
+        _commit=True,
     ):
         """Register a machine for a customer, with or without a holder."""
         RequestService._guard_internal()
@@ -949,52 +951,10 @@ class DeviceService:
         reference = f" in reference to {source_request}" if source_request else ""
         doc.add_comment("Comment", f"Registered by {frappe.session.user}{reference}.")
 
-        if source_request:
-            DeviceService._claim_request_lines(doc, source_request, assigned_client_user)
-
-        frappe.db.commit()
+        if _commit:
+            frappe.db.commit()
 
         return {"name": doc.name, "hostname": doc.hostname, "customer": doc.customer}
-
-    @staticmethod
-    def _claim_request_lines(device, source_request, holder):
-        """The lines that asked for this machine are now about it.
-
-        The customer named the machine once and asked for several things on it. Matched by
-        the name they gave; failing that, the one machine this person was still owed.
-        Until now the line was about the person, since the machine did not exist; it becomes
-        a device line, the way one raised on an existing machine is written: the machine
-        named, the holder read from it. The request must still save afterwards.
-        """
-        request = frappe.get_doc("MSP Service Request", source_request)
-        waiting = [
-            line for line in request.lines if line.is_new_device and not line.managed_device
-        ]
-        named = (device.hostname or "").strip().lower()
-        claimed = [
-            line for line in waiting if (line.new_device_label or "").strip().lower() == named
-        ]
-
-        if not claimed and holder:
-            theirs = [
-                line
-                for line in waiting
-                if (line.client_user or line.requested_for_user) == holder
-            ]
-            labels = {(line.new_device_label or "").strip().lower() for line in theirs}
-            if len(labels) == 1:
-                claimed = theirs
-
-        for line in claimed:
-            person = line.client_user or line.requested_for_user
-
-            line.db_set("managed_device", device.name)
-            line.db_set("is_new_device", 0)
-            line.db_set("target_scope", "Device")
-            line.db_set("client_user", None)
-
-            if person:
-                line.db_set("requested_for_user", person)
 
     @staticmethod
     def list_customer_devices(customer=None, exclude_holder=None):

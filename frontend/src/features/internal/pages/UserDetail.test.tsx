@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as internal from '@/lib/api/internal';
+import * as portalApi from '@/lib/api/portal';
 import type {
   HeldDevice,
   UserDetail as UserDetailData,
@@ -10,6 +11,11 @@ import type {
   UserServiceEntry,
 } from '@/lib/api/internal';
 import UserDetail from './UserDetail';
+import {
+  buildDeviceRowActions,
+  buildServiceAssignmentRowActions,
+  type EntityRowAction,
+} from '../actions';
 
 vi.mock('@/lib/api/internal', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api/internal')>();
@@ -22,6 +28,15 @@ vi.mock('@/lib/api/internal', async (importOriginal) => {
     getSession: vi.fn(),
     disableClientUser: vi.fn(),
     reactivateClientUser: vi.fn(),
+  };
+});
+
+vi.mock('@/lib/api/portal', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api/portal')>();
+  return {
+    ...actual,
+    getUserFile: vi.fn(),
+    getMyApprovalRights: vi.fn(),
   };
 });
 
@@ -476,5 +491,120 @@ describe('somebody leaving, and coming back', () => {
     expect(screen.getByText('Still held')).toBeInTheDocument();
     expect(screen.getByText('LAPTOP-OLD')).toBeInTheDocument();
     expect(screen.getByText('DELL-11111')).toBeInTheDocument();
+  });
+});
+
+describe('the row menus are the shared builders, item for item', () => {
+  const noop = () => undefined;
+
+  const serviceMenu = (status: string, currentHolding = true, canWrite = true) =>
+    buildServiceAssignmentRowActions({
+      status,
+      canWrite,
+      currentHolding,
+      onSuspend: noop,
+      onResume: noop,
+      onChange: noop,
+      onEnd: noop,
+    });
+
+  const deviceMenu = (canWrite: boolean) =>
+    buildDeviceRowActions({
+      canWrite,
+      onAddService: noop,
+      onTransfer: noop,
+      onReturnToStock: noop,
+      onOpen: noop,
+    });
+
+  const expectedShape = (actions: EntityRowAction[]) =>
+    actions
+      .filter((action) => !action.disabled)
+      .flatMap((action, index) => (action.danger && index > 0 ? ['—', action.label] : [action.label]));
+
+  const openedShape = async (row: HTMLElement) => {
+    fireEvent.click(within(row).getByTitle('More options'));
+    const menu = await screen.findByRole('menu');
+
+    return Array.from(menu.children).map((element) =>
+      element.getAttribute('role') === 'none' ? '—' : element.textContent
+    );
+  };
+
+  const machineRow = () =>
+    screen
+      .getAllByText('LAPTOP-JDOE')
+      .map((cell) => cell.closest('tr') as HTMLElement)
+      .find((tr) => within(tr).queryByText(/DELL-93821/)) as HTMLElement;
+
+  it.each(['Active', 'Suspended'])('renders the service builder for a %s service', async (status) => {
+    await renderPage(detail({ services: [portfolio({ operational_status: status })] }));
+
+    const row = screen.getByText('Microsoft 365').closest('tr') as HTMLElement;
+
+    expect(await openedShape(row)).toEqual(expectedShape(serviceMenu(status)));
+  });
+
+  it('renders no menu for a service on a machine they gave back, as the builder says', async () => {
+    await renderPage(
+      detail({
+        services: [
+          portfolio({
+            name: 'SA-OLD',
+            service_name: 'Sophos Endpoint',
+            assignment_scope: 'Device',
+            managed_device: 'DEV-OLD',
+            target: 'LAPTOP-OLD',
+            current_holding: false,
+          }),
+        ],
+      })
+    );
+
+    const row = screen.getByText('Sophos Endpoint').closest('tr') as HTMLElement;
+
+    expect(serviceMenu('Active', false)).toEqual([]);
+    expect(within(row).queryByTitle('More options')).not.toBeInTheDocument();
+  });
+
+  it('renders the device builder for a machine they hold', async () => {
+    await renderPage(detail());
+
+    expect(await openedShape(machineRow())).toEqual(expectedShape(deviceMenu(true)));
+  });
+
+  it('gives the read-only portal viewer what the builders give without write permission', async () => {
+    vi.mocked(portalApi.getUserFile).mockResolvedValue(detail());
+    vi.mocked(portalApi.getMyApprovalRights).mockResolvedValue({
+      customer: 'ACME',
+      has_authority: false,
+      can_submit: false,
+      can_approve: false,
+      department: null,
+      awaiting: 0,
+    } as Awaited<ReturnType<typeof portalApi.getMyApprovalRights>>);
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={['/portal/users/CU-001']}>
+          <Routes>
+            <Route path="/portal/users/:name" element={<UserDetail portal />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    await screen.findByText('John Doe');
+
+    const serviceRow = screen.getByText('Microsoft 365').closest('tr') as HTMLElement;
+
+    expect(serviceMenu('Active', true, false)).toEqual([]);
+    expect(within(serviceRow).queryByTitle('More options')).not.toBeInTheDocument();
+    expect(await openedShape(machineRow())).toEqual(expectedShape(deviceMenu(false)));
+    expect(expectedShape(deviceMenu(false))).toEqual(['Open device']);
   });
 });

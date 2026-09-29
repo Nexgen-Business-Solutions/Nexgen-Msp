@@ -15,7 +15,7 @@ from nexgen_msp.api.internal.services.billing_service import BillingService
 from nexgen_msp.api.internal.services.catalogue_service import CatalogueService
 from nexgen_msp.api.internal.services.service_definition_service import ServiceDefinitionService
 from nexgen_msp.api.internal.services.service_lifecycle_service import ServiceLifecycleService
-from nexgen_msp.api.portal.services.request_v3_service import RequestV3Service
+from nexgen_msp.api.portal.services.request_scope_service import RequestScopeService
 from nexgen_msp.utils.errors import ValidationError
 
 from .base import MSPTestCase
@@ -73,7 +73,7 @@ class WithdrawnServiceCase(MSPTestCase):
     def offered_actions(self, *people):
         options = self.as_user(
             self.asker,
-            lambda: RequestV3Service.operation_options(
+            lambda: RequestScopeService.operation_options(
                 customer=self.customer, subjects=self.subjects(*people)
             ),
         )

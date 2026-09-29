@@ -134,7 +134,7 @@ class TestARequestKeepsTheShapePhase3GaveIt(RegressionCase):
         self.service = self.make_service(f"ARD{self.tag[:3]}", scope="Device")
         self.cover_service(self.customer, self.service)
 
-    def raise_request(self, **line):
+    def raise_request(self, requested_devices=None, **line):
         out = self.as_manager(
             lambda: PortalService.create_request(
                 customer=self.customer,
@@ -147,14 +147,15 @@ class TestARequestKeepsTheShapePhase3GaveIt(RegressionCase):
                         **line,
                     }
                 ],
+                requested_devices=requested_devices,
             )
         )
 
-        return self.track("MSP Service Request", out["name"])
+        return self.track("MSP Request", out["name"])
 
     def only_line(self, request):
         return frappe.get_all(
-            "MSP Service Request Line",
+            "MSP Request Line",
             filters={"parent": request},
             fields=["target_scope", "client_user", "managed_device", "device_requirement_key"],
         )[0]
@@ -174,7 +175,7 @@ class TestARequestKeepsTheShapePhase3GaveIt(RegressionCase):
 
         self.assertEqual(
             frappe.db.get_value(
-                "MSP Service Request Line", {"parent": request}, "requested_for_user"
+                "MSP Request Line", {"parent": request}, "requested_for_user"
             ),
             self.john,
         )
@@ -187,7 +188,15 @@ class TestARequestKeepsTheShapePhase3GaveIt(RegressionCase):
         self.assertEqual(line.client_user, self.john)
 
     def test_a_machine_still_to_be_provided_is_recorded_as_owed(self):
-        line = self.only_line(self.raise_request(client_user=self.john, is_new_device=1))
+        owed = f"new-device:user:{self.john}"
+        line = self.only_line(
+            self.raise_request(
+                client_user=self.john,
+                target_scope="Device",
+                device_requirement_key=owed,
+                requested_devices=[{"device_requirement_key": owed}],
+            )
+        )
 
         self.assertIsNone(line.managed_device)
         self.assertEqual(line.device_requirement_key, f"new-device:user:{self.john}")
@@ -207,16 +216,18 @@ class TestARequestKeepsTheShapePhase3GaveIt(RegressionCase):
                         "action": "Add",
                         "requested_service": service,
                         "client_user": self.john,
-                        "is_new_device": 1,
+                        "target_scope": "Device",
+                        "device_requirement_key": "new-device:john",
                     }
                     for service in (self.service, second)
                 ],
+                requested_devices=[{"device_requirement_key": "new-device:john"}],
             )
         )
-        request = self.track("MSP Service Request", out["name"])
+        request = self.track("MSP Request", out["name"])
 
         keys = frappe.get_all(
-            "MSP Service Request Line",
+            "MSP Request Line",
             filters={"parent": request},
             pluck="device_requirement_key",
         )

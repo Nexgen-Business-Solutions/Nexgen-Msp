@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { as, go, land, openRow, seek } from './ground';
+import { addExisting, as, go, land, openRow, seek } from './ground';
 import { GROUP_DROPPED, LAPTOP, MACHINE_SERVICE, PERSONAL_SERVICE } from './names';
 
 /**
@@ -75,18 +75,7 @@ test.describe('The customer is no longer offered it', () => {
     await page.waitForLoadState('networkidle');
 
     // somebody who holds neither service, so both would be offered if both were on the shelf
-    await page.getByRole('button', { name: /Select existing/ }).click();
-
-    const picker = page.getByRole('dialog');
-
-    await picker.getByLabel('Search').fill(GROUP_DROPPED);
-    await picker
-      .locator('div')
-      .filter({ hasText: GROUP_DROPPED })
-      .getByRole('button', { name: /^Add$/ })
-      .last()
-      .click();
-    await picker.getByRole('button', { name: 'Done' }).click();
+    await addExisting(page, GROUP_DROPPED);
     await page.getByRole('button', { name: /Continue/ }).click();
 
     // wait for the shelf to be read before reading it

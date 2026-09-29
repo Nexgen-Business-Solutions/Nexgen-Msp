@@ -32,13 +32,20 @@ class JourneyCase(ExecutionCase):
         out = self.as_user(
             self.asker,
             lambda: PortalService.create_request(
-                customer=self.customer, request_type="Add", lines=list(lines), details=details
+                customer=self.customer,
+                request_type="Add",
+                lines=list(lines),
+                details=details,
+                **self.described(lines),
             ),
         )
 
-        return self.track("MSP Service Request", out["name"])
+        return self.track("MSP Request", out["name"])
 
     def decide(self, name, idx, status, reason=None):
+        if self.status(name) == "Submitted":
+            self.act(name, "start_review")
+
         return self.tech_does(
             lambda: RequestService.set_line_status(
                 name=name, idx=idx, line_status=status, reason=reason
@@ -49,7 +56,7 @@ class JourneyCase(ExecutionCase):
         return self.tech_does(lambda: RequestService.run_action(name=name, action=action, reason=reason))
 
     def status(self, name):
-        return frappe.db.get_value("MSP Service Request", name, "status")
+        return frappe.db.get_value("MSP Request", name, "status")
 
     def plan(self, name):
         return self.tech_does(lambda: RequestExecutionService.get_execution_plan(request=name))
@@ -57,7 +64,7 @@ class JourneyCase(ExecutionCase):
     def orders(self, name):
         return frappe.get_all(
             WORK_ORDER,
-            filters={"service_request": name, "work_type": "Service Action"},
+            filters={"request": name, "work_type": "Service Action"},
             fields=["name", "status", "service_item", "action"],
             order_by="request_line_idx asc, creation asc",
         )
@@ -81,12 +88,12 @@ class JourneyCase(ExecutionCase):
         return self.track("MSP Service Assignment", out["name"])
 
     def refused_to_raise(self, *lines, details=None):
-        before = frappe.db.count("MSP Service Request", {"customer": self.customer})
+        before = frappe.db.count("MSP Request", {"customer": self.customer})
 
         with self.assertRaises(REFUSED):
             self.raised(*lines, details=details)
 
-        self.assertEqual(frappe.db.count("MSP Service Request", {"customer": self.customer}), before)
+        self.assertEqual(frappe.db.count("MSP Request", {"customer": self.customer}), before)
 
 
 class TestARequestFromFirstLineToClosedFile(JourneyCase):
@@ -116,10 +123,10 @@ class TestARequestFromFirstLineToClosedFile(JourneyCase):
         self.tech_does(lambda: RequestExecutionService.complete_request(request=name))
 
         self.assertEqual(self.status(name), "Completed")
-        lines = frappe.get_doc("MSP Service Request", name).lines
+        lines = frappe.get_doc("MSP Request", name).lines
         self.assertEqual(lines[2].line_status, "Rejected")
         self.assertCountEqual(self.open_services(self.john), [m365, vpn])
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "details"), "Before Monday please.")
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "details"), "Before Monday please.")
 
     def test_a_line_is_not_refused_without_a_reason(self):
         name = self.raised(self.line(self.offering("JA4")))
@@ -161,7 +168,7 @@ class TestRefusedInternally(JourneyCase):
 
         self.assertEqual(self.status(name), "Rejected")
         self.assertEqual(
-            {row.line_status for row in frappe.get_doc("MSP Service Request", name).lines},
+            {row.line_status for row in frappe.get_doc("MSP Request", name).lines},
             {"Rejected"},
         )
         self.assertEqual(self.orders(name), [])
@@ -384,38 +391,43 @@ class TestWhatIsSentThatShouldNotBe(JourneyCase):
         A Department, an email, a username: none of them is theirs to supply, and a request
         that waits for them is a request that never gets raised.
         """
+        self.newcomers["new:paul"] = {
+            "subject_key": "new:paul",
+            "kind": "new",
+            "full_name": "Paul Martin",
+            "department": None,
+        }
         name = self.raised(
-            self.line(
-                self.offering("JW3"),
-                client_user=None,
-                is_new_user=1,
-                new_user_full_name="Paul Martin",
-                new_user_department=None,
-            )
+            self.line(self.offering("JW3"), client_user=None, subject_key="new:paul")
         )
-        line = frappe.get_doc("MSP Service Request", name).lines[0]
+        line = frappe.get_doc("MSP Request", name).lines[0]
+        person = frappe.db.get_value(
+            "MSP Requested Client User",
+            line.requested_client_user,
+            ["full_name", "department"],
+            as_dict=True,
+        )
 
-        self.assertEqual(line.new_user_full_name, "Paul Martin")
-        self.assertIsNone(line.new_user_department)
+        self.assertEqual(person.full_name, "Paul Martin")
+        self.assertIsNone(person.department)
 
     def test_a_line_naming_nobody(self):
         self.refused_to_raise(self.line(self.offering("JW4"), client_user=None))
 
     def test_a_line_naming_somebody_on_file_and_a_new_person_never_keeps_both(self):
         try:
-            name = self.raised(
-                self.line(
-                    self.offering("JW5"),
-                    is_new_user=1,
-                    new_user_full_name="Paul Martin",
-                    new_user_department=self.make_department("Human Resources"),
-                )
-            )
+            self.newcomers["new:paul"] = {
+                "subject_key": "new:paul",
+                "kind": "new",
+                "full_name": "Paul Martin",
+                "department": self.make_department("Human Resources"),
+            }
+            name = self.raised(self.line(self.offering("JW5"), subject_key="new:paul"))
         except REFUSED:
             return
 
-        row = frappe.get_doc("MSP Service Request", name).lines[0]
-        self.assertFalse(row.is_new_user and row.client_user, "a line is about one person")
+        row = frappe.get_doc("MSP Request", name).lines[0]
+        self.assertFalse(row.requested_client_user and row.client_user, "a line is about one person")
 
     def test_the_same_service_asked_twice_for_the_same_person_opens_it_once(self):
         service = self.offering("JW6")
@@ -544,15 +556,19 @@ class TestAMachineAskedForSomebodyOnFile(JourneyCase):
 
     def asked(self):
         service = self.offering("JN1", scope="Device")
+        self.owed["new-device:jn"] = {
+            "device_requirement_key": "new-device:jn",
+            "display_label": f"ZZTEST-JN-{self.tag}",
+            "serial_number": f"ZZTEST-SN-JN-{self.tag}",
+            "intended_holder_client_user": self.john,
+        }
         return self.approved(
             {
                 "operation_code": self.operation("Add"),
                 "action": "Add",
-                "target_scope": "User",
+                "target_scope": "Device",
                 "requested_for_user": self.john,
-                "is_new_device": 1,
-                "new_device_label": f"ZZTEST-JN-{self.tag}",
-                "new_device_serial": f"ZZTEST-SN-JN-{self.tag}",
+                "device_requirement_key": "new-device:jn",
                 "requested_service": service,
             }
         )
@@ -568,11 +584,16 @@ class TestAMachineAskedForSomebodyOnFile(JourneyCase):
     def test_preparing_the_machine_starts_from_what_the_customer_typed(self):
         name = self.asked()
 
-        slots = [slot for group in self.plan(name)["groups"] for slot in group["devices"]]
+        plan = self.plan(name)
+        machine = next(row for row in plan["requested_entities"] if row["kind"] == "device")
+        card = plan["action_groups"][0]["work"][0]
 
-        self.assertTrue(slots, "a machine is to be prepared")
-        self.assertEqual(slots[0]["work"]["asked_hostname"], f"ZZTEST-JN-{self.tag}")
-        self.assertEqual(slots[0]["work"]["asked_serial"], f"ZZTEST-SN-JN-{self.tag}")
+        self.assertEqual(plan["preparation"]["unresolved_devices"], 1, "a machine is to be prepared")
+        self.assertEqual(machine["requested_snapshot"]["display_label"], f"ZZTEST-JN-{self.tag}")
+        self.assertEqual(machine["requested_snapshot"]["serial_number"], f"ZZTEST-SN-JN-{self.tag}")
+        self.assertEqual(card["prerequisite_action"]["requested_entity"], machine["name"])
+        self.assertEqual(card["asked_hostname"], f"ZZTEST-JN-{self.tag}")
+        self.assertEqual(card["asked_serial"], f"ZZTEST-SN-JN-{self.tag}")
 
 
 class TestARequestStillWaitingForTheCompany(JourneyCase):

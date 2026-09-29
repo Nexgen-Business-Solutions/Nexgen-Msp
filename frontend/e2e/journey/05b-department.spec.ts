@@ -1,5 +1,19 @@
 import { expect, test, type Page } from '@playwright/test';
-import { as, createPerson, go, land, openRow, runReadyWork, seek } from './ground';
+import {
+  acceptEverything,
+  addExisting,
+  as,
+  openOurLatestRequest,
+  createPerson,
+  go,
+  land,
+  openRow,
+  pickScope,
+  runReadyWork,
+  seek,
+  startWork,
+  submitRequest,
+} from './ground';
 import { DIRECT, GROUP_DROPPED, GROUP_KEPT, PERSONAL_SERVICE, SECOND } from './names';
 
 /**
@@ -17,22 +31,6 @@ import { DIRECT, GROUP_DROPPED, GROUP_KEPT, PERSONAL_SERVICE, SECOND } from './n
 test.describe.configure({ mode: 'serial' });
 
 const DEPARTMENT = 'Logistics';
-
-const addExisting = async (page: Page, person: string) => {
-  await page.getByRole('button', { name: /Select existing/ }).click();
-
-  const dialog = page.getByRole('dialog');
-
-  await dialog.getByLabel('Search').fill(person);
-  await dialog
-    .locator('div')
-    .filter({ hasText: person })
-    .getByRole('button', { name: /^Add$/ })
-    .last()
-    .click();
-  await dialog.getByRole('button', { name: 'Done' }).click();
-  await expect(dialog).toHaveCount(0, { timeout: 20_000 });
-};
 
 test.describe('The Department this scenario needs', () => {
   test.use(as('admin'));
@@ -78,6 +76,9 @@ test.describe('A Department, minus one', () => {
 
     await page.getByRole('button', { name: /Continue/ }).click();
     await expect(page.getByText('Group actions stay explicit')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('heading', { name: DIRECT, exact: true })).toBeVisible({ timeout: 20_000 });
+    await pickScope(page, /^All selected/);
+    await expect(page.getByRole('heading', { name: 'All selected people' })).toBeVisible();
 
     const card = page
       .locator('tbody tr')
@@ -110,16 +111,7 @@ test.describe('A Department, minus one', () => {
       'leaving somebody out of an act does not take them out of the request'
     ).toHaveCount(1);
 
-    await page.getByRole('button', { name: /Continue/ }).click();
-    await page.getByRole('button', { name: /Continue/ }).click();
-    await page.getByRole('button', { name: /Continue/ }).click();
-
-    await expect(page.getByText('Confirm the exact snapshot and requested actions.')).toBeVisible();
-    await page.getByRole('button', { name: 'Submit request' }).click();
-    await page.waitForURL(
-      (url) => /\/msp\/requests/.test(url.pathname) && !url.pathname.endsWith('/new'),
-      { timeout: 30_000 }
-    );
+    await submitRequest(page, 3);
   });
 });
 
@@ -127,40 +119,35 @@ test.describe('And the work reaches exactly them', () => {
   test.use(as('technician'));
 
   const openLatest = async (page: Page) => {
-    await land(page);
-    await go(page, 'Requests');
-    await openRow(page, /SR-/);
+    await openOurLatestRequest(page);
   };
 
   test('the lines are the kept people, and only them', async ({ page }) => {
     await openLatest(page);
+    await startWork(page);
 
-    const accept = page.getByRole('button', { name: /^Accept all( pending| \d+)$/ }).first();
+    const actions = page.getByRole('region', { name: 'Requested actions' });
 
-    await expect(accept).toBeVisible({ timeout: 25_000 });
-
-    const before = (await page.locator('body').innerText()).replace(/\s+/g, ' ');
+    await expect(actions.getByRole('button', { name: 'Accept all' })).toBeVisible({ timeout: 25_000 });
 
     for (const person of GROUP_KEPT) {
-      expect(before, `${person} has a line to decide on`).toContain(person);
+      await expect(
+        actions.locator('tbody tr').filter({ hasText: person }),
+        `${person} has a line to decide on`
+      ).toHaveCount(1);
     }
 
-    expect(before, `${GROUP_DROPPED} was left out, so there is no line for them`).not.toContain(
-      GROUP_DROPPED
-    );
+    await expect(
+      actions.locator('tbody tr').filter({ hasText: GROUP_DROPPED }),
+      `${GROUP_DROPPED} was left out, so there is no line for them`
+    ).toHaveCount(0);
 
-    await accept.click();
-    await expect(page.getByText('Line review complete')).toBeVisible({ timeout: 25_000 });
-    await page.getByRole('button', { name: 'Continue to Execute' }).click();
-    await page.waitForLoadState('networkidle');
+    expect(await acceptEverything(page)).toBeGreaterThanOrEqual(GROUP_KEPT.length);
   });
 
   test('the service lands on the kept people and not on the one left out', async ({ page }) => {
     await openLatest(page);
-    await page.getByRole('button', { name: 'Execute', exact: true }).click();
-    await page.waitForLoadState('networkidle');
-
-    await runReadyWork(page, 'Add service', 'zze2e.group');
+    await runReadyWork(page, 'zze2e.group');
 
     for (const person of GROUP_KEPT) {
       await go(page, 'Users');

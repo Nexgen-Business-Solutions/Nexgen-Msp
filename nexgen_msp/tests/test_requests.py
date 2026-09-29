@@ -3,11 +3,16 @@
 import frappe
 
 from nexgen_msp.api.internal.services.request_service import RequestService, effective_line_status
+from nexgen_msp.api.internal.services.requested_client_user_service import RequestedClientUserService
+from nexgen_msp.api.internal.services.requested_device_service import RequestedDeviceService
+from nexgen_msp.api.internal.services.requested_entity_presentation import RequestedEntityPresentation
 from nexgen_msp.api.portal.services.portal_service import PortalService
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 from nexgen_msp.utils import operations
 
 from .base import MSPTestCase
+
+LINE = "MSP Request Line"
 
 
 class TestRequests(MSPTestCase):
@@ -38,7 +43,7 @@ class TestRequests(MSPTestCase):
     def open_request(self, lines, status="Submitted", source="Internal"):
         doc = frappe.get_doc(
             {
-                "doctype": "MSP Service Request",
+                "doctype": "MSP Request",
                 "customer": self.customer,
                 "request_type": "Add",
                 "priority": "Medium",
@@ -50,7 +55,7 @@ class TestRequests(MSPTestCase):
         ).insert(ignore_permissions=True)
         frappe.db.commit()
 
-        return self.track("MSP Service Request", doc.name)
+        return self.track("MSP Request", doc.name)
 
     # ------------------------------------------------------------- the customer
     def test_a_request_can_carry_several_services(self):
@@ -62,7 +67,7 @@ class TestRequests(MSPTestCase):
                                                            client_user=None, managed_device=self.device)],
         )
         frappe.set_user("Administrator")
-        self.track("MSP Service Request", out["name"])
+        self.track("MSP Request", out["name"])
 
         self.assertEqual(len(out["lines"]), 2)
 
@@ -71,12 +76,20 @@ class TestRequests(MSPTestCase):
         out = PortalService.create_request(
             customer=self.customer,
             request_type="Add",
-            lines=[self.line(self.device_service, is_new_device=1)],
+            lines=[
+                self.line(
+                    self.device_service,
+                    target_scope="Device",
+                    device_requirement_key="new-device:one",
+                )
+            ],
+            requested_devices=[{"device_requirement_key": "new-device:one"}],
         )
         frappe.set_user("Administrator")
-        self.track("MSP Service Request", out["name"])
+        self.track("MSP Request", out["name"])
 
-        self.assertEqual(out["lines"][0]["is_new_device"], 1)
+        self.assertTrue(out["lines"][0]["requested_device"])
+        self.assertEqual(out["requested_devices"][0]["display_label"], "New device")
 
     # ------------------------------------------------------- closing the request
     def test_a_request_with_work_still_open_cannot_be_closed(self):
@@ -110,7 +123,7 @@ class TestRequests(MSPTestCase):
         )
         RequestService.run_action(name, "cancel", reason="test")
 
-        statuses = [row.line_status for row in frappe.get_doc("MSP Service Request", name).lines]
+        statuses = [row.line_status for row in frappe.get_doc("MSP Request", name).lines]
 
         self.assertEqual(statuses, ["Cancelled", "Approved"])
 
@@ -164,7 +177,7 @@ class TestBothScopeClosing(MSPTestCase):
 
         doc = frappe.get_doc(
             {
-                "doctype": "MSP Service Request",
+                "doctype": "MSP Request",
                 "customer": self.customer,
                 "request_type": "Add",
                 "priority": "Medium",
@@ -176,7 +189,7 @@ class TestBothScopeClosing(MSPTestCase):
         ).insert(ignore_permissions=True)
         frappe.db.commit()
 
-        return self.track("MSP Service Request", doc.name)
+        return self.track("MSP Request", doc.name)
 
     def test_on_a_person_it_asks_for_the_username_only(self):
         name = self.open_line("User")
@@ -205,7 +218,7 @@ class TestBothScopeClosing(MSPTestCase):
         with self.assertRaises(frappe.ValidationError):
             frappe.get_doc(
                 {
-                    "doctype": "MSP Service Request",
+                    "doctype": "MSP Request",
                     "customer": self.customer,
                     "request_type": "Add",
                     "priority": "Medium",
@@ -256,12 +269,12 @@ class TestWhoHearsAboutANewRequest(MSPTestCase):
         )
         frappe.set_user("Administrator")
 
-        return self.track("MSP Service Request", out["name"])
+        return self.track("MSP Request", out["name"])
 
     def told(self, name):
         queued = frappe.get_all(
             "Email Queue",
-            filters={"reference_doctype": "MSP Service Request", "reference_name": name},
+            filters={"reference_doctype": "MSP Request", "reference_name": name},
             pluck="name",
         )
 
@@ -284,7 +297,7 @@ class TestWhoHearsAboutANewRequest(MSPTestCase):
         name = self.raise_one()
         queued = frappe.get_all(
             "Email Queue",
-            filters={"reference_doctype": "MSP Service Request", "reference_name": name},
+            filters={"reference_doctype": "MSP Request", "reference_name": name},
             pluck="name",
         )
         addresses = [
@@ -321,7 +334,7 @@ class TestWhoHearsAboutANewRequest(MSPTestCase):
             ],
         )
         frappe.set_user("Administrator")
-        name = self.track("MSP Service Request", out["name"])
+        name = self.track("MSP Request", out["name"])
 
         self.assertEqual(out["status"], "Awaiting Customer Approval")
         self.assertNotIn(self.tech, self.told(name))
@@ -365,13 +378,13 @@ class TestDrafts(MSPTestCase):
             ),
         )
 
-        return self.track("MSP Service Request", out["name"]), out
+        return self.track("MSP Request", out["name"]), out
 
     def test_a_draft_is_saved_as_a_draft(self):
         name, out = self.start()
 
         self.assertEqual(out["status"], "Draft")
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "requester"), self.author)
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "requester"), self.author)
 
     def test_saving_again_keeps_the_same_document(self):
         name, _ = self.start()
@@ -388,7 +401,7 @@ class TestDrafts(MSPTestCase):
 
         self.assertEqual(again["name"], name)
         self.assertEqual(len(again["lines"]), 2)
-        self.assertEqual(frappe.db.count("MSP Service Request", {"name": name}), 1)
+        self.assertEqual(frappe.db.count("MSP Request", {"name": name}), 1)
 
     def test_only_its_author_sees_it(self):
         name, _ = self.start()
@@ -420,7 +433,7 @@ class TestDrafts(MSPTestCase):
         self.assertEqual(
             frappe.db.count(
                 "Email Queue",
-                {"reference_doctype": "MSP Service Request", "reference_name": name},
+                {"reference_doctype": "MSP Request", "reference_name": name},
             ),
             0,
         )
@@ -446,7 +459,7 @@ class TestDrafts(MSPTestCase):
 
         self.as_user(self.author, lambda: PortalService.discard_draft(name))
 
-        self.assertFalse(frappe.db.exists("MSP Service Request", name))
+        self.assertFalse(frappe.db.exists("MSP Request", name))
 
     def test_a_colleague_cannot_throw_it_away(self):
         name, _ = self.start()
@@ -454,7 +467,7 @@ class TestDrafts(MSPTestCase):
         with self.assertRaises(ValidationError):
             self.as_user(self.colleague, lambda: PortalService.discard_draft(name))
 
-        self.assertTrue(frappe.db.exists("MSP Service Request", name))
+        self.assertTrue(frappe.db.exists("MSP Request", name))
 
     def test_a_sent_request_is_no_longer_a_draft_to_throw_away(self):
         name, _ = self.start()
@@ -468,7 +481,7 @@ class TestDrafts(MSPTestCase):
         with self.assertRaises(ValidationError):
             self.as_user(self.author, lambda: PortalService.discard_draft(name))
 
-        self.assertTrue(frappe.db.exists("MSP Service Request", name))
+        self.assertTrue(frappe.db.exists("MSP Request", name))
 
 
 class TestDraftsAreNotWork(MSPTestCase):
@@ -507,7 +520,7 @@ class TestDraftsAreNotWork(MSPTestCase):
             ],
         )
         frappe.set_user("Administrator")
-        name = self.track("MSP Service Request", out["name"])
+        name = self.track("MSP Request", out["name"])
 
         after = self.dashboard()
 
@@ -538,13 +551,13 @@ class TestDraftsAreNotWork(MSPTestCase):
             ],
         )
         frappe.set_user("Administrator")
-        name = self.track("MSP Service Request", out["name"])
+        name = self.track("MSP Request", out["name"])
 
         frappe.set_user(self.author)
         PortalService.reject_request(name, "not this quarter")
         frappe.set_user("Administrator")
 
-        self.assertTrue(frappe.db.get_value("MSP Service Request", name, "refused_by_customer"))
+        self.assertTrue(frappe.db.get_value("MSP Request", name, "refused_by_customer"))
 
         tech = self.make_account("internal", "MSP Technician", suffix="t")
         frappe.set_user(tech)
@@ -584,7 +597,7 @@ class TestDraftsAreNotChecked(MSPTestCase):
             customer=self.customer, request_type="Add", lines=self.half_written()
         )
         frappe.set_user("Administrator")
-        self.track("MSP Service Request", out["name"])
+        self.track("MSP Request", out["name"])
 
         self.assertEqual(out["status"], "Draft")
 
@@ -594,7 +607,7 @@ class TestDraftsAreNotChecked(MSPTestCase):
         out = PortalService.save_draft(
             customer=self.customer, request_type="Add", lines=self.half_written()
         )
-        name = self.track("MSP Service Request", out["name"])
+        name = self.track("MSP Request", out["name"])
 
         try:
             sent = PortalService.create_request(
@@ -605,7 +618,7 @@ class TestDraftsAreNotChecked(MSPTestCase):
 
         self.assertEqual(sent["status"], "Submitted")
         row = frappe.db.get_value(
-            "MSP Service Request Line", {"parent": name, "idx": 1},
+            "MSP Request Line", {"parent": name, "idx": 1},
             ["target_scope", "client_user", "managed_device"], as_dict=True,
         )
         self.assertEqual((row.target_scope, row.client_user, row.managed_device), ("User", self.person, None))
@@ -634,7 +647,7 @@ class TestDraftsAreNotChecked(MSPTestCase):
         out = PortalService.save_draft(
             customer=self.customer, request_type="Add", lines=self.half_written()
         )
-        name = self.track("MSP Service Request", out["name"])
+        name = self.track("MSP Request", out["name"])
 
         sent = PortalService.create_request(
             name=name,
@@ -675,16 +688,20 @@ class TestTheTechnicianSeesWhatWasSupplied(MSPTestCase):
         self.grant(self.asker)
         self.tech = self.make_account("internal", "MSP Technician", suffix="sut")
 
-    def raise_with(self, *lines):
+    def raise_with(self, *lines, subjects=None, requested_devices=None):
         frappe.set_user(self.asker)
         try:
             out = PortalService.create_request(
-                customer=self.customer, request_type="Add", lines=list(lines)
+                customer=self.customer,
+                request_type="Add",
+                lines=list(lines),
+                subjects=subjects,
+                requested_devices=requested_devices,
             )
         finally:
             frappe.set_user("Administrator")
 
-        return self.track("MSP Service Request", out["name"])
+        return self.track("MSP Request", out["name"])
 
     def as_tech(self, name):
         frappe.set_user(self.tech)
@@ -725,21 +742,30 @@ class TestTheTechnicianSeesWhatWasSupplied(MSPTestCase):
                 "operation_code": self.operation(),
                 "action": "Add",
                 "target_scope": "User",
-                "is_new_user": 1,
-                "new_user_full_name": "Fresh Face",
-                "new_user_department": department,
-                "new_user_email": "fresh@example.invalid",
-                "new_user_username": "f.face",
+                "subject_key": "new:fresh",
                 "requested_service": self.service,
-            }
+            },
+            subjects=[
+                {
+                    "subject_key": "new:fresh",
+                    "kind": "new",
+                    "full_name": "Fresh Face",
+                    "department": department,
+                    "email": "fresh@example.invalid",
+                    "username": "f.face",
+                }
+            ],
         )
 
         line = self.as_tech(name)["lines"][0]
+        typed = RequestedEntityPresentation.client_user(
+            frappe.db.get_value(LINE, {"parent": name, "idx": 1}, "requested_client_user")
+        )["requested_snapshot"]
 
-        self.assertEqual(line["new_user_full_name"], "Fresh Face")
-        self.assertEqual(line["new_user_department"], department)
-        self.assertEqual(line["new_user_email"], "fresh@example.invalid")
-        self.assertEqual(line["new_user_username"], "f.face")
+        self.assertEqual(typed["full_name"], "Fresh Face")
+        self.assertEqual(typed["department"], department)
+        self.assertEqual(typed["email"], "fresh@example.invalid")
+        self.assertEqual(typed["username"], "f.face")
         self.assertNotIn("needs_portal_access", line)
 
     def test_what_the_customer_typed_for_a_new_machine_reaches_the_technician(self):
@@ -749,19 +775,27 @@ class TestTheTechnicianSeesWhatWasSupplied(MSPTestCase):
                 "action": "Add",
                 "target_scope": "Device",
                 "client_user": self.person,
-                "is_new_device": 1,
-                "new_device_label": "NEWBOX",
-                "new_device_type": "Phone",
-                "new_device_serial": "SN-NEW",
+                "device_requirement_key": "new-device:newbox",
                 "requested_service": self.device_service,
-            }
+            },
+            requested_devices=[
+                {
+                    "device_requirement_key": "new-device:newbox",
+                    "display_label": "NEWBOX",
+                    "device_type": "Phone",
+                    "serial_number": "SN-NEW",
+                }
+            ],
         )
 
-        line = self.as_tech(name)["lines"][0]
+        self.as_tech(name)
+        typed = RequestedEntityPresentation.device(
+            frappe.db.get_value(LINE, {"parent": name, "idx": 1}, "requested_device")
+        )["requested_snapshot"]
 
-        self.assertEqual(line["new_device_label"], "NEWBOX")
-        self.assertEqual(line["new_device_type"], "Phone")
-        self.assertEqual(line["new_device_serial"], "SN-NEW")
+        self.assertEqual(typed["display_label"], "NEWBOX")
+        self.assertEqual(typed["device_type"], "Phone")
+        self.assertEqual(typed["serial_number"], "SN-NEW")
 
     def test_the_action_the_customer_picked_is_named_not_only_its_verb(self):
         name = self.raise_with(
@@ -821,11 +855,11 @@ class TestOneNoteForTheWholeRequest(MSPTestCase):
                 details="  Please call before coming on site.  ",
             )
         )
-        name = self.track("MSP Service Request", out["name"])
+        name = self.track("MSP Request", out["name"])
 
         self.assertEqual(out["details"], "Please call before coming on site.")
         self.assertEqual(
-            frappe.db.get_value("MSP Service Request", name, "details"),
+            frappe.db.get_value("MSP Request", name, "details"),
             "Please call before coming on site.",
         )
 
@@ -835,7 +869,7 @@ class TestOneNoteForTheWholeRequest(MSPTestCase):
                 customer=self.customer, request_type="Add", lines=self.lines(), details="First word."
             )
         )
-        name = self.track("MSP Service Request", draft["name"])
+        name = self.track("MSP Request", draft["name"])
         self.assertEqual(draft["details"], "First word.")
 
         sent = self.as_asker(
@@ -856,7 +890,7 @@ class TestOneNoteForTheWholeRequest(MSPTestCase):
                 customer=self.customer, request_type="Add", lines=self.lines(), details="   "
             )
         )
-        self.track("MSP Service Request", out["name"])
+        self.track("MSP Request", out["name"])
 
         self.assertIsNone(out["details"])
 
@@ -873,19 +907,25 @@ class TestCreatingThePersonARequestAskedFor(MSPTestCase):
         self.grant(self.asker)
         self.tech = self.make_account("internal", "MSP Technician", suffix="npt")
 
+    def new_person(self, full_name="Fresh Face"):
+        return {
+            "subject_key": f"new:{frappe.scrub(full_name)}",
+            "kind": "new",
+            "full_name": full_name,
+            "department": self.make_department("Sales"),
+            "username": "f.face",
+        }
+
     def new_person_line(self, service, full_name="Fresh Face"):
         return {
             "operation_code": self.operation(),
             "action": "Add",
             "target_scope": "User",
-            "is_new_user": 1,
-            "new_user_full_name": full_name,
-            "new_user_department": self.make_department("Sales"),
-            "new_user_username": "f.face",
+            "subject_key": f"new:{frappe.scrub(full_name)}",
             "requested_service": service,
         }
 
-    def test_creating_them_once_links_every_line_that_describes_them(self):
+    def test_resolving_them_once_reaches_every_line_that_describes_them_and_rewrites_none(self):
         from nexgen_msp.api.internal.services.user_service import UserService
 
         frappe.set_user(self.asker)
@@ -897,36 +937,55 @@ class TestCreatingThePersonARequestAskedFor(MSPTestCase):
                 self.new_person_line(self.service_b),
                 self.new_person_line(self.service_a, full_name="Someone Else"),
             ],
+            subjects=[self.new_person(), self.new_person("Someone Else")],
         )
         frappe.set_user("Administrator")
-        name = self.track("MSP Service Request", out["name"])
+        name = self.track("MSP Request", out["name"])
+        asked = [
+            row.requested_client_user
+            for row in frappe.get_all(
+                LINE, filters={"parent": name}, fields=["idx", "requested_client_user"], order_by="idx"
+            )
+        ]
 
         frappe.set_user(self.tech)
         try:
-            created = UserService.create_client_user(
-                full_name="Fresh Face",
-                username="f.face",
+            RequestService.run_action(name=name, action="start_review")
+            for idx in (1, 2, 3):
+                RequestService.set_line_status(name=name, idx=idx, line_status="Approved")
+            RequestService.run_action(name=name, action="approve")
+            created = RequestedClientUserService.resolve_create(asked[0])
+            unrelated = UserService.create_client_user(
+                customer=self.customer,
+                full_name="Someone Else",
+                department=self.make_department("Sales"),
                 source_request=name,
-                request_line=1,
-            )
+            )["name"]
         finally:
             frappe.set_user("Administrator")
-        self.track("MSP Client User", created["name"])
+        self.track("MSP Client User", created)
+        self.track("MSP Client User", unrelated)
 
         linked = frappe.get_all(
-            "MSP Service Request Line",
+            LINE,
             filters={"parent": name},
-            fields=["idx", "client_user", "new_user_full_name", "is_new_user"],
+            fields=["idx", "client_user", "requested_client_user"],
             order_by="idx",
         )
 
-        self.assertEqual(linked[0].client_user, created["name"])
-        self.assertEqual(linked[1].client_user, created["name"], "the second service is theirs too")
-        self.assertIsNone(linked[2].client_user, "someone else is still to be created")
-        self.assertEqual([row.is_new_user for row in linked], [0, 0, 1])
+        self.assertEqual(asked[0], asked[1], "one Requested Client User for the two lines about them")
+        self.assertEqual([row.requested_client_user for row in linked], asked, "no line is rewritten")
+        self.assertEqual([row.client_user for row in linked], [None, None, None])
+        self.assertEqual(
+            frappe.db.get_value("MSP Requested Client User", asked[0], "resolved_client_user"), created
+        )
+        self.assertEqual(
+            frappe.db.get_value("MSP Requested Client User", asked[2], "status"),
+            "Open",
+            "a person created from the person page is never matched to a request on their name",
+        )
 
-        # the request must still save now that they exist
-        frappe.get_doc("MSP Service Request", name).save(ignore_permissions=True)
+        frappe.get_doc("MSP Request", name).save(ignore_permissions=True)
 
         frappe.set_user(self.tech)
         try:
@@ -934,10 +993,17 @@ class TestCreatingThePersonARequestAskedFor(MSPTestCase):
         finally:
             frappe.set_user("Administrator")
 
+        self.assertEqual([line["client_user"] for line in detail["lines"]], [None, None, None])
         self.assertEqual(
-            [line["client_user"] for line in detail["lines"]],
-            [created["name"], created["name"], None],
+            [line["requested_client_user_resolved"] for line in detail["lines"]], [created, created, None]
         )
+        self.assertEqual(
+            [line["client_user_name"] for line in detail["lines"]],
+            ["Fresh Face", "Fresh Face", "Someone Else"],
+        )
+        self.assertIn(created, detail["people"], "the person the request resolved to is described too")
+        self.assertNotIn("is_new_user", detail["lines"][0])
+        self.assertNotIn("new_user_full_name", detail["lines"][0])
 
 
 class TestNothingClosesOnSomeoneWhoDoesNotExist(MSPTestCase):
@@ -957,15 +1023,19 @@ class TestNothingClosesOnSomeoneWhoDoesNotExist(MSPTestCase):
         finally:
             frappe.set_user("Administrator")
 
-    def in_progress(self, *lines):
+    def in_progress(self, *lines, subjects=None, requested_devices=None):
         frappe.set_user(self.asker)
         try:
             out = PortalService.create_request(
-                customer=self.customer, request_type="Add", lines=list(lines)
+                customer=self.customer,
+                request_type="Add",
+                lines=list(lines),
+                subjects=subjects,
+                requested_devices=requested_devices,
             )
         finally:
             frappe.set_user("Administrator")
-        name = self.track("MSP Service Request", out["name"])
+        name = self.track("MSP Request", out["name"])
 
         self.as_tech(lambda: RequestService.run_action(name, "start_review"))
         for idx in range(1, len(lines) + 1):
@@ -975,9 +1045,9 @@ class TestNothingClosesOnSomeoneWhoDoesNotExist(MSPTestCase):
 
         # approving wrote the work this request calls for; it goes with the request
         for order in frappe.get_all(
-            "MSP Service Work Order", filters={"service_request": name}, pluck="name"
+            "MSP Work Order", filters={"request": name}, pluck="name"
         ):
-            self.track("MSP Service Work Order", order)
+            self.track("MSP Work Order", order)
 
         return name
 
@@ -987,17 +1057,27 @@ class TestNothingClosesOnSomeoneWhoDoesNotExist(MSPTestCase):
                 "operation_code": self.operation(),
                 "action": "Add",
                 "target_scope": "User",
-                "is_new_user": 1,
-                "new_user_full_name": "Fresh Face",
-                "new_user_department": self.make_department("Sales"),
+                "subject_key": "new:fresh",
                 "requested_service": self.service,
-            }
+            },
+            subjects=[
+                {
+                    "subject_key": "new:fresh",
+                    "kind": "new",
+                    "full_name": "Fresh Face",
+                    "department": self.make_department("Sales"),
+                }
+            ],
         )
 
         with self.assertRaises(ValidationError) as caught:
             self.as_tech(lambda: RequestService.run_action(name, "complete"))
 
-        self.assertIn("User Setup has not been carried out", str(caught.exception))
+        self.assertIn(
+            "This Request cannot be completed while accepted work remains unresolved.",
+            str(caught.exception),
+        )
+        self.assertIn("ZZTEST Service NCX has not been carried out", str(caught.exception))
 
     def test_a_machine_still_to_be_registered_blocks_the_closure(self):
         person = self.make_person(self.customer, "Holder")
@@ -1009,19 +1089,25 @@ class TestNothingClosesOnSomeoneWhoDoesNotExist(MSPTestCase):
                 "action": "Add",
                 "target_scope": "Device",
                 "client_user": person,
-                "is_new_device": 1,
-                "new_device_label": "NEWBOX",
-                "new_device_type": "PC",
+                "device_requirement_key": "new-device:newbox",
                 "requested_service": self.device_service,
-            }
+            },
+            requested_devices=[
+                {"device_requirement_key": "new-device:newbox", "display_label": "NEWBOX", "device_type": "PC"}
+            ],
         )
 
         with self.assertRaises(ValidationError) as caught:
             self.as_tech(lambda: RequestService.run_action(name, "complete"))
 
-        self.assertIn("Device Provisioning has not been carried out", str(caught.exception))
+        self.assertIn(
+            "This Request cannot be completed while accepted work remains unresolved.",
+            str(caught.exception),
+        )
+        self.assertIn("ZZTEST Service NCD has not been carried out", str(caught.exception))
 
-    def test_registering_the_machine_from_the_request_links_every_line_that_wanted_it(self):
+    def test_resolving_to_the_machine_registered_for_the_request_reaches_every_line_that_wanted_it(self):
+        from nexgen_msp.api.internal.services.request_execution_service import RequestExecutionService
         from nexgen_msp.api.internal.services.user_service import UserService
 
         person = self.make_person(self.customer, "Holder")
@@ -1031,9 +1117,7 @@ class TestNothingClosesOnSomeoneWhoDoesNotExist(MSPTestCase):
                 "action": "Add",
                 "target_scope": "Device",
                 "client_user": person,
-                "is_new_device": 1,
-                "new_device_label": "NEWBOX",
-                "new_device_type": "PC",
+                "device_requirement_key": "new-device:newbox",
                 "requested_service": self.device_service,
             },
             {
@@ -1041,12 +1125,14 @@ class TestNothingClosesOnSomeoneWhoDoesNotExist(MSPTestCase):
                 "action": "Add",
                 "target_scope": "Device",
                 "client_user": person,
-                "is_new_device": 1,
-                "new_device_label": "NEWBOX",
-                "new_device_type": "PC",
+                "device_requirement_key": "new-device:newbox",
                 "requested_service": self.service,
             },
+            requested_devices=[
+                {"device_requirement_key": "new-device:newbox", "display_label": "NEWBOX", "device_type": "PC"}
+            ],
         )
+        requested = frappe.db.get_value(LINE, {"parent": name, "idx": 1}, "requested_device")
 
         self.as_tech(
             lambda: UserService.add_device(
@@ -1060,23 +1146,33 @@ class TestNothingClosesOnSomeoneWhoDoesNotExist(MSPTestCase):
         device = frappe.db.get_value("MSP Managed Device", {"hostname": "newbox"}, "name")
         self.track("MSP Managed Device", device)
 
+        self.assertEqual(frappe.db.get_value("MSP Requested Device", requested, "status"), "Open")
+
+        self.as_tech(lambda: RequestedDeviceService.resolve_existing(requested, device))
+
         lines = frappe.get_all(
-            "MSP Service Request Line",
+            LINE,
             filters={"parent": name},
-            fields=["idx", "managed_device", "is_new_device", "client_user"],
+            fields=["idx", "managed_device", "requested_device", "client_user"],
             order_by="idx",
         )
-        self.assertEqual([row.managed_device for row in lines], [device, device])
-        self.assertEqual([row.is_new_device for row in lines], [0, 0])
-        self.assertEqual([row.client_user for row in lines], [None, None], "the holder is on the machine")
+        self.assertEqual([row.requested_device for row in lines], [requested, requested], "no line is rewritten")
+        self.assertEqual([row.managed_device for row in lines], [None, None])
+        self.assertEqual(
+            set(frappe.get_all("MSP Work Order", filters={"request": name}, pluck="managed_device")),
+            {device},
+        )
 
-        # the request must still save, and the technician now sees the machine, not a promise
-        frappe.get_doc("MSP Service Request", name).save(ignore_permissions=True)
+        frappe.get_doc("MSP Request", name).save(ignore_permissions=True)
         detail = self.as_tech(lambda: RequestService.get_request(name))
-        self.assertEqual(detail["lines"][0]["device_holder"], person)
-        self.assertEqual(detail["lines"][0]["device_serial"], "SN-NEWBOX")
+        self.assertEqual(detail["lines"][0]["requested_device_resolved"], device)
+        self.assertEqual(detail["lines"][0]["requested_device_label"], "NEWBOX")
 
-    def test_the_one_machine_owed_to_a_person_is_theirs_even_under_another_name(self):
+        card = self.as_tech(lambda: RequestExecutionService.get_execution_plan(name))["action_groups"][0]["work"][0]
+        self.assertEqual(card["device"]["serial_number"], "SN-NEWBOX")
+        self.assertEqual(card["device"]["assigned_client_user"], person)
+
+    def test_a_machine_registered_for_a_person_under_another_name_is_never_matched_silently(self):
         from nexgen_msp.api.internal.services.user_service import UserService
 
         person = self.make_person(self.customer, "Holder")
@@ -1086,11 +1182,12 @@ class TestNothingClosesOnSomeoneWhoDoesNotExist(MSPTestCase):
                 "action": "Add",
                 "target_scope": "Device",
                 "client_user": person,
-                "is_new_device": 1,
-                "new_device_label": "the laptop",
-                "new_device_type": "Laptop",
+                "device_requirement_key": "new-device:laptop",
                 "requested_service": self.device_service,
-            }
+            },
+            requested_devices=[
+                {"device_requirement_key": "new-device:laptop", "display_label": "the laptop", "device_type": "Laptop"}
+            ],
         )
 
         self.as_tech(
@@ -1100,12 +1197,21 @@ class TestNothingClosesOnSomeoneWhoDoesNotExist(MSPTestCase):
             )
         )
         device = self.track("MSP Managed Device", frappe.db.get_value("MSP Managed Device", {"hostname": "LT-0042"}, "name"))
+        requested = frappe.db.get_value(LINE, {"parent": name, "idx": 1}, "requested_device")
+
+        self.assertEqual(frappe.db.get_value("MSP Requested Device", requested, "status"), "Open")
+        self.assertIsNone(frappe.db.get_value("MSP Work Order", {"request": name}, "managed_device"))
+
+        self.as_tech(lambda: RequestedDeviceService.resolve_existing(requested, device))
 
         row = frappe.db.get_value(
-            "MSP Service Request Line", {"parent": name, "idx": 1},
-            ["managed_device", "is_new_device", "target_scope"], as_dict=True,
+            LINE, {"parent": name, "idx": 1},
+            ["managed_device", "requested_device", "target_scope"], as_dict=True,
         )
-        self.assertEqual((row.managed_device, row.is_new_device, row.target_scope), (device, 0, "Device"))
+        self.assertEqual((row.managed_device, row.requested_device, row.target_scope), (None, requested, "Device"))
+        self.assertEqual(
+            frappe.db.get_value("MSP Work Order", {"request": name}, "managed_device"), device
+        )
 
     def test_a_machine_registered_outside_any_request_touches_no_line(self):
         from nexgen_msp.api.internal.services.user_service import UserService
@@ -1117,11 +1223,12 @@ class TestNothingClosesOnSomeoneWhoDoesNotExist(MSPTestCase):
                 "action": "Add",
                 "target_scope": "Device",
                 "client_user": person,
-                "is_new_device": 1,
-                "new_device_label": "NEWBOX",
-                "new_device_type": "PC",
+                "device_requirement_key": "new-device:newbox",
                 "requested_service": self.device_service,
-            }
+            },
+            requested_devices=[
+                {"device_requirement_key": "new-device:newbox", "display_label": "NEWBOX", "device_type": "PC"}
+            ],
         )
 
         self.as_tech(
@@ -1132,6 +1239,6 @@ class TestNothingClosesOnSomeoneWhoDoesNotExist(MSPTestCase):
         self.track("MSP Managed Device", frappe.db.get_value("MSP Managed Device", {"hostname": "NEWBOX"}, "name"))
 
         row = frappe.db.get_value(
-            "MSP Service Request Line", {"parent": name, "idx": 1}, ["managed_device", "is_new_device"], as_dict=True
+            "MSP Request Line", {"parent": name, "idx": 1}, ["managed_device", "requested_device"], as_dict=True
         )
-        self.assertEqual((row.managed_device, row.is_new_device), (None, 1))
+        self.assertEqual((row.managed_device, bool(row.requested_device)), (None, True))

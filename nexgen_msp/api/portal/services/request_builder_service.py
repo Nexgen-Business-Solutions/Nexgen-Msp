@@ -18,7 +18,7 @@ from nexgen_msp.api.internal.services.service_availability_service import (
 from nexgen_msp.api.internal.services.service_definition_service import (
     ServiceDefinitionService,
 )
-from nexgen_msp.utils import approval, operations, permissions, request_intents
+from nexgen_msp.utils import access, approval, operations, permissions, request_intents
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 MAX_SEARCH_RESULTS = 25
@@ -134,195 +134,6 @@ class RequestBuilderService:
             "excluded": excluded,
         }
 
-    # ------------------------------------------------------------------ a change for many
-    @staticmethod
-    def bulk_targets(customer=None, operation_code=None, service_item=None, people=None):
-        """Which of these people the change can actually be asked for, and why not for the rest.
-
-        A bulk selection is expanded into one atomic line per real target. Nothing is invented
-        on the way: a Device operation reaches the machines those people hold today and no new
-        machine is requested for anybody who holds none.
-        """
-        from nexgen_msp.api.portal.services.portal_service import PortalService
-
-        customer = PortalService._resolve_customer(customer)
-        definition = operations.require_customer_requestable(operation_code)
-
-        if definition["domain"] == operations.DEVICE:
-            raise ValidationError(
-                "An act on a machine names that machine, so it is asked for one Device at a time.",
-                "OPERATION_NOT_REQUESTABLE",
-            )
-
-        people = frappe.parse_json(people) if isinstance(people, str) else (people or [])
-        people = [person for person in people if person]
-
-        if not people:
-            raise ValidationError("Add at least one person before continuing.", "VALIDATION_ERROR")
-
-        if not service_item:
-            raise ValidationError("Choose a service.", "VALIDATION_ERROR")
-
-        known = {
-            row.name: row
-            for row in frappe.get_all(
-                "MSP Client User",
-                filters={"name": ("in", people)},
-                fields=["name", "full_name", "department", "customer", "lifecycle_status"],
-            )
-        }
-        scope = ServiceDefinitionService.scope_of(service_item)
-        sellable = ServiceDefinitionService.is_ready(service_item)
-        eligible, excluded = [], []
-
-        for person in people:
-            card = known.get(person)
-
-            if not card or card.customer != customer:
-                excluded.append(
-                    {
-                        "client_user": person,
-                        "full_name": card.full_name if card else person,
-                        "reason": "One or more selected people no longer belong to this Customer.",
-                    }
-                )
-                continue
-
-            if card.lifecycle_status not in ("Pending", "Active"):
-                excluded.append(
-                    {"client_user": person, "full_name": card.full_name, "reason": "Person is disabled"}
-                )
-                continue
-
-            if not sellable:
-                excluded.append(
-                    {
-                        "client_user": person,
-                        "full_name": card.full_name,
-                        "reason": "Service is not available for this Customer",
-                    }
-                )
-                continue
-
-            targets = RequestBuilderService._bulk_targets_for(
-                customer, definition, service_item, card, scope
-            )
-            eligible.extend(targets["eligible"])
-            excluded.extend(targets["excluded"])
-
-        return {
-            "customer": customer,
-            "operation_code": definition["code"],
-            "operation_label": definition["label"],
-            "service_item": service_item,
-            "service_scope": scope,
-            "eligible": eligible,
-            "excluded": excluded,
-            "eligible_count": len(eligible),
-            "excluded_count": len(excluded),
-            "device_count": len({row["managed_device"] for row in eligible if row.get("managed_device")}),
-        }
-
-    @staticmethod
-    def _bulk_targets_for(customer, definition, service_item, person, scope):
-        """The exact targets one selected person contributes to a bulk change."""
-        code = definition["code"]
-        on_devices = scope == "Device"
-        eligible, excluded = [], []
-
-        if on_devices:
-            devices = frappe.db.sql(
-                """
-                select device.name, device.hostname
-                from `tabMSP Managed Device` device
-                join `tabMSP Device Holder` holder
-                  on holder.parent = device.name and holder.parenttype = 'MSP Managed Device'
-                where holder.client_user = %(person)s and holder.is_current = 1
-                  and device.customer = %(customer)s and device.status = 'Active'
-                order by device.hostname asc
-                """,
-                {"person": person.name, "customer": customer},
-                as_dict=True,
-            )
-
-            if not devices:
-                # a bulk change never invents a machine for somebody who holds none
-                excluded.append(
-                    {
-                        "client_user": person.name,
-                        "full_name": person.full_name,
-                        "reason": "Person has no current Device",
-                    }
-                )
-
-                return {"eligible": eligible, "excluded": excluded}
-
-            for device in devices:
-                RequestBuilderService._sort_target(
-                    customer, code, service_item, person, "Device", device, eligible, excluded
-                )
-
-            return {"eligible": eligible, "excluded": excluded}
-
-        RequestBuilderService._sort_target(
-            customer, code, service_item, person, "User", None, eligible, excluded
-        )
-
-        return {"eligible": eligible, "excluded": excluded}
-
-    @staticmethod
-    def _sort_target(customer, code, service_item, person, scope, device, eligible, excluded):
-        """One target, kept or refused with the reason a person can read."""
-        target = device.name if device else person.name
-        running = request_intents.open_assignment_for(customer, service_item, scope, target)
-        entry = {
-            "client_user": person.name,
-            "full_name": person.full_name,
-            "department": person.department,
-            "target_scope": scope,
-            "managed_device": device.name if device else None,
-            "hostname": device.hostname if device else None,
-            "source_service_assignment": running,
-        }
-
-        if code == "service.add":
-            if running:
-                excluded.append({**entry, "reason": "Service already active"})
-
-                return
-
-            others = request_intents.in_flight_additions_for(customer, service_item, scope, target)
-
-            if others:
-                excluded.append(
-                    {**entry, "reason": f"Another request is already changing this service ({others[0]})"}
-                )
-
-                return
-
-            eligible.append(entry)
-
-            return
-
-        if not running:
-            excluded.append({**entry, "reason": "No matching current assignment"})
-
-            return
-
-        if request_intents.in_flight_requests_for(running):
-            excluded.append({**entry, "reason": "Another request is already changing this service"})
-
-            return
-
-        status = frappe.db.get_value("MSP Service Assignment", running, "operational_status")
-
-        if code not in operations.for_service_state(status):
-            excluded.append({**entry, "reason": f"Service is {str(status).lower()}"})
-
-            return
-
-        eligible.append(entry)
-
     @staticmethod
     def subject_context(client_user=None):
         """Everything one screen needs about one person, already decided.
@@ -351,7 +162,7 @@ class RequestBuilderService:
             as_dict=True,
         )
 
-        if not person:
+        if not person or person.customer not in access.allowed_customers():
             raise NotFoundError(f"Client User {client_user} not found.", "NOT_FOUND")
 
         # the caller may only read their own company's people
@@ -374,35 +185,7 @@ class RequestBuilderService:
             },
             "target_reason": personal.get("target_reason"),
             "devices": RequestBuilderService._devices_of(person, selectable_services),
-            # a machine still to be given: what could run on it, and what it could be
-            "new_device_services": RequestBuilderService._offered(
-                person.customer, "Device", selectable_services
-            ),
-            "assignable_devices": RequestBuilderService._assignable_devices(person),
         }
-
-    @staticmethod
-    def _assignable_devices(person):
-        """Every machine of the company the customer may suggest, and who holds it now.
-
-        One somebody else holds can be suggested too: the customer only says they want it
-        handed over, and the technician carries the transfer out.
-        """
-        devices = frappe.get_all(
-            "MSP Managed Device",
-            filters={"customer": person.customer, "status": ("!=", "Retired")},
-            fields=["name", "hostname", "serial_number", "device_type", "status", "assigned_client_user"],
-            order_by="hostname asc",
-        )
-
-        for device in devices:
-            device["holder_name"] = (
-                frappe.db.get_value("MSP Client User", device.assigned_client_user, "full_name")
-                if device.assigned_client_user
-                else None
-            )
-
-        return [device for device in devices if device.assigned_client_user != person.name]
 
     @staticmethod
     def _devices_of(person, selectable_services=None):
@@ -437,7 +220,7 @@ class RequestBuilderService:
 
     # ------------------------------------------------------------------ new person
     @staticmethod
-    def new_user_context(customer=None):
+    def new_person_context(customer=None):
         """What can be asked for somebody who does not exist yet.
 
         Nothing is held, so every compatible catalogue service is on offer — for the person

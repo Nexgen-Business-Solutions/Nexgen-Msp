@@ -141,7 +141,7 @@ class TestThePersonsPage(AccountFootprint):
 class TestARequestForANewcomer(AccountFootprint):
     def test_a_request_line_can_no_longer_ask_for_access(self):
         self.assertFalse(
-            frappe.get_meta("MSP Service Request Line").has_field("needs_portal_access")
+            frappe.get_meta("MSP Request Line").has_field("needs_portal_access")
         )
 
     def test_a_newcomer_needs_no_email_to_be_asked_for(self):
@@ -168,18 +168,24 @@ class TestARequestForANewcomer(AccountFootprint):
                         "operation_code": self.operation("Add"),
                         "action": "Add",
                         "target_scope": "User",
-                        "is_new_user": 1,
-                        "new_user_full_name": f"ZZTEST Newcomer {self.tag}",
-                        "new_user_department": self.department,
+                        "subject_key": "new:newcomer",
                         "needs_portal_access": 1,
                         "requested_service": service,
+                    }
+                ],
+                subjects=[
+                    {
+                        "subject_key": "new:newcomer",
+                        "kind": "new",
+                        "full_name": f"ZZTEST Newcomer {self.tag}",
+                        "department": self.department,
                     }
                 ],
             )
         finally:
             frappe.set_user("Administrator")
 
-        self.track("MSP Service Request", out["name"])
+        self.track("MSP Request", out["name"])
 
-        self.assertTrue(frappe.db.exists("MSP Service Request", out["name"]))
+        self.assertTrue(frappe.db.exists("MSP Request", out["name"]))
         self.assertNoAccountAppeared()

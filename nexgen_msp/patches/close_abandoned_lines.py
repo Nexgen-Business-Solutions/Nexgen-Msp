@@ -11,8 +11,8 @@ def execute():
 	"""
 	frappe.db.sql(
 		"""
-		update `tabMSP Service Request Line` srl
-		join `tabMSP Service Request` sr on sr.name = srl.parent
+		update `tabMSP Request Line` srl
+		join `tabMSP Request` sr on sr.name = srl.parent
 		set srl.line_status = sr.status
 		where srl.line_status = 'Pending'
 		  and sr.status in %(closed)s

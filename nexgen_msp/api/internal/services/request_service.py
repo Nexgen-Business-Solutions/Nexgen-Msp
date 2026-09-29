@@ -2,7 +2,7 @@ import frappe
 
 from nexgen_msp.utils.meta import select_options
 
-from nexgen_msp.utils import permissions
+from nexgen_msp.utils import permissions, request_targets
 from nexgen_msp.utils.assignments import OPEN_ASSIGNMENT_STATUSES
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
@@ -36,7 +36,7 @@ MAX_PAGE_LENGTH = 200
 
 ACTIONS = {
     "start_review": {
-        "label": "Start review",
+        "label": "Start work",
         "from": ("Submitted",),
         "to": "Under Review",
         "roles": TECHNICIAN_ROLES,
@@ -52,7 +52,7 @@ ACTIONS = {
         "builds_plan": True,
     },
     "start_work": {
-        "label": "Start work",
+        "label": "Start execution",
         "from": ("Approved",),
         "to": "In Progress",
         "roles": TECHNICIAN_ROLES,
@@ -134,14 +134,14 @@ class RequestService:
         RequestService._guard_internal()
 
         customers = frappe.get_all(
-            "MSP Service Request", distinct=True, pluck="customer", order_by="customer asc"
+            "MSP Request", distinct=True, pluck="customer", order_by="customer asc"
         )
 
         return {
             "customers": [customer for customer in customers if customer],
             "statuses": [
                 status
-                for status in select_options("MSP Service Request", "status")
+                for status in select_options("MSP Request", "status")
                 if status != CUSTOMER_STATUS
             ],
             "open_statuses": list(OPEN_STATUSES),
@@ -151,7 +151,7 @@ class RequestService:
                 if RequestService._roles().intersection(ADMIN_ROLES)
                 else list(REQUEST_TYPES)
             ),
-            "priorities": select_options("MSP Service Request", "priority"),
+            "priorities": select_options("MSP Request", "priority"),
             "is_admin": bool(RequestService._roles().intersection(ADMIN_ROLES)),
         }
 
@@ -197,19 +197,20 @@ class RequestService:
             params["open_statuses"] = OPEN_STATUSES
         elif scope == "to_execute":
             # approved work nobody has delivered yet: the dashboard's card, as a queue
+            person = request_targets.line_person_sql("srl")
             conditions.append(
-                """sr.status in ('Approved', 'In Progress')
+                f"""sr.status in ('Approved', 'In Progress')
                    and exists (
-                       select 1 from `tabMSP Service Request Line` srl
+                       select 1 from `tabMSP Request Line` srl
                        where srl.parent = sr.name and srl.line_status = 'Approved'
                          and not exists (
                              select 1 from `tabMSP Service Assignment` sa
                              left join `tabMSP Managed Device` sad on sad.name = sa.managed_device
                              where sa.source_request = srl.parent
                                and sa.service_item = srl.requested_service
-                               and (srl.client_user is null or srl.client_user = ''
-                                    or sa.client_user = srl.client_user
-                                    or sad.assigned_client_user = srl.client_user)
+                               and ({person} is null
+                                    or sa.client_user = {person}
+                                    or sad.assigned_client_user = {person})
                          )
                    )"""
             )
@@ -228,27 +229,31 @@ class RequestService:
 
         if search:
             conditions.append(
-                """(
+                f"""(
                     sr.name like %(search)s
                     or sr.customer like %(search)s
                     or exists (
-                        select 1 from `tabMSP Service Request Line` srl
-                        left join `tabMSP Client User` cu on cu.name = srl.client_user
+                        select 1 from `tabMSP Request Line` srl
+                        left join `tabMSP Client User` cu on cu.name = {request_targets.line_person_sql("srl")}
                         left join `tabMSP Client User` wanted on wanted.name = srl.requested_holder
                         left join `tabMSP Client User` forwhom on forwhom.name = srl.requested_for_user
-                        left join `tabMSP Managed Device` device on device.name = srl.managed_device
+                        left join `tabMSP Managed Device` device on device.name = {request_targets.line_device_sql("srl")}
+                        left join `tabMSP Requested Client User` rcu
+                            on rcu.name = coalesce(srl.requested_client_user, srl.requested_for_requested_client_user)
+                        left join `tabMSP Requested Device` rdev on rdev.name = srl.requested_device
                         where srl.parent = sr.name
                           and (
                               cu.full_name like %(search)s
-                              or srl.new_user_full_name like %(search)s
+                              or rcu.full_name like %(search)s
                               -- a Device request is found by the machine, not only by the person
                               or wanted.full_name like %(search)s
                               -- a machine asked for somebody names them here, not as a holder
                               or forwhom.full_name like %(search)s
                               or device.hostname like %(search)s
                               or device.serial_number like %(search)s
-                              or srl.new_device_label like %(search)s
-                              or srl.new_device_serial like %(search)s
+                              or rdev.display_label like %(search)s
+                              or rdev.hostname like %(search)s
+                              or rdev.serial_number like %(search)s
                           )
                     )
                 )"""
@@ -278,8 +283,9 @@ class RequestService:
             search, status, priority, request_type, customer, scope
         )
 
-        total = frappe.db.sql(f"select count(*) from `tabMSP Service Request` sr {where}", params)[0][0]
+        total = frappe.db.sql(f"select count(*) from `tabMSP Request` sr {where}", params)[0][0]
 
+        person = request_targets.line_person_sql("srl")
         rows = frappe.db.sql(
             f"""
             select
@@ -293,26 +299,28 @@ class RequestService:
                 sr.billing_run,
                 sr.creation,
                 sr.modified,
-                (select count(*) from `tabMSP Service Request Line` srl where srl.parent = sr.name)
+                (select count(*) from `tabMSP Request Line` srl where srl.parent = sr.name)
                     as line_count,
-                (select count(*) from `tabMSP Service Request Line` srl
+                (select count(*) from `tabMSP Request Line` srl
                     where srl.parent = sr.name and srl.line_status = 'Pending') as pending_lines,
                 coalesce(
                     (select group_concat(distinct coalesce(
-                            cu.full_name, forwhom.full_name, srl.new_user_full_name)
+                            cu.full_name, forwhom.full_name, rcu.full_name)
                         order by srl.idx separator ', ')
-                        from `tabMSP Service Request Line` srl
-                        left join `tabMSP Client User` cu on cu.name = srl.client_user
+                        from `tabMSP Request Line` srl
+                        left join `tabMSP Client User` cu on cu.name = {person}
                         -- a machine line carries no service holder: the person it is wanted
                         -- for is who the request is about
                         left join `tabMSP Client User` forwhom
                             on forwhom.name = srl.requested_for_user
+                        left join `tabMSP Requested Client User` rcu
+                            on rcu.name = coalesce(srl.requested_client_user, srl.requested_for_requested_client_user)
                         where srl.parent = sr.name),
                     -- a dispute carries no service line, so whoever raised it is the person
                     (select u.full_name from `tabUser` u where u.name = sr.requester)
                 ) as users,
                 timestampdiff(hour, sr.creation, now()) as age_hours
-            from `tabMSP Service Request` sr
+            from `tabMSP Request` sr
             {where}
             order by sr.creation desc
             limit {page_length} offset {start}
@@ -344,7 +352,7 @@ class RequestService:
             f"""
             select sr.status, sr.priority, count(*) as total,
                    sum(timestampdiff(hour, sr.creation, now()) > 48) as ageing
-            from `tabMSP Service Request` sr
+            from `tabMSP Request` sr
             {where}
             group by sr.status, sr.priority
             """,
@@ -383,20 +391,20 @@ class RequestService:
         if not name:
             raise ValidationError("name is required.", "VALIDATION_ERROR")
 
-        if not frappe.db.exists("MSP Service Request", name):
-            raise NotFoundError(f"Service Request {name} not found.", "NOT_FOUND")
+        if not frappe.db.exists("MSP Request", name):
+            raise NotFoundError(f"Request {name} not found.", "NOT_FOUND")
 
-        doc = frappe.get_doc("MSP Service Request", name)
+        doc = frappe.get_doc("MSP Request", name)
 
         # not ours until the customer has agreed to it, whatever the address bar says
         if doc.status == CUSTOMER_STATUS:
-            raise NotFoundError(f"Service Request {name} not found.", "NOT_FOUND")
+            raise NotFoundError(f"Request {name} not found.", "NOT_FOUND")
 
         if doc.status == "Draft" and doc.requester != frappe.session.user:
-            raise NotFoundError(f"Service Request {name} not found.", "NOT_FOUND")
+            raise NotFoundError(f"Request {name} not found.", "NOT_FOUND")
 
         if doc.refused_by_customer:
-            raise NotFoundError(f"Service Request {name} not found.", "NOT_FOUND")
+            raise NotFoundError(f"Request {name} not found.", "NOT_FOUND")
 
         lines = frappe.db.sql(
             """
@@ -407,15 +415,21 @@ class RequestService:
                 srl.operation_payload, srl.state_snapshot,
                 srl.selection_origin, srl.selection_group_key, srl.selection_label,
                 srl.requested_holder,
-                wanted.full_name as requested_holder_name,
-                srl.target_scope, srl.is_new_user,
+                coalesce(wanted.full_name, holder_rcu.full_name) as requested_holder_name,
+                srl.target_scope,
                 srl.client_user, srl.requested_for_user,
-                coalesce(cu.full_name, rfu.full_name, holder.full_name) as client_user_name,
-                coalesce(cu.department, rfu.department, holder.department) as client_user_department,
-                srl.new_user_full_name, srl.new_user_department, srl.new_user_email,
-                srl.new_user_username,
-                srl.is_new_device, srl.new_device_label, srl.new_device_type,
-                srl.new_device_serial,
+                srl.requested_client_user, srl.requested_for_requested_client_user,
+                srl.requested_holder_requested_client_user,
+                coalesce(cu.full_name, rfu.full_name, rcu.full_name, holder.full_name) as client_user_name,
+                coalesce(cu.department, rfu.department, rcu.department, holder.department)
+                    as client_user_department,
+                rcu.full_name as requested_client_user_name,
+                rcu.status as requested_client_user_status,
+                rcu.resolved_client_user as requested_client_user_resolved,
+                holder_rcu.full_name as requested_holder_requested_client_user_name,
+                srl.requested_device, rdev.display_label as requested_device_label,
+                rdev.status as requested_device_status,
+                rdev.resolved_managed_device as requested_device_resolved,
                 srl.managed_device, device.hostname as device_hostname,
                 device.serial_number as device_serial, device.device_type as device_type,
                 -- the person a device line is really about, so their profile stays one click away
@@ -424,7 +438,7 @@ class RequestService:
                 srl.requested_service, item.item_name as requested_service_name,
                 srl.requested_quantity, srl.requested_effective_date,
                 srl.comment, srl.line_status, srl.rejection_reason
-            from `tabMSP Service Request Line` srl
+            from `tabMSP Request Line` srl
             left join `tabMSP Client User` cu on cu.name = srl.client_user
             -- a machine still to be prepared names its person here rather than as the line's own
             left join `tabMSP Client User` rfu on rfu.name = srl.requested_for_user
@@ -432,6 +446,11 @@ class RequestService:
             left join `tabMSP Client User` holder on holder.name = device.assigned_client_user
             left join `tabItem` item on item.name = srl.requested_service
             left join `tabMSP Client User` wanted on wanted.name = srl.requested_holder
+            left join `tabMSP Requested Client User` rcu
+                on rcu.name = coalesce(srl.requested_client_user, srl.requested_for_requested_client_user)
+            left join `tabMSP Requested Client User` holder_rcu
+                on holder_rcu.name = srl.requested_holder_requested_client_user
+            left join `tabMSP Requested Device` rdev on rdev.name = srl.requested_device
             where srl.parent = %(parent)s
             order by srl.idx asc
             """,
@@ -489,8 +508,9 @@ class RequestService:
             "subjects": [
                 {
                     "subject_key": row.subject_key,
+                    "kind": "new" if row.requested_client_user else "existing",
                     "client_user": row.client_user,
-                    "is_new_user": bool(row.is_new_user),
+                    "requested_client_user": row.requested_client_user,
                     "full_name": row.full_name_snapshot,
                     "department": row.department_snapshot,
                     "email": row.email_snapshot,
@@ -520,16 +540,27 @@ class RequestService:
                 for row in doc.get("action_groups") or []
             ],
             "available_actions": RequestService._allowed_actions(doc.status),
-            "can_decide_lines": doc.status in ("Submitted", "Under Review")
-            and RequestService._can("approve"),
+            "can_decide_lines": doc.status == "Under Review" and RequestService._can("approve"),
+            "can_start": doc.status in ACTIONS["start_review"]["from"]
+            and RequestService._can("start_review"),
             "review": RequestService._review_checks(doc),
             "people": RequestService._people_facts(
                 doc.name,
-                {
-                    line.get("client_user") or line.get("requested_for_user") or line.get("device_holder")
-                    for line in lines
-                }
-                - {None},
+                (
+                    {
+                        line.get("client_user") or line.get("requested_for_user") or line.get("device_holder")
+                        for line in lines
+                    }
+                    | {line.get("requested_holder") for line in lines}
+                    | set(
+                        frappe.get_all(
+                            "MSP Requested Client User",
+                            filters={"request": doc.name, "status": "Resolved"},
+                            pluck="resolved_client_user",
+                        )
+                    )
+                )
+                - {None, ""},
             ),
         }
 
@@ -607,12 +638,13 @@ class RequestService:
                 )
 
         for row in frappe.db.sql(
-            """
-            select distinct coalesce(srl.client_user, srl.requested_for_user) as person, sr.name, sr.status
-            from `tabMSP Service Request Line` srl
-            join `tabMSP Service Request` sr on sr.name = srl.parent
-            where coalesce(srl.client_user, srl.requested_for_user) in %(people)s
-              and sr.name != %(request)s
+            f"""
+            select distinct person.name as person, sr.name, sr.status
+            from `tabMSP Request Line` srl
+            join `tabMSP Request` sr on sr.name = srl.parent
+            join `tabMSP Client User` person
+              on person.name in %(people)s and {request_targets.line_of_person_sql("srl", "person.name")}
+            where sr.name != %(request)s
               and sr.status in ('Submitted', 'Under Review', 'Approved', 'In Progress')
             """,
             {"people": people, "request": request},
@@ -640,10 +672,11 @@ class RequestService:
                 f"Your role cannot {spec['label'].lower()}.", "PERMISSION_DENIED", 403
             )
 
-        if not frappe.db.exists("MSP Service Request", name):
-            raise NotFoundError(f"Service Request {name} not found.", "NOT_FOUND")
+        if not frappe.db.exists("MSP Request", name):
+            raise NotFoundError(f"Request {name} not found.", "NOT_FOUND")
 
-        doc = frappe.get_doc("MSP Service Request", name)
+        frappe.db.get_value("MSP Request", name, "name", for_update=True)
+        doc = frappe.get_doc("MSP Request", name)
 
         if doc.status not in spec["from"]:
             raise ValidationError(
@@ -705,6 +738,22 @@ class RequestService:
         return RequestService.get_request(name)
 
     @staticmethod
+    def _guard_work_started(doc):
+        """Refuse a decision on a line before somebody started the work on its request."""
+        if doc.status in ("Submitted", "Draft"):
+            raise ValidationError(
+                "Start work on this request before deciding its lines.", "WORK_NOT_STARTED"
+            )
+
+    @staticmethod
+    def _guard_lines_open(doc):
+        """Refuse a decision on a line once the review of its request is over."""
+        if doc.status != "Under Review":
+            raise ValidationError(
+                "The lines of this request have already been decided.", "LINES_DECIDED"
+            )
+
+    @staticmethod
     def set_line_status(name=None, idx=None, line_status=None, reason=None):
         """Approve or reject one line without touching the others."""
         RequestService._guard_internal()
@@ -718,19 +767,24 @@ class RequestService:
         if line_status not in LINE_STATUSES:
             raise ValidationError(f"Unknown line status '{line_status}'.", "VALIDATION_ERROR")
 
-        if not frappe.db.exists("MSP Service Request", name):
-            raise NotFoundError(f"Service Request {name} not found.", "NOT_FOUND")
+        if not frappe.db.exists("MSP Request", name):
+            raise NotFoundError(f"Request {name} not found.", "NOT_FOUND")
 
-        doc = frappe.get_doc("MSP Service Request", name)
+        frappe.db.get_value("MSP Request", name, "name", for_update=True)
+        doc = frappe.get_doc("MSP Request", name)
 
         if doc.status == CUSTOMER_STATUS:
-            raise NotFoundError(f"Service Request {name} not found.", "NOT_FOUND")
+            raise NotFoundError(f"Request {name} not found.", "NOT_FOUND")
+
+        RequestService._guard_work_started(doc)
 
         if doc.status in CLOSED_STATUSES:
             raise ValidationError(
                 f"Request {name} is {doc.status.lower()} and can no longer be edited.",
                 "INVALID_TRANSITION",
             )
+
+        RequestService._guard_lines_open(doc)
 
         idx = frappe.utils.cint(idx)
         row = next((line for line in doc.lines if line.idx == idx), None)
@@ -744,10 +798,6 @@ class RequestService:
 
         row.line_status = line_status
         row.rejection_reason = reason or None
-
-        # ruling on a line is the review: nobody has to announce they are starting one
-        if doc.status == "Submitted":
-            doc.status = "Under Review"
 
         doc.save()
         frappe.db.commit()
@@ -767,6 +817,14 @@ class RequestService:
 
         if not idxs:
             raise ValidationError("Name the lines to decide.", "VALIDATION_ERROR")
+
+        status = frappe.db.get_value("MSP Request", name, "status") if name else None
+
+        if status in ("Submitted", "Draft"):
+            RequestService._guard_work_started(frappe._dict(status="Submitted"))
+
+        if status in ("Approved", "In Progress"):
+            RequestService._guard_lines_open(frappe._dict(status=status))
 
         results = []
 
@@ -806,7 +864,7 @@ class RequestService:
             select sr.name, sr.request_type, sr.status, sr.priority, sr.source,
                    coalesce(requester.full_name, sr.requester) as requester,
                    sr.creation, sr.customer
-            from `tabMSP Service Request` sr
+            from `tabMSP Request` sr
             left join `tabUser` requester on requester.name = sr.requester
             where sr.customer = %(customer)s and sr.status != %(customer_status)s
             order by field(sr.status, 'Completed', 'Rejected', 'Cancelled') asc,
@@ -1147,7 +1205,7 @@ class RequestService:
                         **context,
                         "full_name": frappe.db.get_value("User", address, "full_name") or address,
                     },
-                    reference_doctype="MSP Service Request",
+                    reference_doctype="MSP Request",
                     reference_name=doc.name,
                 )
 

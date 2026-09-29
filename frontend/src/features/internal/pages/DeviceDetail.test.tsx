@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as internal from '@/lib/api/internal';
 import type { DeviceDetail as DeviceDetailData } from '@/lib/api/internal';
 import DeviceDetail from './DeviceDetail';
+import { buildServiceAssignmentRowActions, type EntityRowAction } from '../actions';
 
 vi.mock('@/lib/api/internal', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api/internal')>();
@@ -180,3 +181,68 @@ describe('who has held it', () => {
   });
 });
 
+
+describe('the service row menu is the shared builder, item for item', () => {
+  const noop = () => undefined;
+
+  const serviceRow = (operational_status: string): DeviceDetailData['services'][number] => ({
+    name: `SA-${operational_status}`,
+    service_item: 'M365',
+    service_name: `Microsoft 365 ${operational_status}`,
+    assignment_scope: 'Device',
+    managed_device: 'DEV-001',
+    hostname: 'LAPTOP-01',
+    operational_status,
+    billing_status: 'Billable',
+    effective_start_date: '2026-01-10',
+    effective_end_date: null,
+    source_request: null,
+    last_billed_on: null,
+    internal_notes: null,
+  });
+
+  const withServices = (...statuses: string[]): DeviceDetailData => ({
+    ...buildDetail('Active', { assigned_client_user: 'USR-002', user_name: 'Jane Doe' }),
+    services: statuses.map(serviceRow),
+  });
+
+  const expectedShape = (actions: EntityRowAction[]) =>
+    actions
+      .filter((action) => !action.disabled)
+      .flatMap((action, index) => (action.danger && index > 0 ? ['—', action.label] : [action.label]));
+
+  const builder = (status: string) =>
+    buildServiceAssignmentRowActions({
+      status,
+      canWrite: true,
+      onSuspend: noop,
+      onResume: noop,
+      onChange: noop,
+      onEnd: noop,
+    });
+
+  it.each(['Active', 'Suspended'])('renders the service builder for a %s service', async (status) => {
+    await renderDetail(withServices(status));
+
+    const row = screen.getByText(`Microsoft 365 ${status}`).closest('tr') as HTMLElement;
+    fireEvent.click(within(row).getByTitle('More options'));
+    const menu = await screen.findByRole('menu');
+    const shape = Array.from(menu.children).map((element) =>
+      element.getAttribute('role') === 'none' ? '—' : element.textContent
+    );
+
+    expect(shape).toEqual(expectedShape(builder(status)));
+  });
+
+  it.each(['Ended', 'Pending Setup'])(
+    'renders no menu for a %s service, whose builder items are all disabled',
+    async (status) => {
+      await renderDetail(withServices(status));
+
+      const row = screen.getByText(`Microsoft 365 ${status}`).closest('tr') as HTMLElement;
+
+      expect(expectedShape(builder(status))).toEqual([]);
+      expect(within(row).queryByTitle('More options')).not.toBeInTheDocument();
+    }
+  );
+});

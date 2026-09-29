@@ -227,7 +227,7 @@ INVITATION_BODY = """<p>Hello {{ full_name }},</p>
 <p>An access to the {{ app_name }} portal has been created for {{ customer }}.</p>
 
 <p>From the portal you can review your users, devices and services, and submit
-service requests to our team.</p>
+requests to our team.</p>
 
 <p>Set your password to activate your account:</p>
 

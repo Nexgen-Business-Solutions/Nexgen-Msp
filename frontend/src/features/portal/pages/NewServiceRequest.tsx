@@ -12,10 +12,16 @@ import { isPortalOnly } from '@/shared/layout/navigation';
 import { useUserFilterOptions } from '@/features/internal/hooks/useUsers';
 import { usePortalFilters } from '../store/usePortalFilters';
 import { useMyApprovalRights } from '../hooks/usePortal';
-import { useRequestBuilder, type RequestSeed } from '../hooks/useRequestBuilder';
+import {
+  REQUEST_LOCKED,
+  REVIEW_NEEDED,
+  UNRESTORABLE_DRAFT,
+  useRequestBuilder,
+  type RequestSeed,
+} from '../hooks/useRequestBuilder';
 import RequestPeopleStep from '../components/RequestPeopleStep';
 import RequestActionsStep from '../components/RequestActionsStep';
-import RequestScheduleStep from '../components/RequestScheduleStep';
+import RequestDetailsStep from '../components/RequestDetailsStep';
 import RequestReviewStep from '../components/RequestReviewStep';
 
 const STEPS = [
@@ -34,14 +40,16 @@ export default function NewServiceRequest() {
   const [givingUp, setGivingUp] = useState(false);
   const rights = useMyApprovalRights();
   // a draft is picked up where it was left; a refused request is read back and corrected
+  const edit = params.get('edit') ?? undefined;
   const builder = useRequestBuilder(
-    () => navigate('/msp/requests'),
+    (done) => navigate(edit ? `/msp/requests/${encodeURIComponent(done.name)}` : '/msp/requests'),
     params.get('draft') ?? undefined,
     params.get('from') ?? undefined,
     params.get('client_user') ?? undefined,
-    params.get('new_user') === '1',
-    seed
+    seed,
+    edit
   );
+  const opened = params.get('draft') ?? params.get('from') ?? edit;
 
   // staff serve every customer, so they must say who they are acting for; a contact has
   // only their own and never sees this
@@ -76,6 +84,25 @@ export default function NewServiceRequest() {
     );
   }
 
+  if (builder.locked && opened) {
+    return (
+      <div className="space-y-4 px-6 pb-6 pt-4">
+        <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+          <Info size={16} className="mt-0.5 shrink-0 text-amber-700" />
+          <p className="text-sm text-amber-900">{REQUEST_LOCKED}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => navigate(`/msp/requests/${encodeURIComponent(opened)}`)}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+        >
+          <ArrowLeft size={15} />
+          Back to the request
+        </button>
+      </div>
+    );
+  }
+
   // a selection that moved between writing and sending: the people are named, never dropped
   const refusal = builder.error instanceof FrappeError ? builder.error : null;
   const stale =
@@ -84,7 +111,7 @@ export default function NewServiceRequest() {
       : null;
 
   const hasSubjects = builder.subjects.length > 0;
-  const hasActions = builder.actionGroups.length > 0 || builder.intents.length > 0;
+  const hasActions = builder.actionGroups.length > 0;
   const canLeaveStep = [hasSubjects, hasActions, true, builder.canSend][step];
   // the stepper counts what the customer has built so far, and says nothing when empty
   const steps = STEPS.map((entry) =>
@@ -98,7 +125,7 @@ export default function NewServiceRequest() {
   return (
     <div className="space-y-5 px-6 pb-6 pt-4">
       <WorkflowHeader
-        title="New request"
+        title={builder.editing ? `Edit request ${builder.editing}` : 'New request'}
         subtitle="Build one request for one person, a Department, or the whole company."
         onBack={() => navigate('/msp/requests')}
         backLabel="Back to requests"
@@ -115,7 +142,7 @@ export default function NewServiceRequest() {
               </button>
             )}
 
-            {(builder.subjects.length > 0 || builder.intents.length > 0) && (
+            {builder.canSave && (
               <button
                 type="button"
                 onClick={() => builder.putAside()}
@@ -142,24 +169,15 @@ export default function NewServiceRequest() {
               )}
             </button>
 
-            {step < STEPS.length - 1 ? (
+            {step < STEPS.length - 1 && (
               <button
                 type="button"
                 onClick={() => setStep(step + 1)}
-                disabled={!canLeaveStep}
+                disabled={!canLeaveStep || builder.unrestorable}
                 className={primaryBtn}
               >
                 Continue
                 <ArrowRight size={15} />
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => builder.send()}
-                disabled={!builder.canSend || builder.sending}
-                className={primaryBtn}
-              >
-                {builder.sending ? 'Sending…' : 'Submit request'}
               </button>
             )}
           </>
@@ -203,9 +221,22 @@ export default function NewServiceRequest() {
           <Info size={16} className="mt-0.5 shrink-0 text-amber-700" />
           <p className="text-sm text-amber-900">
             This is a copy of a refused request. What it asked for has been read again against
-            today's state — anything that no longer applies is flagged on the Changes step.
+            today's state — review the People and Actions steps before submitting.
           </p>
         </div>
+      )}
+
+      {builder.unrestorable && (
+        <div className="flex items-start gap-2.5 rounded-xl border border-red-100 bg-red-50 p-4">
+          <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
+          <p className="text-sm font-medium text-red-700">{UNRESTORABLE_DRAFT}</p>
+        </div>
+      )}
+
+      {step >= 2 && builder.reviewNeeded && (
+        <p className="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm text-amber-900">
+          {REVIEW_NEEDED}
+        </p>
       )}
 
       {builder.reopening && (
@@ -214,22 +245,26 @@ export default function NewServiceRequest() {
         </p>
       )}
 
-      {step === 1 && !hasActions && (
+      {!builder.unrestorable && step === 1 && !hasActions && (
         <p className="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm text-amber-900">
           Add at least one requested action before continuing.
         </p>
       )}
 
-      {step === 0 && !hasSubjects && (
+      {!builder.unrestorable && step === 0 && !hasSubjects && (
         <p className="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm text-amber-900">
           Add at least one person before continuing.
         </p>
       )}
 
-      {step === 0 && <RequestPeopleStep builder={builder} />}
-      {step === 1 && <RequestActionsStep builder={builder} />}
-      {step === 2 && <RequestScheduleStep builder={builder} />}
-      {step === 3 && <RequestReviewStep builder={builder} />}
+      {!builder.unrestorable && (
+        <>
+          {step === 0 && <RequestPeopleStep builder={builder} />}
+          {step === 1 && <RequestActionsStep builder={builder} />}
+          {step === 2 && <RequestDetailsStep builder={builder} />}
+          {step === 3 && <RequestReviewStep builder={builder} onEditActions={() => setStep(1)} />}
+        </>
+      )}
 
       {stale ? (
         <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50/70 p-4">

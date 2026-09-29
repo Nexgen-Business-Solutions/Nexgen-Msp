@@ -1,5 +1,6 @@
 import { download, get, post, postForm } from './client';
-import type { Paginated } from './portal';
+import type { Paginated, SelectableClientUser, SelectableDevice, SelectablePage } from './portal';
+import type { RequestedEntityPresentation, RequestRelationship } from './requestPresentation';
 
 const BASE = 'nexgen_msp.api.internal.endpoints.v1';
 
@@ -62,20 +63,13 @@ export type RequestDetailLine = {
   action_description: string | null;
   target_scope: string;
   service_scope: string;
-  is_new_user: number;
   client_user: string | null;
+  requested_client_user?: string | null;
+  requested_device?: string | null;
   /** the person a machine still to be prepared is for, when the line names no person itself */
   requested_for_user?: string | null;
   client_user_name: string | null;
   client_user_department: string | null;
-  new_user_full_name: string | null;
-  new_user_department: string | null;
-  new_user_email: string | null;
-  new_user_username: string | null;
-  is_new_device: number;
-  new_device_label: string | null;
-  new_device_type: string | null;
-  new_device_serial: string | null;
   managed_device: string | null;
   device_hostname: string | null;
   device_type: string | null;
@@ -112,9 +106,10 @@ export type RequestDetail = {
   lines: RequestDetailLine[];
   available_actions: RequestAction[];
   can_decide_lines: boolean;
+  can_start: boolean;
   review: RequestReview | null;
   people?: Record<string, PersonFacts>;
-  /** the people and the acts the customer built, when the request was raised the V3 way */
+  /** the people and the acts the customer built, when the request was raised from the request builder */
   subjects?: import('./portal').RequestSubjectSnapshot[];
   action_groups?: import('./portal').RequestActionGroupSnapshot[];
 };
@@ -218,15 +213,40 @@ export type WorkDeviceCard = {
   holder_name?: string | null;
 };
 
-export type WorkPersonCard = {
+export type WorkDisplayStatus =
+  | 'Ready'
+  | 'Needs information'
+  | 'Waiting for prerequisite'
+  | 'Completed'
+  | 'Failed'
+  | 'Cancelled'
+  | 'Blocked';
+
+export type WorkTarget = {
+  kind: 'client_user' | 'requested_client_user' | 'managed_device' | 'requested_device';
   name: string | null;
-  full_name: string | null;
-  department: string | null;
-  department_retired?: boolean;
-  email: string | null;
-  username: string | null;
-  lifecycle_status: string | null;
-  is_new: boolean;
+  requested_entity: string | null;
+  label: string;
+  sublabel: string | null;
+  badge: 'NEW' | 'UNRESOLVED' | null;
+};
+
+export type WorkPrerequisite = {
+  kind:
+    | 'prepare_person'
+    | 'prepare_holder'
+    | 'prepare_device'
+    | 'complete_username'
+    | 'complete_serial'
+    | 'complete_device_information';
+  label: string;
+  requested_entity: string | null;
+};
+
+export type WorkPrimaryAction = {
+  operation_code: string;
+  label: string;
+  enabled: boolean;
 };
 
 export type WorkCard = {
@@ -274,6 +294,15 @@ export type WorkCard = {
   action_label?: string | null;
   service_scope?: string | null;
   checklist: WorkChecklistItem[];
+  requested_client_user: string | null;
+  requested_device: string | null;
+  requested_holder_requested_client_user: string | null;
+  display_status: WorkDisplayStatus;
+  target: WorkTarget;
+  relationship: RequestRelationship | null;
+  primary_action: WorkPrimaryAction;
+  prerequisite_action: WorkPrerequisite | null;
+  dependency_label: string | null;
   ready: boolean;
   waiting_on: string | null;
   comment?: string | null;
@@ -301,20 +330,6 @@ export type WorkStage = {
   state: 'done' | 'current' | 'todo' | 'skipped';
 };
 
-export type SubjectWorkGroup = {
-  subject_key: string;
-  person: WorkPersonCard | null;
-  user_setup: WorkCard | null;
-  devices: {
-    device_requirement_key: string;
-    device: WorkDeviceCard | null;
-    work: WorkCard;
-  }[];
-  /** acts on the machines themselves: who holds them, and who should */
-  device_operations: WorkCard[];
-  services: WorkCard[];
-};
-
 export type RequestContext = {
   customer: string;
   requester: string | null;
@@ -335,7 +350,7 @@ export type RecapEntry = {
   subject_key: string | null;
   subject: string | null;
   department: string | null;
-  kind: 'requested' | 'technician' | 'object';
+  kind: 'requested' | 'technician' | 'object' | 'cancelled';
   title: string;
   detail: string;
   reason: string | null;
@@ -347,26 +362,16 @@ export type FulfilmentOutcome = {
   accepted: number;
   rejected: number;
   requested_done: number;
+  unresolved_accepted: number;
   technician_added: number;
   technician_done: number;
-  prepared: number;
-  context_done?: number;
-};
-
-export type TechnicianOption = {
-  key: string;
-  /** an act on the machine itself names no service */
-  service_item: string | null;
-  service_name: string;
-  action: string | null;
-  operation_code: string;
-  action_label: string;
-  description?: string | null;
-  target_scope: 'User' | 'Device';
-  managed_device: string | null;
-  device_label: string | null;
-  source_service_assignment: string | null;
-  current_state: string;
+  requested_client_users_total: number;
+  requested_client_users_resolved: number;
+  requested_devices_total: number;
+  requested_devices_resolved: number;
+  requested_cancelled?: number;
+  requested_client_users_cancelled?: number;
+  requested_devices_cancelled?: number;
 };
 
 export type ExecutionPlan = {
@@ -377,9 +382,10 @@ export type ExecutionPlan = {
   recap: RecapEntry[];
   outcome: FulfilmentOutcome;
   stages: { stages: WorkStage[]; current: WorkStage['key'] };
-  groups: SubjectWorkGroup[];
-  /** the same Work Orders, read act by act rather than person by person */
-  action_groups?: ActionWorkGroup[];
+  action_groups: ActionWorkGroup[];
+  requested_entities: RequestedEntityPresentation[];
+  preparation: ExecutionPreparation;
+  people: ExecutionPerson[];
   /** what the whole request is still waiting on, gathered per record */
   requirements?: WorkRequirement[];
   rejected: { idx: number; service: string; reason: string | null }[];
@@ -394,59 +400,37 @@ export type ExecutionPlan = {
   activity: { at: string; who: string; about: string | null; said: string }[];
 };
 
+export type ExecutionPreparation = {
+  new_people: number;
+  unresolved_devices: number;
+  missing_usernames: number;
+  missing_serials: number;
+};
+
+export type ExecutionPerson = {
+  subject_key: string;
+  full_name: string;
+  department: string | null;
+  is_new: boolean;
+  client_user: string | null;
+  requested_client_user: string | null;
+  total: number;
+  remaining: number;
+};
+
 export const getRequestExecutionPlan = (name: string, signal?: AbortSignal) =>
   get<ExecutionPlan>(`${BASE}.get_request_execution_plan`, { name }, signal);
-
-export const executeUserSetup = (payload: {
-  work_order: string;
-  username?: string;
-  email?: string;
-  department?: string;
-  notes?: string;
-}) => post<ExecutionPlan>(`${BASE}.execute_user_setup`, payload);
-
-export const executeDeviceProvisioning = (payload: {
-  work_order: string;
-  mode: 'new' | 'existing';
-  managed_device?: string;
-  hostname?: string;
-  serial_number?: string;
-  device_type?: string;
-  interfaces?: DeviceInterface[];
-  effective_date?: string;
-  confirm_transfer?: number;
-  notes?: string;
-  manufacturer?: string;
-  model?: string;
-  operating_system?: string;
-}) => post<ExecutionPlan>(`${BASE}.execute_device_provisioning`, payload);
-
-export const executeServiceAction = (payload: {
-  work_order: string;
-  effective_date?: string;
-  quantity?: number;
-  username?: string;
-  serial_number?: string;
-  notes?: string;
-  customer_note?: string;
-  confirm_billed?: number;
-  operation_code?: string;
-  service_item?: string;
-}) => post<ExecutionPlan>(`${BASE}.execute_service_action`, payload);
-
-export const executeDeviceOperation = (payload: {
-  work_order: string;
-  effective_date?: string;
-  execution_holder?: string;
-  override_reason?: string;
-  notes?: string;
-  customer_note?: string;
-}) => post<ExecutionPlan>(`${BASE}.execute_device_operation`, payload);
 
 /** What one unit of work is still owed, said by the server and never inferred on screen. */
 export type WorkRequirement = {
   key: string;
-  kind: 'username' | 'serial_number' | 'device_resolution' | 'client_user_creation' | 'other';
+  kind:
+    | 'username'
+    | 'serial_number'
+    | 'requested_client_user'
+    | 'requested_holder'
+    | 'requested_device'
+    | 'other';
   blocking: boolean;
   satisfied: boolean;
   owner_type?: string | null;
@@ -468,7 +452,13 @@ export type WorkRequirement = {
 
 export const saveRequiredIdentifiers = (payload: {
   request: string;
-  values: { kind: string; owner: string; value: string; modified?: string | null }[];
+  values: {
+    kind: string;
+    owner: string;
+    owner_type?: string | null;
+    value: string;
+    modified?: string | null;
+  }[];
 }) =>
   post<
     GroupOutcome<{ saved: number; plan: ExecutionPlan }> & {
@@ -502,33 +492,92 @@ export const executeWorkOrders = (payload: {
     { request: payload.request, executions: JSON.stringify(payload.executions) }
   );
 
-export const executeServiceActions = (payload: {
-  work_orders: string[];
-  effective_date?: string;
-  confirm_billed?: number;
-}) =>
-  post<GroupOutcome<{ completed: number; plan: ExecutionPlan }>>(`${BASE}.execute_service_actions`, {
-    ...payload,
-    work_orders: JSON.stringify(payload.work_orders),
+export type RequestedClientUserValues = {
+  full_name?: string | null;
+  department?: string | null;
+  email?: string | null;
+  username?: string | null;
+  external_employee_id?: string | null;
+  start_date?: string | null;
+};
+
+export type RequestedDeviceValues = {
+  hostname?: string | null;
+  device_type?: string | null;
+  serial_number?: string | null;
+  asset_tag?: string | null;
+  manufacturer?: string | null;
+  model?: string | null;
+  operating_system?: string | null;
+};
+
+export type RequestedEntityOutcome = {
+  entity: RequestedEntityPresentation;
+  plan: ExecutionPlan;
+};
+
+export const saveRequestedClientUser = (payload: { name: string; values: RequestedClientUserValues }) =>
+  post<RequestedEntityOutcome>(`${BASE}.save_requested_client_user`, {
+    name: payload.name,
+    values: JSON.stringify(payload.values),
   });
 
-export const getTechnicianOptions = (name: string, subjectKey: string, signal?: AbortSignal) =>
-  get<{ subject_key: string; options: TechnicianOption[]; reason: string | null }>(
-    `${BASE}.get_technician_options`,
-    { name, subject_key: subjectKey },
+export const resolveRequestedClientUser = (payload: {
+  name: string;
+  mode: 'create' | 'existing';
+  values?: RequestedClientUserValues;
+  client_user?: string;
+}) =>
+  post<RequestedEntityOutcome>(`${BASE}.resolve_requested_client_user`, {
+    name: payload.name,
+    mode: payload.mode,
+    ...(payload.values ? { values: JSON.stringify(payload.values) } : {}),
+    ...(payload.client_user ? { client_user: payload.client_user } : {}),
+  });
+
+export const saveRequestedDevice = (payload: { name: string; values: RequestedDeviceValues }) =>
+  post<RequestedEntityOutcome>(`${BASE}.save_requested_device`, {
+    name: payload.name,
+    values: JSON.stringify(payload.values),
+  });
+
+export const resolveRequestedDevice = (payload: {
+  name: string;
+  mode: 'existing' | 'new';
+  values?: RequestedDeviceValues;
+  managed_device?: string;
+}) =>
+  post<RequestedEntityOutcome>(`${BASE}.resolve_requested_device`, {
+    name: payload.name,
+    mode: payload.mode,
+    ...(payload.values ? { values: JSON.stringify(payload.values) } : {}),
+    ...(payload.managed_device ? { managed_device: payload.managed_device } : {}),
+  });
+
+export const cancelRequestedClientUser = (payload: { name: string; reason: string }) =>
+  post<RequestedEntityOutcome>(`${BASE}.cancel_requested_client_user`, payload);
+
+export const cancelRequestedDevice = (payload: { name: string; reason: string }) =>
+  post<RequestedEntityOutcome>(`${BASE}.cancel_requested_device`, payload);
+
+export const listSelectableClientUsers = (
+  customer: string,
+  search?: string,
+  signal?: AbortSignal,
+  limit?: number
+) =>
+  get<SelectablePage<SelectableClientUser>>(
+    `${BASE}.list_selectable_client_users`,
+    { customer, ...(search ? { search } : {}), ...(limit ? { limit } : {}) },
     signal
   );
 
-export const addTechnicianAction = (payload: {
-  name: string;
-  subject_key: string;
-  option: TechnicianOption;
-  reason: string;
-}) =>
-  post<ExecutionPlan>(`${BASE}.add_technician_action`, {
-    ...payload,
-    option: JSON.stringify(payload.option),
-  });
+export const listSelectableDevices = (customer: string, search?: string, signal?: AbortSignal, limit?: number) =>
+  get<SelectablePage<SelectableDevice>>(
+    `${BASE}.list_selectable_devices`,
+    { customer, ...(search ? { search } : {}), ...(limit ? { limit } : {}) },
+    signal
+  );
 
 export type ItemIntegrityRow = {
   item_code: string;
@@ -595,13 +644,6 @@ export const recordRequestActivity = (payload: {
   label: string;
   detail?: string;
 }) => post<ExecutionPlan>(`${BASE}.record_request_activity`, payload);
-
-export const verifyWorkItem = (payload: {
-  work_order: string;
-  checklist?: Record<string, number>;
-  customer_note?: string;
-  notes?: string;
-}) => post<ExecutionPlan>(`${BASE}.verify_work_item`, payload);
 
 export const completeRequest = (payload: { name: string }) =>
   post<ExecutionPlan>(`${BASE}.complete_request`, payload);

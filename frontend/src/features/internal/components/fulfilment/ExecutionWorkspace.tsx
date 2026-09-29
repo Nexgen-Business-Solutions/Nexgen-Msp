@@ -1,845 +1,494 @@
 import React, { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import {
-  Check,
-  CircleX,
-  Clock,
-  Laptop,
-  Layers,
-  PauseCircle,
-  PencilLine,
-  Play,
-  PlayCircle,
-  Settings2,
-  Undo2,
-  UserCheck,
-  UserPlus,
-  UserRound,
-  UserX,
-} from 'lucide-react';
-import RowActionsMenu, { type RowAction } from '@/shared/components/RowActionsMenu';
-import type { ExecutionPlan, PersonFacts, SubjectWorkGroup, UserDetail, WorkCard, WorkPersonCard } from '@/lib/api/internal';
+import { ListChecks } from 'lucide-react';
+import Modal from '@/shared/components/Modal';
+import RowActionsMenu from '@/shared/components/RowActionsMenu';
+import { recall, remember } from '@/shared/lib/openingSelection';
+import type { ExecutionPlan, PersonFacts, WorkCard, WorkRequirement } from '@/lib/api/internal';
+import type { RequestedEntityPresentation } from '@/lib/api/requestPresentation';
 import {
   requestKeys,
-  useExecuteServiceActions,
+  useExecuteWorkOrders,
   useRecordRequestActivity,
   useSettleWorkDoneElsewhere,
 } from '../../hooks/useRequests';
-import { useCustomerRequests } from '../../hooks/useUsers';
-import { useDeviceFilterOptions } from '../../hooks/useDevices';
 import {
-  btn,
-  btnPrimary,
-  bulkBar,
-  identifierMissing,
-  lineRow,
-  nextBar,
-  pill,
-  warnBar,
-} from '../../lib/fulfilmentStyles';
-import ApplyActionModal from './ApplyActionModal';
-import DeviceOperationModal from './DeviceOperationModal';
-import MoreActionsModal from './MoreActionsModal';
-import PrepareWorkModal from './PrepareWorkModal';
+  allCards,
+  compactBadge,
+  countStatuses,
+  goesWith,
+  groupKeyOf,
+  involves,
+  openEntityCount,
+  personTableRows,
+  openRequirements,
+  prerequisiteButton,
+  primaryButton,
+  softButton,
+  UNRESOLVED_TARGET_EXPLANATION,
+  workTableRows,
+  type ExecutionSelection,
+} from '../../lib/workDisplay';
+import { personMenu, type WorkRowIntent } from '../../lib/workRowMenu';
+import CancelRequestedEntityModal from './CancelRequestedEntityModal';
+import EffectiveDateModal, { type HandOver } from './EffectiveDateModal';
+import ExecutionRail from './ExecutionRail';
+import PrepareRequestedClientUserModal from './PrepareRequestedClientUserModal';
+import PrepareRequestedDeviceModal from './PrepareRequestedDeviceModal';
 import RequiredIdentifiersModal from './RequiredIdentifiersModal';
-import ClientUserModal from './ClientUserModal';
-import PersonHeader from './PersonHeader';
-import PeopleWorkspace from '@/shared/components/PeopleWorkspace';
-import AddDeviceModal from '../AddDeviceModal';
-import AddUserServiceModal from '../AddUserServiceModal';
-import DeviceServiceModal from '../DeviceServiceModal';
-import RepossessDeviceModal from '../RepossessDeviceModal';
-import EditClientUserModal from '../EditClientUserModal';
-import StopAllServicesModal from '../StopAllServicesModal';
-import UserStatusModal from '../UserStatusModal';
+import WorkRowModals from './WorkRowModals';
+import WorkTable from './WorkTable';
 
 type Props = {
   plan: ExecutionPlan;
   people?: Record<string, PersonFacts>;
+  onSaved: () => void;
   onContinue: () => void;
 };
 
-const DONE = ['Completed', 'Awaiting Verification'];
-const OPEN = ['Active', 'Suspended'];
-const settled = (card: WorkCard) => DONE.includes(card.status) || card.status === 'Cancelled';
+type Identifiers = { kind: 'username' | 'serial_number'; requirements: WorkRequirement[] };
 
-const userRecord = (
-  person: WorkPersonCard,
-  facts: PersonFacts | null,
-  customer: string
-): UserDetail['user'] => ({
-  name: person.name as string,
-  full_name: person.full_name ?? facts?.full_name ?? person.name ?? 'Client User',
-  department: person.department ?? facts?.department ?? null,
-  customer,
-  email: person.email ?? facts?.email ?? null,
-  username: person.username ?? facts?.username ?? null,
-  lifecycle_status: person.lifecycle_status ?? facts?.lifecycle_status ?? 'Active',
-  start_date: facts?.start_date ?? null,
-  disabled_date: facts?.disabled_date ?? null,
-});
+type Dating = { cards: WorkCard[]; grouped: boolean };
 
-const userStatusDetail = (
-  person: WorkPersonCard,
-  facts: PersonFacts | null,
-  customer: string
-) => {
-  const user = userRecord(person, facts, customer);
-  const openServices = facts?.services.filter((service) =>
-    ['Active', 'Suspended'].includes(service.status)
-  ) ?? [];
+const Counter: React.FC<{ value: number; label: string; tone: string }> = ({ value, label, tone }) =>
+  value > 0 ? (
+    <span className={`${compactBadge} ${tone}`}>
+      {value} {label}
+    </span>
+  ) : null;
 
-  return {
-    user,
-    summary: {
-      current_devices: facts?.devices.length ?? 0,
-      active_personal_services: openServices.filter(
-        (service) => service.assignment_scope !== 'Device'
-      ).length,
-      active_device_services: openServices.filter(
-        (service) => service.assignment_scope === 'Device'
-      ).length,
-      open_requests: facts?.open_requests.length ?? 0,
-      attention_count: 0,
-    },
-  } as UserDetail;
+const defaultSelection = (plan: ExecutionPlan): ExecutionSelection => {
+  const person = plan.people.find((row) => row.remaining > 0) ?? plan.people[0];
+
+  if (person) return { kind: 'person', key: person.subject_key };
+
+  const open = plan.action_groups.find((group) => countStatuses(group.work).remaining > 0);
+  const first = open ?? plan.action_groups[0];
+
+  return first ? { kind: 'group', key: groupKeyOf(first) } : { kind: 'all' };
 };
 
-const LineIcon: React.FC<{ tone: 'done' | 'wait' | 'extra' | 'plain'; children: React.ReactNode }> = ({
-  tone,
-  children,
-}) => (
-  <span
-    aria-hidden
-    className={`flex h-9 w-9 items-center justify-center rounded-lg border ${
-      {
-        done: 'border-emerald-200 bg-emerald-50 text-emerald-600',
-        wait: 'border-amber-200 bg-amber-50 text-amber-700',
-        extra: 'border-violet-200 bg-violet-50 text-violet-700',
-        plain: 'border-slate-200 bg-slate-50 text-slate-500',
-      }[tone]
-    }`}
-  >
-    {children}
-  </span>
-);
-
-/**
- * Step 2: the accepted request first, then whatever else the job needs.
- *
- * Creating the person and preparing the machine sit on the lines that wait for them, so the
- * technician never has to go looking for why a line cannot run yet.
- */
-const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onContinue }) => {
-  const groupRun = useExecuteServiceActions();
+const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onSaved, onContinue }) => {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const execute = useExecuteWorkOrders();
   const recordActivity = useRecordRequestActivity();
   const settleElsewhere = useSettleWorkDoneElsewhere();
-  const [creating, setCreating] = useState<{ card: WorkCard; person: SubjectWorkGroup['person'] } | null>(null);
-  const [preparing, setPreparing] = useState<{ card: WorkCard; group: SubjectWorkGroup } | null>(null);
-  const [applying, setApplying] = useState<{
-    card: WorkCard;
-    person: SubjectWorkGroup['person'];
-    operation?: string;
-  } | null>(null);
-  const [onMachine, setOnMachine] = useState<WorkCard | null>(null);
-  const [moreFor, setMoreFor] = useState<string | null>(null);
-  const [acting, setActing] = useState<{
-    kind: 'service' | 'device' | 'edit' | 'status' | 'stop' | 'deviceService' | 'repossess';
-    key: string;
-    machine?: PersonFacts['devices'][number];
-    name: string;
-    person: WorkPersonCard;
-    facts: PersonFacts | null;
-  } | null>(null);
+
+  const [picked, setPicked] = useState<ExecutionSelection | null>(null);
+  const [identifiers, setIdentifiers] = useState<Identifiers | null>(null);
+  const [preparing, setPreparing] = useState<RequestedEntityPresentation | null>(null);
+  const [cancelling, setCancelling] = useState<RequestedEntityPresentation | null>(null);
+  const [targetsOpen, setTargetsOpen] = useState(false);
+  const [intent, setIntent] = useState<WorkRowIntent | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [running, setRunning] = useState<Set<string>>(new Set());
   const [outcome, setOutcome] = useState<string | null>(null);
-  // there is no draft to save here: every act is committed as it is carried out
-  const [saved, setSaved] = useState(false);
-  const [completing, setCompleting] = useState<'username' | 'serial_number' | null>(null);
-  const [preparingWork, setPreparingWork] = useState<
-    'device_resolution' | 'client_user_creation' | null
-  >(null);
+  const [dating, setDating] = useState<Dating | null>(null);
 
-  // what the whole request is waiting on, gathered per record by the server
-  const missing = {
-    usernames: (plan.requirements ?? []).filter(
-      (row) => row.kind === 'username' && !row.satisfied
-    ).length,
-    serials: (plan.requirements ?? []).filter(
-      (row) => row.kind === 'serial_number' && !row.satisfied
-    ).length,
-    devices: (plan.requirements ?? []).filter(
-      (row) => row.kind === 'device_resolution' && !row.satisfied
-    ).length,
-    people: (plan.requirements ?? []).filter(
-      (row) => row.kind === 'client_user_creation' && !row.satisfied
-    ).length,
+  const cards = useMemo(() => allCards(plan), [plan]);
+  const groupByCard = useMemo(() => {
+    const map = new Map<string, ExecutionPlan['action_groups'][number]>();
+    for (const group of plan.action_groups) for (const card of group.work) map.set(card.name, group);
+    return map;
+  }, [plan.action_groups]);
+
+  const valid = (selection: ExecutionSelection | null) => {
+    if (!selection) return false;
+    if (selection.kind === 'all') return true;
+    if (selection.kind === 'group') return plan.action_groups.some((group) => groupKeyOf(group) === selection.key);
+    return plan.people.some((person) => person.subject_key === selection.key);
   };
-  const queryClient = useQueryClient();
-  const customerRequests = useCustomerRequests(plan.customer);
-  const deviceOptions = useDeviceFilterOptions();
+  const kept = `msp.request.execution.${plan.request}`;
+  const remembered = useMemo(() => recall<ExecutionSelection>(kept), [kept]);
+  const selection = valid(picked)
+    ? (picked as ExecutionSelection)
+    : valid(remembered)
+      ? (remembered as ExecutionSelection)
+      : defaultSelection(plan);
 
-  // what was done straight on the person shows in the plan and the recap
+  const selectedGroup =
+    selection.kind === 'group'
+      ? plan.action_groups.find((group) => groupKeyOf(group) === selection.key)
+      : undefined;
+  const selectedPerson =
+    selection.kind === 'person' ? plan.people.find((person) => person.subject_key === selection.key) : undefined;
+
+  const view =
+    selection.kind === 'group'
+      ? (selectedGroup?.work ?? [])
+      : selectedPerson
+        ? cards.filter((card) => involves(card, selectedPerson))
+        : cards;
+
+  const rows = selectedPerson
+    ? personTableRows(selectedPerson, view, plan.requested_entities)
+    : workTableRows(view, plan.requested_entities, false);
+  const counts = countStatuses(view);
+  const ready = view.filter((card) => card.display_status === 'Ready' && card.primary_action.enabled);
+  const usernames = openRequirements(view, 'username');
+  const serials = openRequirements(view, 'serial_number');
+
+  const title = selectedGroup?.label ?? selectedPerson?.full_name ?? 'All remaining work';
+  const subtitle = selectedGroup
+    ? [selectedGroup.scope_label, `${selectedGroup.total} target${selectedGroup.total === 1 ? '' : 's'}`]
+        .filter(Boolean)
+        .join(' · ')
+    : selectedPerson
+      ? [selectedPerson.department, 'all accepted work involving this person'].filter(Boolean).join(' · ')
+      : 'Every accepted Work Order';
+
   const refresh = () => {
     queryClient.invalidateQueries(requestKeys.plan(plan.request));
     queryClient.invalidateQueries(requestKeys.detail(plan.request));
   };
-  // the menu stays available whatever the request asks; a line it already did is settled
-  const closeActing = () => {
-    setActing(null);
+
+  const run = async (
+    batch: WorkCard[],
+    summarise: boolean,
+    date: string,
+    invoiced: Set<string>,
+    handOver?: HandOver
+  ) => {
+    const names = batch.map((card) => card.name);
+    setRunning((current) => new Set([...current, ...names]));
+    setErrors((current) => Object.fromEntries(Object.entries(current).filter(([key]) => !names.includes(key))));
+    if (summarise) setOutcome(null);
+
+    try {
+      const result = await execute.mutateAsync({
+        request: plan.request,
+        executions: names.map((work_order) => ({
+          work_order,
+          inputs: {
+            effective_date: date,
+            ...(invoiced.has(work_order) ? { confirm_billed: 1 } : {}),
+            ...(handOver ?? {}),
+          },
+        })),
+      });
+      const refused = result.results.filter((row) => !row.ok && row.work_order);
+      setErrors((current) => ({
+        ...current,
+        ...Object.fromEntries(refused.map((row) => [row.work_order as string, row.message ?? 'Could not be completed.'])),
+      }));
+      if (result.completed) onSaved();
+      if (summarise) {
+        setOutcome(
+          result.failed ? `${result.completed} completed · ${result.failed} failed` : `${result.completed} completed`
+        );
+      }
+    } catch (error) {
+      const message = (error as Error).message;
+      setErrors((current) => ({ ...current, ...Object.fromEntries(names.map((name) => [name, message])) }));
+    } finally {
+      setRunning((current) => new Set([...current].filter((name) => !names.includes(name))));
+    }
+  };
+
+  const entityNamed = (name: string | null) =>
+    name ? plan.requested_entities.find((entity) => entity.name === name) ?? null : null;
+
+  const onPrerequisite = (card: WorkCard) => {
+    const prerequisite = card.prerequisite_action;
+    if (!prerequisite) return;
+    switch (prerequisite.kind) {
+      case 'complete_username':
+        setIdentifiers({ kind: 'username', requirements: openRequirements([card], 'username') });
+        return;
+      case 'complete_serial':
+        setIdentifiers({ kind: 'serial_number', requirements: openRequirements([card], 'serial_number') });
+        return;
+      case 'prepare_person':
+      case 'prepare_holder':
+      case 'prepare_device':
+      case 'complete_device_information': {
+        const entity = entityNamed(prerequisite.requested_entity);
+        if (entity) setPreparing(entity);
+      }
+    }
+  };
+
+  const onIntent = (next: WorkRowIntent) => {
+    if (next.kind === 'deviceOpen') {
+      navigate(`/msp/devices/${next.device}`);
+      return;
+    }
+    setIntent(next);
+  };
+
+  const personActions =
+    selectedPerson && view[0]
+      ? personMenu(selectedPerson.client_user ?? '', view[0], people, onIntent)
+      : null;
+
+  const closeIntent = () => {
+    setIntent(null);
     refresh();
     settleElsewhere.mutate(plan.request);
   };
 
-  const personActions = (group: SubjectWorkGroup, facts: PersonFacts | null): RowAction[] => {
-    const person = group.person as WorkPersonCard;
-    const open = (kind: NonNullable<typeof acting>['kind'], machine?: PersonFacts['devices'][number]) => () =>
-      setActing({ kind, key: group.subject_key, name: person.full_name ?? person.name ?? 'Client User', person, facts, machine });
-    const disabled = (person.lifecycle_status ?? facts?.lifecycle_status) === 'Disabled';
-    const hasServices = (facts?.services ?? []).some(
-      (service) => service.assignment_scope !== 'Device' && OPEN.includes(service.status)
-    );
-    // a machine the request is still waiting for is given through its line, so the line is settled
-    const slot = group.devices.find((row) => !settled(row.work) && row.work.ready);
-    const assignDevice = slot ? () => setPreparing({ card: slot.work, group }) : open('device');
-
-    return [
-      { label: 'Add service', icon: Layers, onClick: open('service'), disabled },
-      { label: 'Assign a device', icon: Laptop, onClick: assignDevice, disabled },
-      ...(facts?.devices ?? []).flatMap((machine) => {
-        const label = machine.hostname ?? machine.serial_number ?? machine.name;
-        return [
-          { label: `Add service on ${label}`, icon: Layers, onClick: open('deviceService', machine) },
-          { label: `Return ${label} to stock`, icon: Undo2, onClick: open('repossess', machine), danger: true },
-        ];
-      }),
-      { label: 'Edit', icon: PencilLine, onClick: open('edit') },
-      disabled
-        ? { label: 'Reactivate user', icon: UserCheck, onClick: open('status') }
-        : { label: 'Disable user', icon: UserX, onClick: open('status'), danger: true },
-      { label: 'Stop all services', icon: CircleX, onClick: open('stop'), danger: true, disabled: !hasServices },
-      // what else the person, their machines and their services allow, read from the server
-      { label: 'More actions', icon: Settings2, onClick: () => setMoreFor(group.subject_key) },
-    ];
-  };
-
-  // the request says what the customer asked; the technician decides what is actually done
-  const lineActions = (card: WorkCard, person: SubjectWorkGroup['person']): RowAction[] => {
-    const status = card.current?.operational_status ?? '';
-    const act = (operation: string) => () => setApplying({ card, person, operation });
-
-    const offered: { code: string; action: RowAction }[] = [
-      { code: 'service.suspend', action: { label: 'Suspend', icon: PauseCircle, onClick: act('service.suspend'), disabled: status !== 'Active' } },
-      { code: 'service.resume', action: { label: 'Resume', icon: PlayCircle, onClick: act('service.resume'), disabled: status !== 'Suspended' } },
-      { code: 'service.change', action: { label: 'Change service', icon: PencilLine, onClick: act('service.change'), disabled: !['Active', 'Suspended'].includes(status) } },
-      { code: 'service.end', action: { label: 'Stop service', icon: CircleX, onClick: act('service.end'), danger: true, disabled: !OPEN.includes(status) } },
-    ];
-
-    return offered
-      .filter((row) => row.code !== card.operation_code)
-      .map((row) => row.action);
-  };
-
-  const remaining = plan.groups.reduce(
-    (count, group) =>
-      count +
-      [
-        group.user_setup,
-        ...group.devices.map((slot) => slot.work),
-        ...group.device_operations,
-        ...group.services,
-      ].filter((card) => card && !settled(card)).length,
-    0
+  const pendingByPerson = Object.fromEntries(
+    plan.people.map((person) => [
+      person.subject_key,
+      openEntityCount(
+        personTableRows(
+          person,
+          cards.filter((card) => involves(card, person)),
+          plan.requested_entities
+        )
+      ),
+    ])
   );
-
-  /**
-   * The customer's own acts, and how much of each is ready to run now.
-   *
-   * The grouping is the one the request stored — the act the customer added — never one
-   * rebuilt by matching service and action names. What is still missing information does
-   * not hold back what is ready: the two are counted apart and only the ready ones run.
-   */
-  const groupable = useMemo(() => {
-    const byAct = new Map<string, { label: string; cards: WorkCard[]; waiting: number }>();
-
-    for (const group of plan.groups) {
-      for (const card of group.services) {
-        if (settled(card) || ['Blocked', 'Failed'].includes(card.status)) continue;
-
-        const key =
-          card.action_group_key ?? `legacy:${card.service_item}|${card.operation_code}`;
-        const asked = plan.action_groups?.find((row) => row.group_key === card.action_group_key);
-        const entry = byAct.get(key) ?? {
-          label:
-            asked?.label ??
-            `${card.action_label ?? card.operation_code} · ${card.service_name ?? card.service_item ?? ''}`,
-          cards: [],
-          waiting: 0,
-        };
-
-        if (!card.ready || identifierMissing(card, group.person)) {
-          entry.waiting += 1;
-        } else {
-          entry.cards.push(card);
-        }
-
-        byAct.set(key, entry);
-      }
-    }
-
-    return [...byAct.values()].filter((entry) => entry.cards.length > 1 || entry.waiting > 0);
-  }, [plan.groups, plan.action_groups]);
-
-  const runGroup = async (orders: string[]) => {
-    setOutcome(null);
-    try {
-      const result = await groupRun.mutateAsync({ work_orders: orders });
-      const refused = result.results.filter((row) => !row.ok);
-
-      if (result.completed) setSaved(true);
-
-      setOutcome(
-        refused.length
-          ? `${result.completed} completed · ${refused.length} failed: ` +
-              refused.map((row) => row.message).join('; ')
-          : `${result.completed} completed`
-      );
-    } catch (error) {
-      setOutcome((error as Error).message);
-    }
-  };
-
-  const needsOf = (group: SubjectWorkGroup, key: string) =>
-    group.services
-      .filter((card) => card.device_requirement_key === key)
-      .map((card) => card.service_name ?? card.service_item ?? '')
-      .filter(Boolean);
-
   const executed = plan.stages.current !== 'execute';
-
-  const workPeople = plan.groups.map((group) => {
-    const open = [
-      group.user_setup,
-      ...group.devices.map((slot) => slot.work),
-      ...group.device_operations,
-      ...group.services,
-    ].filter((card) => card && !settled(card)).length;
-    return {
-      key: group.subject_key,
-      name: group.person?.full_name ?? 'Unnamed person',
-      hint: open ? `${open} item${open > 1 ? 's' : ''} remaining` : 'Done',
-      done: open === 0,
-    };
-  });
 
   return (
     <div className="space-y-4">
-      {/* <div className={banner}>
-        <p className="font-semibold">Execution</p>
-        <p className="mt-0.5">
-          Complete the accepted work below. The ⋯ menus act on the person or the service directly
-          when the real work differs from what was asked.
-        </p>
-      </div> */}
+      <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[300px_minmax(0,1fr)]">
+        <ExecutionRail
+          groups={plan.action_groups}
+          people={plan.people}
+          remaining={countStatuses(cards).remaining + openEntityCount(workTableRows(cards, plan.requested_entities, false))}
+          pendingByPerson={pendingByPerson}
+          selection={selection}
+          onSelect={(next) => {
+            setPicked(next);
+            remember(kept, next);
+            setOutcome(null);
+          }}
+        />
 
-      <p className="inline-flex items-center gap-1.5 text-xs text-emerald-700">
-        <Check size={13} />
-        {saved ? 'Progress saved automatically' : 'Progress is saved as work is completed.'}
-      </p>
-
-      {(groupable.length > 0 ||
-        missing.usernames > 0 ||
-        missing.serials > 0 ||
-        missing.devices > 0 ||
-        missing.people > 0) && (
-        <div className={bulkBar}>
-          <div>
-            <p className="text-sm font-semibold text-slate-900">Action groups</p>
-            <p className="text-xs text-slate-500">
-              What the customer asked for, run together. Each target is still carried out on
-              its own.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {groupable.map((entry) => (
-              <div key={entry.label} className="flex items-center gap-1.5">
-                <span className="text-xs font-semibold text-slate-700">{entry.label}</span>
-                {entry.waiting > 0 && (
-                  <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
-                    {entry.waiting} need information
-                  </span>
-                )}
-                {entry.cards.length > 0 && (
-                  <button
-                    type="button"
-                    disabled={groupRun.isLoading}
-                    onClick={() => runGroup(entry.cards.map((card) => card.name))}
-                    className={btnPrimary}
-                  >
-                    Execute {entry.cards.length} ready
-                  </button>
-                )}
+        <section aria-label="Execution workspace" className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white">
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-4 py-3">
+            <div className="min-w-0">
+              <h3 className="text-sm font-bold text-slate-900">{title}</h3>
+              <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                <Counter value={counts.ready} label="ready" tone="border-emerald-200 bg-emerald-50 text-emerald-700" />
+                <Counter value={counts.needsInformation} label="need information" tone="border-amber-200 bg-amber-50 text-amber-700" />
+                <Counter value={counts.waiting} label="waiting for prerequisite" tone="border-amber-200 bg-amber-50 text-amber-700" />
+                <Counter value={counts.completed} label="completed" tone="border-slate-200 bg-white text-slate-600" />
+                <Counter value={counts.failed} label="failed" tone="border-red-200 bg-red-50 text-red-700" />
               </div>
-            ))}
+            </div>
+            <div className="flex items-center gap-1.5">
+              <button type="button" onClick={() => setTargetsOpen(true)} className={softButton}>
+                View targets
+              </button>
+              {selectedPerson && personActions?.kind === 'client_user' && (
+                <RowActionsMenu actions={personActions.actions} />
+              )}
+              {selectedPerson && personActions?.kind === 'unresolved' && (
+                <RowActionsMenu actions={[]} disabledReason={UNRESOLVED_TARGET_EXPLANATION} />
+              )}
+            </div>
           </div>
 
-          {missing.usernames > 0 && (
-            <button
-              type="button"
-              onClick={() => setCompleting('username')}
-              className={btn}
-            >
-              Complete {missing.usernames} usernames
-            </button>
-          )}
-
-          {missing.serials > 0 && (
-            <button type="button" onClick={() => setCompleting('serial_number')} className={btn}>
-              Complete {missing.serials} serial numbers
-            </button>
-          )}
-
-          {missing.devices > 0 && (
-            <button type="button" onClick={() => setPreparingWork('device_resolution')} className={btn}>
-              Prepare {missing.devices} Devices
-            </button>
-          )}
-
-          {missing.people > 0 && (
-            <button
-              type="button"
-              onClick={() => setPreparingWork('client_user_creation')}
-              className={btn}
-            >
-              Create {missing.people} Client Users
-            </button>
-          )}
-        </div>
-      )}
-
-      {preparingWork && (
-        <PrepareWorkModal
-          request={plan.request}
-          customer={plan.customer}
-          kind={preparingWork}
-          requirements={plan.requirements ?? []}
-          onClose={() => setPreparingWork(null)}
-        />
-      )}
-
-      {completing && (
-        <RequiredIdentifiersModal
-          request={plan.request}
-          kind={completing}
-          requirements={plan.requirements ?? []}
-          onClose={() => setCompleting(null)}
-        />
-      )}
-
-      {outcome && (
-        <p role="status" className={outcome.includes('failed') ? warnBar : `${warnBar} border-emerald-200 bg-emerald-50 text-emerald-900`}>
-          {outcome}
-        </p>
-      )}
-
-      <PeopleWorkspace people={workPeople}>
-        {(key) => {
-        const group = plan.groups.find((row) => row.subject_key === key) as SubjectWorkGroup;
-        const person = group.person;
-        const facts = person?.name ? people?.[person.name] ?? null : null;
-        const userReady = Boolean(person?.name);
-        const hasDeviceWork = group.services.some((card) => card.target_scope === 'Device');
-        const deviceReady = group.devices.every((slot) => DONE.includes(slot.work.status));
-        const requested = group.services.filter((card) => card.origin !== 'Technician');
-        const added = group.services.filter((card) => card.origin === 'Technician');
-
-        return (
-          <div>
-            <PersonHeader
-              fullName={person?.full_name ?? 'Unnamed person'}
-              isNew={!person?.name}
-              facts={person?.name ? people?.[person.name] : null}
-              asked={person}
-            >
-                <span className={pill(userReady ? 'ready' : 'pending')}>
-                  {userReady ? 'Client user ready' : 'Client user required'}
-                </span>
-                {hasDeviceWork && (
-                  <span className={pill(deviceReady ? 'ready' : 'pending')}>
-                    {deviceReady ? 'Device ready' : 'Device required'}
-                  </span>
-                )}
-                {userReady && person && <RowActionsMenu actions={personActions(group, facts)} />}
-            </PersonHeader>
-
-            {group.user_setup && (
-              <div className={lineRow}>
-                <LineIcon tone={settled(group.user_setup) ? 'done' : 'wait'}>
-                  {settled(group.user_setup) ? <Check size={16} /> : <UserPlus size={16} />}
-                </LineIcon>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-slate-900">
-                    {settled(group.user_setup) ? 'Client User created' : 'Client User'}
-                  </p>
-                  <p
-                    className={`mt-1 text-xs font-semibold ${
-                      settled(group.user_setup) ? 'text-emerald-700' : 'text-amber-700'
-                    }`}
-                  >
-                    {settled(group.user_setup)
-                      ? group.user_setup.resulting_client_user
-                      : 'Client User information required first'}
-                  </p>
-                </div>
-                {!settled(group.user_setup) && (
-                  <div className="col-start-2 flex gap-2 sm:col-start-auto">
+          <div className="space-y-2.5 p-3.5">
+            {(ready.length > 0 || usernames.length > 0 || serials.length > 0) && (
+              <section
+                aria-label="Grouped execution"
+                className="flex flex-wrap items-center justify-between gap-2.5 rounded-lg border border-blue-100 bg-blue-50/40 px-3 py-2"
+              >
+                <p className="text-xs font-bold text-slate-900">Grouped execution</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {ready.length > 0 && (
                     <button
                       type="button"
-                      onClick={() => setCreating({ card: group.user_setup as WorkCard, person })}
-                      className={btn}
+                      disabled={execute.isLoading}
+                      onClick={() => setDating({ cards: ready, grouped: true })}
+                      className={primaryButton}
                     >
-                      Create Client User
+                      Execute {ready.length} ready
                     </button>
-                  </div>
-                )}
-              </div>
+                  )}
+                  {usernames.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setIdentifiers({ kind: 'username', requirements: usernames })}
+                      className={prerequisiteButton}
+                    >
+                      Complete {usernames.length} usernames
+                    </button>
+                  )}
+                  {serials.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setIdentifiers({ kind: 'serial_number', requirements: serials })}
+                      className={prerequisiteButton}
+                    >
+                      Complete {serials.length} serial numbers
+                    </button>
+                  )}
+                </div>
+              </section>
             )}
 
-            {group.devices.map((slot) => {
-              const done = settled(slot.work);
+            {outcome && (
+              <p
+                role="status"
+                className={`rounded-lg border px-3 py-2 text-xs font-semibold ${
+                  outcome.includes('failed')
+                    ? 'border-amber-200 bg-amber-50 text-amber-900'
+                    : 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                }`}
+              >
+                {outcome}
+              </p>
+            )}
 
-              return (
-                <div key={slot.device_requirement_key} className={lineRow}>
-                  <LineIcon tone={done ? 'done' : 'wait'}>
-                    {done ? <Check size={16} /> : <Laptop size={16} />}
-                  </LineIcon>
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-slate-900">
-                      {done ? 'Device prepared' : 'Device'}
-                    </p>
-                    <p className="mt-0.5 text-xs text-slate-500">
-                      {done
-                        ? [slot.work.device?.hostname, slot.work.device?.serial_number].filter(Boolean).join(' · ')
-                        : `Needed by ${needsOf(group, slot.device_requirement_key).join(', ') || 'device services'}`}
-                    </p>
-                    {!done && (
-                      <p className="mt-1 text-xs font-semibold text-amber-700">
-                        {slot.work.ready ? 'Device information required first' : `Waiting for ${slot.work.waiting_on}`}
-                      </p>
-                    )}
-                  </div>
-                  {!done && slot.work.ready && (
-                    <div className="col-start-2 flex gap-2 sm:col-start-auto">
-                      <button type="button" onClick={() => setPreparing({ card: slot.work, group })} className={btn}>
-                        Prepare Device
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            <WorkTable
+              rows={rows}
+              entities={plan.requested_entities}
+              groupOf={(card) => groupByCard.get(card.name)}
+              people={people}
+              errors={errors}
+              running={running}
+              onExecute={(card) => setDating({ cards: [card], grouped: false })}
+              onPrerequisite={onPrerequisite}
+              onPrepare={setPreparing}
+              onCancel={setCancelling}
+              onIntent={onIntent}
+            />
 
-            {group.device_operations.map((card) => {
-              const done = settled(card);
-              const heldUp = ['Blocked', 'Failed'].includes(card.status);
-              // before it runs: who holds it and who was asked for; after: what actually happened
-              const from = (done ? card.snapshot_holder_name : card.current_holder_name) ?? 'Unassigned';
-              const to =
-                (done ? card.device?.holder_name : card.requested_holder_name) ?? 'Unassigned';
-
-              return (
-                <div
-                  key={card.name}
-                  className={`${lineRow} ${done ? 'bg-emerald-50/30' : 'bg-white'}`}
-                >
-                  <LineIcon tone={done ? 'done' : card.ready ? 'plain' : 'wait'}>
-                    {done ? <Check size={16} /> : <Laptop size={16} />}
-                  </LineIcon>
-
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-slate-900">
-                      {card.action_label ?? card.operation_code}
-                      {card.origin === 'Technician' && (
-                        <span className={`ml-2 ${pill('violet')}`}>ADDITIONAL ACTION</span>
-                      )}
-                    </p>
-                    <p className="text-sm text-slate-700">{card.device?.hostname}</p>
-                    <p className="text-sm text-slate-700">
-                      {from} → {to}
-                    </p>
-                    {card.override_reason && (
-                      <p className="mt-0.5 text-xs text-violet-700">
-                        Requested: {card.requested_holder_name} · {card.override_reason}
-                      </p>
-                    )}
-                    {!done && card.holder_changed && (
-                      <p className="mt-0.5 text-xs font-semibold text-amber-700">
-                        The Device holder changed after this request was submitted. Review the
-                        current holder before continuing.
-                      </p>
-                    )}
-                    <p
-                      className={`mt-1 inline-flex items-center gap-1 text-xs font-semibold ${
-                        done
-                          ? 'text-emerald-700'
-                          : heldUp
-                            ? 'text-orange-700'
-                            : card.ready
-                              ? 'text-emerald-700'
-                              : 'text-amber-700'
-                      }`}
-                    >
-                      {done
-                        ? card.status === 'Cancelled'
-                          ? 'Given up'
-                          : 'Completed'
-                        : heldUp
-                          ? `${card.status}${card.failure_reason ? ` · ${card.failure_reason}` : ''}`
-                          : card.ready
-                            ? 'Ready to execute'
-                            : `Waiting for ${card.waiting_on}`}
-                    </p>
-                  </div>
-
-                  {!done && card.ready && !heldUp && (
-                    <div className="col-start-2 flex items-center gap-2 sm:col-start-auto">
-                      <button type="button" onClick={() => setOnMachine(card)} className={btnPrimary}>
-                        <Play size={13} />
-                        {card.action_label ?? 'Carry it out'}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-
-            {[...requested, ...added].map((card) => {
-              const done = settled(card);
-              const extra = card.origin === 'Technician';
-              const heldUp = ['Blocked', 'Failed'].includes(card.status);
-
-              return (
-                <div
-                  key={card.name}
-                  className={`${lineRow} ${done ? 'bg-emerald-50/30' : extra ? 'bg-violet-50/20' : 'bg-white'}`}
-                >
-                  <LineIcon tone={done ? 'done' : extra ? 'extra' : card.ready ? 'plain' : 'wait'}>
-                    {done ? (
-                      <Check size={16} />
-                    ) : card.target_scope === 'Device' ? (
-                      <Laptop size={16} />
-                    ) : extra ? (
-                      <Settings2 size={16} />
-                    ) : (
-                      <UserRound size={16} />
-                    )}
-                  </LineIcon>
-
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-slate-900">
-                      {card.action_label ?? card.action} · {card.service_name ?? card.service_item}
-                      {extra ? (
-                        <span className={`ml-2 ${pill('violet')}`}>ADDITIONAL ACTION</span>
-                      ) : (
-                        <span className={`ml-2 ${pill('blue')}`}>REQUESTED</span>
-                      )}
-                    </p>
-                    <p className="mt-0.5 text-xs text-slate-500">
-                      {card.target_scope} scope
-                      {card.target_scope === 'Device' && card.device?.hostname ? ` · ${card.device.hostname}` : ''}
-                      {card.current ? ` · currently ${card.current.operational_status.toLowerCase()}` : ''}
-                    </p>
-                    {extra && card.technician_reason && (
-                      <p className="mt-0.5 text-xs text-violet-700">{card.technician_reason}</p>
-                    )}
-                    <p
-                      className={`mt-1 inline-flex items-center gap-1 text-xs font-semibold ${
-                        done
-                          ? 'text-emerald-700'
-                          : heldUp
-                            ? 'text-orange-700'
-                            : card.ready
-                              ? extra
-                                ? 'text-violet-700'
-                                : 'text-emerald-700'
-                              : 'text-amber-700'
-                      }`}
-                    >
-                      {done ? (
-                        card.status === 'Cancelled' ? 'Given up' : 'Completed'
-                      ) : heldUp ? (
-                        `${card.status}${card.failure_reason ? ` · ${card.failure_reason}` : ''}`
-                      ) : card.ready ? (
-                        extra ? 'Additional service action · ready' : 'Ready to execute'
-                      ) : (
-                        <>
-                          <Clock size={12} />
-                          Waiting for {card.waiting_on}
-                        </>
-                      )}
-                    </p>
-                  </div>
-
-                  {(!done || plan.status !== 'Completed') && (
-                    <div className="col-start-2 flex items-center gap-2 sm:col-start-auto">
-                      {!done && card.ready && !heldUp && (
-                        <button type="button" onClick={() => setApplying({ card, person })} className={btnPrimary}>
-                          <Play size={13} />
-                          {card.action_label ?? card.action}
-                        </button>
-                      )}
-                      {!done && card.ready && card.operation_code !== 'service.add' && lineActions(card, person).some((row) => !row.disabled) && (
-                        <RowActionsMenu actions={lineActions(card, person)} />
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-
-            {group.services.length === 0 &&
-              !group.user_setup &&
-              group.devices.length === 0 &&
-              group.device_operations.length === 0 && (
-              <p className="px-4 py-3 text-xs text-slate-500">
-                No accepted request line remains for this person. The ⋯ menu still acts on them.
+            {plan.rejected.length > 0 && (
+              <p className="text-xs text-slate-500">
+                {plan.rejected.length} rejected line{plan.rejected.length > 1 ? 's are' : ' is'} not part of the work.
               </p>
             )}
           </div>
-        );
-        }}
-      </PeopleWorkspace>
+        </section>
+      </div>
 
-      {plan.rejected.length > 0 && (
-        <p className="text-xs text-slate-500">
-          {plan.rejected.length} rejected line{plan.rejected.length > 1 ? 's are' : ' is'} not part of
-          the work.
-        </p>
+      <div className="flex flex-col items-stretch justify-end gap-3 rounded-lg border border-slate-200 bg-slate-50/70 px-4 py-3 sm:flex-row sm:items-center">
+        <button type="button" disabled={!executed} onClick={onContinue} className={primaryButton}>
+          Continue to Verify
+        </button>
+      </div>
+
+      {targetsOpen && (
+        <Modal
+          open
+          onClose={() => setTargetsOpen(false)}
+          icon={ListChecks}
+          title="Targets in this view"
+          subtitle={`${view.length} Work Order target${view.length === 1 ? '' : 's'}`}
+          widthClass="max-w-3xl"
+          footer={
+            <div className="flex justify-end">
+              <button type="button" onClick={() => setTargetsOpen(false)} className={primaryButton}>
+                Done
+              </button>
+            </div>
+          }
+        >
+          <table className="w-full">
+            <thead>
+              <tr>
+                {['Target', 'Action', 'Status'].map((label) => (
+                  <th
+                    key={label}
+                    className="border-b border-slate-200 px-2 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500"
+                  >
+                    {label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {view.map((card) => (
+                <tr key={card.name} className="border-b border-slate-100 last:border-b-0">
+                  <td className="px-2 py-1.5 text-xs text-slate-800">{card.target.label}</td>
+                  <td className="px-2 py-1.5 text-xs text-slate-600">
+                    {groupByCard.get(card.name)?.label ?? card.primary_action.label}
+                  </td>
+                  <td className="px-2 py-1.5 text-xs text-slate-600">{card.display_status}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Modal>
       )}
 
-      {executed && plan.status !== 'Completed' ? (
-        <div className={nextBar}>
-          <div>
-            <p className="text-sm font-semibold text-emerald-800">Execution complete</p>
-            <p className="text-xs text-emerald-700">
-              All accepted request work and additional technician actions have been resolved.
-            </p>
-          </div>
-          <button type="button" onClick={onContinue} className={btnPrimary}>
-            Continue to Verify
-          </button>
-        </div>
-      ) : (
-        remaining > 0 && <p className="text-xs text-slate-500">{remaining} item{remaining > 1 ? 's' : ''} remaining.</p>
-      )}
-
-      <ClientUserModal
-        card={creating?.card ?? null}
-        person={creating?.person ?? null}
-        customer={plan.customer}
-        onClose={() => setCreating(null)}
-      />
-      <AddDeviceModal
-        open={Boolean(preparing)}
-        clientUser={(preparing?.group.person?.name as string) ?? ''}
-        userName={preparing?.group.person?.full_name ?? 'this person'}
-        customer={plan.customer}
-        deviceTypes={deviceOptions.data?.device_types ?? []}
-        interfaceTypes={deviceOptions.data?.interface_types ?? []}
-        requests={[]}
-        workOrder={preparing?.card.name ?? null}
-        needs={preparing ? needsOf(preparing.group, preparing.card.device_requirement_key ?? '') : []}
-        initial={{
-          hostname: preparing?.card.asked_hostname,
-          serial_number: preparing?.card.asked_serial,
-          device_type: preparing?.card.asked_device_type,
-        }}
-        onClose={() => setPreparing(null)}
-      />
-      <ApplyActionModal
-        card={applying?.card ?? null}
-        person={applying?.person ?? null}
-        operation={applying?.operation ?? null}
-        onClose={() => setApplying(null)}
-      />
-      <DeviceOperationModal
-        card={onMachine}
-        customer={plan.customer}
-        onClose={() => setOnMachine(null)}
-      />
-      {moreFor && (
-        <MoreActionsModal
-          request={plan.request}
-          subjectKey={moreFor}
-          onClose={() => setMoreFor(null)}
+      {dating && (
+        <EffectiveDateModal
+          title={dating.grouped ? `Execute ${dating.cards.length} ready` : dating.cards[0].primary_action.label}
+          subtitle={
+            dating.grouped
+              ? `${dating.cards.length} work order${dating.cards.length === 1 ? '' : 's'}`
+              : dating.cards[0].target.label
+          }
+          cards={dating.cards}
+          requestedDate={plan.context.requested_date}
+          createdOn={plan.context.raised_at}
+          busy={execute.isLoading}
+          customer={plan.customer}
+          grouped={dating.grouped}
+          onClose={() => setDating(null)}
+          onConfirm={async (date, invoiced, handOver) => {
+            await run(dating.cards, dating.grouped, date, invoiced, handOver);
+            setDating(null);
+          }}
         />
       )}
-      {acting && (
-        <>
-          <AddUserServiceModal
-            open={acting.kind === 'service'}
-            user={userRecord(acting.person, acting.facts, plan.customer)}
-            requests={customerRequests.data ?? []}
-            defaultRequest={plan.request}
-            onClose={closeActing}
-          />
-          <AddDeviceModal
-            open={acting.kind === 'device'}
-            clientUser={acting.person.name as string}
-            userName={acting.name}
-            customer={plan.customer}
-            deviceTypes={deviceOptions.data?.device_types ?? []}
-            interfaceTypes={deviceOptions.data?.interface_types ?? []}
-            requests={customerRequests.data ?? []}
-            defaultRequest={plan.request}
-            onClose={closeActing}
-          />
-          <EditClientUserModal
-            open={acting.kind === 'edit'}
-            user={userRecord(acting.person, acting.facts, plan.customer)}
-            onClose={closeActing}
-            onDone={() =>
-              recordActivity.mutate({
-                name: plan.request,
-                subject_key: acting.key,
-                label: 'User information updated',
-                detail: `${acting.name}'s information was updated.`,
-              })
-            }
-          />
-          <UserStatusModal
-            open={acting.kind === 'status'}
-            detail={userStatusDetail(acting.person, acting.facts, plan.customer)}
-            onClose={closeActing}
-            onDone={(activity) =>
-              recordActivity.mutate({
-                name: plan.request,
-                subject_key: acting.key,
-                label: activity.label,
-                detail: activity.detail,
-              })
-            }
-          />
-          <DeviceServiceModal
-            device={acting.kind === 'deviceService' ? acting.machine?.name ?? null : null}
-            defaultRequest={plan.request}
-            onClose={closeActing}
-          />
-          <RepossessDeviceModal
-            open={acting.kind === 'repossess'}
-            device={acting.machine?.name ?? ''}
-            hostname={acting.machine?.hostname ?? ''}
-            serialNumber={acting.machine?.serial_number}
-            currentHolder={acting.person.name}
-            currentHolderName={acting.name}
-            onClose={closeActing}
-          />
-          <StopAllServicesModal
-            person={acting.kind === 'stop' ? { name: acting.person.name as string, full_name: acting.name } : null}
-            sourceRequest={plan.request}
-            onClose={closeActing}
-          />
-        </>
+
+      {preparing?.kind === 'client_user' && (
+        <PrepareRequestedClientUserModal
+          entity={preparing}
+          customer={plan.customer}
+          onSaved={onSaved}
+          onClose={() => setPreparing(null)}
+        />
       )}
+
+      {preparing?.kind === 'device' && (
+        <PrepareRequestedDeviceModal
+          entity={preparing}
+          customer={plan.customer}
+          onSaved={onSaved}
+          onClose={() => setPreparing(null)}
+        />
+      )}
+
+      {cancelling && (
+        <CancelRequestedEntityModal
+          entity={cancelling}
+          goesWith={goesWith(cancelling, cards).map((card) => ({
+            key: card.name,
+            action: groupByCard.get(card.name)?.label ?? card.action_label ?? card.primary_action.label,
+            target: card.target.label,
+          }))}
+          onSaved={onSaved}
+          onClose={() => setCancelling(null)}
+        />
+      )}
+
+      {identifiers && (
+        <RequiredIdentifiersModal
+          request={plan.request}
+          kind={identifiers.kind}
+          requirements={identifiers.requirements}
+          onSaved={onSaved}
+          onClose={() => setIdentifiers(null)}
+        />
+      )}
+
+      <WorkRowModals
+        intent={intent}
+        request={plan.request}
+        customer={plan.customer}
+        people={people}
+        onClose={closeIntent}
+        onActivity={(subjectKey, activity) =>
+          recordActivity.mutate({
+            name: plan.request,
+            subject_key: subjectKey,
+            label: activity.label,
+            detail: activity.detail,
+          })
+        }
+      />
     </div>
   );
 };

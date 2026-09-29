@@ -18,7 +18,7 @@ from .base import MSPTestCase
 SENSITIVE_DOCTYPES = (
     "MSP Client User",
     "MSP Managed Device",
-    "MSP Service Request",
+    "MSP Request",
     "MSP Service Assignment",
 )
 

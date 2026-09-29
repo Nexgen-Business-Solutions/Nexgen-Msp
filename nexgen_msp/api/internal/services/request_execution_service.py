@@ -5,15 +5,6 @@ is the only thing the technician's screen talks to. It orchestrates and records;
 nothing about services, devices or people — those rules live in the lifecycle services and
 are called, never reimplemented.
 
-The plan is built from three groupings, none of which is the request line:
-
-    one person to create        per subject_key
-    one machine to settle       per device_requirement_key
-    one act on a service        per approved line
-
-so somebody the customer wrote once and asked three things for is created once, and three
-device services owed to that person land on one machine.
-
 Building the plan twice must produce the same plan: every work order carries a plan key
 derived from the request and the grouping it stands for, and that key is unique in the
 table, so two technicians opening the request at the same moment cannot double it.
@@ -23,10 +14,12 @@ import frappe
 
 from nexgen_msp.api.internal.services.request_service import RequestService
 from nexgen_msp.api.internal.services.service_definition_service import ServiceDefinitionService
-from nexgen_msp.utils import identifiers, operations, request_intents
+from nexgen_msp.utils import identifiers, operations, request_intents, request_targets
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
-WORK_ORDER = "MSP Service Work Order"
+WORK_ORDER = "MSP Work Order"
+REQUESTED_CLIENT_USER = "MSP Requested Client User"
+REQUESTED_DEVICE = "MSP Requested Device"
 
 SERVICE_ACTION = "Service Action"
 USER_SETUP = "User Setup"
@@ -34,14 +27,165 @@ DEVICE_PROVISIONING = "Device Provisioning"
 DEVICE_OPERATION = "Device Operation"
 CONTEXT_ACTION = "Context Action"
 
-# the machine acts that put a machine in somebody's hands
-HANDED_OVER = ("device.assign", "device.transfer")
+RETIRED_WORK_TYPES = (USER_SETUP, DEVICE_PROVISIONING)
+
+HOLDER_CHANGES = ("device.assign", "device.transfer")
 
 # the request has been decided and the work may exist
 PLANNABLE_STATUSES = ("Approved", "In Progress", "Completed")
 
+WORKABLE_STATUSES = tuple(status for status in PLANNABLE_STATUSES if status != "Completed")
+
+REVIEWABLE_STATUSES = ("Under Review",) + WORKABLE_STATUSES
+
 # work that is over, one way or another
 FINISHED_STATUSES = ("Completed", "Cancelled")
+
+DONE_STATUSES = ("Completed", "Awaiting Verification")
+
+PRIMARY_ACTION_LABELS = {
+	"service.add": "Add service",
+	"service.end": "End service",
+	"service.suspend": "Suspend service",
+	"service.resume": "Resume service",
+	"service.change": "Change service",
+	"device.transfer": "Change holder",
+	"device.repossess": "Return to stock",
+	"device.assign": "Assign Device",
+}
+
+PREREQUISITE_LABELS = {
+	"prepare_person": "Prepare person",
+	"prepare_holder": "Prepare new holder",
+	"prepare_device": "Prepare Device",
+	"complete_device_information": "Complete Device information",
+	"complete_username": "Complete username",
+	"complete_serial": "Complete serial number",
+}
+
+DEPENDENCY_LABELS = {
+	"requested_client_user": "Requested Client User must be resolved",
+	"requested_holder": "Requested holder must be resolved",
+	"requested_device": "Requested Device must be resolved",
+	"username": "Username required",
+	"serial_number": "Serial number required",
+}
+
+PREPARATION_OF = {
+	"requested_client_user": "prepare_person",
+	"requested_holder": "prepare_holder",
+	"requested_device": "prepare_device",
+	"username": "complete_username",
+	"serial_number": "complete_serial",
+}
+
+DEPENDENCY_OWNER_LABELS = {
+	"requested_client_user": "Client User",
+	"requested_holder": "New holder",
+	"requested_device": "Device",
+}
+
+COMPLETION_REFUSAL = "This Request cannot be completed while accepted work remains unresolved."
+
+NOBODY = "Unassigned"
+
+
+class _Reading:
+	"""What a plan reads about the people, machines and Requested entities of one request, read once."""
+
+	def __init__(self, doc):
+		self.doc = doc
+		self.lines = {row.name: row for row in doc.lines}
+		self.people = {
+			row.name: row
+			for row in frappe.get_all(
+				REQUESTED_CLIENT_USER,
+				filters={"request": doc.name},
+				fields=[
+					"name", "subject_key", "full_name", "department", "username", "status",
+					"resolved_client_user", "resolution_mode", "resolved_by", "resolved_at", "modified",
+					"cancel_reason", "cancelled_by", "cancelled_at",
+				],
+				order_by="creation asc",
+			)
+		}
+		self.machines = {
+			row.name: row
+			for row in frappe.get_all(
+				REQUESTED_DEVICE,
+				filters={"request": doc.name},
+				fields=[
+					"name", "device_requirement_key", "display_label", "hostname", "serial_number",
+					"device_type", "status", "resolved_managed_device", "resolution_mode",
+					"resolved_by", "resolved_at", "requested_snapshot_json", "modified",
+					"cancel_reason", "cancelled_by", "cancelled_at",
+				],
+				order_by="creation asc",
+			)
+		}
+		self._client_users = {}
+		self._devices = {}
+
+	def client_user(self, name):
+		"""One Client User's card, read once."""
+		if not name:
+			return None
+
+		if name not in self._client_users:
+			self._client_users[name] = frappe.db.get_value(
+				"MSP Client User",
+				name,
+				["name", "full_name", "department", "email", "username", "lifecycle_status", "modified"],
+				as_dict=True,
+			)
+
+		return self._client_users[name]
+
+	def device(self, name):
+		"""One Managed Device's card, read once."""
+		if not name:
+			return None
+
+		if name not in self._devices:
+			self._devices[name] = frappe.db.get_value(
+				"MSP Managed Device",
+				name,
+				["name", "hostname", "serial_number", "device_type", "status", "assigned_client_user", "modified"],
+				as_dict=True,
+			)
+
+		return self._devices[name]
+
+	def resolved_person(self, requested):
+		"""The Client User a Requested Client User resolved to, if it did."""
+		row = self.people.get(requested)
+
+		return row.resolved_client_user if row and row.status == "Resolved" else None
+
+	def resolved_device(self, requested):
+		"""The Managed Device a Requested Device resolved to, if it did."""
+		row = self.machines.get(requested)
+
+		return row.resolved_managed_device if row and row.status == "Resolved" else None
+
+	def person_of_key(self, subject_key):
+		"""The Requested Client User standing for a subject key."""
+		return next((row for row in self.people.values() if subject_key and row.subject_key == subject_key), None)
+
+	def machine_of_key(self, key):
+		"""The Requested Device standing for a device requirement key."""
+		return next((row for row in self.machines.values() if key and row.device_requirement_key == key), None)
+
+	def person_label(self, client_user=None, requested=None):
+		"""Who a Client User or a Requested Client User is, by name."""
+		card = self.client_user(client_user or self.resolved_person(requested))
+
+		if card:
+			return card.full_name
+
+		row = self.people.get(requested)
+
+		return row.full_name if row else None
 
 
 class RequestExecutionService:
@@ -59,53 +203,29 @@ class RequestExecutionService:
 				"INVALID_TRANSITION",
 			)
 
-		approved = [row for row in doc.lines if row.line_status == "Approved"]
+		for row in doc.lines:
+			if row.line_status != "Approved":
+				continue
 
-		for row in approved:
-			RequestExecutionService._plan_user_setup(doc, row)
-
-		for row in approved:
-			RequestExecutionService._plan_device_provisioning(doc, row)
-
-		for row in approved:
-			RequestExecutionService._plan_device_operation(doc, row)
-
-		for row in approved:
-			RequestExecutionService._plan_service_action(doc, row)
+			if request_intents.is_device_operation(row):
+				RequestExecutionService._plan_device_operation(doc, row)
+			else:
+				RequestExecutionService._plan_service_action(doc, row)
 
 		frappe.db.commit()
 
 		return RequestExecutionService.get_execution_plan(doc.name)
 
 	@staticmethod
-	def _plan_user_setup(doc, row):
-		"""A person the customer described but who does not exist yet."""
-		if not row.is_new_user or row.client_user or not row.subject_key:
-			return
-
-		RequestExecutionService._work_order(
-			doc,
-			plan_key=f"{doc.name}:user:{row.subject_key}",
-			work_type=USER_SETUP,
-			action="Create User",
-			target_scope="User",
-			subject_key=row.subject_key,
-		)
-
-	@staticmethod
 	def _plan_device_operation(doc, row):
-		"""A line asking something of the machine itself rather than of a service on it.
-
-		The machine is left exactly as the customer found it: what was asked, and what the
-		machine looked like when it was asked, are on the line, and the act happens here.
-		"""
-		if not request_intents.is_device_operation(row):
+		"""A line asking something of the machine itself, on the machine or the Requested Device it names."""
+		if not (row.managed_device or row.requested_device):
 			return
 
-		# asking for a machine names no machine: there is nothing to act on yet, so the work is
-		# to provision one, which `_plan_device_provisioning` picks up from the same line
-		if not row.managed_device:
-			return
+		device = request_targets.resolve_device_target(row.managed_device, row.requested_device)
+		holder = request_targets.resolve_holder_target(
+			row.requested_holder, row.requested_holder_requested_client_user
+		)
 
 		RequestExecutionService._work_order(
 			doc,
@@ -117,82 +237,26 @@ class RequestExecutionService:
 			target_scope="Device",
 			subject_key=row.subject_key,
 			device_requirement_key=row.device_requirement_key,
-			managed_device=row.managed_device,
-			requested_holder=row.requested_holder,
+			managed_device=device["resolved"],
+			requested_device=row.requested_device,
+			requested_holder=holder["resolved"],
+			requested_holder_requested_client_user=row.requested_holder_requested_client_user,
 			effective_date=row.requested_effective_date,
 			request_line_name=row.name,
 			request_line_idx=row.idx,
 		)
 
 	@staticmethod
-	def _plan_device_provisioning(doc, row):
-		"""A machine a line needs that is not settled: not found yet, or held by somebody else.
-
-		Handing a machine from one person to the next is never silent. It is work of its own,
-		visible before anything is activated on that machine.
-		"""
-		if request_intents.is_device_operation(row) and row.managed_device:
-			# the machine's own operation settles who holds it; nothing is prepared for it.
-			# Asking for a machine names nobody's machine, though: there the preparation is
-			# the whole point, so it falls through to the provisioning branch below.
-			return
-
-		key = row.device_requirement_key
-
-		if not key:
-			return
-
-		if row.is_new_device and not row.managed_device:
-			RequestExecutionService._work_order(
-				doc,
-				plan_key=f"{doc.name}:device:{key}",
-				work_type=DEVICE_PROVISIONING,
-				action="Register Device",
-				action_group_key=row.action_group_key,
-				target_scope="Device",
-				subject_key=row.subject_key,
-				device_requirement_key=key,
-			)
-			return
-
-		if not row.managed_device:
-			return
-
-		person = RequestExecutionService._person_of(row)
-
-		if not person:
-			return
-
-		holder = frappe.db.get_value("MSP Managed Device", row.managed_device, "assigned_client_user")
-
-		if holder == person:
-			return
-
-		RequestExecutionService._work_order(
-			doc,
-			plan_key=f"{doc.name}:device:{key}",
-			work_type=DEVICE_PROVISIONING,
-			action="Transfer Device" if holder else "Assign Device",
-			action_group_key=row.action_group_key,
-			target_scope="Device",
-			subject_key=row.subject_key,
-			device_requirement_key=key,
-			managed_device=row.managed_device,
-		)
-
-	@staticmethod
 	def _plan_service_action(doc, row):
-		"""One approved line, one act on one service.
+		"""One approved line, one act on one service."""
+		on_device = row.target_scope == "Device" or bool(row.managed_device or row.requested_device)
 
-		A line asking for a machine that does not exist yet is stored against the person,
-		because there is no machine to store it against. The act itself is still an act on a
-		machine, and the work order says so from the start rather than changing its mind
-		once the machine is found.
-		"""
-		if request_intents.is_device_operation(row):
-			return
-
-		on_a_device = bool(row.is_new_device or row.managed_device)
+		if on_device:
+			device = request_targets.resolve_device_target(row.managed_device, row.requested_device)
+			person = {"resolved": None}
+		else:
+			device = {"resolved": None}
+			person = request_targets.resolve_client_user_target(row.client_user, row.requested_client_user)
 
 		RequestExecutionService._work_order(
 			doc,
@@ -201,11 +265,13 @@ class RequestExecutionService:
 			action_group_key=row.action_group_key,
 			action=row.action,
 			operation_code=row.operation_code or operations.from_legacy_action(row.action),
-			target_scope="Device" if on_a_device else row.target_scope,
+			target_scope="Device" if on_device else row.target_scope,
 			subject_key=row.subject_key,
 			device_requirement_key=row.device_requirement_key,
-			client_user=None if on_a_device else row.client_user,
-			managed_device=row.managed_device if on_a_device else None,
+			client_user=person["resolved"],
+			requested_client_user=None if on_device else row.requested_client_user,
+			managed_device=device["resolved"],
+			requested_device=row.requested_device if on_device else None,
 			service_item=row.requested_service,
 			source_service_assignment=row.source_service_assignment,
 			effective_date=row.requested_effective_date,
@@ -234,7 +300,7 @@ class RequestExecutionService:
 				{
 					"doctype": WORK_ORDER,
 					"plan_key": plan_key,
-					"service_request": doc.name,
+					"request": doc.name,
 					"customer": doc.customer,
 					"status": "Open",
 					**fields,
@@ -250,18 +316,25 @@ class RequestExecutionService:
 	# ------------------------------------------------------------------ reading
 	@staticmethod
 	def get_execution_plan(request=None):
-		"""The whole of the work, grouped the way the technician works through it."""
+		"""The whole of the work, read act by act, person by person, and by what it still waits on."""
+		from nexgen_msp.api.internal.services.requested_entity_presentation import (
+			RequestedEntityPresentation,
+		)
+
 		RequestService._guard_internal()
 
 		doc = RequestExecutionService._request(request)
 		orders = RequestExecutionService._orders(doc.name)
-		ready = RequestExecutionService._readiness(orders)
-		requirements = RequestExecutionService._requirements(doc, orders)
-
-		for order in orders:
-			ready[order.name]["requirements"] = requirements.get(order.name, [])
-
-		groups = RequestExecutionService._groups(doc, orders, ready)
+		reading = _Reading(doc)
+		requirements = {
+			order.name: RequestExecutionService._requirements_of(order, reading) for order in orders
+		}
+		cards = {
+			order.name: RequestExecutionService._card(order, reading, requirements[order.name])
+			for order in orders
+		}
+		people = RequestExecutionService._people(doc, orders, reading)
+		recap = RequestExecutionService._recap(doc, orders, people, reading)
 
 		return {
 			"request": doc.name,
@@ -269,11 +342,13 @@ class RequestExecutionService:
 			"status": doc.status,
 			"context": RequestExecutionService._context(doc, orders),
 			"stages": RequestExecutionService._stages(doc, orders),
-			"groups": groups,
-			"action_groups": RequestExecutionService._action_groups(doc, orders, ready),
+			"action_groups": RequestExecutionService._action_groups(doc, orders, cards),
+			"requested_entities": RequestedEntityPresentation.for_request(doc.name),
+			"preparation": RequestExecutionService._preparation(reading, requirements),
+			"people": people,
 			"requirements": RequestExecutionService._requirement_summary(requirements),
-			"recap": RequestExecutionService._recap(doc, orders, groups),
-			"outcome": RequestExecutionService._outcome(doc, orders),
+			"recap": recap,
+			"outcome": RequestExecutionService._outcome(doc, orders, recap, reading),
 			"rejected": [
 				{
 					"idx": row.idx,
@@ -292,7 +367,7 @@ class RequestExecutionService:
 	def _orders(request):
 		orders = frappe.get_all(
 			WORK_ORDER,
-			filters={"service_request": request},
+			filters={"request": request},
 			fields=[
 				"name",
 				"plan_key",
@@ -304,6 +379,7 @@ class RequestExecutionService:
 				"operation_code",
 				"override_reason",
 				"requested_holder",
+				"requested_holder_requested_client_user",
 				"state_snapshot",
 				"status",
 				"target_scope",
@@ -313,7 +389,9 @@ class RequestExecutionService:
 				"request_line_name",
 				"request_line_idx",
 				"client_user",
+				"requested_client_user",
 				"managed_device",
+				"requested_device",
 				"service_item",
 				"source_service_assignment",
 				"effective_date",
@@ -359,187 +437,444 @@ class RequestExecutionService:
 		return orders
 
 	@staticmethod
-	def _readiness(orders):
-		"""Which work can be picked up now, and what the rest is waiting for.
-
-		Waiting for the step before is not a problem, it is the shape of the job. It is said
-		here as a derived fact and never written on the work order as a status: Blocked is
-		reserved for something nobody planned for.
-		"""
-		setups = {
-			order.subject_key: order for order in orders if order.work_type == USER_SETUP
-		}
-		provisions = {
-			order.device_requirement_key: order
-			for order in orders
-			if order.work_type == DEVICE_PROVISIONING
-		}
-
-		ready = {}
-
-		for order in orders:
-			waiting = None
-
-			setup = setups.get(order.subject_key)
-			if setup and setup.name != order.name and setup.status != "Completed":
-				waiting = "the person to be created"
-
-			if not waiting and order.work_type != USER_SETUP:
-				provision = provisions.get(order.device_requirement_key)
-				if provision and provision.name != order.name and provision.status != "Completed":
-					waiting = "the machine to be prepared"
-
-			ready[order.name] = {"ready": waiting is None, "waiting_on": waiting}
-
-		return ready
+	def _operation(order):
+		"""The operation a work order carries out, whatever vocabulary it was written in."""
+		return order.operation_code or operations.from_legacy_work(order.action)
 
 	@staticmethod
-	def _requirements(doc, orders):
-		"""What each unit of work is still owed before it can run, said by the server.
+	def _person_target(order, reading):
+		"""The Client User a person-scoped work order acts on, once there is one."""
+		return order.resulting_client_user or order.client_user or reading.resolved_person(
+			RequestExecutionService._requested_person(order, reading)
+		)
 
-		Expected missing data is not an obstacle — it is the ordinary state of a request whose
-		customer was never asked for a username or a serial. So it is reported as a requirement
-		with the record that owns it, and never as `Blocked`, which is reserved for something
-		nobody planned for.
+	@staticmethod
+	def _device_target(order, reading):
+		"""The Managed Device a machine-scoped work order acts on, once there is one."""
+		return order.resulting_device or order.managed_device or reading.resolved_device(
+			RequestExecutionService._requested_machine(order, reading)
+		)
 
-		Requirements are named per owner rather than per work order: five services waiting on
-		one person's username are one username to enter, not five.
-		"""
-		people, devices = {}, {}
-		found = {}
+	@staticmethod
+	def _holder_target(order, reading):
+		"""The Client User a holder change hands the machine to, once there is one."""
+		return order.requested_holder or reading.resolved_person(order.requested_holder_requested_client_user)
 
-		for order in orders:
-			person = RequestExecutionService._person_card(doc, order.subject_key, orders)
+	@staticmethod
+	def _requested_person(order, reading):
+		if order.requested_client_user:
+			return order.requested_client_user
 
-			if person and person.get("name") and person["name"] not in people:
-				people[person["name"]] = person
+		if order.work_type == USER_SETUP:
+			row = reading.person_of_key(order.subject_key)
+			return row.name if row else None
 
-			target = order.resulting_device or order.managed_device
+		return None
 
-			if target and target not in devices:
-				devices[target] = frappe.db.get_value(
-					"MSP Managed Device",
-					target,
-					["name", "hostname", "serial_number", "status"],
-					as_dict=True,
-				)
+	@staticmethod
+	def _requested_machine(order, reading):
+		if order.requested_device:
+			return order.requested_device
 
-			found[order.name] = RequestExecutionService._requirements_of(
-				order, person, devices.get(target) if target else None
-			)
+		if order.work_type == DEVICE_PROVISIONING:
+			row = reading.machine_of_key(order.device_requirement_key)
+			return row.name if row else None
+
+		return None
+
+	@staticmethod
+	def _dependencies(order, reading):
+		"""The Requested entities a work order waits on, in the order they are to be prepared."""
+		found = []
+
+		for kind, requested, rows in (
+			("requested_device", RequestExecutionService._requested_machine(order, reading), reading.machines),
+			("requested_client_user", RequestExecutionService._requested_person(order, reading), reading.people),
+			("requested_holder", order.requested_holder_requested_client_user, reading.people),
+		):
+			row = rows.get(requested) if requested else None
+
+			if row and row.status != "Resolved":
+				found.append({"kind": kind, "requested": requested, "cancelled": row.status == "Cancelled"})
 
 		return found
 
 	@staticmethod
-	def _requirements_of(order, person, device):
+	def _username_owner(order, reading):
+		"""Whose username a service is issued against: a Client User, or a Requested Client User still to resolve."""
+		if order.target_scope != "Device":
+			person = RequestExecutionService._person_target(order, reading)
+
+			if person:
+				return "MSP Client User", reading.client_user(person)
+
+			requested = reading.people.get(order.requested_client_user)
+
+			return (REQUESTED_CLIENT_USER, requested) if requested else (None, None)
+
+		device = reading.device(RequestExecutionService._device_target(order, reading))
+
+		if device and device.assigned_client_user:
+			return "MSP Client User", reading.client_user(device.assigned_client_user)
+
+		line = reading.lines.get(order.request_line_name)
+
+		if line and line.requested_for_user:
+			return "MSP Client User", reading.client_user(line.requested_for_user)
+
+		if line and line.requested_for_requested_client_user:
+			resolved = reading.resolved_person(line.requested_for_requested_client_user)
+
+			if resolved:
+				return "MSP Client User", reading.client_user(resolved)
+
+			requested = reading.people.get(line.requested_for_requested_client_user)
+
+			return (REQUESTED_CLIENT_USER, requested) if requested else (None, None)
+
+		return None, None
+
+	@staticmethod
+	def _requirements_of(order, reading):
 		"""The requirements of one work order, in the shape every screen reads."""
 		needed = []
 
-		if order.status in ("Completed", "Cancelled"):
+		if order.status in FINISHED_STATUSES + ("Awaiting Verification",) or order.work_type == CONTEXT_ACTION:
 			return needed
 
-		issuing = order.operation_code in ("service.add", "service.change")
+		for dependency in RequestExecutionService._dependencies(order, reading):
+			if dependency["cancelled"]:
+				continue
+
+			kind = dependency["kind"]
+			on_machine = kind == "requested_device"
+			row = (reading.machines if on_machine else reading.people)[dependency["requested"]]
+			needed.append(
+				{
+					"key": f"{kind}:{row.name}",
+					"kind": kind,
+					"blocking": True,
+					"satisfied": False,
+					"owner_type": REQUESTED_DEVICE if on_machine else REQUESTED_CLIENT_USER,
+					"owner_name": row.name,
+					"owner_label": row.display_label if on_machine else row.full_name,
+					"owner_department": None if on_machine else row.department,
+					"owner_modified": str(row.modified or ""),
+					"subject_key": None if on_machine else row.subject_key,
+					"label": DEPENDENCY_OWNER_LABELS[kind],
+					"current_value": None,
+					"reason": DEPENDENCY_LABELS[kind],
+					"can_batch_edit": False,
+				}
+			)
+
+		if order.work_type != SERVICE_ACTION or order.operation_code not in ("service.add", "service.change"):
+			return needed
+
 		on_device = order.target_scope == "Device"
 
-		if order.work_type == SERVICE_ACTION and issuing:
-			scope = ServiceDefinitionService.scope_of(order.service_item)
+		if not on_device or ServiceDefinitionService.scope_of(order.service_item) == "Both":
+			owner_type, owner = RequestExecutionService._username_owner(order, reading)
 
-			if not on_device or (scope == "Both" and person and person.get("name")):
+			if owner:
 				needed.append(
 					{
-						"key": f"username:{(person or {}).get('name') or order.subject_key}",
+						"key": f"username:{owner.name}",
 						"kind": "username",
 						"blocking": True,
-						"satisfied": bool((person or {}).get("username")),
-						"owner_type": "MSP Client User",
-						"owner_name": (person or {}).get("name"),
-						"owner_label": (person or {}).get("full_name"),
+						"satisfied": bool((owner.username or "").strip()),
+						"owner_type": owner_type,
+						"owner_name": owner.name,
+						"owner_label": owner.full_name,
 						"label": "Username",
-						"current_value": (person or {}).get("username"),
-						"owner_department": (person or {}).get("department"),
-						"owner_modified": str(
-							frappe.db.get_value(
-								"MSP Client User", (person or {}).get("name"), "modified"
-							)
-							or ""
-						)
-						if (person or {}).get("name")
-						else None,
+						"current_value": owner.username,
+						"owner_department": owner.department,
+						"owner_modified": str(owner.modified or ""),
+						"subject_key": owner.get("subject_key"),
 						"reason": "This service is issued against the person's username.",
-						"can_batch_edit": bool((person or {}).get("name")),
-					}
-				)
-
-			if on_device and device:
-				needed.append(
-					{
-						"key": f"serial:{device['name']}",
-						"kind": "serial_number",
-						"blocking": True,
-						"satisfied": bool(device.get("serial_number")),
-						"owner_type": "MSP Managed Device",
-						"owner_name": device["name"],
-						"owner_label": device.get("hostname") or device["name"],
-						"label": "Serial number",
-						"current_value": device.get("serial_number"),
-						"owner_department": None,
-						"owner_modified": str(
-							frappe.db.get_value("MSP Managed Device", device["name"], "modified") or ""
-						),
-						"reason": "A Device-scoped service is issued against the machine's serial.",
 						"can_batch_edit": True,
 					}
 				)
 
-		if order.work_type == USER_SETUP:
-			needed.append(
-				{
-					"key": f"client_user:{order.subject_key}",
-					"kind": "client_user_creation",
-					"blocking": True,
-					"satisfied": bool(order.resulting_client_user),
-					"owner_type": "MSP Client User",
-					"owner_name": order.resulting_client_user,
-					"owner_label": (person or {}).get("full_name"),
-					"owner_department": (person or {}).get("department"),
-					# what the customer already told us they will be called on the service, so
-					# the technician is not asked for it a second time
-					"owner_username": (person or {}).get("username"),
-					"owner_email": (person or {}).get("email"),
-					"owner_modified": None,
-					"subject_key": order.subject_key,
-					"work_order": order.name,
-					"label": "Client User",
-					"current_value": order.resulting_client_user,
-					"reason": "The person this work is for does not exist yet.",
-					"can_batch_edit": True,
-				}
-			)
+		if not on_device:
+			return needed
 
-		if order.work_type == DEVICE_PROVISIONING:
+		device = reading.device(RequestExecutionService._device_target(order, reading))
+		requested = None if device else reading.machines.get(order.requested_device)
+		owner = device or requested
+
+		if owner:
 			needed.append(
 				{
-					"key": f"device:{order.device_requirement_key}",
-					"kind": "device_resolution",
+					"key": f"serial:{owner.name}",
+					"kind": "serial_number",
 					"blocking": True,
-					"satisfied": order.status == "Completed",
-					"owner_type": "MSP Managed Device",
-					"owner_name": order.resulting_device or order.managed_device,
-					"owner_label": (device or {}).get("hostname")
-					or (person or {}).get("full_name")
-					or "New Device",
-					"owner_department": (person or {}).get("department"),
-					"owner_modified": None,
-					"subject_key": order.subject_key,
-					"work_order": order.name,
-					"label": "Device",
-					"current_value": order.resulting_device or order.managed_device,
-					"reason": "The machine this work needs is not settled yet.",
+					"satisfied": bool((owner.serial_number or "").strip()),
+					"owner_type": "MSP Managed Device" if device else REQUESTED_DEVICE,
+					"owner_name": owner.name,
+					"owner_label": (owner.hostname or owner.name) if device else owner.display_label,
+					"label": "Serial number",
+					"current_value": owner.serial_number,
+					"owner_department": None,
+					"owner_modified": str(owner.modified or ""),
+					"reason": "A Device-scoped service is issued against the machine's serial.",
 					"can_batch_edit": True,
 				}
 			)
 
 		return needed
+
+	@staticmethod
+	def _display(order, requirements, dependencies):
+		"""What a work order's row says: its status, the preparation it waits on, and why."""
+		if order.status in DONE_STATUSES:
+			return "Completed", None, None
+
+		if order.status in ("Cancelled", "Failed", "Blocked"):
+			return order.status, None, None
+
+		if any(dependency["cancelled"] for dependency in dependencies):
+			return "Blocked", None, request_targets.CANCELLED_TARGET
+
+		if dependencies:
+			first = dependencies[0]
+			kind = PREPARATION_OF[first["kind"]]
+
+			return (
+				"Waiting for prerequisite",
+				{"kind": kind, "label": PREREQUISITE_LABELS[kind], "requested_entity": first["requested"]},
+				DEPENDENCY_LABELS[first["kind"]],
+			)
+
+		missing = next(
+			(
+				row
+				for row in requirements
+				if not row["satisfied"] and row["kind"] in ("username", "serial_number")
+			),
+			None,
+		)
+
+		if missing:
+			kind = PREPARATION_OF[missing["kind"]]
+
+			return (
+				"Needs information",
+				{
+					"kind": kind,
+					"label": PREREQUISITE_LABELS[kind],
+					"requested_entity": missing["owner_name"]
+					if missing["owner_type"] in (REQUESTED_CLIENT_USER, REQUESTED_DEVICE)
+					else None,
+				},
+				DEPENDENCY_LABELS[missing["kind"]],
+			)
+
+		return "Ready", None, None
+
+	@staticmethod
+	def _on_machine(order):
+		return order.target_scope == "Device" or order.work_type in (DEVICE_OPERATION, DEVICE_PROVISIONING)
+
+	@staticmethod
+	def _relationship(order, reading):
+		"""Who holds the machine and who is to hold it, for a work order that changes its holder."""
+		code = RequestExecutionService._operation(order)
+
+		if order.work_type != DEVICE_OPERATION or code not in HOLDER_CHANGES + ("device.repossess",):
+			return None
+
+		snapshot = frappe.parse_json(order.state_snapshot) if order.state_snapshot else {}
+		device = reading.device(RequestExecutionService._device_target(order, reading))
+		before = snapshot.get("current_holder") if snapshot else (device.assigned_client_user if device else None)
+		from_label = reading.person_label(before) if before else None
+
+		if code == "device.repossess":
+			return {"from_label": from_label, "to_label": "Stock", "to_is_new": False, "note": None}
+
+		holder = RequestExecutionService._holder_target(order, reading)
+		requested = reading.people.get(order.requested_holder_requested_client_user)
+		to_is_new = bool(not holder and requested and requested.status == "Open")
+
+		return {
+			"from_label": from_label,
+			"to_label": reading.person_label(holder, order.requested_holder_requested_client_user) or NOBODY,
+			"to_is_new": to_is_new,
+			"note": None,
+		}
+
+	@staticmethod
+	def _target(order, reading, relationship):
+		"""What a work order acts on, as its row names it."""
+		if RequestExecutionService._on_machine(order):
+			requested = RequestExecutionService._requested_machine(order, reading)
+			device = reading.device(RequestExecutionService._device_target(order, reading))
+
+			if relationship:
+				sublabel = f"{relationship['from_label'] or NOBODY} → {relationship['to_label']}"
+			else:
+				person = RequestExecutionService._machine_person(order, reading)
+				sublabel = f"requested for {person}" if person else None
+
+			if device:
+				return {
+					"kind": "managed_device",
+					"name": device.name,
+					"requested_entity": requested,
+					"label": device.hostname or device.name,
+					"sublabel": sublabel,
+					"badge": None,
+				}
+
+			row = reading.machines.get(requested)
+
+			return {
+				"kind": "requested_device",
+				"name": None,
+				"requested_entity": requested,
+				"label": row.display_label if row else "Device",
+				"sublabel": sublabel,
+				"badge": "UNRESOLVED" if row else None,
+			}
+
+		requested = RequestExecutionService._requested_person(order, reading)
+
+		if order.work_type == CONTEXT_ACTION and not requested:
+			person = RequestExecutionService._subject_person(order.subject_key, reading)
+			requested = None if person else (reading.person_of_key(order.subject_key) or {}).get("name")
+		else:
+			person = RequestExecutionService._person_target(order, reading)
+
+		card = reading.client_user(person)
+
+		if card:
+			return {
+				"kind": "client_user",
+				"name": card.name,
+				"requested_entity": requested,
+				"label": card.full_name,
+				"sublabel": card.department,
+				"badge": None,
+			}
+
+		row = reading.people.get(requested)
+
+		return {
+			"kind": "requested_client_user",
+			"name": None,
+			"requested_entity": requested,
+			"label": row.full_name if row else "Client User",
+			"sublabel": row.department if row else None,
+			"badge": "NEW" if row else None,
+		}
+
+	@staticmethod
+	def _subject_person(subject_key, reading):
+		"""The Client User a subject key names, directly or through the person it resolved to."""
+		if not subject_key:
+			return None
+
+		if subject_key.startswith("user:"):
+			return subject_key.split(":", 1)[1]
+
+		row = reading.person_of_key(subject_key)
+
+		return reading.resolved_person(row.name) if row else None
+
+	@staticmethod
+	def _machine_person(order, reading):
+		"""Who a machine was asked for, by name."""
+		line = reading.lines.get(order.request_line_name)
+
+		if line and (line.requested_for_user or line.requested_for_requested_client_user):
+			return reading.person_label(line.requested_for_user, line.requested_for_requested_client_user)
+
+		device = reading.device(RequestExecutionService._device_target(order, reading))
+
+		if device and device.assigned_client_user:
+			return reading.person_label(device.assigned_client_user)
+
+		return None
+
+	@staticmethod
+	def _replacement(order):
+		"""The service a change moves onto, when its line asked for another one."""
+		if RequestExecutionService._operation(order) != "service.change":
+			return None
+
+		if not (order.source_service_assignment and order.service_item):
+			return None
+
+		current = frappe.db.get_value(
+			"MSP Service Assignment", order.source_service_assignment, "service_item"
+		)
+
+		return order.service_item if current and current != order.service_item else None
+
+	@staticmethod
+	def _card(order, reading, requirements):
+		"""One unit of work, with everything the technician needs to carry it out in place."""
+		dependencies = RequestExecutionService._dependencies(order, reading)
+		status, prerequisite, dependency = RequestExecutionService._display(
+			order, requirements, dependencies
+		)
+		relationship = RequestExecutionService._relationship(order, reading)
+		code = RequestExecutionService._operation(order)
+		row = reading.lines.get(order.request_line_name)
+
+		card = dict(order)
+		card["requirements"] = requirements
+		card["ready"] = status == "Ready"
+		card["waiting_on"] = dependency if status == "Waiting for prerequisite" else None
+
+		if row:
+			card["comment"] = row.comment
+			card["requested_quantity"] = row.requested_quantity
+
+		requested_machine = reading.machines.get(RequestExecutionService._requested_machine(order, reading))
+
+		if requested_machine:
+			asked = frappe.parse_json(requested_machine.requested_snapshot_json or "{}") or {}
+			card["asked_hostname"] = asked.get("hostname") or asked.get("display_label")
+			card["asked_serial"] = asked.get("serial_number")
+			card["asked_device_type"] = asked.get("device_type")
+
+		if order.work_type == DEVICE_OPERATION:
+			card.update(RequestExecutionService._holder_facts(order, row))
+			card["requested_holder_name"] = card.get("requested_holder_name") or reading.person_label(
+				None, order.requested_holder_requested_client_user
+			)
+
+		card["device"] = RequestExecutionService._device_card(
+			RequestExecutionService._device_target(order, reading)
+		)
+		card["current"] = RequestExecutionService._current_service(order)
+		card["service_scope"] = (
+			RequestService._service_scope(order.service_item) if order.service_item else None
+		)
+		card["action_label"] = order.action_label or RequestExecutionService._action_labels().get(
+			order.action, order.action
+		)
+		replacement = RequestExecutionService._replacement(order)
+		card["replacement_service"] = replacement
+		card["replacement_service_name"] = (
+			frappe.db.get_value("Item", replacement, "item_name") or replacement if replacement else None
+		)
+		card["display_status"] = status
+		card["target"] = RequestExecutionService._target(order, reading, relationship)
+		card["relationship"] = relationship
+		card["primary_action"] = {
+			"operation_code": code or "",
+			"label": PRIMARY_ACTION_LABELS.get(code)
+			or (operations.label(code) if code else None)
+			or order.activity_label
+			or order.work_type,
+			"enabled": status == "Ready" and order.work_type in (SERVICE_ACTION, DEVICE_OPERATION),
+		}
+		card["prerequisite_action"] = prerequisite
+		card["dependency_label"] = dependency
+
+		return card
 
 	@staticmethod
 	def _requirement_summary(requirements):
@@ -571,86 +906,95 @@ class RequestExecutionService:
 		return sorted(gathered.values(), key=lambda row: (row["kind"], row["owner_label"] or ""))
 
 	@staticmethod
-	def _groups(doc, orders, ready):
-		"""The work, read person by person: who, then their machine, then their services."""
-		lines = {row.name: row for row in doc.lines}
-		order_of = {}
+	def _preparation(reading, requirements):
+		"""The request-wide preparation still to do, counted once per record."""
+		owed = [row for rows in requirements.values() for row in rows if not row["satisfied"]]
 
-		for order in orders:
-			order_of.setdefault(order.subject_key, []).append(order)
+		return {
+			"new_people": len([row for row in reading.people.values() if row.status == "Open"]),
+			"unresolved_devices": len([row for row in reading.machines.values() if row.status == "Open"]),
+			"missing_usernames": len({row["key"] for row in owed if row["kind"] == "username"}),
+			"missing_serials": len({row["key"] for row in owed if row["kind"] == "serial_number"}),
+		}
 
-		groups = []
+	@staticmethod
+	def _people(doc, orders, reading):
+		"""Every person the accepted work is for, in the order the request speaks of them."""
+		keys = [row.subject_key for row in doc.get("subjects") or [] if row.subject_key]
 
-		for subject_key in RequestExecutionService._subject_order(doc):
-			mine = order_of.get(subject_key, [])
-			person = RequestExecutionService._person_card(doc, subject_key, mine)
+		for row in doc.lines:
+			if row.subject_key and row.subject_key not in keys:
+				keys.append(row.subject_key)
 
-			devices = {}
-			for order in mine:
-				if order.work_type != DEVICE_PROVISIONING:
-					continue
-				devices[order.device_requirement_key] = {
-					"device_requirement_key": order.device_requirement_key,
-					"device": RequestExecutionService._device_card(
-						order.resulting_device or order.managed_device
-					),
-					"work": RequestExecutionService._card(order, ready, lines),
-				}
+		work = [order for order in orders if order.work_type in (SERVICE_ACTION, DEVICE_OPERATION)]
 
-			groups.append(
+		for order in work:
+			if order.subject_key and order.subject_key not in keys:
+				keys.append(order.subject_key)
+
+		people = []
+
+		for key in keys:
+			requested = reading.person_of_key(key) if not key.startswith("user:") else None
+			mine = [
+				order
+				for order in work
+				if order.subject_key == key
+				or (requested and order.requested_holder_requested_client_user == requested.name)
+			]
+
+			if not mine:
+				continue
+
+			client_user = RequestExecutionService._subject_person(key, reading)
+			card = reading.client_user(client_user)
+
+			people.append(
 				{
-					"subject_key": subject_key,
-					"person": person,
-					"user_setup": next(
-						(
-							RequestExecutionService._card(order, ready, lines)
-							for order in mine
-							if order.work_type == USER_SETUP
-						),
-						None,
+					"subject_key": key,
+					"full_name": card.full_name if card else (requested.full_name if requested else key),
+					"department": card.department if card else (requested.department if requested else None),
+					"is_new": bool(requested),
+					"client_user": client_user,
+					"requested_client_user": requested.name if requested else None,
+					"total": len(mine),
+					"remaining": len(
+						[order for order in mine if order.status not in DONE_STATUSES + ("Cancelled",)]
 					),
-					"devices": list(devices.values()),
-					"device_operations": [
-						RequestExecutionService._card(order, ready, lines)
-						for order in mine
-						if order.work_type == DEVICE_OPERATION
-					],
-					"services": [
-						RequestExecutionService._card(order, ready, lines)
-						for order in mine
-						if order.work_type == SERVICE_ACTION
-					],
 				}
 			)
 
-		return groups
+		return people
 
 	@staticmethod
-	def _action_groups(doc, orders, ready):
+	def _action_groups(doc, orders, cards):
 		"""The same work, read act by act: what the customer asked for, and what is left to do.
 
 		This is a second reading of one set of Work Orders, never a second set. The technician
 		works through twenty additions at once or through one person at a time, and both views
 		answer from the same records — so a target completed in one is completed in the other.
 		"""
-		lines = {row.name: row for row in doc.lines}
 		named = {
 			row.group_key: row for row in doc.get("action_groups") or []
 		}
 		by_group = {}
 
 		for order in orders:
+			if order.work_type in RETIRED_WORK_TYPES:
+				continue
+
 			by_group.setdefault(order.action_group_key or "", []).append(order)
 
 		groups = []
 
 		for key, mine in by_group.items():
 			asked = named.get(key)
-			cards = [RequestExecutionService._card(order, ready, lines) for order in mine]
-			counted = {}
+			work = [cards[order.name] for order in mine]
+			counted, shown = {}, {}
 
-			for card in cards:
+			for card in work:
 				counted[card["status"]] = counted.get(card["status"], 0) + 1
+				shown[card["display_status"]] = shown.get(card["display_status"], 0) + 1
 
 			groups.append(
 				{
@@ -665,26 +1009,20 @@ class RequestExecutionService:
 					),
 					"scope_label": asked.source_scope_label if asked else None,
 					"origin": "Customer" if asked else "Technician",
-					"total": len(cards),
+					"total": len(work),
+					"target_count": len(work),
 					"remaining": len(
-						[card for card in cards if card["status"] in ("Open", "In Progress")]
+						[card for card in work if card["display_status"] not in ("Completed", "Cancelled")]
 					),
-					"ready": len(
-						[
-							card
-							for card in cards
-							if card["status"] in ("Open", "In Progress") and card.get("ready")
-						]
-					),
-					"needs_information": len(
-						[
-							card
-							for card in cards
-							if card["status"] in ("Open", "In Progress") and not card.get("ready")
-						]
-					),
+					"completed": shown.get("Completed", 0),
+					"ready": shown.get("Ready", 0),
+					"needs_information": shown.get("Needs information", 0),
+					"waiting_for_prerequisite": shown.get("Waiting for prerequisite", 0),
+					"failed": shown.get("Failed", 0),
+					"blocked": shown.get("Blocked", 0),
 					"by_status": counted,
-					"work": cards,
+					"by_display_status": shown,
+					"work": work,
 				}
 			)
 
@@ -706,7 +1044,7 @@ class RequestExecutionService:
 			if doc.requester
 			else None,
 			"raised_at": doc.creation,
-			"requested_date": dates[0] if dates else None,
+			"requested_date": str(doc.requested_date) if doc.get("requested_date") else dates[0] if dates else None,
 			"priority": doc.priority,
 			"people": len({row.subject_key for row in doc.lines if row.subject_key}),
 			"lines": len(doc.lines),
@@ -715,18 +1053,19 @@ class RequestExecutionService:
 		}
 
 	@staticmethod
-	def _recap(doc, orders, groups):
+	def _recap(doc, orders, people, reading):
 		"""What was actually performed, read from the work orders that performed it.
 
 		Nothing here is remembered by the screen: reload the page and the same recap comes
 		back, because it is the record of the work and not a summary of the session.
 		"""
-		names = {
-			group["subject_key"]: (group["person"] or {}).get("full_name") for group in groups
-		}
-		departments = {
-			group["subject_key"]: (group["person"] or {}).get("department") for group in groups
-		}
+		names = {row["subject_key"]: row["full_name"] for row in people}
+		departments = {row["subject_key"]: row["department"] for row in people}
+
+		for row in reading.people.values():
+			names.setdefault(row.subject_key, row.full_name)
+			departments.setdefault(row.subject_key, row.department)
+
 		action_labels = RequestExecutionService._action_labels()
 		who = {}
 
@@ -734,6 +1073,16 @@ class RequestExecutionService:
 
 		for order in orders:
 			if order.status not in ("Completed", "Awaiting Verification"):
+				continue
+
+			if order.work_type == USER_SETUP and reading.resolved_person(
+				RequestExecutionService._requested_person(order, reading)
+			):
+				continue
+
+			if order.work_type == DEVICE_PROVISIONING and reading.resolved_device(
+				RequestExecutionService._requested_machine(order, reading)
+			):
 				continue
 
 			if order.completed_by and order.completed_by not in who:
@@ -786,9 +1135,117 @@ class RequestExecutionService:
 				}
 			)
 
-		return entries + RequestExecutionService._direct_acts(doc, orders, names, departments)
+		return (
+			entries
+			+ RequestExecutionService._resolutions(reading, names, departments)
+			+ RequestExecutionService._cancellations(doc, orders, reading, names, departments)
+			+ RequestExecutionService._direct_acts(doc, orders, names, departments, reading)
+		)
 
-	# what the recap calls each act on a machine, once it has been carried out
+	@staticmethod
+	def _resolutions(reading, names, departments):
+		"""Each Requested entity that was resolved, as the recap reads it."""
+		entries = []
+
+		for row in reading.people.values():
+			if row.status != "Resolved":
+				continue
+
+			entries.append(
+				{
+					"work_order": row.name,
+					"subject_key": row.subject_key,
+					"action_group_key": None,
+					"subject": names.get(row.subject_key) or row.full_name,
+					"department": departments.get(row.subject_key) or row.department,
+					"kind": "object",
+					"title": "Client User created"
+					if row.resolution_mode == "Create New"
+					else "Existing Client User selected",
+					"detail": reading.person_label(row.resolved_client_user) or row.resolved_client_user,
+					"reason": None,
+					"at": row.resolved_at,
+					"by": frappe.db.get_value("User", row.resolved_by, "full_name") or row.resolved_by,
+				}
+			)
+
+		for row in reading.machines.values():
+			if row.status != "Resolved":
+				continue
+
+			device = reading.device(row.resolved_managed_device) or {}
+			entries.append(
+				{
+					"work_order": row.name,
+					"subject_key": None,
+					"action_group_key": None,
+					"subject": None,
+					"department": None,
+					"kind": "object",
+					"title": "Device registered"
+					if row.resolution_mode == "Register New"
+					else "Existing Device selected",
+					"detail": " · ".join(
+						part for part in (device.get("hostname"), device.get("serial_number")) if part
+					),
+					"reason": None,
+					"at": row.resolved_at,
+					"by": frappe.db.get_value("User", row.resolved_by, "full_name") or row.resolved_by,
+				}
+			)
+
+		return entries
+
+	@staticmethod
+	def _cancellations(doc, orders, reading, names, departments):
+		"""Each Requested entity that was cancelled, with its reason and the work that went with it."""
+		labels = {row.group_key: row.operation_label_snapshot for row in doc.get("action_groups") or []}
+		entries = []
+
+		def went_with(fields, name):
+			said = []
+
+			for order in orders:
+				if order.status != "Cancelled" or order.work_type in RETIRED_WORK_TYPES:
+					continue
+
+				if not any(order.get(field) == name for field in fields):
+					continue
+
+				label = labels.get(order.action_group_key) or order.action_label or order.service_name or order.work_type
+
+				if label not in said:
+					said.append(label)
+
+			return ", ".join(said)
+
+		for kind, rows, fields in (
+			("client_user", reading.people, ("requested_client_user", "requested_holder_requested_client_user")),
+			("device", reading.machines, ("requested_device",)),
+		):
+			for row in rows.values():
+				if row.status != "Cancelled":
+					continue
+
+				person = kind == "client_user"
+				entries.append(
+					{
+						"work_order": row.name,
+						"subject_key": row.subject_key if person else None,
+						"action_group_key": None,
+						"subject": (names.get(row.subject_key) or row.full_name) if person else None,
+						"department": (departments.get(row.subject_key) or row.department) if person else None,
+						"kind": "cancelled",
+						"title": "Requested Client User cancelled" if person else "Requested Device cancelled",
+						"detail": went_with(fields, row.name),
+						"reason": row.cancel_reason,
+						"at": row.cancelled_at,
+						"by": frappe.db.get_value("User", row.cancelled_by, "full_name") or row.cancelled_by,
+					}
+				)
+
+		return entries
+
 	DEVICE_OPERATION_TITLE = {
 		"device.assign": "Device assigned",
 		"device.transfer": "Device holder changed",
@@ -824,7 +1281,7 @@ class RequestExecutionService:
 		return title, detail
 
 	@staticmethod
-	def _direct_acts(doc, orders, names, departments):
+	def _direct_acts(doc, orders, names, departments, reading):
 		"""What was done straight from a person's menu while this request was open.
 
 		Those acts go through the same lifecycle doors as everything else and cite the request
@@ -846,6 +1303,10 @@ class RequestExecutionService:
 		for order in orders:
 			if order.subject_key and order.resulting_client_user:
 				subject_of[order.resulting_client_user] = order.subject_key
+
+		for row in reading.people.values():
+			if row.resolved_client_user:
+				subject_of.setdefault(row.resolved_client_user, row.subject_key)
 
 		acts = []
 
@@ -896,33 +1357,80 @@ class RequestExecutionService:
 				}
 			)
 
+		for opened in frappe.get_all(
+			"MSP Service Assignment",
+			filters={"source_request": doc.name, "name": ("not in", list(handled) or [""])},
+			fields=["name", "service_item", "client_user", "managed_device", "assignment_scope", "owner", "creation"],
+			order_by="creation asc",
+		):
+			person = opened.client_user or frappe.db.get_value(
+				"MSP Managed Device", opened.managed_device, "assigned_client_user"
+			)
+			subject = subject_of.get(person)
+			acts.append(
+				{
+					"work_order": opened.name,
+					"subject_key": subject,
+					"action_group_key": None,
+					"subject": names.get(subject)
+					or frappe.db.get_value("MSP Client User", person, "full_name"),
+					"department": departments.get(subject),
+					"kind": "technician",
+					"title": f"{frappe.db.get_value('Item', opened.service_item, 'item_name') or opened.service_item} · Opened",
+					"detail": f"{opened.assignment_scope} scope",
+					"reason": None,
+					"at": opened.creation,
+					"by": frappe.db.get_value("User", opened.owner, "full_name") or opened.owner,
+				}
+			)
+
 		return acts
 
 	@staticmethod
-	def _outcome(doc, orders):
+	def _outcome(doc, orders, recap, reading):
 		"""The figures the final validation reads: what was decided, and what was done."""
-		services = [order for order in orders if order.work_type == SERVICE_ACTION]
-		done = ("Completed", "Awaiting Verification")
+		work = [order for order in orders if order.work_type != CONTEXT_ACTION]
+		requested = [
+			order
+			for order in work
+			if order.origin != "Technician" and order.work_type in (SERVICE_ACTION, DEVICE_OPERATION)
+		]
+		additional = [entry for entry in recap if entry["kind"] == "technician"]
+		people = [row for row in reading.people.values() if row.status != "Cancelled"]
+		machines = [row for row in reading.machines.values() if row.status != "Cancelled"]
+		people_resolved = len([row for row in people if row.status == "Resolved"])
+		machines_resolved = len([row for row in machines if row.status == "Resolved"])
 
 		return {
 			"accepted": len([row for row in doc.lines if row.line_status == "Approved"]),
 			"rejected": len([row for row in doc.lines if row.line_status == "Rejected"]),
-			"requested_done": len(
-				[o for o in services if o.origin != "Technician" and o.status in done]
+			"requested_done": len([order for order in requested if order.status in DONE_STATUSES]),
+			"requested_cancelled": len([order for order in requested if order.status == "Cancelled"]),
+			"unresolved_accepted": len(
+				[order for order in work if order.status not in DONE_STATUSES + ("Cancelled",)]
 			),
-			"technician_added": len([o for o in services if o.origin == "Technician"]),
-			"technician_done": len(
-				[o for o in services if o.origin == "Technician" and o.status in done]
-			),
-			"prepared": len(
+			"technician_added": len(additional)
+			+ len(
 				[
-					o
-					for o in orders
-					if o.work_type in (USER_SETUP, DEVICE_PROVISIONING) and o.status in done
+					order
+					for order in work
+					if order.origin == "Technician" and order.status not in DONE_STATUSES
 				]
 			),
+			"technician_done": len(additional),
+			"prepared": people_resolved + machines_resolved,
 			"context_done": len(
-				[o for o in orders if o.work_type == CONTEXT_ACTION and o.status in done]
+				[o for o in orders if o.work_type == CONTEXT_ACTION and o.status in DONE_STATUSES]
+			),
+			"requested_client_users_total": len(people),
+			"requested_client_users_resolved": people_resolved,
+			"requested_devices_total": len(machines),
+			"requested_devices_resolved": machines_resolved,
+			"requested_client_users_cancelled": len(
+				[row for row in reading.people.values() if row.status == "Cancelled"]
+			),
+			"requested_devices_cancelled": len(
+				[row for row in reading.machines.values() if row.status == "Cancelled"]
 			),
 		}
 
@@ -934,67 +1442,6 @@ class RequestExecutionService:
 			for definition in operations.REGISTRY.values()
 			if definition.get("legacy_action")
 		}
-
-	@staticmethod
-	def _subject_order(doc):
-		"""Each person once, in the order the request first speaks of them."""
-		seen = []
-
-		for row in doc.lines:
-			if row.line_status != "Approved":
-				continue
-			if row.subject_key and row.subject_key not in seen:
-				seen.append(row.subject_key)
-
-		return seen
-
-	@staticmethod
-	def _person_card(doc, subject_key, orders):
-		"""Who this group of work is for, as fully as the request can say it."""
-		created = next(
-			(order.resulting_client_user for order in orders if order.resulting_client_user), None
-		)
-		row = next((line for line in doc.lines if line.subject_key == subject_key), None)
-		person = created or (row.client_user if row else None) or (
-			row.requested_for_user if row else None
-		)
-
-		if person:
-			card = frappe.db.get_value(
-				"MSP Client User",
-				person,
-				["name", "full_name", "department", "email", "username", "lifecycle_status"],
-				as_dict=True,
-			)
-
-			if card:
-				card["is_new"] = False
-				return card
-
-		if not row:
-			return None
-
-		return {
-			"name": None,
-			"full_name": row.new_user_full_name,
-			"department": row.new_user_department,
-			# retired since the request was agreed: said, not enforced. Whoever is doing the
-			# work decides whether it still makes sense, and the account opens either way
-			"department_retired": RequestExecutionService._retired(row.new_user_department),
-			"email": row.new_user_email,
-			"username": row.new_user_username,
-			"lifecycle_status": None,
-			"is_new": True,
-		}
-
-	@staticmethod
-	def _retired(department):
-		if not department:
-			return False
-
-		enabled = frappe.db.get_value("MSP Department", {"department_name": department}, "enabled")
-
-		return enabled == 0
 
 	@staticmethod
 	def _device_card(device):
@@ -1012,57 +1459,6 @@ class RequestExecutionService:
 			card["holder_name"] = frappe.db.get_value(
 				"MSP Client User", card.assigned_client_user, "full_name"
 			)
-
-		return card
-
-	@staticmethod
-	def _card(order, ready, lines):
-		"""One unit of work, with everything the technician needs to carry it out in place."""
-		card = dict(order)
-		card.update(ready.get(order.name, {"ready": True, "waiting_on": None}))
-
-		row = lines.get(order.request_line_name)
-
-		if row:
-			card["comment"] = row.comment
-			card["requested_quantity"] = row.requested_quantity
-			card["asked_hostname"] = row.new_device_label
-			card["asked_serial"] = row.new_device_serial
-			card["asked_device_type"] = row.new_device_type
-
-		# preparing a machine answers no line of its own: what the customer said about the machine
-		# is on the lines of the services waiting for it
-		if order.work_type == DEVICE_PROVISIONING and order.device_requirement_key and not (
-			card.get("asked_hostname") or card.get("asked_serial")
-		):
-			for line_name in frappe.get_all(
-				WORK_ORDER,
-				filters={
-					"device_requirement_key": order.device_requirement_key,
-					"request_line_name": ("in", list(lines) or [""]),
-				},
-				pluck="request_line_name",
-			):
-				asked = lines.get(line_name)
-				if asked and (asked.new_device_label or asked.new_device_serial or asked.new_device_type):
-					card["asked_hostname"] = asked.new_device_label
-					card["asked_serial"] = asked.new_device_serial
-					card["asked_device_type"] = asked.new_device_type
-					break
-
-		if order.work_type == DEVICE_OPERATION:
-			card.update(RequestExecutionService._holder_facts(order, row))
-
-		card["device"] = RequestExecutionService._device_card(
-			order.resulting_device or order.managed_device
-		)
-		card["current"] = RequestExecutionService._current_service(order)
-		card["service_scope"] = (
-			RequestService._service_scope(order.service_item) if order.service_item else None
-		)
-		card["action_label"] = order.action_label or RequestExecutionService._action_labels().get(
-			order.action, order.action
-		)
 
 		return card
 
@@ -1179,7 +1575,7 @@ class RequestExecutionService:
 			"Comment",
 			filters={
 				"comment_type": "Comment",
-				"reference_doctype": ("in", (WORK_ORDER, "MSP Service Request")),
+				"reference_doctype": ("in", (WORK_ORDER, "MSP Request")),
 				"reference_name": ("in", names + [doc.name]),
 			},
 			fields=["reference_doctype", "reference_name", "content", "owner", "creation"],
@@ -1199,19 +1595,21 @@ class RequestExecutionService:
 
 	@staticmethod
 	def _summary(orders):
+		work = [order for order in orders if order.work_type in (SERVICE_ACTION, DEVICE_OPERATION)]
+
 		return {
-			"people": len([order for order in orders if order.work_type == USER_SETUP]),
+			"people": len({order.subject_key for order in work if order.subject_key}),
 			"devices": len(
-				[
-					order
-					for order in orders
-					if order.work_type in (DEVICE_PROVISIONING, DEVICE_OPERATION)
-				]
+				{
+					order.managed_device or order.requested_device
+					for order in work
+					if order.target_scope == "Device" and (order.managed_device or order.requested_device)
+				}
 			),
-			"services": len([order for order in orders if order.work_type == SERVICE_ACTION]),
-			"open": len([order for order in orders if order.status not in FINISHED_STATUSES]),
-			"blocked": len([order for order in orders if order.status == "Blocked"]),
-			"failed": len([order for order in orders if order.status == "Failed"]),
+			"services": len([order for order in work if order.work_type == SERVICE_ACTION]),
+			"open": len([order for order in work if order.status not in FINISHED_STATUSES]),
+			"blocked": len([order for order in work if order.status == "Blocked"]),
+			"failed": len([order for order in work if order.status == "Failed"]),
 		}
 
 	# ------------------------------------------------------------------ shared
@@ -1220,166 +1618,12 @@ class RequestExecutionService:
 		if not request:
 			raise ValidationError("request is required.", "VALIDATION_ERROR")
 
-		if not frappe.db.exists("MSP Service Request", request):
-			raise NotFoundError(f"Service Request {request} not found.", "NOT_FOUND")
+		if not frappe.db.exists("MSP Request", request):
+			raise NotFoundError(f"Request {request} not found.", "NOT_FOUND")
 
-		return frappe.get_doc("MSP Service Request", request)
-
-	@staticmethod
-	def _person_of(row):
-		"""The person a line is for, whether it names them or the machine they were given."""
-		return row.client_user or row.requested_for_user or None
+		return frappe.get_doc("MSP Request", request)
 
 	# ------------------------------------------------------------------ carrying it out
-	@staticmethod
-	def execute_user_setup(
-		work_order=None, username=None, email=None, department=None, notes=None
-	):
-		"""Open the account for the person a request described, once for all their lines.
-
-		The person is created through the domain that owns people, and every line and every
-		job that spoke of them by name now speaks of their record instead.
-		"""
-		from nexgen_msp.api.internal.services.user_service import UserService
-
-		order = RequestExecutionService._claimed(work_order, USER_SETUP)
-		doc = frappe.get_doc("MSP Service Request", order.service_request)
-		rows = [row for row in doc.lines if row.subject_key == order.subject_key]
-
-		if not rows:
-			raise ValidationError("This request no longer describes that person.", "VALIDATION_ERROR")
-
-		asked = rows[0]
-		savepoint = "execute_user_setup"
-		frappe.db.savepoint(savepoint)
-
-		try:
-			created = UserService.create_client_user(
-				customer=doc.customer,
-				full_name=asked.new_user_full_name,
-				department=department or asked.new_user_department,
-				email=email or asked.new_user_email,
-				username=username or asked.new_user_username,
-				source_request=doc.name,
-				# what the request agreed to stands, even if the catalogue has moved on
-				department_already_agreed=not department,
-				_commit=False,
-			)
-
-			RequestExecutionService._propagate_person(doc, order.subject_key, created["name"])
-
-			order.resulting_client_user = created["name"]
-			order.client_user = created["name"]
-			order.execution_notes = notes or order.execution_notes
-			RequestExecutionService._settle(order, proven=RequestExecutionService._prove_user_setup)
-		except Exception:
-			frappe.db.rollback(save_point=savepoint)
-			raise
-
-		frappe.db.commit()
-
-		return RequestExecutionService.get_execution_plan(doc.name)
-
-	@staticmethod
-	def execute_device_provisioning(
-		work_order=None,
-		mode=None,
-		managed_device=None,
-		hostname=None,
-		serial_number=None,
-		device_type=None,
-		interfaces=None,
-		effective_date=None,
-		confirm_transfer=None,
-		notes=None,
-		manufacturer=None,
-		model=None,
-		operating_system=None,
-	):
-		"""Settle the machine a request needs: one already on the shelf, or a new one.
-
-		Handing a machine over is never silent. A machine somebody else is holding is only
-		moved once whoever is doing the work has said so in as many words, and the move goes
-		through the domain that owns machines so the two holding periods read correctly.
-		"""
-		from nexgen_msp.api.internal.services.device_lifecycle_service import (
-			DeviceLifecycleService,
-		)
-
-		order = RequestExecutionService._claimed(work_order, DEVICE_PROVISIONING)
-		doc = frappe.get_doc("MSP Service Request", order.service_request)
-		rows = [
-			row for row in doc.lines if row.device_requirement_key == order.device_requirement_key
-		]
-
-		if not rows:
-			raise ValidationError("This request no longer needs that machine.", "VALIDATION_ERROR")
-
-		person = RequestExecutionService._resolved_person(doc, order.subject_key)
-		mode = mode or ("existing" if order.managed_device else "new")
-		savepoint = "execute_device_provisioning"
-		frappe.db.savepoint(savepoint)
-
-		try:
-			if mode == "new":
-				device = RequestExecutionService._register_device(
-					doc.customer, hostname, serial_number, device_type, interfaces,
-					manufacturer=manufacturer, model=model, operating_system=operating_system,
-				)
-				action = "Register Device"
-			else:
-				device = managed_device or order.managed_device
-
-				if not device:
-					raise ValidationError("Say which machine.", "VALIDATION_ERROR")
-
-				RequestExecutionService._owned_device(doc.customer, device)
-				RequestExecutionService._fill_serial(device, serial_number)
-				action = "Assign Device"
-
-			if person:
-				holder = frappe.db.get_value("MSP Managed Device", device, "assigned_client_user")
-
-				if holder and holder != person:
-					if not frappe.utils.cint(confirm_transfer):
-						raise ValidationError(
-							f"{frappe.db.get_value('MSP Managed Device', device, 'hostname')} is "
-							f"held by {frappe.db.get_value('MSP Client User', holder, 'full_name')}. "
-							"Transferring it closes their holding period.",
-							"CONFIRMATION_REQUIRED",
-						)
-
-					DeviceLifecycleService.transfer(
-						device=device,
-						client_user=person,
-						effective_date=effective_date,
-						_commit=False,
-					)
-					action = "Transfer Device"
-				elif not holder:
-					DeviceLifecycleService.assign(
-						device=device,
-						client_user=person,
-						effective_date=effective_date,
-						_commit=False,
-					)
-
-			RequestExecutionService._propagate_device(doc, order.device_requirement_key, device)
-
-			order.action = action
-			order.managed_device = device
-			order.resulting_device = device
-			order.effective_date = effective_date or frappe.utils.today()
-			order.execution_notes = notes or order.execution_notes
-			RequestExecutionService._settle(order, proven=RequestExecutionService._prove_device)
-		except Exception:
-			frappe.db.rollback(save_point=savepoint)
-			raise
-
-		frappe.db.commit()
-
-		return RequestExecutionService.get_execution_plan(doc.name)
-
 	@staticmethod
 	def execute_device_operation(
 		work_order=None,
@@ -1388,6 +1632,7 @@ class RequestExecutionService:
 		override_reason=None,
 		notes=None,
 		customer_note=None,
+		_plan=True,
 	):
 		"""Carry out what a request asked of the machine itself, through the device domain.
 
@@ -1400,7 +1645,7 @@ class RequestExecutionService:
 		)
 
 		order = RequestExecutionService._claimed(work_order, DEVICE_OPERATION)
-		doc = frappe.get_doc("MSP Service Request", order.service_request)
+		doc = frappe.get_doc("MSP Request", order.request)
 		definition = operations.require(
 			order.operation_code or operations.from_legacy_work(order.action)
 		)
@@ -1408,26 +1653,24 @@ class RequestExecutionService:
 		device = order.managed_device
 
 		if not device:
-			raise ValidationError("The machine is not settled yet.", "VALIDATION_ERROR")
+			raise ValidationError(DEPENDENCY_LABELS["requested_device"], "REQUESTED_TARGET_UNRESOLVED")
 
 		RequestExecutionService._owned_device(doc.customer, device)
 
 		before = operations.snapshot_device(device)
 		on_date = effective_date or order.effective_date or frappe.utils.today()
-
-		RequestExecutionService._revalidate_device_state(order, before)
-
 		holder = None
 
-		if code in ("device.assign", "device.transfer"):
-			holder = execution_holder or order.requested_holder
+		if code in HOLDER_CHANGES:
+			requested = RequestExecutionService._requested_holder(order, execution_holder)
+			holder = execution_holder or requested
 
 			if not holder:
 				raise ValidationError("Say who is to hold this Device.", "VALIDATION_ERROR")
 
 			RequestExecutionService._receivable_holder(doc.customer, holder)
 
-			if order.requested_holder and holder != order.requested_holder:
+			if (order.requested_holder or order.requested_holder_requested_client_user) and holder != requested:
 				reason = (override_reason or "").strip()
 
 				if not reason:
@@ -1438,31 +1681,49 @@ class RequestExecutionService:
 
 				order.override_reason = reason
 
+		already_held = code == "device.assign" and before.get("current_holder") == holder
+
+		if not already_held:
+			RequestExecutionService._revalidate_device_state(order, before)
+
 		savepoint = "execute_device_operation"
 		frappe.db.savepoint(savepoint)
 
 		try:
-			if code == "device.assign":
+			if already_held:
+				notes = notes or (
+					f"{RequestExecutionService._holder_name(holder)} already holds "
+					f"{before.get('hostname') or device}."
+				)
+			elif code == "device.assign" and before.get("current_holder"):
+				DeviceLifecycleService.transfer(
+					device=device, client_user=holder, effective_date=on_date, note=notes,
+					_commit=False, _within_request=doc.name,
+				)
+			elif code == "device.assign":
 				DeviceLifecycleService.assign(
 					device=device, client_user=holder, effective_date=on_date, note=notes,
-					_commit=False,
+					_commit=False, _within_request=doc.name,
 				)
 			elif code == "device.transfer":
 				DeviceLifecycleService.transfer(
 					device=device, client_user=holder, effective_date=on_date, note=notes,
-					_commit=False,
+					_commit=False, _within_request=doc.name,
 				)
 			elif code == "device.repossess":
 				DeviceLifecycleService.repossess(
-					device=device, effective_date=on_date, note=notes, _commit=False
+					device=device, effective_date=on_date, note=notes, _commit=False,
+					_within_request=doc.name,
 				)
 			elif code == "device.retire":
 				DeviceLifecycleService.retire(
-					device=device, effective_date=on_date, note=notes, _commit=False
+					device=device, effective_date=on_date, note=notes, _commit=False,
+					_within_request=doc.name,
 				)
 			elif code == "device.reinstate":
 				DeviceLifecycleService.reinstate(
-					device=device, effective_date=on_date, note=notes, _commit=False
+					device=device, effective_date=on_date, note=notes, _commit=False,
+					_within_request=doc.name,
 				)
 			else:
 				raise ValidationError(
@@ -1486,7 +1747,29 @@ class RequestExecutionService:
 
 		frappe.db.commit()
 
-		return RequestExecutionService.get_execution_plan(doc.name)
+		return RequestExecutionService.get_execution_plan(doc.name) if _plan else None
+
+	@staticmethod
+	def _requested_holder(order, execution_holder=None):
+		"""The Client User the request asked to hold the machine, refusing one still to be resolved."""
+		if order.requested_holder or not order.requested_holder_requested_client_user:
+			return order.requested_holder
+
+		target = request_targets.resolve_holder_target(
+			requested_holder_requested_client_user=order.requested_holder_requested_client_user
+		)
+
+		if target["resolved"]:
+			order.requested_holder = target["resolved"]
+			return target["resolved"]
+
+		if execution_holder:
+			return None
+
+		if target["waiting"]:
+			raise ValidationError(DEPENDENCY_LABELS["requested_holder"], "REQUESTED_TARGET_UNRESOLVED")
+
+		raise ValidationError(request_targets.CANCELLED_TARGET, "INVALID_TRANSITION")
 
 	@staticmethod
 	def _receivable_holder(customer, client_user):
@@ -1516,7 +1799,7 @@ class RequestExecutionService:
 		"""
 		row = (
 			frappe.db.get_value(
-				"MSP Service Request Line", order.request_line_name, "state_snapshot"
+				"MSP Request Line", order.request_line_name, "state_snapshot"
 			)
 			if order.request_line_name
 			else None
@@ -1579,6 +1862,7 @@ class RequestExecutionService:
 		action=None,
 		operation_code=None,
 		service_item=None,
+		_plan=True,
 	):
 		"""Carry out the act one approved line asked for, through the service domain.
 
@@ -1595,14 +1879,14 @@ class RequestExecutionService:
 		)
 
 		order = RequestExecutionService._claimed(work_order, SERVICE_ACTION)
-		doc = frappe.get_doc("MSP Service Request", order.service_request)
+		doc = frappe.get_doc("MSP Request", order.request)
 		on_date = effective_date or order.effective_date or frappe.utils.today()
 
 		if order.target_scope == "User" and not order.client_user:
-			raise ValidationError("The person is not on file yet.", "VALIDATION_ERROR")
+			raise ValidationError(DEPENDENCY_LABELS["requested_client_user"], "REQUESTED_TARGET_UNRESOLVED")
 
 		if order.target_scope == "Device" and not order.managed_device:
-			raise ValidationError("The machine is not settled yet.", "VALIDATION_ERROR")
+			raise ValidationError(DEPENDENCY_LABELS["requested_device"], "REQUESTED_TARGET_UNRESOLVED")
 
 		# the technician names the operation; the old verb is still accepted from older callers
 		if operation_code:
@@ -1639,6 +1923,7 @@ class RequestExecutionService:
 					source_request=doc.name,
 					notes=notes,
 					_commit=False,
+					_within_request=doc.name,
 				)
 			else:
 				assignment = order.source_service_assignment
@@ -1656,6 +1941,7 @@ class RequestExecutionService:
 						notes=notes,
 						confirm_billed=confirm_billed,
 						_commit=False,
+						_within_request=doc.name,
 					)
 				elif order.action == "Resume":
 					outcome = ServiceLifecycleService.resume(
@@ -1665,6 +1951,7 @@ class RequestExecutionService:
 						notes=notes,
 						confirm_billed=confirm_billed,
 						_commit=False,
+						_within_request=doc.name,
 					)
 				elif order.action == "Remove":
 					outcome = ServiceLifecycleService.end(
@@ -1673,16 +1960,18 @@ class RequestExecutionService:
 						source_request=doc.name,
 						notes=notes,
 						_commit=False,
+						_within_request=doc.name,
 					)
 				else:
 					outcome = ServiceLifecycleService.change(
 						assignment=assignment,
 						effective_date=on_date,
 						quantity=quantity,
-						service_item=service_item or None,
+						service_item=service_item or RequestExecutionService._replacement(order),
 						source_request=doc.name,
 						notes=notes,
 						_commit=False,
+						_within_request=doc.name,
 					)
 
 			order.resulting_assignment = outcome.get("name")
@@ -1697,7 +1986,7 @@ class RequestExecutionService:
 
 		frappe.db.commit()
 
-		return RequestExecutionService.get_execution_plan(doc.name)
+		return RequestExecutionService.get_execution_plan(doc.name) if _plan else None
 
 	@staticmethod
 	def execute_service_actions(work_orders=None, effective_date=None, confirm_billed=0):
@@ -1715,7 +2004,7 @@ class RequestExecutionService:
 			raise ValidationError("Name the work to carry out.", "VALIDATION_ERROR")
 
 		requests = {
-			frappe.db.get_value(WORK_ORDER, name, "service_request") for name in work_orders
+			frappe.db.get_value(WORK_ORDER, name, "request") for name in work_orders
 		}
 		requests.discard(None)
 
@@ -1729,7 +2018,10 @@ class RequestExecutionService:
 		for name in work_orders:
 			try:
 				RequestExecutionService.execute_service_action(
-					work_order=name, effective_date=effective_date, confirm_billed=confirm_billed
+					work_order=name,
+					effective_date=effective_date,
+					confirm_billed=confirm_billed,
+					_plan=False,
 				)
 				results.append({"work_order": name, "ok": True, "message": None, "code": None})
 			except Exception as error:
@@ -1774,14 +2066,14 @@ class RequestExecutionService:
 			for row in frappe.get_all(
 				WORK_ORDER,
 				filters={"name": ("in", names or [""])},
-				fields=["name", "service_request", "work_type", "status"],
+				fields=["name", "request", "work_type", "status"],
 			)
 		}
 
 		for name in names:
 			order = orders.get(name)
 
-			if not order or order.service_request != doc.name:
+			if not order or order.request != doc.name:
 				raise ValidationError(
 					"Work from several requests cannot be carried out together.",
 					"VALIDATION_ERROR",
@@ -1790,8 +2082,6 @@ class RequestExecutionService:
 		runner = {
 			SERVICE_ACTION: RequestExecutionService.execute_service_action,
 			DEVICE_OPERATION: RequestExecutionService.execute_device_operation,
-			USER_SETUP: RequestExecutionService.execute_user_setup,
-			DEVICE_PROVISIONING: RequestExecutionService.execute_device_provisioning,
 		}
 		results, skipped = [], 0
 
@@ -1805,7 +2095,7 @@ class RequestExecutionService:
 				continue
 
 			try:
-				execute(work_order=name, **(row.get("inputs") or {}))
+				execute(**{**(row.get("inputs") or {}), "work_order": name, "_plan": False})
 				results.append({"work_order": name, "ok": True, "message": None, "code": None})
 			except Exception as error:
 				frappe.db.rollback()
@@ -1832,8 +2122,7 @@ class RequestExecutionService:
 
 		Whoever is doing the work rarely holds all eight usernames at once. So each row is
 		written on its own, a row that fails keeps its value and its own message, and what was
-		saved stays saved — there is no second draft of a username hiding anywhere, because
-		the Client User can hold it perfectly well itself.
+		saved stays saved.
 
 		A row carries the `modified` it was read with. If the record moved since, that row is
 		refused rather than quietly overwriting somebody else's newer value.
@@ -1856,12 +2145,8 @@ class RequestExecutionService:
 			if not value or not owner:
 				continue
 
-			doctype = "MSP Client User" if kind == "username" else "MSP Managed Device"
-
 			try:
-				if not frappe.db.exists(doctype, owner):
-					raise ValidationError(f"{owner} no longer exists.", "NOT_FOUND")
-
+				doctype = RequestExecutionService._identifier_owner(kind, owner, row.get("owner_type"))
 				seen = row.get("modified")
 				now = str(frappe.db.get_value(doctype, owner, "modified") or "")
 
@@ -1872,27 +2157,10 @@ class RequestExecutionService:
 						"PREPARATION_STATE_CHANGED",
 					)
 
-				if kind == "username":
-					try:
-						identifiers.record_username(owner, value, overwrite=True)
-					except Exception as refusal:
-						raise RequestExecutionService._identifier_refusal(
-							refusal,
-							"USERNAME_CONFLICT",
-							f'Username "{value}" is already used by another Client User for '
-							"this Customer.",
-						)
-				elif kind == "serial_number":
-					try:
-						identifiers.record_serial(owner, value, overwrite=True)
-					except Exception as refusal:
-						raise RequestExecutionService._identifier_refusal(
-							refusal,
-							"SERIAL_CONFLICT",
-							f'Serial number "{value}" is already used by another Managed Device.',
-						)
+				if doctype in (REQUESTED_CLIENT_USER, REQUESTED_DEVICE):
+					RequestExecutionService._keep_on_requested(doc, doctype, owner, kind, value)
 				else:
-					raise ValidationError(f"{kind} cannot be entered here.", "VALIDATION_ERROR")
+					RequestExecutionService._record_identifier(owner, kind, value)
 
 				frappe.db.commit()
 				results.append({"owner": owner, "kind": kind, "ok": True, "message": None, "code": None})
@@ -1920,6 +2188,96 @@ class RequestExecutionService:
 			"results": results,
 			"plan": RequestExecutionService.get_execution_plan(doc.name),
 		}
+
+	IDENTIFIER_OWNERS = {
+		"username": ("MSP Client User", REQUESTED_CLIENT_USER),
+		"serial_number": ("MSP Managed Device", REQUESTED_DEVICE),
+	}
+
+	@staticmethod
+	def _identifier_owner(kind, owner, owner_type=None):
+		"""The record an identifier is written on, as named or as read from the owner's name."""
+		allowed = RequestExecutionService.IDENTIFIER_OWNERS.get(kind)
+
+		if not allowed:
+			raise ValidationError(f"{kind} cannot be entered here.", "VALIDATION_ERROR")
+
+		if owner_type and owner_type not in allowed:
+			raise ValidationError(f"{owner_type} does not hold a {kind}.", "VALIDATION_ERROR")
+
+		doctype = owner_type or next(
+			(candidate for candidate in allowed if frappe.db.exists(candidate, owner)), None
+		)
+
+		if not doctype or not frappe.db.exists(doctype, owner):
+			raise ValidationError(f"{owner} no longer exists.", "NOT_FOUND")
+
+		return doctype
+
+	@staticmethod
+	def _record_identifier(owner, kind, value):
+		"""Put a username on a Client User or a serial on a Managed Device, in the catalogue's words."""
+		if kind == "username":
+			try:
+				identifiers.record_username(owner, value, overwrite=True)
+			except Exception as refusal:
+				raise RequestExecutionService._identifier_refusal(
+					refusal,
+					"USERNAME_CONFLICT",
+					f'Username "{value}" is already used by another Client User for this Customer.',
+				)
+			return
+
+		try:
+			identifiers.record_serial(owner, value, overwrite=True)
+		except Exception as refusal:
+			raise RequestExecutionService._identifier_refusal(
+				refusal,
+				"SERIAL_CONFLICT",
+				f'Serial number "{value}" is already used by another Managed Device.',
+			)
+
+	@staticmethod
+	def _keep_on_requested(doc, doctype, name, kind, value):
+		"""Keep an identifier on a Requested entity, or on its real record once it has resolved."""
+		row = frappe.db.get_value(
+			doctype,
+			name,
+			["request", "customer", "status", "resolved_client_user" if doctype == REQUESTED_CLIENT_USER else "resolved_managed_device"],
+			as_dict=True,
+		)
+
+		if row.request != doc.name:
+			raise ValidationError(request_targets.CROSS_REQUEST, "VALIDATION_ERROR")
+
+		if row.status == "Cancelled":
+			raise ValidationError(request_targets.CANCELLED_TARGET, "VALIDATION_ERROR")
+
+		resolved = row.get("resolved_client_user") or row.get("resolved_managed_device")
+
+		if row.status == "Resolved" and resolved:
+			RequestExecutionService._record_identifier(resolved, kind, value)
+			return
+
+		if kind == "username":
+			if frappe.db.exists(
+				"MSP Client User", {"customer": row.customer, "username": value}
+			):
+				raise ValidationError(
+					f'Username "{value}" is already used by another Client User for this Customer.',
+					"USERNAME_CONFLICT",
+				)
+
+			frappe.db.set_value(doctype, name, "username", value)
+			return
+
+		if frappe.db.exists("MSP Managed Device", {"serial_number": value}):
+			raise ValidationError(
+				f'Serial number "{value}" is already used by another Managed Device.',
+				"SERIAL_CONFLICT",
+			)
+
+		frappe.db.set_value(doctype, name, "serial_number", value)
 
 	@staticmethod
 	def _identifier_refusal(refusal, code, said):
@@ -1954,240 +2312,6 @@ class RequestExecutionService:
 
 		# the request's own activity log, which is what the screens already read
 		doc.add_comment("Comment", f"Required information updated — {' '.join(said)}")
-
-	@staticmethod
-	def technician_options(request=None, subject_key=None):
-		"""What else a technician may do for this person while the request is open.
-
-		Read from what the person and their machines hold today, never from a list kept on
-		the screen: a service already running offers the acts its state allows, a service
-		that may be sold offers to be added, and anything already in this request's work is
-		left out so the same thing is not planned twice.
-		"""
-		from nexgen_msp.api.internal.services.service_availability_service import (
-			ServiceAvailabilityService,
-		)
-
-		RequestService._guard_internal()
-		doc = RequestExecutionService._request(request)
-		person = RequestExecutionService._resolved_person(doc, subject_key)
-
-		if not person:
-			return {
-				"subject_key": subject_key,
-				"options": [],
-				"reason": "Create the Client User first.",
-			}
-
-		open_orders = [
-			o for o in RequestExecutionService._orders(doc.name) if o.status not in FINISHED_STATUSES
-		]
-		planned = {
-			(o.service_item, o.action, o.client_user or "", o.managed_device or "", o.source_service_assignment or "")
-			for o in open_orders
-			if o.work_type == SERVICE_ACTION
-		}
-		planned_machines = {
-			(o.managed_device, o.operation_code)
-			for o in open_orders
-			if o.work_type == DEVICE_OPERATION
-		}
-		options = []
-
-		def offer(service_item, service_name, action, scope, device=None, device_label=None, assignment=None, state=None):
-			mechanical_key = (
-				service_item,
-				action,
-				person if scope == "User" else "",
-				device or "",
-				assignment or "",
-			)
-
-			if mechanical_key in planned:
-				return
-
-			code = operations.from_legacy_action(action)
-			definition = operations.get(code)
-
-			if not definition or not definition["technician_addable"]:
-				return
-
-			options.append(
-				{
-					"key": "|".join((*mechanical_key, code)),
-					"service_item": service_item,
-					"service_name": service_name,
-					"action": action,
-					"operation_code": code,
-					"action_label": definition["label"],
-					"description": definition["description"],
-					"target_scope": scope,
-					"managed_device": device,
-					"device_label": device_label,
-					"source_service_assignment": assignment,
-					"current_state": state or "Not assigned",
-				}
-			)
-
-		def offer_machine(device, device_label, code, state):
-			"""An act on the machine itself, offered for the state that machine is in."""
-			definition = operations.get(code)
-
-			if not definition or not definition["technician_addable"]:
-				return
-
-			if (device, code) in planned_machines:
-				return
-
-			options.append(
-				{
-					"key": "|".join(("", "", "", device, "", code)),
-					"service_item": None,
-					"service_name": device_label,
-					"action": operations.work_action(code),
-					"operation_code": code,
-					"action_label": definition["label"],
-					"description": definition["description"],
-					"target_scope": "Device",
-					"managed_device": device,
-					"device_label": device_label,
-					"source_service_assignment": None,
-					"current_state": state,
-				}
-			)
-
-		reading = ServiceAvailabilityService.read_user(person)
-
-		for row in reading["current"]:
-			for code in operations.for_service_state(row["operational_status"]):
-				offer(
-					row["service_item"],
-					row["item_name"],
-					operations.get(code)["legacy_action"],
-					"User",
-					assignment=row["name"],
-					state=row["operational_status"],
-				)
-
-		for row in reading["available"]:
-			offer(row["service_item"], row["item_name"], "Add", "User")
-
-		for device in frappe.get_all(
-			"MSP Device Holder",
-			filters={"client_user": person, "is_current": 1, "parenttype": "MSP Managed Device"},
-			pluck="parent",
-		):
-			machine = ServiceAvailabilityService.read_device(device)
-			label = machine["target"]["label"]
-
-			for row in machine["current"]:
-				for code in operations.for_service_state(row["operational_status"]):
-					offer(
-						row["service_item"],
-						row["item_name"],
-						operations.get(code)["legacy_action"],
-						"Device",
-						device,
-						label,
-						row["name"],
-						row["operational_status"],
-					)
-
-			for row in machine["available"]:
-				offer(row["service_item"], row["item_name"], "Add", "Device", device, label)
-
-			status = frappe.db.get_value("MSP Managed Device", device, "status")
-
-			for code in operations.for_device_state(status):
-				offer_machine(device, label, code, status)
-
-		return {"subject_key": subject_key, "options": options, "reason": None}
-
-	@staticmethod
-	def add_technician_action(request=None, subject_key=None, option=None, reason=None):
-		"""Add work the request did not ask for, because the job on the ground needs it.
-
-		It never becomes a line of the customer's request. It is a work order of its own,
-		marked as the technician's, carrying who added it and why, and it is carried out
-		through exactly the same door as the work that was asked for.
-		"""
-		RequestService._guard_internal()
-		doc = RequestExecutionService._request(request)
-
-		if doc.status not in ("Approved", "In Progress"):
-			raise ValidationError(
-				f"Work can only be added to a request being carried out; this one is {doc.status.lower()}.",
-				"INVALID_TRANSITION",
-			)
-
-		reason = (reason or "").strip()
-
-		if not reason:
-			raise ValidationError("Say why this action is needed.", "VALIDATION_ERROR")
-
-		option = frappe.parse_json(option) if isinstance(option, str) else (option or {})
-		offered = {
-			row["key"]: row
-			for row in RequestExecutionService.technician_options(doc.name, subject_key)["options"]
-		}
-		chosen = offered.get(option.get("key"))
-
-		if not chosen:
-			raise ValidationError(
-				"That action is no longer available for this person. The list has been refreshed.",
-				"STALE_STATE",
-			)
-
-		person = RequestExecutionService._resolved_person(doc, subject_key)
-		on_device = chosen["target_scope"] == "Device"
-
-		if operations.require(chosen["operation_code"])["domain"] == operations.DEVICE:
-			name = RequestExecutionService._work_order(
-				doc,
-				plan_key=f"{doc.name}:technician:{frappe.generate_hash(length=12)}",
-				work_type=DEVICE_OPERATION,
-				origin="Technician",
-				technician_reason=reason,
-				action=operations.work_action(chosen["operation_code"]),
-				operation_code=chosen["operation_code"],
-				target_scope="Device",
-				subject_key=subject_key,
-				device_requirement_key=f"device:{chosen['managed_device']}",
-				managed_device=chosen["managed_device"],
-				effective_date=frappe.utils.today(),
-			)
-
-			frappe.get_doc(WORK_ORDER, name).add_comment(
-				"Comment", f"Added by the technician: {reason}"
-			)
-			frappe.db.commit()
-
-			return RequestExecutionService.get_execution_plan(doc.name)
-
-		name = RequestExecutionService._work_order(
-			doc,
-			plan_key=f"{doc.name}:technician:{frappe.generate_hash(length=12)}",
-			work_type=SERVICE_ACTION,
-			origin="Technician",
-			technician_reason=reason,
-			action=chosen["action"],
-			operation_code=chosen["operation_code"],
-			target_scope=chosen["target_scope"],
-			subject_key=subject_key,
-			device_requirement_key=f"device:{chosen['managed_device']}" if on_device else None,
-			client_user=None if on_device else person,
-			managed_device=chosen["managed_device"] if on_device else None,
-			service_item=chosen["service_item"],
-			source_service_assignment=chosen["source_service_assignment"],
-			effective_date=frappe.utils.today(),
-		)
-
-		frappe.get_doc(WORK_ORDER, name).add_comment(
-			"Comment", f"Added by the technician: {reason}"
-		)
-		frappe.db.commit()
-
-		return RequestExecutionService.get_execution_plan(doc.name)
 
 	@staticmethod
 	def record_context_action(request=None, subject_key=None, label=None, detail=None):
@@ -2240,7 +2364,7 @@ class RequestExecutionService:
 		open_orders = frappe.get_all(
 			WORK_ORDER,
 			filters={
-				"service_request": doc.name,
+				"request": doc.name,
 				"work_type": SERVICE_ACTION,
 				"status": ("not in", (*FINISHED_STATUSES, "Awaiting Verification")),
 			},
@@ -2316,8 +2440,6 @@ class RequestExecutionService:
 		closing time any more: it is owed by the act that puts the service into service, and
 		asked for on that card.
 		"""
-		from nexgen_msp.utils import identifiers
-
 		if order.action not in ("Add", "Change"):
 			return
 
@@ -2334,101 +2456,12 @@ class RequestExecutionService:
 				if holder:
 					identifiers.require_username(holder, username)
 
-	# ------------------------------------------------------------------ propagation
-	@staticmethod
-	def _propagate_person(doc, subject_key, client_user):
-		"""Everything that spoke of a person by name now speaks of their record.
-
-		A line that lands on a machine keeps naming the machine: the person is held beside
-		it, so the line does not lose them the day the machine changes hands.
-
-		A machine asked for them names nobody as its holder while they do not exist. Now they
-		do, so it names them — otherwise the technician who has just created the person is
-		asked, on the very next screen, who the machine is for.
-		"""
-		for row in doc.lines:
-			if row.subject_key != subject_key:
-				continue
-
-			row.db_set("is_new_user", 0)
-			row.db_set("requested_for_user", client_user)
-
-			if row.target_scope == "User" and not row.is_new_device:
-				row.db_set("client_user", client_user)
-
-			# only an act that hands a machine over names a holder; sending one back to
-			# stock names nobody, and must go on naming nobody
-			if row.operation_code in HANDED_OVER and not row.requested_holder:
-				row.db_set("requested_holder", client_user)
-
-		for order in frappe.get_all(
-			WORK_ORDER,
-			filters={"service_request": doc.name, "subject_key": subject_key},
-			fields=[
-				"name",
-				"work_type",
-				"target_scope",
-				"client_user",
-				"operation_code",
-				"requested_holder",
-			],
-		):
-			if order.work_type == SERVICE_ACTION and order.target_scope == "User":
-				frappe.db.set_value(WORK_ORDER, order.name, "client_user", client_user)
-
-			if order.operation_code in HANDED_OVER and not order.requested_holder:
-				frappe.db.set_value(WORK_ORDER, order.name, "requested_holder", client_user)
-
-	@staticmethod
-	def _propagate_device(doc, requirement_key, device):
-		"""Every service owed to one machine now names the machine that was settled."""
-		for row in doc.lines:
-			if row.device_requirement_key != requirement_key:
-				continue
-
-			row.db_set("is_new_device", 0)
-			row.db_set("managed_device", device)
-			row.db_set("target_scope", "Device")
-			row.db_set("client_user", None)
-
-		for order in frappe.get_all(
-			WORK_ORDER,
-			filters={"service_request": doc.name, "device_requirement_key": requirement_key},
-			fields=["name", "work_type"],
-		):
-			if order.work_type != SERVICE_ACTION:
-				continue
-
-			frappe.db.set_value(
-				WORK_ORDER,
-				order.name,
-				{"target_scope": "Device", "managed_device": device, "client_user": None},
-			)
-
-	@staticmethod
-	def _resolved_person(doc, subject_key):
-		"""Who this work is for, now that the plan has been running for a while."""
-		if not subject_key:
-			return None
-
-		if subject_key.startswith("user:"):
-			return subject_key.split(":", 1)[1]
-
-		created = frappe.db.get_value(
-			WORK_ORDER,
-			{"service_request": doc.name, "work_type": USER_SETUP, "subject_key": subject_key},
-			"resulting_client_user",
-		)
-
-		return created or None
-
 	@staticmethod
 	def _asked_quantity(doc, order):
 		row = next((line for line in doc.lines if line.name == order.request_line_name), None)
 
 		return (row.requested_quantity if row else None) or 1
 
-	# ------------------------------------------------------------------ registering a machine
 	@staticmethod
 	def _owned_device(customer, device):
 		owner = frappe.db.get_value("MSP Managed Device", device, "customer")
@@ -2443,88 +2476,103 @@ class RequestExecutionService:
 
 		return device
 
-	@staticmethod
-	def _fill_serial(device, serial_number):
-		"""A machine from the shelf with no serial on file gets the one read off its case."""
-		if (frappe.db.get_value("MSP Managed Device", device, "serial_number") or "").strip():
-			return
-
-		serial = (serial_number or "").strip()
-
-		if not serial:
-			raise ValidationError(
-				"This machine has no serial number on file. Enter the one on its case.",
-				"VALIDATION_ERROR",
-			)
-
-		twin = frappe.db.get_value(
-			"MSP Managed Device",
-			{"serial_number": serial, "name": ("!=", device)},
-			["hostname", "customer"],
-			as_dict=True,
-		)
-
-		if twin:
-			raise ValidationError(
-				f"Serial number {serial} is already on {twin.hostname} ({twin.customer}).",
-				"VALIDATION_ERROR",
-			)
-
-		frappe.db.set_value("MSP Managed Device", device, "serial_number", serial)
+	REQUESTED_KINDS = {"client_user": REQUESTED_CLIENT_USER, "device": REQUESTED_DEVICE}
 
 	@staticmethod
-	def _register_device(
-		customer, hostname, serial_number, device_type, interfaces,
-		manufacturer=None, model=None, operating_system=None,
-	):
-		"""Put a machine on file. It reaches its holder through the device domain, not here."""
-		hostname = (hostname or "").strip()
-		serial_number = (serial_number or "").strip()
-
-		if not hostname:
-			raise ValidationError("A hostname is required.", "VALIDATION_ERROR")
-
-		if not serial_number:
-			raise ValidationError(
-				"A serial number is required: it is what identifies the machine.",
-				"VALIDATION_ERROR",
+	def _requested_service(kind):
+		if kind == "client_user":
+			from nexgen_msp.api.internal.services.requested_client_user_service import (
+				RequestedClientUserService,
 			)
 
-		twin = frappe.db.get_value(
-			"MSP Managed Device",
-			{"serial_number": serial_number},
-			["hostname", "customer"],
-			as_dict=True,
+			return RequestedClientUserService
+
+		from nexgen_msp.api.internal.services.requested_device_service import RequestedDeviceService
+
+		return RequestedDeviceService
+
+	@staticmethod
+	def _requested_record(kind, name):
+		doctype = RequestExecutionService.REQUESTED_KINDS.get(kind)
+
+		if not doctype:
+			raise ValidationError(f"{kind} is not a kind of requested target.", "VALIDATION_ERROR")
+
+		if not name or not frappe.db.exists(doctype, name):
+			raise NotFoundError(f"{doctype} {name} not found.", "NOT_FOUND")
+
+		return doctype
+
+	@staticmethod
+	def get_requested(kind=None, name=None):
+		"""One Requested entity, with the requested work that references it."""
+		from nexgen_msp.api.internal.services.requested_entity_presentation import (
+			RequestedEntityPresentation,
 		)
 
-		if twin:
-			raise ValidationError(
-				f"Serial number {serial_number} is already on {twin.hostname} ({twin.customer}).",
-				"VALIDATION_ERROR",
-			)
+		RequestService._guard_internal()
+		RequestExecutionService._requested_record(kind, name)
 
-		device = frappe.get_doc(
-			{
-				"doctype": "MSP Managed Device",
-				"customer": customer,
-				"hostname": hostname.upper(),
-				"serial_number": serial_number,
-				"device_type": device_type or "Other",
-				"status": "Stock",
-				"manufacturer": (manufacturer or "").strip() or None,
-				"model": (model or "").strip() or None,
-				"operating_system": (operating_system or "").strip() or None,
-				"network_interfaces": [
-					{
-						"interface_type": interface.get("interface_type") or "Other",
-						"mac_address": (interface.get("mac_address") or "").strip().upper(),
-					}
-					for interface in (frappe.parse_json(interfaces) or [])
-				],
-			}
-		).insert()
+		return {
+			"entity": RequestedEntityPresentation.of(kind, name),
+			"requested_work": RequestedEntityPresentation.requested_work(kind, name),
+		}
 
-		return device.name
+	@staticmethod
+	def save_requested(kind=None, name=None, values=None):
+		"""Keep what the technician prepared on a Requested entity, and say where the work stands."""
+		RequestService._guard_internal()
+		RequestExecutionService._requested_record(kind, name)
+		RequestExecutionService._requested_service(kind).mark_reviewed(name, values)
+
+		return RequestExecutionService._prepared(kind, name)
+
+	@staticmethod
+	def resolve_requested(kind=None, name=None, mode=None, values=None, target=None):
+		"""Resolve a Requested entity to a new record or a chosen one, and say where the work stands."""
+		RequestService._guard_internal()
+		RequestExecutionService._requested_record(kind, name)
+		service = RequestExecutionService._requested_service(kind)
+		ways = {"create": service.resolve_create} if kind == "client_user" else {"new": service.resolve_new}
+
+		if mode == "existing":
+			service.resolve_existing(name, target)
+		elif ways.get(mode):
+			ways[mode](name, values)
+		else:
+			raise ValidationError(f"{mode} is not a way to resolve this requested target.", "VALIDATION_ERROR")
+
+		request = frappe.db.get_value(
+			RequestExecutionService.REQUESTED_KINDS[kind], name, "request"
+		)
+		RequestExecutionService._work_has_begun(frappe.get_doc("MSP Request", request))
+		frappe.db.commit()
+
+		return RequestExecutionService._prepared(kind, name)
+
+	@staticmethod
+	def cancel_requested(kind=None, name=None, reason=None):
+		"""Cancel a Requested entity and the work that depended on it, and say where the work stands."""
+		RequestService._guard_internal()
+		RequestExecutionService._requested_record(kind, name)
+		RequestExecutionService._requested_service(kind).cancel(name, reason)
+
+		return RequestExecutionService._prepared(kind, name)
+
+	@staticmethod
+	def _prepared(kind, name):
+		from nexgen_msp.api.internal.services.requested_entity_presentation import (
+			RequestedEntityPresentation,
+		)
+
+		request = frappe.db.get_value(
+			RequestExecutionService.REQUESTED_KINDS[kind], name, "request"
+		)
+
+		return {
+			"entity": RequestedEntityPresentation.of(kind, name),
+			"plan": RequestExecutionService.get_execution_plan(request),
+		}
 
 	# ------------------------------------------------------------------ one job at a time
 	@staticmethod
@@ -2561,10 +2609,7 @@ class RequestExecutionService:
 				"This work is blocked. Resume it before carrying it out.", "INVALID_TRANSITION"
 			)
 
-		waiting = RequestExecutionService._waiting_on(order)
-
-		if waiting:
-			raise ValidationError(f"This work is waiting for {waiting}.", "INVALID_TRANSITION")
+		RequestExecutionService._settle_targets(order)
 
 		return order
 
@@ -2586,59 +2631,34 @@ class RequestExecutionService:
 			)
 
 	@staticmethod
-	def _waiting_on(order):
-		"""Read fresh: the plan the technician is looking at may be a minute old."""
-		orders = RequestExecutionService._orders(order.service_request)
-		ready = RequestExecutionService._readiness(orders)
+	def _settle_targets(order):
+		"""Put the resolved targets on a work order, refusing one whose Requested entity is unresolved."""
+		for field, real, kind, resolve in (
+			("requested_device", "managed_device", "requested_device", request_targets.resolve_device_target),
+			(
+				"requested_client_user",
+				"client_user",
+				"requested_client_user",
+				request_targets.resolve_client_user_target,
+			),
+		):
+			requested = order.get(field)
 
-		return ready.get(order.name, {}).get("waiting_on")
+			if not requested:
+				continue
+
+			target = resolve(**{field: requested})
+
+			if target["waiting"]:
+				raise ValidationError(DEPENDENCY_LABELS[kind], "REQUESTED_TARGET_UNRESOLVED")
+
+			if not target["resolved"]:
+				raise ValidationError(request_targets.CANCELLED_TARGET, "INVALID_TRANSITION")
+
+			if not order.get(real) and (real == "managed_device") == (order.target_scope == "Device"):
+				order.set(real, target["resolved"])
 
 	# ------------------------------------------------------------------ what was proven
-	@staticmethod
-	def _prove_user_setup(order):
-		person = order.resulting_client_user
-		card = frappe.db.get_value(
-			"MSP Client User", person, ["full_name", "department", "username"], as_dict=True
-		)
-
-		checks = [("Client user on file", bool(card))]
-
-		if card:
-			# the customer is never asked for a Department, but the person ends up with one:
-			# it is settled by whoever creates them, and the work is not done until it is
-			checks.append(("Department recorded", bool(card.department)))
-
-			if card.username:
-				checks.append(("Username recorded", True))
-
-		return checks
-
-	@staticmethod
-	def _prove_device(order):
-		device = order.resulting_device
-		card = frappe.db.get_value(
-			"MSP Managed Device",
-			device,
-			["hostname", "serial_number", "assigned_client_user"],
-			as_dict=True,
-		)
-
-		checks = [
-			("Device on file", bool(card)),
-			("Serial number recorded", bool(card and (card.serial_number or "").strip())),
-		]
-
-		person = RequestExecutionService._resolved_person(
-			frappe.get_doc("MSP Service Request", order.service_request), order.subject_key
-		)
-
-		if person:
-			checks.append(
-				("Held by the right person", bool(card) and card.assigned_client_user == person)
-			)
-
-		return checks
-
 	@staticmethod
 	def _prove_service_action(order):
 		"""What the record itself says happened, which the technician never has to tick."""
@@ -2677,6 +2697,7 @@ class RequestExecutionService:
 		]
 
 	# the one thing the record cannot prove: that the customer can actually use it
+
 	MANUAL_CHECK = {
 		"Add": "Confirmed working for the customer",
 		"Change": "Confirmed working on the new terms",
@@ -2742,7 +2763,7 @@ class RequestExecutionService:
 		if doc.status != "Approved":
 			return
 
-		frappe.db.set_value("MSP Service Request", doc.name, "status", "In Progress")
+		frappe.db.set_value("MSP Request", doc.name, "status", "In Progress")
 		doc.status = "In Progress"
 
 	# ------------------------------------------------------------------ when it goes wrong
@@ -2761,7 +2782,7 @@ class RequestExecutionService:
 		order.add_comment("Comment", f"Blocked: {reason}")
 		frappe.db.commit()
 
-		return RequestExecutionService.get_execution_plan(order.service_request)
+		return RequestExecutionService.get_execution_plan(order.request)
 
 	@staticmethod
 	def resume_work_item(work_order=None):
@@ -2780,7 +2801,7 @@ class RequestExecutionService:
 		order.add_comment("Comment", "Work resumed.")
 		frappe.db.commit()
 
-		return RequestExecutionService.get_execution_plan(order.service_request)
+		return RequestExecutionService.get_execution_plan(order.request)
 
 	@staticmethod
 	def fail_work_item(work_order=None, reason=None):
@@ -2797,7 +2818,7 @@ class RequestExecutionService:
 		order.add_comment("Comment", f"Failed: {reason}")
 		frappe.db.commit()
 
-		return RequestExecutionService.get_execution_plan(order.service_request)
+		return RequestExecutionService.get_execution_plan(order.request)
 
 	@staticmethod
 	def cancel_work_item(work_order=None, reason=None):
@@ -2818,7 +2839,7 @@ class RequestExecutionService:
 		order.add_comment("Comment", f"Cancelled: {reason}")
 		frappe.db.commit()
 
-		return RequestExecutionService.get_execution_plan(order.service_request)
+		return RequestExecutionService.get_execution_plan(order.request)
 
 	@staticmethod
 	def _open_order(work_order):
@@ -2869,7 +2890,7 @@ class RequestExecutionService:
 		order.save(ignore_permissions=True)
 		frappe.db.commit()
 
-		return RequestExecutionService.get_execution_plan(order.service_request)
+		return RequestExecutionService.get_execution_plan(order.request)
 
 	@staticmethod
 	def complete_request(request=None):
@@ -2917,7 +2938,7 @@ class RequestExecutionService:
 
 		if waiting:
 			raise ValidationError(
-				"This request cannot be closed yet — " + "; ".join(waiting) + ".",
+				f"{COMPLETION_REFUSAL} " + "; ".join(waiting) + ".",
 				"VALIDATION_ERROR",
 			)
 

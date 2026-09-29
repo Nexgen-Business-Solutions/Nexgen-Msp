@@ -165,3 +165,25 @@ describe('opening one service', () => {
     ).toBeInTheDocument();
   });
 });
+
+describe('the catalogue page acts on no assignment', () => {
+  it('renders no row menu, so it has no service assignment builder to feed', async () => {
+    vi.mocked(internal.getService).mockResolvedValue({
+      ...detail(),
+      customers: [
+        {
+          customer: 'ACME',
+          open_assignments: 3,
+          billable_assignments: 2,
+          current_rate: 12,
+          discount_percent: 0,
+        },
+      ],
+    } as ServiceDetailData);
+    show('/msp/services/detail?item=SVC%2FM365');
+
+    expect(await screen.findByText('ACME')).toBeInTheDocument();
+    expect(screen.queryByTitle('More options')).not.toBeInTheDocument();
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+});

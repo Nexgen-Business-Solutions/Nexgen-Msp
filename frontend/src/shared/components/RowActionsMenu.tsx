@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { MoreVertical, type LucideIcon } from 'lucide-react';
 
@@ -12,7 +12,14 @@ export interface RowAction {
 
 const MENU_WIDTH = 208;
 
-const RowActionsMenu: React.FC<{ actions: RowAction[] }> = ({ actions }) => {
+const TRIGGER_CLASS =
+  'flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700';
+
+const RowActionsMenu: React.FC<{ actions: RowAction[]; disabledReason?: string }> = ({
+  actions,
+  disabledReason,
+}) => {
+  const reasonId = useId();
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState({ top: 0, left: 0 });
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -57,6 +64,26 @@ const RowActionsMenu: React.FC<{ actions: RowAction[] }> = ({ actions }) => {
     };
   }, [open]);
 
+  if (disabledReason) {
+    return (
+      <>
+        <button
+          type="button"
+          disabled
+          aria-label="More options"
+          aria-describedby={reasonId}
+          title={disabledReason}
+          className={`${TRIGGER_CLASS} cursor-not-allowed opacity-50 hover:bg-white hover:text-slate-500`}
+        >
+          <MoreVertical size={15} />
+        </button>
+        <span id={reasonId} className="sr-only">
+          {disabledReason}
+        </span>
+      </>
+    );
+  }
+
   if (visible.length === 0) return null;
 
   return (
@@ -71,7 +98,7 @@ const RowActionsMenu: React.FC<{ actions: RowAction[] }> = ({ actions }) => {
         title="More options"
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
+        className={TRIGGER_CLASS}
       >
         <MoreVertical size={15} />
       </button>

@@ -13,18 +13,21 @@ import frappe
 
 from nexgen_msp.api.internal.services.request_execution_service import RequestExecutionService
 from nexgen_msp.api.internal.services.request_service import RequestService
+from nexgen_msp.api.internal.services.requested_client_user_service import RequestedClientUserService
+from nexgen_msp.api.internal.services.requested_device_service import RequestedDeviceService
 from nexgen_msp.api.portal.services.portal_service import PortalService
-from nexgen_msp.utils import operations
+from nexgen_msp.utils import request_targets
 from nexgen_msp.utils.errors import ValidationError as ServiceRefused
 
 from .base import MSPTestCase
 
-WORK_ORDER = "MSP Service Work Order"
+WORK_ORDER = "MSP Work Order"
 
 
 class ExecutionCase(MSPTestCase):
     def setUp(self):
         super().setUp()
+        self.newcomers, self.owed = {}, {}
         self.tag = frappe.generate_hash(length=6)
         self.customer = self.make_customer(self.tag)
         self.track("MSP Approval Authority", self.customer)
@@ -54,10 +57,9 @@ class ExecutionCase(MSPTestCase):
 
         return service
 
-    def line(self, service, **fields):
+    def line(self, service, on_requested_device=False, **fields):
         action = fields.pop("action", "Add")
-
-        return {
+        row = {
             "operation_code": self.operation(action),
             "action": action,
             "target_scope": "User",
@@ -66,26 +68,58 @@ class ExecutionCase(MSPTestCase):
             **fields,
         }
 
-    def new_person_line(self, service, full_name="Marie Dupont", **fields):
-        return self.line(
-            service,
-            client_user=None,
-            is_new_user=1,
-            new_user_full_name=full_name,
-            new_user_department=self.make_department("Human Resources"),
-            **fields,
-        )
+        if on_requested_device:
+            owner = row.get("subject_key") or f"user:{row['client_user']}"
+            row["target_scope"] = "Device"
+            row["device_requirement_key"] = f"new-device:{owner}"
+            self.owed[row["device_requirement_key"]] = {
+                "device_requirement_key": row["device_requirement_key"],
+                "intended_holder_subject_key": owner if owner in self.newcomers else None,
+                "intended_holder_client_user": row.get("client_user"),
+            }
+
+        return row
+
+    def described(self, lines):
+        """The future people and the requested Devices a set of lines names."""
+        return {
+            "subjects": [
+                self.newcomers[key]
+                for key in dict.fromkeys(line.get("subject_key") for line in lines)
+                if key in self.newcomers
+            ],
+            "requested_devices": [
+                self.owed[key]
+                for key in dict.fromkeys(line.get("device_requirement_key") for line in lines)
+                if key in self.owed
+            ],
+        }
+
+    def new_person_line(self, service, full_name="Marie Dupont", subject_key=None, **fields):
+        key = subject_key or f"new:{frappe.scrub(full_name)}"
+        self.newcomers[key] = {
+            "subject_key": key,
+            "kind": "new",
+            "full_name": full_name,
+            "department": self.make_department("Human Resources"),
+        }
+
+        return self.line(service, client_user=None, subject_key=key, **fields)
 
     def approved(self, *lines):
         out = self.as_user(
             self.asker,
             lambda: PortalService.create_request(
-                customer=self.customer, request_type="Add", lines=list(lines)
+                customer=self.customer,
+                request_type="Add",
+                lines=list(lines),
+                **self.described(lines),
             ),
         )
-        name = self.track("MSP Service Request", out["name"])
+        name = self.track("MSP Request", out["name"])
+        self.tech_does(lambda: RequestService.run_action(name=name, action="start_review"))
 
-        doc = frappe.get_doc("MSP Service Request", name)
+        doc = frappe.get_doc("MSP Request", name)
         for row in doc.lines:
             self.tech_does(
                 lambda idx=row.idx: RequestService.set_line_status(
@@ -100,7 +134,7 @@ class ExecutionCase(MSPTestCase):
 
     def sweep(self, request):
         """Everything the plan wrote, and everything carrying it out left behind."""
-        for order in frappe.get_all(WORK_ORDER, filters={"service_request": request}, pluck="name"):
+        for order in frappe.get_all(WORK_ORDER, filters={"request": request}, pluck="name"):
             self.track(WORK_ORDER, order)
 
         for assignment in frappe.get_all(
@@ -111,13 +145,67 @@ class ExecutionCase(MSPTestCase):
     def work(self, request, work_type, index=0):
         return frappe.get_all(
             WORK_ORDER,
-            filters={"service_request": request, "work_type": work_type},
+            filters={"request": request, "work_type": work_type},
             fields=["name", "action", "status", "target_scope"],
             order_by="request_line_idx asc, creation asc",
         )[index]
 
     def state(self, order):
         return frappe.db.get_value(WORK_ORDER, order, "status")
+
+    def requested(self, request, doctype="MSP Requested Client User"):
+        return frappe.get_all(doctype, filters={"request": request}, pluck="name")[0]
+
+    def assign_line(self, owner=None, **fields):
+        """The act that hands the machine asked for to the person it was asked for."""
+        owner = owner or f"user:{self.john}"
+        row = {
+            "operation_code": "device.assign",
+            "target_scope": "Device",
+            "device_requirement_key": f"new-device:{owner}",
+            **fields,
+        }
+
+        if owner in self.newcomers:
+            row["subject_key"] = owner
+            row["requested_holder_subject_key"] = owner
+        else:
+            row["requested_for_user"] = self.john
+            row["requested_holder"] = self.john
+
+        return row
+
+    def create_person(self, request, **values):
+        person = self.tech_does(
+            lambda: RequestedClientUserService.resolve_create(self.requested(request), values)
+        )
+
+        return self.track("MSP Client User", person)
+
+    def register_machine(self, request, **values):
+        device = self.tech_does(
+            lambda: RequestedDeviceService.resolve_new(
+                self.requested(request, "MSP Requested Device"), values
+            )
+        )
+
+        return self.track("MSP Managed Device", device)
+
+    def choose_machine(self, request, device):
+        return self.tech_does(
+            lambda: RequestedDeviceService.resolve_existing(
+                self.requested(request, "MSP Requested Device"), device
+            )
+        )
+
+    def hand_over(self, request):
+        order = frappe.get_all(
+            WORK_ORDER,
+            filters={"request": request, "operation_code": "device.assign"},
+            pluck="name",
+        )[0]
+
+        return self.tech_does(lambda: RequestExecutionService.execute_device_operation(work_order=order))
 
 
 class TestOpeningTheAccountARequestAskedFor(ExecutionCase):
@@ -126,36 +214,29 @@ class TestOpeningTheAccountARequestAskedFor(ExecutionCase):
             self.new_person_line(self.offering("US1")),
             self.new_person_line(self.offering("US2")),
         )
-        setup = self.work(name, "User Setup")
+        requested = self.requested(name)
+        created = self.create_person(name, username="m.dupont")
 
-        self.tech_does(
-            lambda: RequestExecutionService.execute_user_setup(
-                work_order=setup.name, username="m.dupont"
-            )
+        orders = frappe.get_all(
+            WORK_ORDER, filters={"request": name}, fields=["client_user", "requested_client_user"]
         )
-        created = frappe.db.get_value(WORK_ORDER, setup.name, "resulting_client_user")
-        self.track("MSP Client User", created)
-
         rows = frappe.get_all(
-            "MSP Service Request Line",
+            "MSP Request Line",
             filters={"parent": name},
-            fields=["client_user", "requested_for_user", "is_new_user"],
+            fields=["client_user", "requested_client_user"],
         )
 
-        self.assertEqual({row.client_user for row in rows}, {created})
-        self.assertEqual({row.is_new_user for row in rows}, {0})
+        self.assertEqual({row.client_user for row in orders}, {created}, "the work names the person now")
+        self.assertEqual({row.requested_client_user for row in orders}, {requested})
+        self.assertEqual({row.client_user for row in rows}, {None}, "the lines keep the customer's words")
+        self.assertEqual({row.requested_client_user for row in rows}, {requested})
+        self.assertEqual(
+            frappe.db.get_value("MSP Requested Client User", requested, "resolved_client_user"), created
+        )
 
     def test_the_account_opens_through_the_domain_that_owns_people(self):
         name = self.approved(self.new_person_line(self.offering("US3")))
-        setup = self.work(name, "User Setup")
-
-        self.tech_does(
-            lambda: RequestExecutionService.execute_user_setup(
-                work_order=setup.name, username="m.dupont"
-            )
-        )
-        created = frappe.db.get_value(WORK_ORDER, setup.name, "resulting_client_user")
-        self.track("MSP Client User", created)
+        created = self.create_person(name, username="m.dupont")
         card = frappe.db.get_value(
             "MSP Client User", created, ["full_name", "customer", "username"], as_dict=True
         )
@@ -163,63 +244,63 @@ class TestOpeningTheAccountARequestAskedFor(ExecutionCase):
         self.assertEqual(card.full_name, "Marie Dupont")
         self.assertEqual(card.customer, self.customer)
         self.assertEqual(card.username, "m.dupont")
+        self.assertTrue(
+            frappe.db.exists(
+                "Comment",
+                {"reference_doctype": "MSP Client User", "reference_name": created, "content": ("like", f"%{name}%")},
+            ),
+            "the person's history says which request brought them",
+        )
 
     def test_the_services_owed_to_them_can_be_picked_up_the_moment_they_exist(self):
         name = self.approved(self.new_person_line(self.offering("US4")))
-        setup = self.work(name, "User Setup")
+        requested = self.requested(name)
 
         plan = self.tech_does(
-            lambda: RequestExecutionService.execute_user_setup(
-                work_order=setup.name, username="m.dupont"
+            lambda: RequestExecutionService.resolve_requested(
+                kind="client_user", name=requested, mode="create", values={"username": "m.dupont"}
             )
-        )
-        self.track(
-            "MSP Client User", frappe.db.get_value(WORK_ORDER, setup.name, "resulting_client_user")
-        )
+        )["plan"]
+        self.track("MSP Client User", frappe.db.get_value("MSP Requested Client User", requested, "resolved_client_user"))
+        card = plan["action_groups"][0]["work"][0]
 
-        self.assertEqual(plan["groups"][0]["user_setup"]["status"], "Completed")
-        self.assertTrue(plan["groups"][0]["services"][0]["ready"])
+        self.assertEqual(plan["outcome"]["requested_client_users_resolved"], 1)
+        self.assertTrue(card["ready"])
+        self.assertEqual(card["display_status"], "Ready")
 
-    def test_opening_it_twice_is_refused_rather_than_creating_a_second_person(self):
+    def test_opening_it_twice_opens_one_person_and_a_different_choice_is_refused(self):
         name = self.approved(self.new_person_line(self.offering("US5")))
-        setup = self.work(name, "User Setup")
+        created = self.create_person(name, username="m.dupont")
 
-        self.tech_does(
-            lambda: RequestExecutionService.execute_user_setup(
-                work_order=setup.name, username="m.dupont"
-            )
-        )
-        self.track(
-            "MSP Client User", frappe.db.get_value(WORK_ORDER, setup.name, "resulting_client_user")
-        )
+        again = self.tech_does(lambda: RequestedClientUserService.resolve_create(self.requested(name)))
+
+        self.assertEqual(again, created)
+        self.assertEqual(frappe.db.count("MSP Client User", {"full_name": "Marie Dupont"}), 1)
 
         with self.assertRaises(ServiceRefused) as caught:
             self.tech_does(
-                lambda: RequestExecutionService.execute_user_setup(work_order=setup.name)
+                lambda: RequestedClientUserService.resolve_existing(self.requested(name), self.john)
             )
 
-        self.assertIn("already carried out", str(caught.exception))
-        self.assertEqual(frappe.db.count("MSP Client User", {"full_name": "Marie Dupont"}), 1)
+        self.assertIn("already been resolved to a different record", str(caught.exception))
 
 
 class TestSettlingTheMachine(ExecutionCase):
     def test_a_new_machine_is_registered_and_handed_to_its_person(self):
         name = self.approved(
-            self.line(self.offering("DV1", scope="Device"), is_new_device=1)
+            self.line(self.offering("DV1", scope="Device"), on_requested_device=True),
+            self.assign_line(),
         )
-        job = self.work(name, "Device Provisioning")
+        device = self.register_machine(
+            name, hostname="laptop-dv1", serial_number=f"SN-{self.tag}", device_type="PC"
+        )
 
-        self.tech_does(
-            lambda: RequestExecutionService.execute_device_provisioning(
-                work_order=job.name,
-                mode="new",
-                hostname="laptop-dv1",
-                serial_number=f"SN-{self.tag}",
-                device_type="PC",
-            )
+        self.assertIsNone(
+            frappe.db.get_value("MSP Managed Device", device, "assigned_client_user"),
+            "registering puts it in stock; the hand-over is the assign line's work",
         )
-        device = frappe.db.get_value(WORK_ORDER, job.name, "resulting_device")
-        self.track("MSP Managed Device", device)
+
+        self.hand_over(name)
         card = frappe.db.get_value(
             "MSP Managed Device",
             device,
@@ -232,21 +313,15 @@ class TestSettlingTheMachine(ExecutionCase):
         self.assertEqual(card.assigned_client_user, self.john)
 
     def test_a_new_machine_keeps_what_its_case_says(self):
-        name = self.approved(self.line(self.offering("DV9", scope="Device"), is_new_device=1))
-        job = self.work(name, "Device Provisioning")
-
-        self.tech_does(
-            lambda: RequestExecutionService.execute_device_provisioning(
-                work_order=job.name,
-                mode="new",
-                hostname="laptop-dv9",
-                serial_number=f"HW-{self.tag}",
-                manufacturer="Lenovo",
-                model="ThinkPad T14",
-                operating_system="Windows 11",
-            )
+        name = self.approved(self.line(self.offering("DV9", scope="Device"), on_requested_device=True))
+        device = self.register_machine(
+            name,
+            hostname="laptop-dv9",
+            serial_number=f"HW-{self.tag}",
+            manufacturer="Lenovo",
+            model="ThinkPad T14",
+            operating_system="Windows 11",
         )
-        device = self.track("MSP Managed Device", frappe.db.get_value(WORK_ORDER, job.name, "resulting_device"))
         card = frappe.db.get_value(
             "MSP Managed Device", device, ["manufacturer", "model", "operating_system"], as_dict=True
         )
@@ -254,82 +329,86 @@ class TestSettlingTheMachine(ExecutionCase):
         self.assertEqual((card.manufacturer, card.model, card.operating_system), ("Lenovo", "ThinkPad T14", "Windows 11"))
 
     def test_a_machine_without_a_serial_is_refused(self):
-        name = self.approved(self.line(self.offering("DV2", scope="Device"), is_new_device=1))
-        job = self.work(name, "Device Provisioning")
+        name = self.approved(self.line(self.offering("DV2", scope="Device"), on_requested_device=True))
 
         with self.assertRaises(ServiceRefused) as caught:
-            self.tech_does(
-                lambda: RequestExecutionService.execute_device_provisioning(
-                    work_order=job.name, mode="new", hostname="LAPTOP-DV2"
-                )
-            )
+            self.register_machine(name, hostname="LAPTOP-DV2")
 
         self.assertIn("serial number", str(caught.exception))
+        self.assertEqual(
+            frappe.db.get_value("MSP Requested Device", self.requested(name, "MSP Requested Device"), "status"),
+            "Open",
+        )
 
     def test_one_machine_settles_every_service_that_was_owed_it(self):
         name = self.approved(
-            self.line(self.offering("DV3A", scope="Device"), is_new_device=1),
-            self.line(self.offering("DV3B", scope="Device"), is_new_device=1),
-            self.line(self.offering("DV3C", scope="Device"), is_new_device=1),
+            self.line(self.offering("DV3A", scope="Device"), on_requested_device=True),
+            self.line(self.offering("DV3B", scope="Device"), on_requested_device=True),
+            self.line(self.offering("DV3C", scope="Device"), on_requested_device=True),
         )
-        job = self.work(name, "Device Provisioning")
+        requested = self.requested(name, "MSP Requested Device")
+        device = self.register_machine(name, hostname="laptop-dv3", serial_number=f"SN3-{self.tag}")
 
-        self.tech_does(
-            lambda: RequestExecutionService.execute_device_provisioning(
-                work_order=job.name,
-                mode="new",
-                hostname="laptop-dv3",
-                serial_number=f"SN3-{self.tag}",
-            )
+        orders = frappe.get_all(
+            WORK_ORDER,
+            filters={"request": name},
+            fields=["managed_device", "requested_device", "target_scope"],
         )
-        device = frappe.db.get_value(WORK_ORDER, job.name, "resulting_device")
-        self.track("MSP Managed Device", device)
-
         rows = frappe.get_all(
-            "MSP Service Request Line",
+            "MSP Request Line",
             filters={"parent": name},
-            fields=["managed_device", "target_scope", "is_new_device"],
+            fields=["managed_device", "target_scope", "requested_device"],
         )
 
-        self.assertEqual({row.managed_device for row in rows}, {device})
+        self.assertEqual({row.managed_device for row in orders}, {device})
+        self.assertEqual({row.requested_device for row in orders}, {requested})
         self.assertEqual({row.target_scope for row in rows}, {"Device"})
-        self.assertEqual({row.is_new_device for row in rows}, {0})
+        self.assertEqual({row.requested_device for row in rows}, {requested}, "the lines keep the Requested Device")
+        self.assertEqual({row.managed_device for row in rows}, {None})
+        self.assertEqual(
+            frappe.db.get_value("MSP Requested Device", requested, "resolved_managed_device"), device
+        )
 
     def test_a_machine_on_the_shelf_is_taken_from_stock(self):
         device = self.make_device(self.customer, hostname="STOCK1", serial=f"SS-{self.tag}")
-        name = self.approved(self.line(self.offering("DV4", scope="Device"), is_new_device=1))
-        job = self.work(name, "Device Provisioning")
-
-        self.tech_does(
-            lambda: RequestExecutionService.execute_device_provisioning(
-                work_order=job.name, mode="existing", managed_device=device
-            )
+        name = self.approved(
+            self.line(self.offering("DV4", scope="Device"), on_requested_device=True),
+            self.assign_line(),
         )
+
+        self.choose_machine(name, device)
+        self.hand_over(name)
 
         self.assertEqual(
             frappe.db.get_value("MSP Managed Device", device, "assigned_client_user"), self.john
         )
 
-    def test_a_shelf_machine_with_no_serial_asks_for_it_before_it_is_given(self):
+    def test_a_shelf_machine_with_no_serial_asks_for_it_before_its_service_is_given(self):
         device = self.make_device(self.customer, hostname="NOSN1")
         frappe.db.set_value("MSP Managed Device", device, "serial_number", None)
-        name = self.approved(self.line(self.offering("DV8", scope="Device"), is_new_device=1))
-        job = self.work(name, "Device Provisioning")
+        name = self.approved(self.line(self.offering("DV8", scope="Device"), on_requested_device=True))
+        job = self.work(name, "Service Action")
+
+        self.choose_machine(name, device)
+        card = self.tech_does(lambda: RequestExecutionService.get_execution_plan(request=name))[
+            "action_groups"
+        ][0]["work"][0]
+
+        self.assertEqual(card["display_status"], "Needs information")
+        self.assertEqual(card["prerequisite_action"]["kind"], "complete_serial")
 
         with self.assertRaises(ServiceRefused) as refused:
-            self.tech_does(
-                lambda: RequestExecutionService.execute_device_provisioning(
-                    work_order=job.name, mode="existing", managed_device=device
-                )
-            )
+            self.tech_does(lambda: RequestExecutionService.execute_service_action(work_order=job.name))
         self.assertIn("no serial number", str(refused.exception).lower())
-        self.assertFalse(frappe.db.get_value("MSP Managed Device", device, "assigned_client_user"))
+        self.assertFalse(frappe.db.exists("MSP Service Assignment", {"source_request": name}))
 
         self.tech_does(
-            lambda: RequestExecutionService.execute_device_provisioning(
-                work_order=job.name, mode="existing", managed_device=device, serial_number=f"NS-{self.tag}"
+            lambda: RequestExecutionService.save_required_identifiers(
+                request=name, values=[{"kind": "serial_number", "owner": device, "value": f"NS-{self.tag}"}]
             )
         )
+        self.tech_does(lambda: RequestExecutionService.execute_service_action(work_order=job.name))
+        self.sweep(name)
 
         self.assertEqual(frappe.db.get_value("MSP Managed Device", device, "serial_number"), f"NS-{self.tag}")
         self.assertEqual(self.state(job.name), "Completed")
@@ -339,42 +418,56 @@ class TestSettlingTheMachine(ExecutionCase):
         device = self.make_device(
             self.customer, hostname="HELD1", holder=bob, serial=f"SH-{self.tag}"
         )
-        name = self.approved(self.line(self.offering("DV5", scope="Device"), is_new_device=1))
-        job = self.work(name, "Device Provisioning")
-
-        with self.assertRaises(ServiceRefused) as caught:
-            self.tech_does(
-                lambda: RequestExecutionService.execute_device_provisioning(
-                    work_order=job.name, mode="existing", managed_device=device
-                )
-            )
-
-        self.assertIn("held by", str(caught.exception))
-        self.assertEqual(
-            frappe.db.get_value("MSP Managed Device", device, "assigned_client_user"), bob
+        name = self.approved(
+            self.line(self.offering("DV5", scope="Device"), on_requested_device=True),
+            self.assign_line(),
         )
 
-    def test_it_is_transferred_once_the_technician_has_said_so(self):
+        self.choose_machine(name, device)
+
+        self.assertEqual(
+            frappe.db.get_value("MSP Managed Device", device, "assigned_client_user"),
+            bob,
+            "choosing the machine moves nothing",
+        )
+        plan = self.tech_does(lambda: RequestExecutionService.get_execution_plan(request=name))
+        card = next(
+            card
+            for group in plan["action_groups"]
+            for card in group["work"]
+            if card["operation_code"] == "device.assign"
+        )
+
+        self.assertEqual(card["relationship"]["from_label"], "ZZTEST Bob")
+        self.assertEqual(card["relationship"]["to_label"], "ZZTEST John")
+        self.assertEqual(card["target"]["sublabel"], "ZZTEST Bob → ZZTEST John")
+
+    def test_it_is_transferred_once_the_technician_carries_the_assignment_out(self):
         bob = self.make_person(self.customer, "Bob")
         device = self.make_device(
             self.customer, hostname="HELD2", holder=bob, serial=f"SH2-{self.tag}"
         )
-        name = self.approved(self.line(self.offering("DV6", scope="Device"), is_new_device=1))
-        job = self.work(name, "Device Provisioning")
-
-        self.tech_does(
-            lambda: RequestExecutionService.execute_device_provisioning(
-                work_order=job.name,
-                mode="existing",
-                managed_device=device,
-                confirm_transfer=1,
-            )
+        name = self.approved(
+            self.line(self.offering("DV6", scope="Device"), on_requested_device=True),
+            self.assign_line(),
         )
+
+        self.choose_machine(name, device)
+        self.hand_over(name)
 
         self.assertEqual(
             frappe.db.get_value("MSP Managed Device", device, "assigned_client_user"), self.john
         )
-        self.assertEqual(frappe.db.get_value(WORK_ORDER, job.name, "action"), "Transfer Device")
+        self.assertEqual(
+            frappe.get_all(
+                "MSP Device Holder",
+                filters={"parent": device, "parenttype": "MSP Managed Device"},
+                fields=["client_user", "is_current"],
+                order_by="idx asc",
+            ),
+            [{"client_user": bob, "is_current": 0}, {"client_user": self.john, "is_current": 1}],
+            "the change of holder closes Bob's period and opens John's",
+        )
 
     def test_a_machine_they_held_before_can_be_given_back_to_them(self):
         """Phase 1 allows a second holding period; nothing here may forbid it."""
@@ -387,14 +480,13 @@ class TestSettlingTheMachine(ExecutionCase):
         )
         DeviceLifecycleService.repossess(device=device)
 
-        name = self.approved(self.line(self.offering("DV7", scope="Device"), is_new_device=1))
-        job = self.work(name, "Device Provisioning")
-
-        self.tech_does(
-            lambda: RequestExecutionService.execute_device_provisioning(
-                work_order=job.name, mode="existing", managed_device=device
-            )
+        name = self.approved(
+            self.line(self.offering("DV7", scope="Device"), on_requested_device=True),
+            self.assign_line(),
         )
+
+        self.choose_machine(name, device)
+        self.hand_over(name)
 
         self.assertEqual(
             frappe.db.get_value("MSP Managed Device", device, "assigned_client_user"), self.john
@@ -438,7 +530,7 @@ class TestActingOnTheService(ExecutionCase):
     def test_the_first_real_act_puts_the_request_to_work(self):
         name = self.approved(self.line(self.offering("SA3")))
 
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Approved")
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "status"), "Approved")
 
         self.tech_does(
             lambda: RequestExecutionService.execute_service_action(
@@ -447,7 +539,7 @@ class TestActingOnTheService(ExecutionCase):
         )
         self.sweep(name)
 
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "In Progress")
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "status"), "In Progress")
 
     def test_running_it_twice_opens_no_second_service(self):
         name = self.approved(self.line(self.offering("SA4")))
@@ -475,16 +567,18 @@ class TestActingOnTheService(ExecutionCase):
                 lambda: RequestExecutionService.execute_service_action(work_order=job.name)
             )
 
-        self.assertIn("waiting", str(caught.exception))
+        self.assertEqual(caught.exception.message, "Requested Client User must be resolved")
 
     def test_a_device_service_cannot_run_before_the_machine_is_settled(self):
-        name = self.approved(self.line(self.offering("SA6", scope="Device"), is_new_device=1))
+        name = self.approved(self.line(self.offering("SA6", scope="Device"), on_requested_device=True))
         job = self.work(name, "Service Action")
 
-        with self.assertRaises(ServiceRefused):
+        with self.assertRaises(ServiceRefused) as caught:
             self.tech_does(
                 lambda: RequestExecutionService.execute_service_action(work_order=job.name)
             )
+
+        self.assertEqual(caught.exception.message, "Requested Device must be resolved")
 
     def test_suspending_reaches_the_service_that_was_named(self):
         from nexgen_msp.api.internal.services.service_lifecycle_service import (
@@ -571,7 +665,7 @@ class TestWorkDoneFromThePersonMenu(ExecutionCase):
 
 
 class TestActionsAddedWhileWorking(ExecutionCase):
-    def test_configured_actions_keep_their_own_names_into_the_recap(self):
+    def test_an_act_from_the_person_menu_keeps_its_own_name_into_the_recap(self):
         from nexgen_msp.api.internal.services.service_lifecycle_service import (
             ServiceLifecycleService,
         )
@@ -584,49 +678,29 @@ class TestActionsAddedWhileWorking(ExecutionCase):
             client_user=self.john,
         )
         self.track("MSP Service Assignment", opened["name"])
-        code = self.operation("Suspend")
 
         name = self.approved(self.line(self.offering("BASE")))
-        subject_key = frappe.db.get_value(
-            "MSP Service Request Line", {"parent": name}, "subject_key"
+        self.tech_does(
+            lambda: ServiceLifecycleService.suspend(assignment=opened["name"], source_request=name)
         )
-        options = self.tech_does(
-            lambda: RequestExecutionService.technician_options(name, subject_key)["options"]
-        )
-        chosen = next(
-            row
-            for row in options
-            if row["operation_code"] == code
-            and row["source_service_assignment"] == opened["name"]
+        plan = self.tech_does(
+            lambda: RequestExecutionService.settle_work_done_elsewhere(request=name)
         )
 
-        plan = self.tech_does(
-            lambda: RequestExecutionService.add_technician_action(
-                request=name,
-                subject_key=subject_key,
-                option=chosen,
-                reason="Confirmed during fulfilment",
-            )
-        )
-        self.sweep(name)
-        extra = frappe.db.get_value(
-            WORK_ORDER,
-            {"service_request": name, "origin": "Technician", "operation_code": code},
-            "name",
-        )
-        self.assertTrue(extra)
-
-        plan = self.tech_does(
-            lambda: RequestExecutionService.execute_service_action(work_order=extra)
-        )
-        self.assertTrue(
-            any(operations.label(code) in row["title"] for row in plan["recap"])
+        entry = next(row for row in plan["recap"] if row["kind"] == "technician")
+        self.assertIn(frappe.db.get_value("Item", service, "item_name"), entry["title"])
+        self.assertIn("Suspended", entry["title"])
+        self.assertEqual(entry["subject_key"], f"user:{self.john}")
+        self.assertEqual(plan["outcome"]["technician_added"], 1)
+        self.assertFalse(
+            frappe.db.exists(WORK_ORDER, {"request": name, "origin": "Technician"}),
+            "nothing is added to the customer's work",
         )
 
     def test_a_profile_change_recorded_in_the_workflow_appears_in_the_recap(self):
         name = self.approved(self.line(self.offering("PROFILE")))
         subject_key = frappe.db.get_value(
-            "MSP Service Request Line", {"parent": name}, "subject_key"
+            "MSP Request Line", {"parent": name}, "subject_key"
         )
 
         plan = self.tech_does(
@@ -645,17 +719,15 @@ class TestActionsAddedWhileWorking(ExecutionCase):
 
 
 class TestWhenSomethingGetsInTheWay(ExecutionCase):
-    def test_failed_user_setup_rolls_back_the_person_and_request_links(self):
+    def test_a_failed_resolution_rolls_back_the_person_and_their_work(self):
         name = self.approved(self.new_person_line(self.offering("TX1")))
-        job = self.work(name, "User Setup")
+        requested = self.requested(name)
 
-        with patch.object(
-            RequestExecutionService, "_prove_user_setup", side_effect=RuntimeError("proof failed")
-        ):
+        with patch.object(request_targets, "refresh_work_orders", side_effect=RuntimeError("refresh failed")):
             with self.assertRaises(RuntimeError):
                 self.tech_does(
-                    lambda: RequestExecutionService.execute_user_setup(
-                        work_order=job.name, username=f"tx1.{self.tag}"
+                    lambda: RequestedClientUserService.resolve_create(
+                        requested, {"username": f"tx1.{self.tag}"}
                     )
                 )
 
@@ -665,37 +737,34 @@ class TestWhenSomethingGetsInTheWay(ExecutionCase):
             )
         )
         self.assertEqual(
-            frappe.db.get_value(WORK_ORDER, job.name, "resulting_client_user"), None
+            frappe.db.get_value("MSP Requested Client User", requested, ["status", "resolved_client_user"]),
+            ("Open", None),
         )
+        self.assertIsNone(frappe.db.get_value(WORK_ORDER, {"request": name}, "client_user"))
         self.assertEqual(
-            frappe.db.get_value("MSP Service Request Line", {"parent": name}, "is_new_user"), 1
+            frappe.db.get_value("MSP Request Line", {"parent": name}, "requested_client_user"),
+            requested,
         )
 
-    def test_failed_device_provisioning_rolls_back_the_device_and_handover(self):
+    def test_a_failed_registration_rolls_back_the_device_and_its_work(self):
         serial = f"TX2-{self.tag}"
         name = self.approved(
-            self.line(self.offering("TX2", scope="Device"), is_new_device=1)
+            self.line(self.offering("TX2", scope="Device"), on_requested_device=True)
         )
-        job = self.work(name, "Device Provisioning")
+        requested = self.requested(name, "MSP Requested Device")
 
-        with patch.object(
-            RequestExecutionService, "_prove_device", side_effect=RuntimeError("proof failed")
-        ):
+        with patch.object(request_targets, "refresh_work_orders", side_effect=RuntimeError("refresh failed")):
             with self.assertRaises(RuntimeError):
-                self.tech_does(
-                    lambda: RequestExecutionService.execute_device_provisioning(
-                        work_order=job.name,
-                        mode="new",
-                        hostname="ROLLBACK-TX2",
-                        serial_number=serial,
-                    )
-                )
+                self.register_machine(name, hostname="ROLLBACK-TX2", serial_number=serial)
 
         self.assertFalse(frappe.db.exists("MSP Managed Device", {"serial_number": serial}))
-        self.assertEqual(frappe.db.get_value(WORK_ORDER, job.name, "resulting_device"), None)
         self.assertEqual(
-            frappe.db.get_value("MSP Service Request Line", {"parent": name}, "is_new_device"),
-            1,
+            frappe.db.get_value("MSP Requested Device", requested, ["status", "resolved_managed_device"]),
+            ("Open", None),
+        )
+        self.assertIsNone(frappe.db.get_value(WORK_ORDER, {"request": name}, "managed_device"))
+        self.assertEqual(
+            frappe.db.get_value("MSP Request Line", {"parent": name}, "requested_device"), requested
         )
 
     def test_failed_service_orchestration_rolls_back_the_open_assignment(self):
@@ -733,7 +802,7 @@ class TestWhenSomethingGetsInTheWay(ExecutionCase):
 
         self.assertEqual(self.state(second.name), "Blocked")
         self.assertEqual(self.state(first.name), "Completed")
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "In Progress")
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "status"), "In Progress")
 
     def test_blocking_without_saying_why_is_refused(self):
         name = self.approved(self.line(self.offering("BL3")))
@@ -806,7 +875,7 @@ class TestWhenSomethingGetsInTheWay(ExecutionCase):
         self.sweep(name)
         self.tech_does(lambda: RequestExecutionService.complete_request(request=name))
 
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Completed")
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "status"), "Completed")
 
 
 class TestTheRecordProvesTheWork(ExecutionCase):
@@ -882,7 +951,7 @@ class TestClosingTheFile(ExecutionCase):
         self.sweep(name)
         self.tech_does(lambda: RequestExecutionService.complete_request(request=name))
 
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Completed")
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "status"), "Completed")
 
     def test_blocked_work_holds_the_file_open_and_says_what_for(self):
         name = self.approved(self.line(self.offering("CL3")))
@@ -904,30 +973,16 @@ class TestClosingTheFile(ExecutionCase):
         name = self.approved(
             self.new_person_line(self.offering("E2E1")),
             self.new_person_line(self.offering("E2E2")),
-            self.new_person_line(self.offering("E2E3", scope="Device"), is_new_device=1),
-            self.new_person_line(self.offering("E2E4", scope="Device"), is_new_device=1),
+            self.new_person_line(self.offering("E2E3", scope="Device"), on_requested_device=True),
+            self.new_person_line(self.offering("E2E4", scope="Device"), on_requested_device=True),
+            self.assign_line("new:marie_dupont"),
         )
 
-        setup = self.work(name, "User Setup")
-        self.tech_does(
-            lambda: RequestExecutionService.execute_user_setup(
-                work_order=setup.name, username=f"m.{self.tag}"
-            )
+        marie = self.create_person(name, username=f"m.{self.tag}")
+        device = self.register_machine(
+            name, hostname=f"laptop-{self.tag}", serial_number=f"E2E-{self.tag}"
         )
-        self.track(
-            "MSP Client User", frappe.db.get_value(WORK_ORDER, setup.name, "resulting_client_user")
-        )
-
-        job = self.work(name, "Device Provisioning")
-        self.tech_does(
-            lambda: RequestExecutionService.execute_device_provisioning(
-                work_order=job.name,
-                mode="new",
-                hostname=f"laptop-{self.tag}",
-                serial_number=f"E2E-{self.tag}",
-            )
-        )
-        self.track("MSP Managed Device", frappe.db.get_value(WORK_ORDER, job.name, "resulting_device"))
+        self.hand_over(name)
 
         for index in range(4):
             service = self.work(name, "Service Action", index)
@@ -940,9 +995,10 @@ class TestClosingTheFile(ExecutionCase):
 
         plan = self.tech_does(lambda: RequestExecutionService.complete_request(request=name))
 
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Completed")
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "status"), "Completed")
         self.assertEqual(plan["status"], "Completed")
         self.assertEqual(frappe.db.count("MSP Service Assignment", {"source_request": name}), 4)
+        self.assertEqual(frappe.db.get_value("MSP Managed Device", device, "assigned_client_user"), marie)
 
     def test_nothing_is_prepared_when_the_person_and_machine_already_exist(self):
         """Scenario B: preparation is skipped entirely, and the file still closes."""
@@ -960,7 +1016,7 @@ class TestClosingTheFile(ExecutionCase):
         )
 
         self.assertEqual(
-            frappe.db.count(WORK_ORDER, {"service_request": name, "work_type": "User Setup"}), 0
+            frappe.db.count(WORK_ORDER, {"request": name, "work_type": "User Setup"}), 0
         )
 
         for index in range(2):
@@ -974,7 +1030,7 @@ class TestClosingTheFile(ExecutionCase):
 
         self.tech_does(lambda: RequestExecutionService.complete_request(request=name))
 
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Completed")
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "status"), "Completed")
 
 
 class TestTwoTechniciansOnTheSameJob(ExecutionCase):
@@ -1002,22 +1058,12 @@ class TestTwoTechniciansOnTheSameJob(ExecutionCase):
     def test_the_person_is_created_once_however_many_hands_press_the_button(self):
         other = self.make_account("internal", "MSP Technician", suffix=f"ed{self.tag[:3]}")
         name = self.approved(self.new_person_line(self.offering("CC2")))
-        setup = self.work(name, "User Setup")
+        requested = self.requested(name)
 
-        self.tech_does(
-            lambda: RequestExecutionService.execute_user_setup(
-                work_order=setup.name, username=f"cc2.{self.tag}"
-            )
-        )
-        self.track(
-            "MSP Client User", frappe.db.get_value(WORK_ORDER, setup.name, "resulting_client_user")
-        )
+        first = self.create_person(name, username=f"cc2.{self.tag}")
+        second = self.as_user(other, lambda: RequestedClientUserService.resolve_create(requested))
 
-        with self.assertRaises(ServiceRefused):
-            self.as_user(
-                other, lambda: RequestExecutionService.execute_user_setup(work_order=setup.name)
-            )
-
+        self.assertEqual(second, first)
         self.assertEqual(frappe.db.count("MSP Client User", {"full_name": "Marie Dupont"}), 1)
 
 

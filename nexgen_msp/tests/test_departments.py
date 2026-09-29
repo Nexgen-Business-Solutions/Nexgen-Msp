@@ -9,6 +9,7 @@ fly by a raw API call or an Excel import.
 import frappe
 
 from nexgen_msp.api.internal.services.department_service import DepartmentService
+from nexgen_msp.api.internal.services.requested_client_user_service import RequestedClientUserService
 from nexgen_msp.api.portal.services.portal_service import PortalService
 from nexgen_msp.patches import build_department_catalogue
 from nexgen_msp.utils.errors import ValidationError
@@ -16,6 +17,7 @@ from nexgen_msp.utils.errors import ValidationError
 from .base import MSPTestCase
 
 DELETE_REFUSED = "This department is currently in use.\nDisable it instead of deleting it."
+REQUESTED_CLIENT_USER = "MSP Requested Client User"
 
 
 class TestDepartmentCatalogue(MSPTestCase):
@@ -32,10 +34,10 @@ class TestDepartmentCatalogue(MSPTestCase):
         self.track("MSP Department", created.name)
         return created.name
 
-    def request_line(self, customer, service, department, status="Draft"):
+    def requested_person(self, customer, service, department, status="Draft"):
         doc = frappe.get_doc(
             {
-                "doctype": "MSP Service Request",
+                "doctype": "MSP Request",
                 "customer": customer,
                 "request_type": "Add",
                 "priority": "Medium",
@@ -47,19 +49,22 @@ class TestDepartmentCatalogue(MSPTestCase):
                         "operation_code": self.operation(),
                         "action": "Add",
                         "target_scope": "User",
-                        "is_new_user": 1,
-                        "new_user_full_name": "Future colleague",
-                        "new_user_department": department,
                         "requested_service": service,
                     }
                 ],
             }
         ).insert(ignore_permissions=True)
+        self.track("MSP Request", doc.name)
+        person = RequestedClientUserService.create_or_update_draft(
+            doc.name, "new:future", {"full_name": "Future colleague", "department": department}
+        )
+        doc.reload()
+        doc.lines[0].requested_client_user = person
+        doc.save(ignore_permissions=True)
         if status != "Draft":
-            frappe.db.set_value("MSP Service Request", doc.name, "status", status)
+            frappe.db.set_value("MSP Request", doc.name, "status", status)
         frappe.db.commit()
-        self.track("MSP Service Request", doc.name)
-        return doc.lines[0].name
+        return person
 
     # ------------------------------------------------------------------ uniqueness
     def test_case_and_whitespace_variants_collide_on_create(self):
@@ -119,23 +124,19 @@ class TestDepartmentCatalogue(MSPTestCase):
         name = self.make_dept("Delivery")
         customer = self.make_customer(self.tag)
         service = self.make_service(f"DEPR{self.tag}", scope="User")
-        open_line = self.request_line(customer, service, name)
-        completed_line = self.request_line(customer, service, name, status="Completed")
+        open_person = self.requested_person(customer, service, name)
+        completed_person = self.requested_person(customer, service, name, status="Completed")
         renamed = f"{name} Renamed"
 
         DepartmentService.update_department(name=name, department_name=renamed)
         self.track("MSP Department", renamed)
 
         self.assertEqual(
-            frappe.db.get_value(
-                "MSP Service Request Line", open_line, "new_user_department"
-            ),
+            frappe.db.get_value(REQUESTED_CLIENT_USER, open_person, "department"),
             renamed,
         )
         self.assertEqual(
-            frappe.db.get_value(
-                "MSP Service Request Line", completed_line, "new_user_department"
-            ),
+            frappe.db.get_value(REQUESTED_CLIENT_USER, completed_person, "department"),
             name,
         )
 
@@ -143,7 +144,7 @@ class TestDepartmentCatalogue(MSPTestCase):
         name = self.make_dept("Former Division")
         customer = self.make_customer(self.tag)
         service = self.make_service(f"DEPDEL{self.tag}", scope="User")
-        completed_line = self.request_line(
+        completed_person = self.requested_person(
             customer, service, name, status="Completed"
         )
 
@@ -151,9 +152,7 @@ class TestDepartmentCatalogue(MSPTestCase):
 
         self.assertFalse(frappe.db.exists("MSP Department", name))
         self.assertEqual(
-            frappe.db.get_value(
-                "MSP Service Request Line", completed_line, "new_user_department"
-            ),
+            frappe.db.get_value(REQUESTED_CLIENT_USER, completed_person, "department"),
             name,
         )
 
@@ -213,18 +212,24 @@ class TestDepartmentCatalogue(MSPTestCase):
                         "operation_code": self.operation(),
                         "action": "Add",
                         "target_scope": "User",
-                        "is_new_user": 1,
-                        "new_user_full_name": "Fresh Face",
-                        "new_user_department": name,
-                        "new_user_username": f"f.face.{self.tag}",
+                        "subject_key": "new:fresh",
                         "requested_service": service,
+                    }
+                ],
+                subjects=[
+                    {
+                        "subject_key": "new:fresh",
+                        "kind": "new",
+                        "full_name": "Fresh Face",
+                        "department": name,
+                        "username": f"f.face.{self.tag}",
                     }
                 ],
             )
         finally:
             frappe.set_user("Administrator")
 
-        self.track("MSP Service Request", out["name"])
+        self.track("MSP Request", out["name"])
 
         with self.assertRaises(ValidationError) as ctx:
             DepartmentService.delete_department(name=name)
@@ -271,10 +276,16 @@ class TestDepartmentCatalogue(MSPTestCase):
                             "operation_code": self.operation(),
                             "action": "Add",
                             "target_scope": "User",
-                            "is_new_user": 1,
-                            "new_user_full_name": "Nobody",
-                            "new_user_department": "Whatever I Want",
+                            "subject_key": "new:nobody",
                             "requested_service": service,
+                        }
+                    ],
+                    subjects=[
+                        {
+                            "subject_key": "new:nobody",
+                            "kind": "new",
+                            "full_name": "Nobody",
+                            "department": "Whatever I Want",
                         }
                     ],
                 )
@@ -293,34 +304,43 @@ class TestDepartmentCatalogue(MSPTestCase):
         asker = self.make_account("customer", "MSP Customer Manager", customer, suffix=f"reqdep{self.tag}")
         self.grant(asker)
 
-        def line(department):
-            return {
-                "operation_code": self.operation(),
-                "action": "Add",
-                "target_scope": "User",
-                "is_new_user": 1,
-                "is_new_device": 1,
-                "new_user_full_name": "New Colleague",
-                "new_user_department": department,
-                "requested_service": service,
-            }
+        line = {
+            "operation_code": self.operation(),
+            "action": "Add",
+            "target_scope": "User",
+            "subject_key": "new:colleague",
+            "requested_service": service,
+        }
+
+        def subjects(department):
+            return [
+                {
+                    "subject_key": "new:colleague",
+                    "kind": "new",
+                    "full_name": "New Colleague",
+                    "department": department,
+                }
+            ]
 
         frappe.set_user(asker)
         try:
             with self.assertRaises(ValidationError):
                 PortalService.create_request(
-                    customer=customer, request_type="Add", lines=[line("Whatever I Want")]
+                    customer=customer,
+                    request_type="Add",
+                    lines=[line],
+                    subjects=subjects("Whatever I Want"),
                 )
 
             out = PortalService.create_request(
-                customer=customer, request_type="Add", lines=[line(None)]
+                customer=customer, request_type="Add", lines=[line], subjects=subjects(None)
             )
-            self.track("MSP Service Request", out["name"])
+            self.track("MSP Request", out["name"])
 
             self.assertIsNone(
-                frappe.db.get_value("MSP Service Request Line", out["lines"][0]["name"], "new_user_department")
-                if out["lines"][0].get("name")
-                else None
+                frappe.db.get_value(
+                    REQUESTED_CLIENT_USER, out["lines"][0]["requested_client_user"], "department"
+                )
             )
         finally:
             frappe.set_user("Administrator")
@@ -355,7 +375,7 @@ class TestDepartmentMigration(MSPTestCase):
         service = self.make_service(f"DEPMIG{self.tag}", scope="User")
         doc = frappe.get_doc(
             {
-                "doctype": "MSP Service Request",
+                "doctype": "MSP Request",
                 "customer": self.customer,
                 "request_type": "Add",
                 "priority": "Medium",
@@ -376,9 +396,9 @@ class TestDepartmentMigration(MSPTestCase):
             }
         ).insert(ignore_permissions=True)
         if status != "Draft":
-            frappe.db.set_value("MSP Service Request", doc.name, "status", status)
+            frappe.db.set_value("MSP Request", doc.name, "status", status)
         frappe.db.commit()
-        self.track("MSP Service Request", doc.name)
+        self.track("MSP Request", doc.name)
         return doc.lines[0].name
 
     def test_open_request_lines_join_the_catalogue_but_completed_ones_stay_frozen(self):
@@ -394,7 +414,7 @@ class TestDepartmentMigration(MSPTestCase):
 
         report = build_department_catalogue.execute()
         rewritten = frappe.db.get_value(
-            "MSP Service Request Line", open_line, "new_user_department"
+            "MSP Request Line", open_line, "new_user_department"
         )
 
         self.assertEqual(report["request_lines_rewritten"], 1)
@@ -402,7 +422,7 @@ class TestDepartmentMigration(MSPTestCase):
         self.assertTrue(frappe.db.exists("MSP Department", rewritten))
         self.assertEqual(
             frappe.db.get_value(
-                "MSP Service Request Line", completed_line, "new_user_department"
+                "MSP Request Line", completed_line, "new_user_department"
             ),
             completed_value,
         )

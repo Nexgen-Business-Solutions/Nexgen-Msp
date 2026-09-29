@@ -254,7 +254,7 @@ class TestTheRequestQueueCards(MSPTestCase):
                 ],
             ),
         )
-        return self.track("MSP Service Request", out["name"])
+        return self.track("MSP Request", out["name"])
 
     def test_every_card_lists_what_it_counts(self):
         from nexgen_msp.api.internal.services.request_service import RequestService
@@ -263,7 +263,7 @@ class TestTheRequestQueueCards(MSPTestCase):
         high = self.raise_one("High")
         medium = self.raise_one("Medium")
         old = self.raise_one("Low")
-        frappe.db.set_value("MSP Service Request", old, "creation", frappe.utils.add_days(frappe.utils.now_datetime(), -3), update_modified=False)
+        frappe.db.set_value("MSP Request", old, "creation", frappe.utils.add_days(frappe.utils.now_datetime(), -3), update_modified=False)
         self.as_user(self.tech, lambda: RequestService.run_action(medium, "start_review"))
 
         stats = self.as_user(self.tech, lambda: RequestService.get_stats())
@@ -340,7 +340,7 @@ class TestEveryCardListsWhatItCounts(MSPTestCase):
     def test_the_internal_dashboard_cards_and_their_queues(self):
         from nexgen_msp.api.internal.services.request_service import RequestService
 
-        name = self.track("MSP Service Request", self.as_user(
+        name = self.track("MSP Request", self.as_user(
             self.manager,
             lambda: PortalService.create_request(
                 customer=self.customer, request_type="Add",

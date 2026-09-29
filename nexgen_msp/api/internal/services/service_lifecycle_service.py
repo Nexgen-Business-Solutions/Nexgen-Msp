@@ -57,6 +57,7 @@ class ServiceLifecycleService:
         agreed_rate=None,
         rate_override_reason=None,
         _commit=True,
+        _within_request=None,
     ):
         """Open a service for a target, from a stated day, and start billing it."""
         RequestService._guard_internal()
@@ -75,6 +76,7 @@ class ServiceLifecycleService:
             agreed_rate=agreed_rate,
             rate_override_reason=rate_override_reason,
             _commit=_commit,
+            _within_request=_within_request,
         )
 
     @staticmethod
@@ -154,6 +156,7 @@ class ServiceLifecycleService:
         notes=None,
         confirm_billed=0,
         _commit=True,
+        _within_request=None,
     ):
         """Pause a running service from a stated day, and write the days down.
 
@@ -170,7 +173,7 @@ class ServiceLifecycleService:
                 "INVALID_TRANSITION",
             )
 
-        on_date = ServiceLifecycleService._day(effective_date)
+        on_date = ServiceLifecycleService._day(effective_date, _within_request)
         ServiceLifecycleService._after_start(doc, on_date)
         notes = ServiceLifecycleService._after_invoices(doc, on_date, confirm_billed, notes)
 
@@ -186,6 +189,7 @@ class ServiceLifecycleService:
             },
         )
         doc.operational_status = "Suspended"
+        doc.flags.dated_by_request = bool(_within_request)
 
         ServiceLifecycleService._write(
             doc,
@@ -206,6 +210,7 @@ class ServiceLifecycleService:
         notes=None,
         confirm_billed=0,
         _commit=True,
+        _within_request=None,
     ):
         """Start a paused service again, closing the pause on the day it becomes billable."""
         RequestService._guard_internal()
@@ -225,7 +230,7 @@ class ServiceLifecycleService:
                 "This service carries no open suspension to resume.", "INVALID_TRANSITION"
             )
 
-        on_date = ServiceLifecycleService._day(effective_date)
+        on_date = ServiceLifecycleService._day(effective_date, _within_request)
         suspended_on = frappe.utils.getdate(running.suspended_on)
 
         if on_date < suspended_on:
@@ -262,6 +267,7 @@ class ServiceLifecycleService:
         notes=None,
         _commit=True,
         _replaced=False,
+        _within_request=None,
     ):
         """Close a service for good, on the day it really stopped.
 
@@ -280,7 +286,9 @@ class ServiceLifecycleService:
 
         # a change closes the old period the day before the new one opens; that day is part of
         # the change, whose own date is what the backdating rule is read against
-        end_on = UserService._end_date_for(doc, effective_date, allow_past=_replaced)
+        end_on = UserService._end_date_for(
+            doc, effective_date, allow_past=_replaced, within_request=_within_request
+        )
         request = UserService._checked_request(source_request, doc.customer)
 
         doc.effective_end_date = end_on
@@ -326,6 +334,7 @@ class ServiceLifecycleService:
         notes=None,
         source_request=None,
         _commit=True,
+        _within_request=None,
     ):
         """Move a service onto new terms from a stated day, without touching the old period.
 
@@ -343,7 +352,7 @@ class ServiceLifecycleService:
                 "INVALID_TRANSITION",
             )
 
-        on_date = ServiceLifecycleService._day(effective_date)
+        on_date = ServiceLifecycleService._day(effective_date, _within_request)
 
         if on_date < frappe.utils.getdate(frappe.utils.today()) and not RequestService._roles().intersection(
             ADMIN_ROLES
@@ -379,6 +388,7 @@ class ServiceLifecycleService:
                 notes=notes,
                 _commit=False,
                 _replaced=True,
+                _within_request=_within_request,
             )
 
             outcome = ServiceLifecycleService.activate(
@@ -392,6 +402,7 @@ class ServiceLifecycleService:
                 source_request=source_request or doc.source_request,
                 notes=notes,
                 _commit=False,
+                _within_request=_within_request,
             )
         except Exception:
             frappe.db.rollback(save_point=savepoint)
@@ -420,6 +431,7 @@ class ServiceLifecycleService:
         agreed_rate=None,
         rate_override_reason=None,
         _commit=True,
+        _within_request=None,
     ):
         """Validate the operational facts and record the new service period."""
         if not customer:
@@ -431,7 +443,7 @@ class ServiceLifecycleService:
         item = ServiceLifecycleService._service(service_item)
         scope = ServiceLifecycleService._scope(item, target_scope)
         target = ServiceLifecycleService._target(customer, scope, client_user, managed_device)
-        on_date = ServiceLifecycleService._day(effective_date)
+        on_date = ServiceLifecycleService._day(effective_date, _within_request)
         wanted = ServiceLifecycleService._quantity(quantity)
 
         contract = ServiceLifecycleService._contract(customer, item.name, on_date)
@@ -500,8 +512,11 @@ class ServiceLifecycleService:
         return frappe.get_doc("MSP Service Assignment", assignment)
 
     @staticmethod
-    def _day(effective_date):
-        """The day it happened. Tomorrow has not happened yet."""
+    def _day(effective_date, within_request=None):
+        """The day it happened; tomorrow only for the work of a request, never before it was made."""
+        if within_request:
+            return UserService._request_day(effective_date, within_request)
+
         on_date = frappe.utils.getdate(effective_date or frappe.utils.today())
 
         if on_date > frappe.utils.getdate(frappe.utils.today()):

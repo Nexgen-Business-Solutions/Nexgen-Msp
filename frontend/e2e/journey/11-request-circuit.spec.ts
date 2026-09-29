@@ -1,5 +1,19 @@
 import { expect, test, type Page } from '@playwright/test';
-import { as, createPerson, go, land, openRow, runReadyWork, seek } from './ground';
+import {
+  addExisting,
+  approveFromBar,
+  as,
+  createPerson,
+  go,
+  land,
+  openRow,
+  pickScope,
+  refuseFromBar,
+  runReadyWork,
+  seek,
+  startWork,
+  submitRequest,
+} from './ground';
 import { CIRCUIT_ONE, CIRCUIT_TWO, PERSONAL_SERVICE } from './names';
 
 /**
@@ -20,21 +34,7 @@ const DRAFT_ONLY = 'ZZE2E circuit: saved and picked up again';
 const TURNED_DOWN = 'ZZE2E circuit: not for this one, ask again next quarter';
 
 const pickPeople = async (page: Page, people: string[]) => {
-  for (const person of people) {
-    await page.getByRole('button', { name: /Select existing/ }).click();
-
-    const picker = page.getByRole('dialog');
-
-    await picker.getByLabel('Search').fill(person);
-    await picker
-      .locator('div')
-      .filter({ hasText: person })
-      .getByRole('button', { name: /^Add$/ })
-      .last()
-      .click();
-    await picker.getByRole('button', { name: 'Done' }).click();
-    await expect(picker).toHaveCount(0, { timeout: 20_000 });
-  }
+  for (const person of people) await addExisting(page, person);
 };
 
 const addTheService = async (page: Page) => {
@@ -107,6 +107,7 @@ test.describe('A draft left and picked up again', () => {
     await pickPeople(page, [CIRCUIT_ONE, CIRCUIT_TWO]);
     await page.getByRole('button', { name: /Continue/ }).click();
     await expect(page.getByText('Group actions stay explicit')).toBeVisible({ timeout: 20_000 });
+    await pickScope(page, /^All selected/);
     await addTheService(page);
 
     await page.getByRole('button', { name: 'Save draft' }).click();
@@ -132,14 +133,7 @@ test.describe('A draft left and picked up again', () => {
       'the act configured before saving is still configured'
     ).toBeVisible({ timeout: 20_000 });
 
-    await page.getByRole('button', { name: /Continue/ }).click();
-    await page.getByRole('button', { name: /Continue/ }).click();
-    await expect(page.getByText('Confirm the exact snapshot and requested actions.')).toBeVisible();
-    await page.getByRole('button', { name: 'Submit request' }).click();
-    await page.waitForURL(
-      (url) => /\/msp\/requests/.test(url.pathname) && !url.pathname.endsWith('/new'),
-      { timeout: 30_000 }
-    );
+    await submitRequest(page, 2);
 
     expect(DRAFT_ONLY).toBeTruthy();
   });
@@ -153,23 +147,7 @@ test.describe('The company says no', () => {
     await go(page, 'Requests');
     await openRow(page, /SR-/);
 
-    await expect(page.getByText('This request is waiting for your accord')).toBeVisible({
-      timeout: 25_000,
-    });
-
-    await page.getByRole('button', { name: 'Refuse it' }).click();
-
-    // nothing typed, nothing sent
-    await expect(
-      page.getByRole('button', { name: 'Confirm the refusal' }),
-      'a refusal with no reason is not a refusal'
-    ).toBeDisabled();
-
-    await page.getByPlaceholder(/Why are you refusing/).fill(TURNED_DOWN);
-    await page.getByRole('button', { name: 'Confirm the refusal' }).click();
-
-    await expect(page.getByText(/REJECTED|Rejected/).first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText(TURNED_DOWN).first()).toBeVisible();
+    await refuseFromBar(page, TURNED_DOWN);
   });
 });
 
@@ -197,15 +175,10 @@ test.describe('A second request, agreed to, and decided line by line', () => {
     await expect(askingPage.getByText('Group actions stay explicit')).toBeVisible({
       timeout: 20_000,
     });
+    await pickScope(askingPage, /^All selected/);
     await addTheService(askingPage);
 
-    await askingPage.getByRole('button', { name: /Continue/ }).click();
-    await askingPage.getByRole('button', { name: /Continue/ }).click();
-    await askingPage.getByRole('button', { name: 'Submit request' }).click();
-    await askingPage.waitForURL(
-      (url) => /\/msp\/requests/.test(url.pathname) && !url.pathname.endsWith('/new'),
-      { timeout: 30_000 }
-    );
+    await submitRequest(askingPage, 2);
     await asking.close();
 
     const deciding = await browser.newContext(as('manager'));
@@ -214,10 +187,7 @@ test.describe('A second request, agreed to, and decided line by line', () => {
     await land(decidingPage);
     await go(decidingPage, 'Requests');
     await openRow(decidingPage, /SR-/);
-    await decidingPage.getByRole('button', { name: /Approve and send to Nexgen/ }).click();
-    await expect(decidingPage.getByText(/AWAITING CUSTOMER APPROVAL/i)).toHaveCount(0, {
-      timeout: 30_000,
-    });
+    await approveFromBar(decidingPage);
     await deciding.close();
 
     const ours = await browser.newContext(as('technician'));
@@ -226,19 +196,17 @@ test.describe('A second request, agreed to, and decided line by line', () => {
     await land(page);
     await go(page, 'Requests');
     await openRow(page, CIRCUIT_TWO);
+    await startWork(page);
 
-    // one line is turned down, with a reason, and the reason is required. The workspace shows
-    // one person at a time, so the person is chosen first and the line acted on after
-    await page.getByRole('button', { name: new RegExp(CIRCUIT_TWO) }).first().click();
-    await expect(page.getByText(CIRCUIT_TWO).first()).toBeVisible({ timeout: 20_000 });
+    const actions = page.getByRole('region', { name: 'Requested actions' });
+    const refused = actions.locator('tbody tr').filter({ hasText: CIRCUIT_TWO });
 
-    // the line's own Reject, not the header's, which turns down the whole request
-    await page.getByRole('button', { name: 'Reject', exact: true }).last().click();
+    await refused.getByRole('button', { name: 'Reject', exact: true }).click();
 
     const dialog = page.getByRole('dialog');
 
     await expect(
-      dialog.getByText('Reject request line'),
+      dialog.getByRole('heading', { name: 'Reject request line' }),
       'this is the line being turned down, not the request'
     ).toBeVisible({ timeout: 20_000 });
     await expect(dialog.getByText('A reason is required and stays on the record.')).toBeVisible();
@@ -246,19 +214,18 @@ test.describe('A second request, agreed to, and decided line by line', () => {
     await dialog.getByRole('textbox').first().fill('ZZE2E circuit: they are leaving next month');
     await dialog.getByRole('button', { name: 'Reject line' }).click();
     await expect(dialog).toHaveCount(0, { timeout: 25_000 });
+    await expect(refused.getByText('REJECTED', { exact: true })).toBeVisible({ timeout: 25_000 });
 
     // the other is accepted, and the request can go on
-    const accept = page.getByRole('button', { name: /^Accept all( pending| \d+)$/ }).first();
-
-    await expect(accept).toBeVisible({ timeout: 25_000 });
-    await accept.click();
-    await expect(page.getByText('Line review complete')).toBeVisible({ timeout: 25_000 });
-    await expect(page.getByText(/1 accepted · 1 rejected/)).toBeVisible();
+    await actions.locator('tbody tr').filter({ hasText: CIRCUIT_ONE }).getByRole('button', { name: 'Accept' }).click();
+    await expect(page.getByText('1 accepted · 1 rejected')).toBeVisible({ timeout: 25_000 });
 
     await page.getByRole('button', { name: 'Continue to Execute' }).click();
-    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('heading', { name: 'Execute', exact: true })).toBeVisible({
+      timeout: 25_000,
+    });
 
-    await runReadyWork(page, 'Add service', 'zze2e.circuit');
+    await runReadyWork(page, 'zze2e.circuit');
 
     await ours.close();
   });

@@ -54,15 +54,19 @@ class RequestIntentCase(MSPTestCase):
 
         return service
 
-    def raise_request(self, *lines, asker=None):
+    def raise_request(self, *lines, asker=None, subjects=None, requested_devices=None):
         out = self.as_user(
             asker or self.asker,
             lambda: PortalService.create_request(
-                customer=self.customer, request_type="Add", lines=list(lines)
+                customer=self.customer,
+                request_type="Add",
+                lines=list(lines),
+                subjects=subjects,
+                requested_devices=requested_devices,
             ),
         )
 
-        return self.track("MSP Service Request", out["name"])
+        return self.track("MSP Request", out["name"])
 
     def running(self, service, scope="User", **target):
         outcome = ServiceLifecycleService.activate(
@@ -86,7 +90,7 @@ class RequestIntentCase(MSPTestCase):
 
     def lines_of(self, name):
         return frappe.get_all(
-            "MSP Service Request Line",
+            "MSP Request Line",
             filters={"parent": name},
             fields=[
                 "idx",
@@ -97,7 +101,7 @@ class RequestIntentCase(MSPTestCase):
                 "managed_device",
                 "source_service_assignment",
                 "requested_service",
-                "is_new_device",
+                "requested_device",
             ],
             order_by="idx asc",
         )
@@ -138,13 +142,13 @@ class TestOneIntentionOneLine(RequestIntentCase):
         assignment = self.running(vpn, client_user=self.john)
 
         only_adds = self.raise_request(self.line(adobe))
-        self.assertEqual(frappe.db.get_value("MSP Service Request", only_adds, "request_type"), "Add")
+        self.assertEqual(frappe.db.get_value("MSP Request", only_adds, "request_type"), "Add")
 
         mixed = self.raise_request(
             self.line(self.offering("TYPEB")),
             self.line(vpn, action="Suspend", source_service_assignment=assignment),
         )
-        self.assertEqual(frappe.db.get_value("MSP Service Request", mixed, "request_type"), "Mixed")
+        self.assertEqual(frappe.db.get_value("MSP Request", mixed, "request_type"), "Mixed")
 
 
 class TestTheActionMustSuitTheService(RequestIntentCase):
@@ -248,7 +252,7 @@ class TestOnlyOneOpenAskPerService(RequestIntentCase):
                 customer=self.customer, request_type="Add", lines=[self.line(service)]
             ),
         )
-        self.track("MSP Service Request", draft["name"])
+        self.track("MSP Request", draft["name"])
 
         name = self.raise_request(self.line(service))
         self.assertEqual(self.lines_of(name)[0].requested_service, service)
@@ -263,7 +267,7 @@ class TestOnlyOneOpenAskPerService(RequestIntentCase):
                 customer=self.customer, request_type="Add", lines=[self.line(service)]
             ),
         )
-        name = self.track("MSP Service Request", draft["name"])
+        name = self.track("MSP Request", draft["name"])
 
         self.running(service, client_user=self.john)
 
@@ -331,15 +335,18 @@ class TestALineKeepsThePersonItWasRaisedFor(RequestIntentCase):
         name = self.raise_request(
             self.line(
                 service,
-                target_scope="User",
-                is_new_device=1,
+                target_scope="Device",
+                device_requirement_key="new-device:john",
                 managed_device=None,
                 requested_for_user=self.john,
-            )
+            ),
+            requested_devices=[
+                {"device_requirement_key": "new-device:john", "intended_holder_client_user": self.john}
+            ],
         )
         row = self.lines_of(name)[0]
 
-        self.assertEqual(row.is_new_device, 1)
+        self.assertTrue(row.requested_device)
         self.assertIsNone(row.managed_device)
         self.assertEqual(row.requested_for_user, self.john)
 
@@ -350,17 +357,26 @@ class TestALineKeepsThePersonItWasRaisedFor(RequestIntentCase):
             {
                 "operation_code": self.operation(),
                 "action": "Add",
-                "target_scope": "User",
-                "is_new_user": 1,
-                "new_user_full_name": "Marie Dupont",
-                "new_user_department": self.make_department("Human Resources"),
-                "is_new_device": 1,
+                "target_scope": "Device",
+                "subject_key": "new:marie",
+                "device_requirement_key": "new-device:marie",
                 "requested_service": service,
-            }
+            },
+            subjects=[
+                {
+                    "subject_key": "new:marie",
+                    "kind": "new",
+                    "full_name": "Marie Dupont",
+                    "department": self.make_department("Human Resources"),
+                }
+            ],
+            requested_devices=[
+                {"device_requirement_key": "new-device:marie", "intended_holder_subject_key": "new:marie"}
+            ],
         )
         row = self.lines_of(name)[0]
 
-        self.assertEqual(row.is_new_device, 1)
+        self.assertTrue(row.requested_device)
         self.assertIsNone(row.managed_device)
         self.assertIsNone(row.requested_for_user)
 
@@ -385,9 +401,27 @@ class TestNothingOperationalMovesOnSubmit(RequestIntentCase):
                 target_scope="Device",
                 client_user=None,
                 managed_device=box,
-                new_device_serial="SN-SOMETHING-ELSE",
-                new_user_username="not.written",
-            )
+                subject_key=f"user:{self.john}",
+            ),
+            self.line(
+                service,
+                target_scope="Device",
+                client_user=None,
+                subject_key=f"user:{self.john}",
+                device_requirement_key="new-device:other",
+            ),
+            subjects=[
+                {
+                    "subject_key": f"user:{self.john}",
+                    "kind": "existing",
+                    "client_user": self.john,
+                    "full_name": "John",
+                    "username": "not.written",
+                }
+            ],
+            requested_devices=[
+                {"device_requirement_key": "new-device:other", "serial_number": "SN-SOMETHING-ELSE"}
+            ],
         )
 
         after = (
@@ -441,11 +475,12 @@ class TestWhoMayAgreeToWhat(RequestIntentCase):
                 "operation_code": self.operation(),
                 "action": "Add",
                 "target_scope": "User",
-                "is_new_user": 1,
-                "new_user_full_name": "Fresh Face",
-                "new_user_department": self.accounting,
+                "subject_key": "new:fresh",
                 "requested_service": self.offering("APPN"),
-            }
+            },
+            subjects=[
+                {"subject_key": "new:fresh", "kind": "new", "full_name": "Fresh Face", "department": self.accounting}
+            ],
         )
 
         self.assertTrue(self.can_decide(name))
@@ -456,11 +491,12 @@ class TestWhoMayAgreeToWhat(RequestIntentCase):
                 "operation_code": self.operation(),
                 "action": "Add",
                 "target_scope": "User",
-                "is_new_user": 1,
-                "new_user_full_name": "Far Away",
-                "new_user_department": self.sales,
+                "subject_key": "new:far",
                 "requested_service": self.offering("APPX"),
-            }
+            },
+            subjects=[
+                {"subject_key": "new:far", "kind": "new", "full_name": "Far Away", "department": self.sales}
+            ],
         )
 
         self.assertFalse(self.can_decide(name))
@@ -504,7 +540,7 @@ class TestADraftIsNobodyElsesBusiness(RequestIntentCase):
                 customer=self.customer, request_type="Add", lines=[self.line(service)]
             ),
         )
-        self.track("MSP Service Request", draft["name"])
+        self.track("MSP Request", draft["name"])
 
         name = self.raise_request(self.line(service), asker=other)
 

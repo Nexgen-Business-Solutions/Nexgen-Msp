@@ -1,0 +1,327 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "naming_series:",
+ "creation": "2026-09-28 10:45:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "request",
+  "customer",
+  "device_requirement_key",
+  "source_key",
+  "subject_key",
+  "column_break_main",
+  "status",
+  "resolution_mode",
+  "resolved_managed_device",
+  "section_prepared",
+  "display_label",
+  "hostname",
+  "device_type",
+  "serial_number",
+  "asset_tag",
+  "column_break_prepared",
+  "manufacturer",
+  "model",
+  "operating_system",
+  "section_holder",
+  "intended_holder_client_user",
+  "column_break_holder",
+  "intended_holder_requested_client_user",
+  "section_notes",
+  "notes",
+  "section_requested",
+  "requested_snapshot_json",
+  "section_audit",
+  "reviewed_by",
+  "reviewed_at",
+  "resolved_by",
+  "resolved_at",
+  "column_break_audit",
+  "cancelled_by",
+  "cancelled_at",
+  "cancel_reason"
+ ],
+ "fields": [
+  {
+   "default": "RDEV-.YYYY.-.#####",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "RDEV-.YYYY.-.#####",
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "request",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Request",
+   "options": "MSP Request",
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Customer",
+   "options": "Customer",
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "device_requirement_key",
+   "fieldtype": "Data",
+   "label": "Device Requirement Key",
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "source_key",
+   "fieldtype": "Data",
+   "label": "Source Key",
+   "read_only": 1,
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "subject_key",
+   "fieldtype": "Data",
+   "label": "Subject Key"
+  },
+  {
+   "fieldname": "column_break_main",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Open",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Open\nResolved\nCancelled",
+   "reqd": 1
+  },
+  {
+   "fieldname": "resolution_mode",
+   "fieldtype": "Select",
+   "label": "Resolution Mode",
+   "options": "\nUse Existing\nRegister New"
+  },
+  {
+   "fieldname": "resolved_managed_device",
+   "fieldtype": "Link",
+   "label": "Resolved Managed Device",
+   "options": "MSP Managed Device"
+  },
+  {
+   "fieldname": "section_prepared",
+   "fieldtype": "Section Break",
+   "label": "Prepared Values"
+  },
+  {
+   "fieldname": "display_label",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Display Label",
+   "reqd": 1
+  },
+  {
+   "fieldname": "hostname",
+   "fieldtype": "Data",
+   "label": "Hostname"
+  },
+  {
+   "fieldname": "device_type",
+   "fieldtype": "Select",
+   "label": "Device Type",
+   "options": "\nPC\nLaptop\nMini PC\nMac\nPhone\nTablet\nServer\nFirewall\nVM\nOther"
+  },
+  {
+   "fieldname": "serial_number",
+   "fieldtype": "Data",
+   "label": "Serial Number"
+  },
+  {
+   "fieldname": "asset_tag",
+   "fieldtype": "Data",
+   "label": "Asset Tag"
+  },
+  {
+   "fieldname": "column_break_prepared",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "manufacturer",
+   "fieldtype": "Data",
+   "label": "Manufacturer"
+  },
+  {
+   "fieldname": "model",
+   "fieldtype": "Data",
+   "label": "Model"
+  },
+  {
+   "fieldname": "operating_system",
+   "fieldtype": "Data",
+   "label": "Operating System"
+  },
+  {
+   "fieldname": "section_holder",
+   "fieldtype": "Section Break",
+   "label": "Intended Holder"
+  },
+  {
+   "fieldname": "intended_holder_client_user",
+   "fieldtype": "Link",
+   "label": "Intended Holder",
+   "options": "MSP Client User"
+  },
+  {
+   "fieldname": "column_break_holder",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "intended_holder_requested_client_user",
+   "fieldtype": "Link",
+   "label": "Intended Holder (Requested Client User)",
+   "options": "MSP Requested Client User"
+  },
+  {
+   "fieldname": "section_notes",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "section_requested",
+   "fieldtype": "Section Break",
+   "label": "Requested"
+  },
+  {
+   "fieldname": "requested_snapshot_json",
+   "fieldtype": "Code",
+   "label": "Requested Snapshot",
+   "options": "JSON",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_audit",
+   "fieldtype": "Section Break",
+   "label": "Audit"
+  },
+  {
+   "fieldname": "reviewed_by",
+   "fieldtype": "Link",
+   "label": "Reviewed By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reviewed_at",
+   "fieldtype": "Datetime",
+   "label": "Reviewed At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "resolved_by",
+   "fieldtype": "Link",
+   "label": "Resolved By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "resolved_at",
+   "fieldtype": "Datetime",
+   "label": "Resolved At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_audit",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "cancelled_by",
+   "fieldtype": "Link",
+   "label": "Cancelled By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cancelled_at",
+   "fieldtype": "Datetime",
+   "label": "Cancelled At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cancel_reason",
+   "fieldtype": "Small Text",
+   "label": "Cancel Reason"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-09-28 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nexgen MSP",
+ "name": "MSP Requested Device",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "MSP System Admin",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "MSP Technician",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "search_fields": "display_label",
+ "show_title_field_in_link": 1,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "display_label",
+ "track_changes": 1
+}

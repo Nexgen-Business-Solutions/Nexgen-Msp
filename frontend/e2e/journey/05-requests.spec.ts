@@ -1,5 +1,18 @@
 import { expect, test, type Page } from '@playwright/test';
-import { as, go, land, openRow, runReadyWork, seek } from './ground';
+import {
+  acceptEverything,
+  addExisting,
+  as,
+  openOurLatestRequest,
+  closeRequest,
+  go,
+  land,
+  openRow,
+  runReadyWork,
+  seek,
+  startWork,
+  submitRequest,
+} from './ground';
 import { DIRECT, PERSONAL_SERVICE, SECOND } from './names';
 
 /**
@@ -22,12 +35,7 @@ test.describe.serial('A request, raised and carried out', () => {
 
       await expect(page.getByRole('heading', { name: 'People' })).toBeVisible();
 
-      await page.getByRole('button', { name: /Select existing/ }).click();
-      await page.getByLabel('Search').fill(DIRECT);
-      await page.getByRole('button', { name: /^Add$/ }).first().click();
-      await page.getByRole('button', { name: 'Done' }).click();
-
-      await expect(page.locator('tbody tr').filter({ hasText: DIRECT })).toHaveCount(1);
+      await addExisting(page, DIRECT);
 
       await page.getByRole('button', { name: /Continue/ }).click();
       await expect(page.getByText('Group actions stay explicit')).toBeVisible();
@@ -49,18 +57,7 @@ test.describe.serial('A request, raised and carried out', () => {
       await impact.getByRole('button', { name: 'Add action' }).click();
       await expect(impact).toHaveCount(0, { timeout: 20_000 });
 
-      await page.getByRole('button', { name: /Continue/ }).click();
-      await page.getByRole('button', { name: /Continue/ }).click();
-
-      await expect(
-        page.getByText('Confirm the exact snapshot and requested actions.')
-      ).toBeVisible();
-
-      await page.getByRole('button', { name: 'Submit request' }).click();
-      await page.waitForURL(
-      (url) => /\/msp\/requests/.test(url.pathname) && !url.pathname.endsWith('/new'),
-      { timeout: 30_000 }
-    );
+      await submitRequest(page, 2);
     });
 
     test('the request they raised reads back as the act they added', async ({ page }) => {
@@ -73,10 +70,13 @@ test.describe.serial('A request, raised and carried out', () => {
       });
 
       // the scope it was raised with, and what that scope came to
-      await expect(page.getByText(/\d+ targets from \d+ selected people/).first()).toBeVisible();
+      const actions = page.getByRole('region', { name: 'Requested actions' });
+
+      await expect(actions.getByText(`Add ${PERSONAL_SERVICE}`, { exact: true })).toBeVisible();
+      await expect(actions.getByText('1 target from 1 person')).toBeVisible();
       await expect(
-        page.getByText(/1 will be affected · 0 were left unchanged/).first()
-      ).toBeVisible();
+        page.getByRole('region', { name: 'People' }).locator('tbody tr').filter({ hasText: DIRECT })
+      ).toHaveCount(1);
     });
   });
 
@@ -84,67 +84,27 @@ test.describe.serial('A request, raised and carried out', () => {
     test.use(as('technician'));
 
     const openTheRequest = async (page: Page) => {
-      await land(page);
-      await go(page, 'Requests');
-      await openRow(page, /SR-/);
+      await openOurLatestRequest(page);
     };
 
-    test('the act is accepted, line by line', async ({ page }) => {
+    test('the act is accepted as a whole', async ({ page }) => {
       await openTheRequest(page);
-
-      // no complacent guard: the act was raised, so a decision has to be offered here
-      const accept = page.getByRole('button', { name: /^Accept all( pending| \d+)$/ }).first();
-
-      await expect(accept, 'the technician is offered the decision').toBeVisible({
-        timeout: 25_000,
-      });
-      await accept.click();
-
-      await expect(page.getByText('Line review complete')).toBeVisible({ timeout: 25_000 });
-
-      const start = page.getByRole('button', { name: 'Continue to Execute' });
-
-      await expect(start).toBeVisible({ timeout: 25_000 });
-      await start.click();
-      await page.waitForLoadState('networkidle');
+      await startWork(page);
+      expect(await acceptEverything(page)).toBe(1);
     });
 
     test('the work actually runs, and the assignment exists afterwards', async ({ page }) => {
       await openTheRequest(page);
-      await page.getByRole('button', { name: 'Execute', exact: true }).click();
-      await page.waitForLoadState('networkidle');
+
+      const reference = (
+        await page.getByRole('heading', { name: /^SR-\d{4}-\d+$/ }).first().innerText()
+      ).trim();
 
       // a username the service needs is part of doing the work, not a reason to skip it
-      const usernames = page.getByRole('button', { name: /Complete \d+ usernames/ });
+      await runReadyWork(page, 'zze2e.journey');
+      await expect(page.getByText('REQUESTED', { exact: true }).first()).toBeVisible();
 
-      await expect(usernames, 'the work says what it still needs').toBeVisible({ timeout: 25_000 });
-
-      // the primary button of each line is the act itself, which is what the technician clicks
-      await runReadyWork(page, 'Add service', 'zze2e.journey');
-
-      await expect(usernames, 'and once given, it is not asked for again').toHaveCount(0);
-      await expect(page.getByText(/^0 remaining$/)).toBeVisible();
-
-      // and it is carried to the end: recap, then closing
-      await page.getByRole('button', { name: 'Continue to Verify' }).click();
-      await page.waitForLoadState('networkidle');
-
-      await expect(page.getByText('What was actually done')).toBeVisible({ timeout: 25_000 });
-      await expect(page.getByText('REQUESTED').first()).toBeVisible();
-
-      await page.getByRole('button', { name: 'Continue to Final validation' }).click();
-      await page.waitForLoadState('networkidle');
-
-      const reference = (await page.getByText(/^SR-\d{4}-\d+$/).first().innerText()).trim();
-
-      await page.getByRole('button', { name: /Validate & complete request/ }).click();
-
-      // closing hands the technician back to the queue. The breadcrumb says "Requests" on the
-      // detail page too, so waiting on that alone lets the run move while the page is still
-      // finishing: the queue's own control is what says we are really back on it.
-      await expect(page.getByRole('button', { name: 'Refresh' }).first()).toBeVisible({
-        timeout: 30_000,
-      });
+      await closeRequest(page);
 
       await go(page, 'Requests');
       await seek(page, reference);

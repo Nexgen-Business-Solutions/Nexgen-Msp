@@ -137,7 +137,7 @@ class ActivityService:
             for row in run(
                 """
                 select name, customer, request_type, status, modified as `on`
-                from `tabMSP Service Request`
+                from `tabMSP Request`
                 where status != %(customer_status)s{customers}{window}
                 order by modified desc limit %(cap)s
                 """,

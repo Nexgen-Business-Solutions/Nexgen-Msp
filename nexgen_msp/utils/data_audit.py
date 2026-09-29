@@ -190,16 +190,16 @@ def departments():
 
 def requests():
     """§19: how much of the new execution context the old requests carry."""
-    total = frappe.db.count("MSP Service Request Line")
+    total = frappe.db.count("MSP Request Line")
 
     return {
         "inspected": total,
         "without_a_subject_key": _count(
-            "select count(*) from `tabMSP Service Request Line` where ifnull(subject_key, '') = ''"
+            "select count(*) from `tabMSP Request Line` where ifnull(subject_key, '') = ''"
         ),
         "device_lines_without_a_person": _count(
             """
-            select count(*) from `tabMSP Service Request Line`
+            select count(*) from `tabMSP Request Line`
             where target_scope = 'Device'
               and ifnull(requested_for_user, '') = ''
               and ifnull(client_user, '') = ''

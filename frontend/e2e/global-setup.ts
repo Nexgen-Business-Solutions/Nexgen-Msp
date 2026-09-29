@@ -1,6 +1,7 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { request } from '@playwright/test';
 import { run } from './bench';
+import { statePath } from './state';
 import { totp } from './totp';
 
 const BASE = process.env.MSP_BASE_URL ?? 'http://msp.localhost:8000';
@@ -38,14 +39,14 @@ export default async function globalSetup() {
     fresh.slice(fresh.indexOf('{'), fresh.lastIndexOf('}') + 1)
   ).request;
 
-  writeFileSync(new URL('./.fixture.json', import.meta.url), JSON.stringify(fixture, null, 2));
-  mkdirSync(new URL('./.auth/', import.meta.url), { recursive: true });
+  writeFileSync(statePath('standard', 'fixture.json'), JSON.stringify(fixture, null, 2));
 
   for (const [who, email, secret] of [
     ['technician', fixture.technician, fixture.technician_secret],
     ['manager', fixture.manager, fixture.manager_secret],
     ['administrator', fixture.administrator, fixture.administrator_secret],
     ['operator', fixture.operator, fixture.operator_secret],
+    ['requester', fixture.requester, fixture.requester_secret],
   ]) {
     const context = await request.newContext({ baseURL: BASE });
 
@@ -64,7 +65,7 @@ export default async function globalSetup() {
 
     if (!second.ok()) throw new Error(`code refused for ${email}: ${await second.text()}`);
 
-    await context.storageState({ path: new URL(`./.auth/${who}.json`, import.meta.url).pathname });
+    await context.storageState({ path: statePath('standard', 'auth', `${who}.json`) });
     await context.dispose();
   }
 }

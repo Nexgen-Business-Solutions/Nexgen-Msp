@@ -11,6 +11,7 @@ day one started or the day it was last invoiced.
 
 import frappe
 
+from nexgen_msp.utils import request_targets
 from nexgen_msp.utils.assignments import OPEN_ASSIGNMENT_STATUSES
 
 # what can be written about one service, in the order the columns come out
@@ -140,7 +141,7 @@ def fill_people_extras(rows):
         return
 
     facts = frappe.db.sql(
-        """
+        f"""
         select
             cu.name,
             cu.last_billed_on, cu.covered_until,
@@ -166,9 +167,9 @@ def fill_people_extras(rows):
                   and (sa.client_user = cu.name or sad.assigned_client_user = cu.name))
                 as inactive_service_names,
             (select count(distinct sr.name)
-                from `tabMSP Service Request Line` srl
-                join `tabMSP Service Request` sr on sr.name = srl.parent
-                where (srl.client_user = cu.name or srl.requested_for_user = cu.name)
+                from `tabMSP Request Line` srl
+                join `tabMSP Request` sr on sr.name = srl.parent
+                where {request_targets.line_of_person_sql("srl", "cu.name")}
                   and sr.status in ('Submitted', 'Under Review', 'Approved', 'In Progress'))
                 as open_requests
         from `tabMSP Client User` cu

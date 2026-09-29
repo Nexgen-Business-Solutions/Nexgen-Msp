@@ -57,7 +57,7 @@ TEMPLATES = {
         + "<p>An access to the {{ app_name }} portal has been created for "
         "<strong>{{ customer }}</strong>.</p>"
         + "<p>From the portal you can review your users, devices and services, and submit "
-        "service requests to our team.</p>"
+        "requests to our team.</p>"
         + BUTTON.format(url="link", label="Set my password")
         + MUTED.format(
             text="If the button does not work, copy this address into your browser:<br>"

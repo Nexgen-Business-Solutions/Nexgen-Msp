@@ -19,7 +19,7 @@ def execute():
 
 
 def _fill_lines():
-	if not frappe.db.has_column("MSP Service Request Line", "operation_code"):
+	if not frappe.db.has_column("MSP Request Line", "operation_code"):
 		return 0
 
 	filled = 0
@@ -27,7 +27,7 @@ def _fill_lines():
 	for row in frappe.db.sql(
 		"""
 		select name, action
-		from `tabMSP Service Request Line`
+		from `tabMSP Request Line`
 		where ifnull(operation_code, '') = ''
 		""",
 		as_dict=True,
@@ -39,7 +39,7 @@ def _fill_lines():
 
 		frappe.db.sql(
 			"""
-			update `tabMSP Service Request Line`
+			update `tabMSP Request Line`
 			set operation_code = %(code)s, operation_label_snapshot = %(label)s
 			where name = %(name)s
 			""",
@@ -53,7 +53,7 @@ def _fill_lines():
 
 
 def _fill_orders():
-	if not frappe.db.has_column("MSP Service Work Order", "operation_code"):
+	if not frappe.db.has_column("MSP Work Order", "operation_code"):
 		return 0
 
 	filled = 0
@@ -61,7 +61,7 @@ def _fill_orders():
 	for row in frappe.db.sql(
 		"""
 		select name, action, work_type
-		from `tabMSP Service Work Order`
+		from `tabMSP Work Order`
 		where ifnull(operation_code, '') = ''
 		""",
 		as_dict=True,
@@ -78,7 +78,7 @@ def _fill_orders():
 			continue
 
 		frappe.db.sql(
-			"update `tabMSP Service Work Order` set operation_code = %(code)s where name = %(name)s",
+			"update `tabMSP Work Order` set operation_code = %(code)s where name = %(name)s",
 			{"code": code, "name": row.name},
 		)
 		filled += 1

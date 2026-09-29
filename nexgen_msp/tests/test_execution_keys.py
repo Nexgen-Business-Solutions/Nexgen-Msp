@@ -18,6 +18,7 @@ from .base import MSPTestCase
 class ExecutionKeyCase(MSPTestCase):
     def setUp(self):
         super().setUp()
+        self.newcomers, self.owed = {}, {}
         self.tag = frappe.generate_hash(length=6)
         self.customer = self.make_customer(self.tag)
         self.track("MSP Approval Authority", self.customer)
@@ -45,16 +46,18 @@ class ExecutionKeyCase(MSPTestCase):
         out = self.as_user(
             self.asker,
             lambda: PortalService.create_request(
-                customer=self.customer, request_type="Add", lines=list(lines)
+                customer=self.customer,
+                request_type="Add",
+                lines=list(lines),
+                **self.described(lines),
             ),
         )
 
-        return self.track("MSP Service Request", out["name"])
+        return self.track("MSP Request", out["name"])
 
-    def line(self, service, **fields):
+    def line(self, service, on_requested_device=False, **fields):
         action = fields.pop("action", "Add")
-
-        return {
+        row = {
             "operation_code": self.operation(action),
             "action": action,
             "target_scope": "User",
@@ -63,19 +66,47 @@ class ExecutionKeyCase(MSPTestCase):
             **fields,
         }
 
-    def new_person_line(self, service, full_name="Marie Dupont", **fields):
-        return self.line(
-            service,
-            client_user=None,
-            is_new_user=1,
-            new_user_full_name=full_name,
-            new_user_department=self.make_department("Human Resources"),
-            **fields,
-        )
+        if on_requested_device:
+            owner = row.get("subject_key") or f"user:{row['client_user']}"
+            row["target_scope"] = "Device"
+            row["device_requirement_key"] = f"new-device:{owner}"
+            self.owed[row["device_requirement_key"]] = {
+                "device_requirement_key": row["device_requirement_key"],
+                "intended_holder_subject_key": owner if owner in self.newcomers else None,
+                "intended_holder_client_user": row.get("client_user"),
+            }
+
+        return row
+
+    def described(self, lines):
+        """The future people and the requested Devices a set of lines names."""
+        return {
+            "subjects": [
+                self.newcomers[key]
+                for key in dict.fromkeys(line.get("subject_key") for line in lines)
+                if key in self.newcomers
+            ],
+            "requested_devices": [
+                self.owed[key]
+                for key in dict.fromkeys(line.get("device_requirement_key") for line in lines)
+                if key in self.owed
+            ],
+        }
+
+    def new_person_line(self, service, full_name="Marie Dupont", subject_key=None, **fields):
+        key = subject_key or f"new:{frappe.scrub(full_name)}"
+        self.newcomers[key] = {
+            "subject_key": key,
+            "kind": "new",
+            "full_name": full_name,
+            "department": self.make_department("Human Resources"),
+        }
+
+        return self.line(service, client_user=None, subject_key=key, **fields)
 
     def keys_of(self, name):
         return frappe.get_all(
-            "MSP Service Request Line",
+            "MSP Request Line",
             filters={"parent": name},
             fields=["idx", "subject_key", "device_requirement_key"],
             order_by="idx asc",
@@ -108,10 +139,17 @@ class TestWhoALineIsAbout(ExecutionKeyCase):
 
         self.assertEqual(len({row.subject_key for row in self.keys_of(name)}), 2)
 
-    def test_a_person_still_to_be_created_is_keyed_by_the_name_written_for_them(self):
+    def test_a_person_still_to_be_created_is_keyed_by_the_key_minted_for_them(self):
         name = self.raise_request(self.new_person_line(self.offering("SKD")))
+        key = self.keys_of(name)[0].subject_key
 
-        self.assertEqual(self.keys_of(name)[0].subject_key, "new-user:marie dupont")
+        self.assertEqual(key, "new:marie_dupont")
+        self.assertEqual(
+            frappe.db.get_value(
+                "MSP Requested Client User", {"request": name}, "subject_key"
+            ),
+            key,
+        )
 
     def test_the_same_new_person_asked_three_things_is_one_subject(self):
         name = self.raise_request(
@@ -137,16 +175,16 @@ class TestWhoALineIsAbout(ExecutionKeyCase):
 
         name = self.raise_request(
             self.new_person_line(
-                service, full_name="Alex Martin", subject_key="new-user:request:person_one"
+                service, full_name="Alex Martin", subject_key="new:person_one"
             ),
             self.new_person_line(
-                service, full_name="Alex Martin", subject_key="new-user:request:person_two"
+                service, full_name="Alex Martin", subject_key="new:person_two"
             ),
         )
 
         self.assertEqual(
             {row.subject_key for row in self.keys_of(name)},
-            {"new-user:request:person_one", "new-user:request:person_two"},
+            {"new:person_one", "new:person_two"},
         )
 
     def test_a_device_line_is_still_about_the_person_it_was_raised_for(self):
@@ -178,9 +216,9 @@ class TestWhichMachineALineNeeds(ExecutionKeyCase):
 
     def test_three_services_for_one_machine_yet_to_be_found_share_one_key(self):
         name = self.raise_request(
-            self.line(self.offering("DKC1", scope="Device"), is_new_device=1),
-            self.line(self.offering("DKC2", scope="Device"), is_new_device=1),
-            self.line(self.offering("DKC3", scope="Device"), is_new_device=1),
+            self.line(self.offering("DKC1", scope="Device"), on_requested_device=True),
+            self.line(self.offering("DKC2", scope="Device"), on_requested_device=True),
+            self.line(self.offering("DKC3", scope="Device"), on_requested_device=True),
         )
 
         keys = {row.device_requirement_key for row in self.keys_of(name)}
@@ -190,11 +228,11 @@ class TestWhichMachineALineNeeds(ExecutionKeyCase):
 
     def test_a_machine_for_a_new_person_is_keyed_to_that_person(self):
         name = self.raise_request(
-            self.new_person_line(self.offering("DKD", scope="Device"), is_new_device=1)
+            self.new_person_line(self.offering("DKD", scope="Device"), on_requested_device=True)
         )
 
         self.assertEqual(
-            self.keys_of(name)[0].device_requirement_key, "new-device:new-user:marie dupont"
+            self.keys_of(name)[0].device_requirement_key, "new-device:new:marie_dupont"
         )
 
     def test_two_people_each_owed_a_machine_do_not_share_one(self):
@@ -202,8 +240,8 @@ class TestWhichMachineALineNeeds(ExecutionKeyCase):
         service = self.offering("DKE", scope="Device")
 
         name = self.raise_request(
-            self.line(service, is_new_device=1),
-            self.line(service, client_user=bob, is_new_device=1),
+            self.line(service, on_requested_device=True),
+            self.line(service, client_user=bob, on_requested_device=True),
         )
 
         self.assertEqual(len({row.device_requirement_key for row in self.keys_of(name)}), 2)
@@ -221,7 +259,7 @@ class TestTheKeysFollowTheLine(ExecutionKeyCase):
                 lines=[self.line(service)],
             ),
         )
-        name = self.track("MSP Service Request", saved["name"])
+        name = self.track("MSP Request", saved["name"])
 
         self.assertEqual(self.keys_of(name)[0].subject_key, f"user:{self.john}")
 

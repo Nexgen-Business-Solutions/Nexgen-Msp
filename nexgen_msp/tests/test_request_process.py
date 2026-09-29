@@ -61,7 +61,7 @@ class TestTheRequestProcess(MSPTestCase):
             ),
         )
 
-        return self.track("MSP Service Request", out["name"]), out
+        return self.track("MSP Request", out["name"]), out
 
     def reaches_us(self, name):
         listed = self.as_user(self.tech, lambda: RequestService.list_requests(page_length=500))
@@ -104,10 +104,10 @@ class TestTheRequestProcess(MSPTestCase):
 
         self.as_user(self.decider, lambda: PortalService.approve_request(name))
 
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Submitted")
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "status"), "Submitted")
         self.assertTrue(self.reaches_us(name), "the accord is what sends it to us")
         self.assertEqual(
-            frappe.db.get_value("MSP Service Request", name, "customer_approved_by"), self.decider
+            frappe.db.get_value("MSP Request", name, "customer_approved_by"), self.decider
         )
 
     def test_refusing_it_closes_it_and_it_never_reaches_us(self):
@@ -116,7 +116,7 @@ class TestTheRequestProcess(MSPTestCase):
 
         self.as_user(self.decider, lambda: PortalService.reject_request(name, "not now"))
 
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Rejected")
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "status"), "Rejected")
         self.assertFalse(self.reaches_us(name))
 
     # --------------------------------------------------- who may do what, exactly
@@ -159,7 +159,7 @@ class TestTheRequestProcess(MSPTestCase):
             self.as_user(self.asker, lambda: PortalService.approve_request(name))
 
         self.assertEqual(
-            frappe.db.get_value("MSP Service Request", name, "status"), "Awaiting Customer Approval"
+            frappe.db.get_value("MSP Request", name, "status"), "Awaiting Customer Approval"
         )
 
     def test_the_decider_own_request_needs_no_second_accord(self):
@@ -170,7 +170,7 @@ class TestTheRequestProcess(MSPTestCase):
 
         self.assertEqual(out["status"], "Submitted")
         self.assertEqual(
-            frappe.db.get_value("MSP Service Request", name, "customer_approved_by"), self.decider
+            frappe.db.get_value("MSP Request", name, "customer_approved_by"), self.decider
         )
         self.assertTrue(self.reaches_us(name))
 
@@ -191,11 +191,11 @@ class TestTheRequestProcess(MSPTestCase):
         self.as_user(self.decider, lambda: PortalService.approve_request(name))
 
         self.as_user(self.tech, lambda: RequestService.run_action(name, "start_review"))
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Under Review")
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "status"), "Under Review")
 
         self.as_user(self.tech, lambda: RequestService.set_line_status(name, 1, "Approved"))
         self.as_user(self.tech, lambda: RequestService.run_action(name, "approve"))
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Approved")
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "status"), "Approved")
 
         # the work exists from the moment it is approved, and closing is refused until it is done
         from nexgen_msp.api.internal.services.request_execution_service import (
@@ -203,9 +203,9 @@ class TestTheRequestProcess(MSPTestCase):
         )
 
         work = frappe.get_all(
-            "MSP Service Work Order", filters={"service_request": name}, pluck="name"
+            "MSP Work Order", filters={"request": name}, pluck="name"
         )[0]
-        self.track("MSP Service Work Order", work)
+        self.track("MSP Work Order", work)
 
         with self.assertRaises(ValidationError):
             self.as_user(self.tech, lambda: RequestExecutionService.complete_request(name))
@@ -218,9 +218,9 @@ class TestTheRequestProcess(MSPTestCase):
         )
         self.track(
             "MSP Service Assignment",
-            frappe.db.get_value("MSP Service Work Order", work, "resulting_assignment"),
+            frappe.db.get_value("MSP Work Order", work, "resulting_assignment"),
         )
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "In Progress")
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "status"), "In Progress")
 
         # what ran is read back as a recap; the file closes on it
         plan = self.as_user(self.tech, lambda: RequestExecutionService.get_execution_plan(name))
@@ -229,7 +229,7 @@ class TestTheRequestProcess(MSPTestCase):
 
         self.as_user(self.tech, lambda: RequestExecutionService.complete_request(name))
 
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Completed")
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "status"), "Completed")
 
     def test_a_department_bound_decider_only_decides_for_their_own(self):
         outsider = self.make_person(self.customer, "Outsider", department="Sales")
@@ -254,7 +254,7 @@ class TestTheRequestProcess(MSPTestCase):
                 ],
             ),
         )
-        name = self.track("MSP Service Request", out["name"])
+        name = self.track("MSP Request", out["name"])
 
         detail = self.as_user(self.decider, lambda: PortalService.get_request(name))
         self.assertFalse(detail["can_decide"], "outside their department")
@@ -301,7 +301,7 @@ class TestARefusedRequestCanBeCorrected(MSPTestCase):
                 customer=self.customer, request_type="Add", lines=[self.line()]
             ),
         )
-        return self.track("MSP Service Request", out["name"])
+        return self.track("MSP Request", out["name"])
 
     def test_refused_inside_the_company_it_stays_readable_and_can_be_raised_again(self):
         AuthorityService.set_account_rights(self.decider, {"can_submit": 1, "can_approve": 1})
@@ -316,7 +316,7 @@ class TestARefusedRequestCanBeCorrected(MSPTestCase):
 
         resent = self.raise_one()
         self.assertNotEqual(resent, name, "a fresh request, the refused one is kept as history")
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Rejected")
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "status"), "Rejected")
 
     def test_refused_by_us_the_answer_is_readable_and_it_can_be_raised_again(self):
         self.grant(self.asker)
@@ -328,7 +328,7 @@ class TestARefusedRequestCanBeCorrected(MSPTestCase):
         self.assertEqual(again["rejection_reason"], "not covered")
 
         resent = self.raise_one()
-        self.assertEqual(frappe.db.get_value("MSP Service Request", resent, "status"), "Submitted")
+        self.assertEqual(frappe.db.get_value("MSP Request", resent, "status"), "Submitted")
 
 
 class TestNothingSlipsThroughWithoutAnAccord(MSPTestCase):
@@ -368,7 +368,7 @@ class TestNothingSlipsThroughWithoutAnAccord(MSPTestCase):
                 ],
             ),
         )
-        return self.track("MSP Service Request", out["name"]), out
+        return self.track("MSP Request", out["name"]), out
 
     def reaches_us(self, name):
         listed = self.as_user(self.tech, lambda: RequestService.list_requests(page_length=500))
@@ -417,5 +417,5 @@ class TestNothingSlipsThroughWithoutAnAccord(MSPTestCase):
         self.assertTrue(self.as_user(self.asker, lambda: PortalService.get_request(name))["has_approver"])
         self.as_user(decider, lambda: PortalService.approve_request(name))
 
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Submitted")
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "status"), "Submitted")
         self.assertTrue(self.reaches_us(name))

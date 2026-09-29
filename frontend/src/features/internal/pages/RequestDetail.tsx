@@ -1,25 +1,23 @@
 import { useEffect, useState } from 'react';
-import { keyOfPerson, recordOfPerson } from '../components/fulfilment/personOfLine';
 import { useNavigate, useParams } from 'react-router-dom';
-import { AlertCircle, TriangleAlert } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Check, ClipboardList, TriangleAlert } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
-import StatusBadge from '@/shared/components/StatusBadge';
-import WorkflowHeader from '@/shared/components/WorkflowHeader';
 import WorkflowStepper, { type WorkflowStep } from '@/shared/components/WorkflowStepper';
-import RequestContextHeader from '../components/fulfilment/RequestContextHeader';
+import FulfilmentHeader from '../components/fulfilment/FulfilmentHeader';
 import LineReview from '../components/fulfilment/LineReview';
 import ExecutionWorkspace from '../components/fulfilment/ExecutionWorkspace';
 import ExecutionRecap from '../components/fulfilment/ExecutionRecap';
 import FinalValidation from '../components/fulfilment/FinalValidation';
-import RequestActionGroups from '@/shared/components/RequestActionGroups';
-import RequestLinesByPerson, { type PersonLine } from '@/shared/components/RequestLinesByPerson';
+import { RequestPresentation } from '@/shared/request';
+import type { BadgeTone } from '@/shared/request/format';
 import {
+  useInternalRequestPresentation,
   useRequestDetail,
   useRequestExecutionPlan,
   useRunRequestAction,
 } from '../hooks/useRequests';
-import type { ExecutionPlan, RequestDetail as Detail, RequestDetailLine } from '@/lib/api/internal';
-import { fmtDate, pill } from '../lib/fulfilmentStyles';
+import type { ExecutionPlan, RequestDetail as Detail } from '@/lib/api/internal';
+import { pill } from '../lib/fulfilmentStyles';
 
 const STEPS = [
   { key: 'review', label: 'Review lines' },
@@ -33,81 +31,28 @@ type StepKey = (typeof STEPS)[number]['key'];
 // the work exists only once the request has been decided
 const PLANNABLE = ['Approved', 'In Progress', 'Completed'];
 
-const COPY: Record<StepKey, { title: string; sub: string }> = {
+const COPY: Record<StepKey, { title: string; sub?: string }> = {
   review: {
-    title: 'Review request lines',
-    sub: 'Accept or reject each requested action before execution.',
+    title: 'Review lines',
+    sub: 'Accept or reject the requested work. Nothing is executed here.',
   },
   execute: {
-    title: 'Execute accepted actions',
-    sub: 'Accepted request lines stay first. Add other legitimate actions whenever the situation requires them.',
+    title: 'Execute',
   },
   verify: {
     title: 'Execution recap',
     sub: 'Review what was actually performed before final validation.',
   },
-  complete: { title: 'Final validation', sub: 'Confirm the final outcome and close the request.' },
+  complete: {
+    title: 'Final validation',
+    sub: 'Complete this fulfilment after all accepted work is resolved.',
+  },
 };
 
 const indexOf = (key: StepKey) => STEPS.findIndex((step) => step.key === key);
 
-const contextFrom = (data: Detail) => ({
-  customer: data.customer,
-  requester: data.requester,
-  requester_name: data.requester_name,
-  raised_at: data.creation,
-  requested_date:
-    data.lines
-      .map((line) => line.requested_effective_date)
-      .filter(Boolean)
-      .sort()[0] ?? null,
-  priority: data.priority,
-  people: new Set(data.lines.map(keyOfPerson)).size,
-  lines: data.lines.length,
-  details: data.details ?? null,
-  customer_approved: true,
-});
-
 // a request that is over is read back, never worked on again
 const CLOSED = ['Completed', 'Rejected', 'Cancelled'];
-
-/** A request line as the recap reads it: the person first, then what was asked for them. */
-const asPersonLine = (line: RequestDetailLine): PersonLine => {
-  const person = recordOfPerson(line);
-  const isNewUser = Boolean(line.is_new_user) && !person;
-  // an act on the machine itself names no service: what it is, is the act and the two holders
-  const onMachine = (line.operation_code ?? '').startsWith('device.');
-
-  return {
-    idx: line.idx,
-    person,
-    personName: isNewUser ? line.new_user_full_name : line.client_user_name,
-    isNewUser,
-    username: isNewUser ? line.new_user_username : line.client_username,
-    department: isNewUser ? line.new_user_department : line.client_user_department,
-    email: line.new_user_email,
-    action: line.action,
-    actionLabel: line.action_label,
-    service: onMachine
-      ? line.action_label ?? line.operation_code ?? ''
-      : line.requested_service_name || line.requested_service || '',
-    onDevice: Boolean(line.managed_device || line.is_new_device),
-    serviceScope: line.service_scope,
-    isNewDevice: Boolean(line.is_new_device),
-    deviceName: line.is_new_device ? line.new_device_label : line.device_hostname,
-    serial: line.is_new_device ? line.new_device_serial : line.device_serial,
-    deviceType: line.is_new_device ? line.new_device_type : line.device_type,
-    requestedFor: line.requested_effective_date,
-    status: line.line_status,
-    comment: line.comment,
-    rejectionReason: line.rejection_reason,
-    extra: onMachine ? (
-      <p className="mt-0.5 text-xs text-slate-600">
-        {line.client_user_name || 'Unassigned'} → {line.requested_holder_name || 'Unassigned'}
-      </p>
-    ) : null,
-  };
-};
 
 const counterFor = (step: StepKey, data: Detail, plan?: ExecutionPlan) => {
   if (step === 'review') {
@@ -115,10 +60,6 @@ const counterFor = (step: StepKey, data: Detail, plan?: ExecutionPlan) => {
     return `${pending} decision${pending === 1 ? '' : 's'} remaining`;
   }
   if (!plan) return '';
-  if (step === 'execute') {
-    const open = plan.summary.open;
-    return `${open} remaining`;
-  }
   if (step === 'verify') return `${plan.recap.length} performed operation${plan.recap.length === 1 ? '' : 's'}`;
   return plan.status === 'Completed' ? 'Completed' : 'Ready to close';
 };
@@ -136,6 +77,15 @@ export default function RequestDetail() {
   const data = detail.data;
   const planned = Boolean(data && PLANNABLE.includes(data.status));
   const plan = useRequestExecutionPlan(planned ? name : undefined);
+  const readOnly = Boolean(
+    data &&
+      (CLOSED.includes(data.status) ||
+        data.status === 'Submitted' ||
+        (!planned && !data.can_decide_lines))
+  );
+  const presentation = useInternalRequestPresentation(data ? name : undefined);
+  const [recapOpen, setRecapOpen] = useState(false);
+  const [savedNow, setSavedNow] = useState(false);
 
   // a dispute is handled on the invoice it contests, so a direct link lands there
   useEffect(() => {
@@ -188,6 +138,26 @@ export default function RequestDetail() {
     ? []
     : data.available_actions.filter((action) => ['reject', 'cancel'].includes(action.action));
   const actionError = runAction.error as Error | undefined;
+  const shown = presentation.data;
+  const entityCount = plan.data?.requested_entities.length ?? shown?.requested_entities.length ?? 0;
+  const groupCount = shown?.action_groups.length ?? data.action_groups?.length ?? 0;
+  const headerBadges: { tone: BadgeTone; label: string }[] = [
+    ...(shown?.request.customer_approval.state === 'approved'
+      ? [{ tone: 'emerald' as const, label: 'CUSTOMER APPROVED' }]
+      : []),
+    { tone: 'slate', label: String(data.priority).toUpperCase() },
+    { tone: 'blue', label: `${groupCount} ACTION GROUP${groupCount === 1 ? '' : 'S'}` },
+    ...(entityCount > 0
+      ? [{ tone: 'amber' as const, label: `${entityCount} REQUESTED ENTIT${entityCount === 1 ? 'Y' : 'IES'}` }]
+      : []),
+  ];
+  const saved =
+    savedNow ||
+    Boolean(
+      plan.data &&
+        (plan.data.action_groups.some((group) => group.work.some((card) => card.display_status === 'Completed')) ||
+          plan.data.requested_entities.some((entity) => entity.status === 'Resolved'))
+    );
 
   const confirmPrompt = async () => {
     if (!prompt || !reason.trim()) return;
@@ -199,44 +169,129 @@ export default function RequestDetail() {
     }
   };
 
+  const warnings = (
+    <>
+    {data.review && !data.review.contract_active && (
+      <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
+        <TriangleAlert size={16} className="mt-0.5 shrink-0 text-amber-600" />
+        <p className="text-sm text-amber-800">
+          {data.review.has_contract
+            ? `This customer's contract is ${String(data.review.contract_status).toLowerCase()}, not active.`
+            : 'This customer has no contract yet — nothing here can be billed.'}
+        </p>
+      </div>
+    )}
+    </>
+  );
+
+  const actionButtons = headerActions.map((action) => (
+    <button
+      key={action.action}
+      type="button"
+      onClick={() => {
+        setReason('');
+        setPrompt({ action: action.action, label: action.label });
+      }}
+      className="inline-flex items-center rounded-lg border border-red-200 bg-white px-3 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50"
+    >
+      {action.label}
+    </button>
+  ));
+
+  const startButton = data.can_start && (
+    <button
+      key="start_review"
+      type="button"
+      disabled={runAction.isLoading}
+      onClick={async () => {
+        try {
+          await runAction.mutateAsync({ name, action: 'start_review' });
+          setViewing(null);
+        } catch {
+          return;
+        }
+      }}
+      className="inline-flex items-center rounded-lg bg-blue-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+    >
+      Start work
+    </button>
+  );
+
+  const actionErrorNote = actionError && !prompt && (
+    <p className="flex items-start gap-2 rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+      <AlertCircle size={16} className="mt-0.5 shrink-0" />
+      {actionError.message}
+    </p>
+  );
+
   return (
     <div className="space-y-4 px-6 pb-6 pt-4">
-      <WorkflowHeader
-        title={data.name}
-        subtitle={`${data.customer} · raised via ${data.source} on ${fmtDate(data.creation)} by ${
-          data.requester_name || data.requester || 'somebody'
-        }`}
+      {readOnly ? (
+        <>
+          <button
+            type="button"
+            onClick={() => navigate('/msp/requests')}
+            className="inline-flex items-center gap-1.5 py-2.5 text-sm font-medium text-slate-500 transition-colors hover:text-slate-800"
+          >
+            <ArrowLeft size={15} />
+            Back to requests
+          </button>
+
+          {presentation.data ? (
+            <RequestPresentation
+              presentation={presentation.data}
+              mode={completed ? 'completed_detail' : 'internal_detail'}
+              headerActions={
+                startButton || actionButtons.length || (completed && plan.data && !presentation.data.fulfilment_outcome) ? (
+                  <>
+                    {startButton}
+                    {actionButtons}
+                    {completed && plan.data && !presentation.data.fulfilment_outcome && (
+                      <button
+                        type="button"
+                        onClick={() => setRecapOpen(true)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                      >
+                        <ClipboardList size={15} />
+                        View execution recap
+                      </button>
+                    )}
+                  </>
+                ) : undefined
+              }
+              notice={
+                <>
+                  {warnings}
+                  {actionErrorNote}
+                </>
+              }
+              onViewExecutionRecap={completed && plan.data ? () => setRecapOpen(true) : undefined}
+            />
+          ) : (
+            <p className="py-8 text-center text-sm text-slate-500">
+              {presentation.error ? (presentation.error as Error).message : 'Loading the request…'}
+            </p>
+          )}
+        </>
+      ) : (
+        <>
+      <FulfilmentHeader
+        name={data.name}
+        customer={shown?.request.customer_name || data.customer}
+        source={shown?.request.source ?? data.source}
+        submittedAt={shown?.request.submitted_at ?? data.creation}
+        badges={headerBadges}
+        note={
+          (shown?.request.details ?? data.details)
+            ? {
+                text: (shown?.request.details ?? data.details) as string,
+                by: shown?.request.details_by ?? null,
+                at: shown?.request.details_at ?? null,
+              }
+            : null
+        }
+        actions={actionButtons.length ? actionButtons : undefined}
         onBack={() => navigate('/msp/requests')}
-        backLabel="Back to requests"
-        actions={
-          <>
-            <StatusBadge value={data.status} />
-            {planned && <span className={pill('emerald')}>CUSTOMER APPROVED</span>}
-            <span className={pill('slate')}>{String(data.priority).toUpperCase()}</span>
-            <span className={pill('slate')}>
-              {data.lines.length} ACTION{data.lines.length === 1 ? '' : 'S'}
-            </span>
-            {headerActions.map((action) => (
-              <button
-                key={action.action}
-                type="button"
-                onClick={() => {
-                  setReason('');
-                  setPrompt({ action: action.action, label: action.label });
-                }}
-                className="inline-flex h-9 items-center rounded-lg border border-red-200 bg-white px-3 text-sm font-semibold text-red-600 hover:bg-red-50"
-              >
-                {action.label}
-              </button>
-            ))}
-          </>
-        }
-        context={
-          <RequestContextHeader
-            embedded
-            context={plan.data?.context ?? contextFrom(data)}
-          />
-        }
         stepper={
           closed ? undefined : (
           <WorkflowStepper
@@ -248,76 +303,28 @@ export default function RequestDetail() {
         }
       />
 
-      {data.review && !data.review.contract_active && (
-        <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
-          <TriangleAlert size={16} className="mt-0.5 shrink-0 text-amber-600" />
-          <p className="text-sm text-amber-800">
-            {data.review.has_contract
-              ? `This customer's contract is ${String(data.review.contract_status).toLowerCase()}, not active.`
-              : 'This customer has no contract yet — nothing here can be billed.'}
-          </p>
-        </div>
-      )}
+      {warnings}
 
-      {data.rejection_reason && (
-        <p className="rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {data.rejection_reason}
-        </p>
-      )}
-
-      {closed ? (
-        <div className="space-y-4">
-          {completed && plan.data && (
-            <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-              <div className="border-b border-slate-100 px-5 py-4">
-                <h2 className="text-base font-semibold text-slate-900">What was done</h2>
-              </div>
-              <div className="px-5 py-4">
-                <ExecutionRecap plan={plan.data} />
-              </div>
-            </section>
-          )}
-          {data.action_groups?.length ? (
-            <RequestActionGroups
-              groups={data.action_groups}
-              subjects={data.subjects ?? []}
-              lines={data.lines}
-            />
-          ) : (
-          <RequestLinesByPerson
-            lines={data.lines.map(asPersonLine)}
-            noteLabel="Customer note"
-            headerActions={(group) =>
-              group.first.person && !group.first.isNewUser ? (
-                <button
-                  type="button"
-                  onClick={() => navigate(`/msp/users/${group.first.person}`)}
-                  className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  Open profile
-                </button>
-              ) : null
-            }
-          />
-          )}
-        </div>
-      ) : (
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
           <div>
             <h2 className="text-base font-semibold text-slate-900">{COPY[step].title}</h2>
-            <p className="mt-0.5 text-sm text-slate-500">{COPY[step].sub}</p>
+            {COPY[step].sub && <p className="mt-0.5 text-sm text-slate-500">{COPY[step].sub}</p>}
           </div>
-          <span className={pill('slate')}>{counterFor(step, data, plan.data)}</span>
+          {step === 'execute' ? (
+            saved && (
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
+                <Check size={13} />
+                Progress saved automatically
+              </span>
+            )
+          ) : (
+            <span className={pill('slate')}>{counterFor(step, data, plan.data)}</span>
+          )}
         </div>
 
         <div className="px-5 py-4">
-          {actionError && !prompt && (
-            <p className="mb-4 flex items-start gap-2 rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
-              <AlertCircle size={16} className="mt-0.5 shrink-0" />
-              {actionError.message}
-            </p>
-          )}
+          {actionErrorNote && <div className="mb-4">{actionErrorNote}</div>}
 
           {step === 'review' ? (
             <LineReview
@@ -341,7 +348,12 @@ export default function RequestDetail() {
               {plan.error ? (plan.error as Error).message : 'Loading the work…'}
             </p>
           ) : step === 'execute' ? (
-            <ExecutionWorkspace plan={plan.data} people={data.people} onContinue={() => setViewing('verify')} />
+            <ExecutionWorkspace
+              plan={plan.data}
+              people={data.people}
+              onSaved={() => setSavedNow(true)}
+              onContinue={() => setViewing('verify')}
+            />
           ) : step === 'verify' ? (
             <ExecutionRecap
               plan={plan.data}
@@ -356,6 +368,7 @@ export default function RequestDetail() {
           )}
         </div>
       </section>
+        </>
       )}
 
       <Modal
@@ -399,6 +412,16 @@ export default function RequestDetail() {
           aria-label="Reason"
           className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
         />
+      </Modal>
+
+      <Modal
+        open={recapOpen && Boolean(plan.data)}
+        onClose={() => setRecapOpen(false)}
+        icon={ClipboardList}
+        title="Execution recap"
+        widthClass="max-w-4xl"
+      >
+        {plan.data && <ExecutionRecap plan={plan.data} />}
       </Modal>
     </div>
   );

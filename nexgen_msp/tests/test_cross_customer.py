@@ -99,7 +99,7 @@ class CrossCustomerCase(MSPTestCase):
         finally:
             frappe.set_user("Administrator")
 
-        return self.track("MSP Service Request", out["name"])
+        return self.track("MSP Request", out["name"])
 
 
 class TestNothingOfAnotherCompanyIsReadable(CrossCustomerCase):

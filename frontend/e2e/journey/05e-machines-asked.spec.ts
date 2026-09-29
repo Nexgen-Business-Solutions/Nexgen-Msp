@@ -1,5 +1,20 @@
 import { expect, test, type Page } from '@playwright/test';
-import { as, createPerson, go, land, openRow, runReadyWork, seek } from './ground';
+import {
+  acceptEverything,
+  addExisting,
+  approveFromBar,
+  as,
+  openOurLatestRequest,
+  createPerson,
+  go,
+  land,
+  openRow,
+  pickScope,
+  runReadyWork,
+  seek,
+  startWork,
+  submitRequest,
+} from './ground';
 import { MACHINE_ASKER, MACHINE_KEEPER, MACHINE_SERVICE } from './names';
 
 /**
@@ -15,22 +30,6 @@ test.describe.configure({ mode: 'serial' });
 
 const DEPARTMENT = 'Logistics';
 
-const addExisting = async (page: Page, person: string) => {
-  await page.getByRole('button', { name: /Select existing/ }).click();
-
-  const picker = page.getByRole('dialog');
-
-  await picker.getByLabel('Search').fill(person);
-  await picker
-    .locator('div')
-    .filter({ hasText: person })
-    .getByRole('button', { name: /^Add$/ })
-    .last()
-    .click();
-  await picker.getByRole('button', { name: 'Done' }).click();
-  await expect(picker).toHaveCount(0, { timeout: 20_000 });
-};
-
 const startRequest = async (page: Page, person: string) => {
   await land(page);
   await go(page, 'Requests');
@@ -42,14 +41,7 @@ const startRequest = async (page: Page, person: string) => {
 };
 
 const submit = async (page: Page) => {
-  await page.getByRole('button', { name: /Continue/ }).click();
-  await page.getByRole('button', { name: /Continue/ }).click();
-  await expect(page.getByText('Confirm the exact snapshot and requested actions.')).toBeVisible();
-  await page.getByRole('button', { name: 'Submit request' }).click();
-  await page.waitForURL(
-      (url) => /\/msp\/requests/.test(url.pathname) && !url.pathname.endsWith('/new'),
-      { timeout: 30_000 }
-    );
+  await submitRequest(page, 2);
 };
 
 /** Agree to it as the company, so it reaches Nexgen at all. */
@@ -57,8 +49,7 @@ const approve = async (page: Page) => {
   await land(page);
   await go(page, 'Requests');
   await openRow(page, /SR-/);
-  await page.getByRole('button', { name: /Approve and send to Nexgen/ }).click();
-  await expect(page.getByText(/AWAITING CUSTOMER APPROVAL/i)).toHaveCount(0, { timeout: 30_000 });
+  await approveFromBar(page);
 };
 
 test.describe('Two people for the machine story', () => {
@@ -95,11 +86,18 @@ test.describe('A machine is asked for, and the company agrees', () => {
     const theirs = dialog.locator('tbody tr').filter({ hasText: MACHINE_ASKER }).first();
 
     // they know what they want, roughly: none of it is required
-    await theirs.getByRole('button', { name: 'One already on file' }).click();
+    await theirs.getByRole('button', { name: 'One that already exists' }).click();
     await askingPage.getByRole('option', { name: 'A new one' }).click();
-    await dialog.getByLabel(`Hostname for ${MACHINE_ASKER}`).fill('ZZE2E-ASKED-01');
-    await dialog.getByRole('button', { name: 'Type' }).click();
+    await theirs.getByRole('button', { name: `New device for ${MACHINE_ASKER}` }).click();
+
+    const described = askingPage.getByRole('dialog').filter({ hasText: 'Fill what you have.' });
+
+    await described.getByLabel('Hostname').fill('ZZE2E-ASKED-01');
+    await described.getByRole('button', { name: 'Not known yet' }).click();
     await askingPage.getByRole('option', { name: 'Laptop', exact: true }).click();
+    await described.getByRole('button', { name: 'Add device' }).click();
+    await expect(described).toHaveCount(0, { timeout: 20_000 });
+    await expect(theirs).toContainText('ZZE2E-ASKED-01');
     await dialog.getByRole('button', { name: 'Add action' }).click();
     await expect(dialog).toHaveCount(0, { timeout: 20_000 });
 
@@ -123,20 +121,24 @@ test.describe('A machine is asked for, and the company agrees', () => {
     await land(oursPage);
     await go(oursPage, 'Requests');
     await openRow(oursPage, MACHINE_ASKER);
+    await startWork(oursPage);
 
-    const accept = oursPage.getByRole('button', { name: /^Accept all( pending| \d+)$/ }).first();
+    expect(await acceptEverything(oursPage)).toBe(1);
 
-    await expect(accept).toBeVisible({ timeout: 25_000 });
-    await accept.click();
-    await expect(oursPage.getByText('Line review complete')).toBeVisible({ timeout: 25_000 });
-    await oursPage.getByRole('button', { name: 'Continue to Execute' }).click();
-    await oursPage.waitForLoadState('networkidle');
+    await oursPage
+      .getByRole('complementary', { name: 'Execution view' })
+      .getByRole('button', { name: /^All remaining work/ })
+      .click();
 
-    // the machine the customer described is work to prepare, not a service to invent
-    await expect(
-      oursPage.getByRole('button', { name: /Prepare \d+ Devices/ }),
-      'the machine asked for lands on the preparation list'
-    ).toBeVisible({ timeout: 25_000 });
+    const table = oursPage.getByRole('region', { name: 'Execution workspace' });
+    const work = table.locator('tbody tr[data-work-order]');
+    const asked = table.locator('tbody tr[data-requested-entity]').filter({ hasText: 'ZZE2E-ASKED-01' });
+
+    await expect(asked, 'the machine asked for is a row to prepare').toContainText('Prepare Device');
+    await expect(asked.getByRole('button', { name: 'Prepare Device' })).toBeEnabled();
+    await expect(work).toContainText('ZZE2E-ASKED-01');
+    await expect(work.getByRole('button', { name: 'Assign Device' })).toBeDisabled();
+    await expect(work.getByRole('button', { name: 'Prepare Device' })).toHaveCount(0);
 
     await ours.close();
   });
@@ -145,17 +147,26 @@ test.describe('A machine is asked for, and the company agrees', () => {
 test.describe('A service that runs on a machine needs a machine', () => {
   test.use(as('requester'));
 
-  test('it is offered shut, with the reason, to somebody who holds none', async ({ page }) => {
+  test('it waits for a machine, and offers to ask for one, for somebody who holds none', async ({
+    page,
+  }) => {
     await startRequest(page, MACHINE_ASKER);
 
     const card = page.locator('tbody tr').filter({ hasText: MACHINE_SERVICE }).first();
 
     await expect(card, 'the service is still listed').toBeVisible({ timeout: 20_000 });
+    await card.getByRole('button', { name: /^Add/ }).click();
 
-    const add = card.getByRole('button', { name: /^Add/ });
+    const impact = page.getByRole('dialog');
 
-    await expect(add, 'and its Add is shut, not missing').toBeDisabled();
-    await expect(add).toHaveAttribute('title', /Give them a Device first/);
+    await expect(impact.getByLabel(`Include ${MACHINE_ASKER}`), 'nothing to run it on yet').toBeDisabled();
+    await expect(impact.getByText('Left unchanged')).toBeVisible();
+    await expect(
+      impact.getByRole('button', { name: `New device for ${MACHINE_ASKER}` }),
+      'a machine can be asked for in the same breath'
+    ).toBeVisible();
+    await expect(impact.getByRole('button', { name: 'Add action' })).toBeDisabled();
+    await impact.getByRole('button', { name: 'Cancel' }).click();
   });
 });
 
@@ -204,6 +215,7 @@ test.describe('One person having no machine does not hold the others back', () =
 
     await page.getByRole('button', { name: /Continue/ }).click();
     await expect(page.getByText('Group actions stay explicit')).toBeVisible({ timeout: 20_000 });
+    await pickScope(page, /^All selected/);
 
     const card = page.locator('tbody tr').filter({ hasText: MACHINE_SERVICE }).first();
     const add = card.getByRole('button', { name: /^Add · \d+$/ });
@@ -242,16 +254,20 @@ test.describe("Asking for a machine somebody else holds", () => {
     const dialog = askingPage.getByRole('dialog');
     const theirs = dialog.locator('tbody tr').filter({ hasText: MACHINE_ASKER }).first();
 
-    // the choice already reads "One already on file"; the picker below it is the machine
     await expect(
-      theirs.getByRole('button', { name: 'One already on file' }),
+      theirs.getByRole('button', { name: 'One that already exists' }),
       'picking one on file is the default answer'
     ).toBeVisible();
 
-    await theirs.getByRole('button', { name: 'Pick a Device' }).click();
+    await theirs.getByRole('button', { name: `Choose a Device for ${MACHINE_ASKER}` }).click();
 
     // the machine Omar holds: a legitimate answer to "which one"
-    await askingPage.getByRole('option', { name: /ZZE2E-KEEP-02/ }).first().click();
+    const picker = askingPage.getByRole('dialog').filter({ hasText: 'Every Device of this customer.' });
+
+    await picker.getByRole('textbox', { name: 'Search devices' }).fill('ZZE2E-KEEP-02');
+    await picker.getByRole('button', { name: /^Choose ZZE2E-KEEP-02/ }).click();
+    await expect(picker).toHaveCount(0, { timeout: 20_000 });
+    await expect(theirs).toContainText('ZZE2E-KEEP-02');
     await dialog.getByRole('button', { name: 'Add action' }).click();
     await expect(dialog).toHaveCount(0, { timeout: 20_000 });
 
@@ -267,12 +283,9 @@ test.describe("Asking for a machine somebody else holds", () => {
     const ours = await browser.newContext(as('technician'));
     const page = await ours.newPage();
 
-    await land(page);
-    await go(page, 'Requests');
-
     // the newest one: this person already has an earlier request, and opening by their name
     // would pick that one up instead
-    await openRow(page, /SR-/);
+    await openOurLatestRequest(page);
 
     // what the customer asked as "give them this one" reaches us as a change of holder on the
     // machine they named, not as a refusal
@@ -281,15 +294,10 @@ test.describe("Asking for a machine somebody else holds", () => {
       'the machine they named is the one the work is about'
     ).toBeVisible({ timeout: 25_000 });
     await expect(page.getByText(new RegExp(MACHINE_ASKER)).first()).toBeVisible();
+    await startWork(page);
 
-    const accept = page.getByRole('button', { name: /^Accept all( pending| \d+)$/ }).first();
-
-    await expect(accept).toBeVisible({ timeout: 25_000 });
-    await accept.click();
-    await page.getByRole('button', { name: 'Continue to Execute' }).click();
-    await page.waitForLoadState('networkidle');
-
-    await runReadyWork(page, 'Change holder', 'zze2e.moved');
+    expect(await acceptEverything(page)).toBe(1);
+    await runReadyWork(page, null);
 
     await go(page, 'Devices');
     await seek(page, 'ZZE2E-KEEP-02');
@@ -336,21 +344,13 @@ test.describe('And the customer can ask for it back', () => {
     const ours = await browser.newContext(as('technician'));
     const oursPage = await ours.newPage();
 
-    await land(oursPage);
-    await go(oursPage, 'Requests');
-
     // the newest: these two people carry several requests by now, and a name picks the oldest
-    await openRow(oursPage, /SR-/);
+    await openOurLatestRequest(oursPage);
     await expect(oursPage.getByText('ZZE2E-KEEP-01').first()).toBeVisible({ timeout: 25_000 });
+    await startWork(oursPage);
 
-    const accept = oursPage.getByRole('button', { name: /^Accept all( pending| \d+)$/ }).first();
-
-    await expect(accept).toBeVisible({ timeout: 25_000 });
-    await accept.click();
-    await oursPage.getByRole('button', { name: 'Continue to Execute' }).click();
-    await oursPage.waitForLoadState('networkidle');
-
-    await runReadyWork(oursPage, 'Return to stock', 'zze2e.keep');
+    expect(await acceptEverything(oursPage)).toBe(1);
+    await runReadyWork(oursPage, null);
 
     // the machine is on file, in stock, held by nobody
     await go(oursPage, 'Devices');

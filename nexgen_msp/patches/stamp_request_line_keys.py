@@ -12,7 +12,7 @@ def execute():
 	the request stays readable exactly as it is.
 	"""
 	rows = frappe.get_all(
-		"MSP Service Request Line",
+		"MSP Request Line",
 		filters={"subject_key": ("in", (None, ""))},
 		fields=[
 			"name",
@@ -37,7 +37,7 @@ def execute():
 			continue
 
 		frappe.db.set_value(
-			"MSP Service Request Line",
+			"MSP Request Line",
 			row.name,
 			{"subject_key": subject, "device_requirement_key": device},
 			update_modified=False,

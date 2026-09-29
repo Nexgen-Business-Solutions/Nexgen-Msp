@@ -17,14 +17,16 @@ import frappe
 
 from nexgen_msp.api.internal.services.request_execution_service import RequestExecutionService
 from nexgen_msp.api.internal.services.request_service import RequestService
+from nexgen_msp.api.internal.services.requested_client_user_service import RequestedClientUserService
 from nexgen_msp.api.portal.services.portal_service import PortalService
-from nexgen_msp.api.portal.services.request_v3_service import RequestV3Service
+from nexgen_msp.api.portal.services.request_scope_service import RequestScopeService
 from nexgen_msp.utils.errors import ValidationError
 
 from .base import MSPTestCase
 
 ASSIGNMENT = "MSP Service Assignment"
-WORK_ORDER = "MSP Service Work Order"
+WORK_ORDER = "MSP Work Order"
+REQUESTED_CLIENT_USER = "MSP Requested Client User"
 
 
 class ActsCase(MSPTestCase):
@@ -64,6 +66,14 @@ class ActsCase(MSPTestCase):
         for name in frappe.get_all(ASSIGNMENT, filters={"customer": self.customer}, pluck="name"):
             frappe.delete_doc(ASSIGNMENT, name, force=True, ignore_permissions=True)
 
+        for doctype in ("MSP Requested Device", REQUESTED_CLIENT_USER):
+            for name in frappe.get_all(doctype, filters={"customer": self.customer}, pluck="name"):
+                frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+
+        for name in frappe.get_all("MSP Client User", filters={"customer": self.customer}, pluck="name"):
+            self.track("MSP Client User", name)
+
+        frappe.db.commit()
         super().tearDown()
 
     # ------------------------------------------------------------------ the front door
@@ -78,8 +88,8 @@ class ActsCase(MSPTestCase):
     def newcomer(self, key="new:one", name="Nadia Newcomer"):
         return {
             "subject_key": key,
+            "kind": "new",
             "client_user": None,
-            "is_new_user": True,
             "full_name": name,
             "department": self.department,
             "email": None,
@@ -90,8 +100,8 @@ class ActsCase(MSPTestCase):
     def existing(self, person):
         return {
             "subject_key": f"user:{person}",
+            "kind": "existing",
             "client_user": person,
-            "is_new_user": False,
             "full_name": frappe.db.get_value("MSP Client User", person, "full_name"),
             "added_via": "Existing",
         }
@@ -158,7 +168,7 @@ class ActsCase(MSPTestCase):
             ),
         )
 
-        return self.track("MSP Service Request", out["name"])
+        return self.track("MSP Request", out["name"])
 
 
 class TestEveryActReachesTheRequest(ActsCase):
@@ -173,7 +183,7 @@ class TestEveryActReachesTheRequest(ActsCase):
                 self.machine_act("device.assign", nadia, device=self.second),
             ],
         )
-        doc = frappe.get_doc("MSP Service Request", name)
+        doc = frappe.get_doc("MSP Request", name)
 
         self.assertEqual(
             len(doc.lines), 2, "two machines were asked for and two must be on the request"
@@ -184,8 +194,8 @@ class TestEveryActReachesTheRequest(ActsCase):
             "each line names the machine it was asked for",
         )
         self.assertEqual(
-            [row.is_new_device for row in doc.lines],
-            [0, 0],
+            [row.requested_device for row in doc.lines],
+            [None, None],
             "a machine that was named is not a machine still to be found",
         )
 
@@ -194,13 +204,19 @@ class TestEveryActReachesTheRequest(ActsCase):
         name = self.raise_it(
             [nadia], [self.machine_act("device.assign", nadia, device=self.first)]
         )
-        line = frappe.get_doc("MSP Service Request", name).lines[0]
+        line = frappe.get_doc("MSP Request", name).lines[0]
 
         self.assertEqual(line.managed_device, self.first)
         self.assertEqual(line.target_scope, "Device")
-        self.assertTrue(line.is_new_user, "the person is still the one to be created")
+        self.assertTrue(
+            line.requested_for_requested_client_user, "the person is still the one to be created"
+        )
         self.assertEqual(
-            line.new_user_full_name, "Nadia Newcomer", "and the line still says who they are"
+            frappe.db.get_value(
+                REQUESTED_CLIENT_USER, line.requested_for_requested_client_user, "full_name"
+            ),
+            "Nadia Newcomer",
+            "and the line still says who they are",
         )
 
     def test_two_machines_asked_for_without_naming_them_are_still_two(self):
@@ -212,7 +228,7 @@ class TestEveryActReachesTheRequest(ActsCase):
                 self.machine_act("device.assign", nadia),
             ],
         )
-        doc = frappe.get_doc("MSP Service Request", name)
+        doc = frappe.get_doc("MSP Request", name)
 
         self.assertEqual(len(doc.lines), 2, "asking twice for a machine is asking for two")
         self.assertEqual(
@@ -230,7 +246,7 @@ class TestEveryActReachesTheRequest(ActsCase):
         name = self.raise_it([helen], [group])
 
         self.assertEqual(
-            len(frappe.get_doc("MSP Service Request", name).lines),
+            len(frappe.get_doc("MSP Request", name).lines),
             1,
             "one act naming the same person twice is one line",
         )
@@ -275,11 +291,13 @@ class TestEveryActReachesTheRequest(ActsCase):
         )
         nadia = self.newcomer()
         name = self.raise_it([nadia], [self.machine_act("device.assign", nadia, device=held)])
-        line = frappe.get_doc("MSP Service Request", name).lines[0]
+        line = frappe.get_doc("MSP Request", name).lines[0]
 
         self.assertEqual(line.operation_code, "device.transfer")
         self.assertEqual(line.managed_device, held)
-        self.assertTrue(line.is_new_user, "the person is still one to create")
+        self.assertTrue(
+            line.requested_for_requested_client_user, "the person is still one to create"
+        )
         self.assertFalse(
             line.requested_for_user,
             "a person who does not exist yet is not the person the machine is leaving",
@@ -296,7 +314,7 @@ class TestEveryActReachesTheRequest(ActsCase):
             self.service_act(nadia, self.on_a_person),
         ]
         name = self.raise_it([nadia, helen], groups)
-        doc = frappe.get_doc("MSP Service Request", name)
+        doc = frappe.get_doc("MSP Request", name)
 
         self.assertEqual(
             len(doc.lines),
@@ -327,7 +345,8 @@ class TestTheMachinesAreReallyHandedOver(ActsCase):
                 self.machine_act("device.assign", nadia, device=self.second),
             ],
         )
-        doc = frappe.get_doc("MSP Service Request", name)
+        doc = frappe.get_doc("MSP Request", name)
+        self.as_user(self.tech, lambda: RequestService.run_action(name=name, action="start_review"))
 
         for row in doc.lines:
             self.as_user(
@@ -341,42 +360,42 @@ class TestTheMachinesAreReallyHandedOver(ActsCase):
 
         orders = frappe.get_all(
             WORK_ORDER,
-            filters={"service_request": name},
-            fields=["name", "work_type", "managed_device"],
+            filters={"request": name},
+            fields=["name", "work_type", "managed_device", "requested_holder", "requested_holder_requested_client_user"],
             order_by="creation asc",
         )
 
         for order in orders:
             self.track(WORK_ORDER, order.name)
 
-        setup = [row for row in orders if row.work_type == "User Setup"]
+        requested = frappe.get_all(REQUESTED_CLIENT_USER, filters={"request": name}, pluck="name")
         machines = [row for row in orders if row.work_type == "Device Operation"]
 
-        self.assertEqual(len(setup), 1, "one person to create")
-        self.assertEqual(len(machines), 2, "two machines to hand over")
+        self.assertEqual(len(requested), 1, "one person to resolve")
+        self.assertEqual([row.work_type for row in orders], ["Device Operation", "Device Operation"])
         self.assertEqual(
             sorted(row.managed_device for row in machines),
             sorted([self.first, self.second]),
             "each work order carries the machine its line named",
         )
-
         self.assertEqual(
             [row.requested_holder for row in machines],
             [None, None],
             "nobody is named as holder while the person does not exist",
         )
+        self.assertEqual(
+            [row.requested_holder_requested_client_user for row in machines],
+            requested * 2,
+            "both machines wait for the same requested person",
+        )
 
-        created = self.as_user(
+        person = self.as_user(
             self.tech,
-            lambda: RequestExecutionService.execute_user_setup(
-                work_order=setup[0].name,
-                username=f"zz.nadia.{self.tag[:4]}",
-                department=self.department,
+            lambda: RequestedClientUserService.resolve_create(
+                requested[0], {"username": f"zz.nadia.{self.tag[:4]}", "department": self.department}
             ),
         )
-        person = (created or {}).get("client_user") or frappe.db.get_value(
-            WORK_ORDER, setup[0].name, "resulting_client_user"
-        )
+        self.track("MSP Client User", person)
 
         self.assertTrue(person, "the person the machines are for now exists")
 
@@ -412,6 +431,11 @@ class TestTheMachinesAreReallyHandedOver(ActsCase):
             sorted([self.first, self.second]),
             "the person asked for two machines and holds two",
         )
+        self.assertEqual(
+            {row.requested_holder_requested_client_user for row in frappe.get_doc("MSP Request", name).lines},
+            set(requested),
+            "the lines still name the requested person",
+        )
 
 
 class TestAMachineArrivingOpensItsServices(ActsCase):
@@ -420,7 +444,7 @@ class TestAMachineArrivingOpensItsServices(ActsCase):
     def offered(self, subjects, groups=None):
         return self.as_user(
             self.manager,
-            lambda: RequestV3Service.operation_options(
+            lambda: RequestScopeService.operation_options(
                 customer=self.customer,
                 subjects=subjects,
                 action_groups=groups,

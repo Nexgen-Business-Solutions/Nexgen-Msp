@@ -11,13 +11,13 @@ INDEXES = (
 	("MSP Service Assignment", ["customer", "assignment_scope", "managed_device"], "sa_machine"),
 	("MSP Service Assignment", ["service_item", "operational_status"], "sa_service"),
 	# which requests speak of a person, and which act on one service
-	("MSP Service Request Line", ["client_user"], "srl_person"),
-	("MSP Service Request Line", ["requested_for_user"], "srl_for_person"),
-	("MSP Service Request Line", ["source_service_assignment"], "srl_assignment"),
-	("MSP Service Request Line", ["subject_key"], "srl_subject"),
+	("MSP Request Line", ["client_user"], "srl_person"),
+	("MSP Request Line", ["requested_for_user"], "srl_for_person"),
+	("MSP Request Line", ["source_service_assignment"], "srl_assignment"),
+	("MSP Request Line", ["subject_key"], "srl_subject"),
 	# a request's queue position, and the work behind it
-	("MSP Service Request", ["customer", "status"], "sr_queue"),
-	("MSP Service Work Order", ["service_request", "status"], "wo_request"),
+	("MSP Request", ["customer", "status"], "sr_queue"),
+	("MSP Work Order", ["request", "status"], "wo_request"),
 	# whether a service has already been billed for an overlapping period
 	("MSP Billing Run Line", ["service_assignment"], "brl_assignment"),
 	("MSP Billing Run", ["customer", "billing_period_end"], "br_period"),
@@ -28,6 +28,18 @@ INDEXES = (
 	("MSP Service Assignment", ["client_user", "operational_status"], "sa_of_person"),
 	("MSP Service Assignment", ["managed_device", "operational_status"], "sa_of_machine"),
 	("MSP Managed Device", ["assigned_client_user", "status"], "device_of_person"),
+	("MSP Requested Client User", ["request", "subject_key"], "rcu_subject"),
+	("MSP Requested Client User", ["customer", "status"], "rcu_queue"),
+	("MSP Requested Client User", ["resolved_client_user"], "rcu_resolved"),
+	("MSP Requested Device", ["request", "device_requirement_key"], "rdev_requirement"),
+	("MSP Requested Device", ["customer", "status"], "rdev_queue"),
+	("MSP Requested Device", ["resolved_managed_device"], "rdev_resolved"),
+	("MSP Request Line", ["requested_client_user"], "srl_requested_person"),
+	("MSP Request Line", ["requested_device"], "srl_requested_machine"),
+	("MSP Request Line", ["requested_holder_requested_client_user"], "srl_requested_holder"),
+	("MSP Work Order", ["requested_client_user"], "wo_requested_person"),
+	("MSP Work Order", ["requested_device"], "wo_requested_machine"),
+	("MSP Work Order", ["requested_holder_requested_client_user"], "wo_requested_holder"),
 )
 
 

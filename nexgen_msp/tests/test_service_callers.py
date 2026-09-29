@@ -224,7 +224,7 @@ class TestServiceCallers(MSPTestCase):
         """One request line, held in memory: the closing gate reads nothing else."""
         return frappe.get_doc(
             {
-                "doctype": "MSP Service Request",
+                "doctype": "MSP Request",
                 "customer": self.customer,
                 "status": "Draft",
                 "source": "Internal",
@@ -246,7 +246,7 @@ class TestServiceCallers(MSPTestCase):
         """What one line is still owed, read the way the workbench reads it."""
         doc = self.both_line(service, **fields)
         doc.insert(ignore_permissions=True)
-        self.track("MSP Service Request", doc.name)
+        self.track("MSP Request", doc.name)
         frappe.db.commit()
 
         return RequestService.get_request(doc.name)["lines"][0]
@@ -278,12 +278,11 @@ class TestServiceCallers(MSPTestCase):
         doc = self.both_line(
             service,
             target_scope="Device",
-            is_new_device=1,
             managed_device=device,
             client_user=self.john,
         )
         doc.insert(ignore_permissions=True)
-        self.track("MSP Service Request", doc.name)
+        self.track("MSP Request", doc.name)
         frappe.db.commit()
 
         line = RequestService.get_request(doc.name)["lines"][0]

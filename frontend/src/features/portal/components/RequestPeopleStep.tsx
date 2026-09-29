@@ -3,13 +3,14 @@ import { Building2, Layers, Plus, UserPlus, X } from 'lucide-react';
 import FieldLabel from '@/shared/components/FieldLabel';
 import Modal from '@/shared/components/Modal';
 import Select from '@/shared/components/Select';
+import TruncatedNote from '@/shared/components/TruncatedNote';
 import type { RequestSubjectRow } from '@/lib/api/portal';
 import {
   useCompanySelection,
   useDepartmentSelection,
-  useNewUserRequestContext,
+  useNewPersonContext,
   useRequestScope,
-  useRequestUserSearch,
+  useSelectableClientUsers,
 } from '../hooks/usePortal';
 import type { useRequestBuilder } from '../hooks/useRequestBuilder';
 
@@ -23,6 +24,8 @@ const quietBtn =
   'rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50';
 const primaryBtn =
   'rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60';
+const inputClass =
+  'w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
 
 const Th: React.FC<{ children?: React.ReactNode }> = ({ children }) => (
   <th className="whitespace-nowrap px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
@@ -61,8 +64,9 @@ const SelectExisting: React.FC<{ builder: Builder; onClose: () => void }> = ({
   onClose,
 }) => {
   const [search, setSearch] = useState('');
-  const results = useRequestUserSearch(search);
+  const results = useSelectableClientUsers(search || undefined);
   const chosen = new Set(builder.subjects.map((subject) => subject.clientUser));
+  const rows = (results.data?.rows ?? []).filter((person) => !chosen.has(person.name));
 
   return (
     <Modal
@@ -94,44 +98,73 @@ const SelectExisting: React.FC<{ builder: Builder; onClose: () => void }> = ({
         </div>
 
         <div className="max-h-80 divide-y divide-slate-100 overflow-auto rounded-lg border border-slate-200">
-          {(results.data ?? [])
-            .filter((person) => !chosen.has(person.name))
-            .map((person) => (
-              <div key={person.name} className="flex items-center justify-between gap-3 px-3 py-2">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-slate-900">
-                    {person.full_name}
-                  </p>
-                  <p className="truncate text-xs text-slate-500">
-                    {[person.email, person.department].filter(Boolean).join(' · ') ||
-                      'No Department'}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => builder.addExistingSubject(person)}
-                  className={actionBtn}
+          {rows.map((person) => (
+            <div
+              key={person.name}
+              data-person={person.name}
+              aria-disabled={!person.selectable || undefined}
+              title={person.selectable ? undefined : (person.disabled_reason ?? undefined)}
+              className={`flex items-center justify-between gap-3 px-3 py-2 ${
+                person.selectable ? '' : 'bg-slate-50/70'
+              }`}
+            >
+              <div className="min-w-0">
+                <p
+                  className={`truncate text-sm font-semibold ${
+                    person.selectable ? 'text-slate-900' : 'text-slate-400'
+                  }`}
                 >
-                  Add
-                </button>
+                  {person.full_name}
+                  {!person.selectable && (
+                    <span className="ml-1.5 text-[11px] font-medium">{person.lifecycle_status}</span>
+                  )}
+                </p>
+                <p className="truncate text-xs text-slate-500">
+                  {person.selectable
+                    ? [person.email, person.department].filter(Boolean).join(' · ') ||
+                      'No Department'
+                    : person.disabled_reason}
+                </p>
               </div>
-            ))}
+              <button
+                type="button"
+                disabled={!person.selectable}
+                aria-label={`Add ${person.full_name}`}
+                onClick={() => builder.addExistingSubject(person)}
+                className={`${actionBtn} disabled:cursor-not-allowed disabled:opacity-40`}
+              >
+                Add
+              </button>
+            </div>
+          ))}
 
-          {(results.data ?? []).filter((person) => !chosen.has(person.name)).length === 0 && (
+          {rows.length === 0 && (
             <p className="px-3 py-6 text-center text-sm text-slate-500">No result.</p>
           )}
         </div>
+        <TruncatedNote page={results.data} />
       </div>
     </Modal>
   );
 };
 
-const NewUser: React.FC<{ builder: Builder; onClose: () => void }> = ({ builder, onClose }) => {
-  const context = useNewUserRequestContext();
+const OPTIONAL_FIELDS = [
+  ['email', 'Email', 'text'],
+  ['username', 'Username', 'text'],
+  ['startDate', 'Start date', 'date'],
+] as const;
+
+type OptionalField = (typeof OPTIONAL_FIELDS)[number][0];
+
+const NewPerson: React.FC<{ builder: Builder; onClose: () => void }> = ({ builder, onClose }) => {
+  const context = useNewPersonContext();
   const [fullName, setFullName] = useState('');
   const [department, setDepartment] = useState('');
-  const [email, setEmail] = useState('');
-  const [username, setUsername] = useState('');
+  const [values, setValues] = useState<Record<OptionalField, string>>({
+    email: '',
+    username: '',
+    startDate: '',
+  });
   const [refused, setRefused] = useState(false);
 
   const add = () => {
@@ -141,14 +174,7 @@ const NewUser: React.FC<{ builder: Builder; onClose: () => void }> = ({ builder,
       return;
     }
 
-    const key = builder.addNewSubject();
-
-    builder.updateSubject(key, {
-      fullName: fullName.trim(),
-      department: department || undefined,
-      email: email.trim() || undefined,
-      username: username.trim() || undefined,
-    });
+    builder.addNewSubject({ fullName, department, ...values });
     onClose();
   };
 
@@ -157,8 +183,8 @@ const NewUser: React.FC<{ builder: Builder; onClose: () => void }> = ({ builder,
       open
       onClose={onClose}
       icon={UserPlus}
-      title="New user"
-      subtitle="Only the full name is required. Missing business or technical information can be completed later."
+      title="New person"
+      subtitle="Fill what you have. Nexgen can complete the missing information during fulfilment."
       widthClass="max-w-xl"
       footer={
         <div className="flex items-center justify-end gap-2">
@@ -166,7 +192,7 @@ const NewUser: React.FC<{ builder: Builder; onClose: () => void }> = ({ builder,
             Cancel
           </button>
           <button type="button" onClick={add} className={primaryBtn}>
-            Add to request
+            Add person
           </button>
         </div>
       }
@@ -182,48 +208,45 @@ const NewUser: React.FC<{ builder: Builder; onClose: () => void }> = ({ builder,
               setFullName(event.target.value);
               setRefused(false);
             }}
-            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+            className={inputClass}
           />
           {refused && (
             <p className="mt-1 text-xs font-medium text-red-600">Enter the person's full name.</p>
           )}
         </div>
 
-        <div>
-          <FieldLabel>Department</FieldLabel>
-          <Select
-            className="w-full"
-            value={department}
-            onChange={setDepartment}
-            placeholder="No Department yet"
-            options={(context.data?.departments ?? []).map((row) => ({
-              value: row.value,
-              label: row.label,
-            }))}
-          />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <FieldLabel>Department</FieldLabel>
+            <Select
+              className="w-full"
+              value={department}
+              onChange={setDepartment}
+              placeholder="No Department yet"
+              options={(context.data?.departments ?? []).map((row) => ({
+                value: row.value,
+                label: row.label,
+              }))}
+            />
+          </div>
+
+          {OPTIONAL_FIELDS.map(([field, label, type]) => (
+            <div key={field}>
+              <FieldLabel>{label}</FieldLabel>
+              <input
+                type={type}
+                value={values[field]}
+                aria-label={label}
+                onChange={(event) =>
+                  setValues((current) => ({ ...current, [field]: event.target.value }))
+                }
+                className={inputClass}
+              />
+            </div>
+          ))}
         </div>
 
-        <div>
-          <FieldLabel>Email</FieldLabel>
-          <input
-            value={email}
-            aria-label="Email"
-            onChange={(event) => setEmail(event.target.value)}
-            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-          />
-        </div>
-
-        <div>
-          <FieldLabel>Username</FieldLabel>
-          <input
-            value={username}
-            aria-label="Username"
-            onChange={(event) => setUsername(event.target.value)}
-            placeholder="for his services"
-            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-          />
-          
-        </div>
+        <p className="text-[11px] text-slate-500">Optional. Leave this blank if you do not know it.</p>
       </div>
     </Modal>
   );
@@ -233,7 +256,7 @@ const AddDepartment: React.FC<{ builder: Builder; onClose: () => void }> = ({
   builder,
   onClose,
 }) => {
-  const context = useNewUserRequestContext();
+  const context = useNewPersonContext();
   const [department, setDepartment] = useState('');
   const selection = useDepartmentSelection(department || undefined);
   const people = selection.data?.people ?? [];
@@ -372,18 +395,19 @@ const RequestPeopleStep: React.FC<{ builder: Builder }> = ({ builder }) => {
   const departments = [
     ...new Set(rows.map((row) => row.department).filter(Boolean) as string[]),
   ];
-  const fresh = rows.filter((row) => row.is_new_user).length;
+  const fresh = builder.subjects.filter((subject) => subject.kind === 'new').length;
 
   const cell = (subject: (typeof builder.subjects)[number]): RequestSubjectRow =>
     byKey.get(subject.key) ?? {
       subject_key: subject.key,
+      kind: subject.kind,
       client_user: subject.clientUser ?? null,
-      is_new_user: subject.kind === 'new' ? 1 : 0,
+      requested_client_user: subject.requestedClientUser ?? null,
       full_name: subject.fullName ?? '',
       department: subject.department ?? null,
-      username: subject.username ?? null,
       email: subject.email ?? null,
-      added_via: 'Existing',
+      username: subject.username ?? null,
+      added_via: subject.kind === 'new' ? 'New' : 'Existing',
       selection_label: null,
       devices: [],
       current_services: [],
@@ -469,8 +493,8 @@ const RequestPeopleStep: React.FC<{ builder: Builder }> = ({ builder }) => {
                       <span className="text-sm font-semibold text-slate-900">
                         {row.full_name || 'New person'}
                       </span>
-                      {row.is_new_user === 1 && (
-                        <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] font-bold text-blue-700">
+                      {row.kind === 'new' && (
+                        <span className="rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold text-amber-700">
                           NEW
                         </span>
                       )}
@@ -525,7 +549,7 @@ const RequestPeopleStep: React.FC<{ builder: Builder }> = ({ builder }) => {
       {opened === 'existing' && (
         <SelectExisting builder={builder} onClose={() => setOpened(null)} />
       )}
-      {opened === 'new' && <NewUser builder={builder} onClose={() => setOpened(null)} />}
+      {opened === 'new' && <NewPerson builder={builder} onClose={() => setOpened(null)} />}
       {opened === 'department' && (
         <AddDepartment builder={builder} onClose={() => setOpened(null)} />
       )}

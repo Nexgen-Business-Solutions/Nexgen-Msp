@@ -8,7 +8,12 @@ from nexgen_msp.utils.meta import select_options
 
 
 from nexgen_msp.api.internal.services.request_service import effective_line_status
-from nexgen_msp.utils import approval, operations, permissions, request_intents
+from nexgen_msp.nexgen_msp.doctype.msp_request.msp_request import (
+    MODIFIED_COMMENT,
+    requested_date_refusal,
+    requester_edit_refusal,
+)
+from nexgen_msp.utils import approval, operations, permissions, request_intents, request_targets
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 # "no row like this yet", told apart from a row whose action group is None
@@ -74,15 +79,10 @@ REQUEST_LINE_FIELDS = [
     "idx",
     "action",
     "target_scope",
-    "is_new_user",
     "client_user",
-    "new_user_full_name",
-    "new_user_department",
-    "new_user_email",
-    "new_user_username",
-    "new_device_type",
-    "new_device_serial",
+    "requested_client_user",
     "managed_device",
+    "requested_device",
     "customer_site",
     "requested_service",
     "requested_quantity",
@@ -133,7 +133,7 @@ KPI_SOURCES = {
             ("status", "Status", "sr.status"),
         ],
         "body": """
-            from `tabMSP Service Request` sr
+            from `tabMSP Request` sr
             where sr.customer = %(customer)s
               and sr.status not in ('Completed', 'Rejected', 'Cancelled')
               -- a colleague's unfinished request is not theirs to count nor to read
@@ -147,9 +147,44 @@ KPI_SOURCES = {
 
 SELECTION_ORIGIN = {"All": "Company", "Department": "Department", "Person": "Individual"}
 
+FORMER_INPUT_KEYS = ("is_new_user", "is_new_device")
+FORMER_INPUT_PREFIXES = ("new_user_", "new_device_")
+
+SUBJECT_KINDS = ("existing", "new")
+
+NOT_THE_REQUESTER = "Only the person who raised this request can modify it."
+REQUEST_LOCKED = "This request can no longer be modified: work on it has started."
+
+REQUESTED_PERSON_FIELDS = (
+    "full_name",
+    "department",
+    "email",
+    "username",
+    "external_employee_id",
+    "start_date",
+)
+
+REQUESTED_DEVICE_FIELDS = (
+    "display_label",
+    "device_type",
+    "hostname",
+    "serial_number",
+    "asset_tag",
+    "manufacturer",
+    "model",
+    "operating_system",
+)
+
 
 def _selection_origin(scope_type):
     return SELECTION_ORIGIN.get(scope_type or "All", "Individual")
+
+
+def _parsed(value):
+    if isinstance(value, str):
+        value = frappe.parse_json(value)
+
+    return value or []
 
 
 class PortalService:
@@ -200,7 +235,7 @@ class PortalService:
             "open_requests": PortalService._count_kpi("open_requests", customer),
             # waiting for someone at the company to agree, before it ever reaches Nexgen
             "awaiting_approval": frappe.db.count(
-                "MSP Service Request", {**base, "status": "Awaiting Customer Approval"}
+                "MSP Request", {**base, "status": "Awaiting Customer Approval"}
             ),
             # what this customer may order, not the whole catalogue of the site
             "catalogue_size": PortalService.list_catalogue(customer=customer)["count"],
@@ -527,6 +562,26 @@ class PortalService:
         )
 
     @staticmethod
+    def list_selectable_client_users(customer=None, search=None, limit=None):
+        """Every person of the caller's customer, the ones who cannot be chosen greyed with the reason."""
+        from nexgen_msp.api.internal.services.requested_client_user_service import (
+            RequestedClientUserService,
+        )
+
+        customer = PortalService._resolve_customer(customer)
+
+        return RequestedClientUserService.selectable_client_user_page(customer, search, limit)
+
+    @staticmethod
+    def list_selectable_devices(customer=None, search=None, limit=None):
+        """Every machine of the caller's customer with its status and holder, Retired ones greyed."""
+        from nexgen_msp.api.internal.services.requested_device_service import RequestedDeviceService
+
+        customer = PortalService._resolve_customer(customer)
+
+        return RequestedDeviceService.selectable_device_page(customer, search, limit)
+
+    @staticmethod
     def list_devices(
         customer=None, search=None, status=None, service=None, coverage=None, start=0, page_length=20
     ):
@@ -680,7 +735,7 @@ class PortalService:
             "not in",
             frappe.db.sql_list(
                 """
-                select name from `tabMSP Service Request`
+                select name from `tabMSP Request`
                 where customer = %(customer)s and status = 'Draft' and requester != %(me)s
                 """,
                 {"customer": filters["customer"], "me": frappe.session.user},
@@ -692,14 +747,14 @@ class PortalService:
             filters["request_type"] = request_type
 
         return PortalService._paginated(
-            "MSP Service Request", REQUEST_FIELDS, filters, search, ["name"], start, page_length
+            "MSP Request", REQUEST_FIELDS, filters, search, ["name"], start, page_length
         )
 
     @staticmethod
     def request_filter_options(customer=None):
         """The axes the customer can narrow their own request queue on."""
         customer = PortalService._resolve_customer(customer)
-        meta = frappe.get_meta("MSP Service Request")
+        meta = frappe.get_meta("MSP Request")
 
         def select(fieldname):
             field = meta.get_field(fieldname)
@@ -711,7 +766,7 @@ class PortalService:
             "request_types": select("request_type"),
             "used_types": frappe.db.sql_list(
                 """
-                select distinct request_type from `tabMSP Service Request`
+                select distinct request_type from `tabMSP Request`
                 where customer = %(customer)s and request_type is not null
                 order by request_type asc
                 """,
@@ -725,53 +780,60 @@ class PortalService:
         if not name:
             raise ValidationError("name is required.", "VALIDATION_ERROR")
 
-        if not frappe.db.exists("MSP Service Request", name):
-            raise NotFoundError(f"Service Request {name} does not exist.", "NOT_FOUND")
+        if not frappe.db.exists("MSP Request", name):
+            raise NotFoundError(f"Request {name} does not exist.", "NOT_FOUND")
 
-        doc = frappe.get_doc("MSP Service Request", name)
+        doc = frappe.get_doc("MSP Request", name)
         PortalService._resolve_customer(doc.customer)
 
         if doc.status == "Draft" and doc.requester != frappe.session.user:
-            raise NotFoundError(f"Service Request {name} does not exist.", "NOT_FOUND")
+            raise NotFoundError(f"Request {name} does not exist.", "NOT_FOUND")
 
+        person = request_targets.line_person_sql("srl")
         lines = frappe.db.sql(
-            """
+            f"""
             select
                 srl.idx, srl.action, srl.line_status, srl.rejection_reason,
                 -- the raw links as well as their names: a draft is reopened from these
                 srl.operation_code, srl.operation_label_snapshot,
                 srl.operation_payload, srl.state_snapshot, srl.requested_holder,
                 srl.selection_origin, srl.selection_group_key, srl.selection_label,
-                srl.target_scope, srl.subject_key,
+                srl.target_scope, srl.subject_key, srl.device_requirement_key,
                 srl.client_user, srl.managed_device,
+                srl.requested_client_user, srl.requested_device,
+                srl.requested_for_requested_client_user,
+                srl.requested_holder_requested_client_user,
                 srl.source_service_assignment, srl.requested_for_user,
                 srl.requested_service,
-                srl.is_new_user, srl.new_user_full_name, srl.new_user_department,
-                srl.new_user_email, srl.new_user_username,
-                srl.is_new_device, srl.new_device_label, srl.new_device_type,
-                srl.new_device_serial,
-                coalesce(cu.full_name, holder.full_name, srl.new_user_full_name) as user_name,
-                coalesce(cu.department, holder.department, srl.new_user_department) as department,
+                coalesce(cu.full_name, rcu.full_name, holder.full_name, for_rcu.full_name) as user_name,
+                coalesce(cu.department, rcu.department, holder.department, for_rcu.department) as department,
                 coalesce(cu.username, holder.username) as username,
                 coalesce(item.item_name, srl.requested_service) as service_name,
                 coalesce(srl.operation_label_snapshot, srl.action) as action_label,
-                requested.full_name as requested_holder_name,
+                coalesce(requested.full_name, holder_rcu.full_name) as requested_holder_name,
+                rdev.display_label as requested_device_label,
                 device.hostname, device.serial_number, device.device_type,
                 device.assigned_client_user as device_holder,
                 srl.requested_effective_date, srl.comment,
                 sa.operational_status as service_status,
                 sa.effective_start_date as service_start_date,
                 sa_device.hostname as delivered_on
-            from `tabMSP Service Request Line` srl
-            left join `tabMSP Client User` cu on cu.name = srl.client_user
-            left join `tabMSP Managed Device` device on device.name = srl.managed_device
+            from `tabMSP Request Line` srl
+            left join `tabMSP Client User` cu on cu.name = {person}
+            left join `tabMSP Managed Device` device on device.name = {request_targets.line_device_sql("srl")}
             left join `tabMSP Client User` holder on holder.name = device.assigned_client_user
             left join `tabItem` item on item.name = srl.requested_service
             left join `tabMSP Client User` requested on requested.name = srl.requested_holder
+            left join `tabMSP Requested Client User` rcu on rcu.name = srl.requested_client_user
+            left join `tabMSP Requested Client User` for_rcu
+                on for_rcu.name = srl.requested_for_requested_client_user
+            left join `tabMSP Requested Client User` holder_rcu
+                on holder_rcu.name = srl.requested_holder_requested_client_user
+            left join `tabMSP Requested Device` rdev on rdev.name = srl.requested_device
             left join `tabMSP Service Assignment` sa
                 on sa.source_request = srl.parent
                and sa.service_item = srl.requested_service
-               and (srl.client_user is null or srl.client_user = '' or sa.client_user = srl.client_user)
+               and ({person} is null or sa.client_user = {person})
             left join `tabMSP Managed Device` sa_device on sa_device.name = sa.managed_device
             where srl.parent = %(parent)s
             order by srl.idx asc
@@ -785,6 +847,9 @@ class PortalService:
                 ServiceDefinitionService.scope_of(line.get("requested_service"))
             )
             line["line_status"] = effective_line_status(line.get("line_status"), doc.status)
+
+        subjects = PortalService._drafted_subject_rows(doc)
+        requested_devices = PortalService._drafted_device_rows(doc)
 
         return {
             "name": doc.name,
@@ -800,25 +865,16 @@ class PortalService:
             "refused_by_customer": bool(doc.get("refused_by_customer")),
             "reviewed_on": doc.technical_approved_at,
             "can_decide": PortalService._may_decide(doc),
+            "can_edit": requester_edit_refusal(doc.name) is None,
             # a request waiting on an accord nobody at the company can yet give is stuck, and
             # the page has to say so rather than promise an approval that will never come
             "has_approver": approval.has_approvers(doc.customer),
             "lines": lines,
+            "requested_date": doc.get("requested_date"),
             # what the customer actually built: their people, and the acts they asked for
-            "subjects": [
-                {
-                    "subject_key": row.subject_key,
-                    "client_user": row.client_user,
-                    "is_new_user": bool(row.is_new_user),
-                    "full_name": row.full_name_snapshot,
-                    "department": row.department_snapshot,
-                    "email": row.email_snapshot,
-                    "username": row.username_snapshot,
-                    "added_via": row.added_via,
-                    "selection_label": row.selection_label,
-                }
-                for row in doc.get("subjects") or []
-            ],
+            "subjects": subjects,
+            "requested_devices": requested_devices,
+            "restorable": PortalService._restorable(doc, subjects, requested_devices),
             "action_groups": [
                 {
                     "group_key": row.group_key,
@@ -839,6 +895,126 @@ class PortalService:
                 for row in doc.get("action_groups") or []
             ],
         }
+
+    @staticmethod
+    def _restorable(doc, subjects, requested_devices):
+        """Whether a saved request can be given back to the builder exactly as it was saved."""
+        if doc.get("lines") and not doc.get("action_groups"):
+            return False
+
+        people = {row["subject_key"] for row in subjects}
+        machines = {row["device_requirement_key"] for row in requested_devices}
+
+        if any(row["kind"] == "new" and not row["requested_client_user"] for row in subjects):
+            return False
+
+        if any(
+            row.get("intended_holder_requested_client_user") and not row.get("intended_holder_subject_key")
+            for row in requested_devices
+        ):
+            return False
+
+        for group in doc.get("action_groups") or []:
+            configuration = frappe.parse_json(group.configuration_snapshot_json or "{}") or {}
+
+            if "targets" not in configuration:
+                return False
+
+            for target in configuration["targets"]:
+                if target.get("subject_key") not in people:
+                    return False
+
+                if target.get("device_requirement_key") and target["device_requirement_key"] not in machines:
+                    return False
+
+                holder = target.get("requested_holder_subject_key")
+
+                if holder and holder not in people:
+                    return False
+
+        return True
+
+    @staticmethod
+    def _requested_values(doctype, name, fields):
+        """What the requester gave for a Requested record, as its snapshot keeps it."""
+        row = frappe.db.get_value(doctype, name, ["requested_snapshot_json", *fields], as_dict=True)
+
+        if not row:
+            return {}
+
+        snapshot = frappe.parse_json(row.requested_snapshot_json or "{}") or {}
+
+        return {field: snapshot.get(field, row.get(field)) for field in fields}
+
+    @staticmethod
+    def _drafted_subject_rows(doc):
+        """The people of a request as the builder holds them."""
+        rows = []
+
+        for row in doc.get("subjects") or []:
+            entry = {
+                "subject_key": row.subject_key,
+                "kind": "new" if row.requested_client_user else "existing",
+                "client_user": row.client_user,
+                "requested_client_user": row.requested_client_user,
+                "full_name": row.full_name_snapshot,
+                "department": row.department_snapshot,
+                "email": row.email_snapshot,
+                "username": row.username_snapshot,
+                "external_employee_id": None,
+                "start_date": None,
+                "added_via": row.added_via,
+                "selection_label": row.selection_label,
+            }
+
+            if row.requested_client_user:
+                entry.update(
+                    PortalService._requested_values(
+                        "MSP Requested Client User", row.requested_client_user, REQUESTED_PERSON_FIELDS
+                    )
+                )
+
+            rows.append(entry)
+
+        return rows
+
+    @staticmethod
+    def _drafted_device_rows(doc):
+        """The requested Devices of a request as the builder holds them."""
+        records = frappe.get_all(
+            "MSP Requested Device",
+            filters={"request": doc.name},
+            fields=[
+                "name",
+                "device_requirement_key",
+                "status",
+                "intended_holder_client_user",
+                "intended_holder_requested_client_user",
+            ],
+            order_by="creation asc, name asc",
+        )
+        holders = {
+            row.requested_client_user: row.subject_key
+            for row in doc.get("subjects") or []
+            if row.requested_client_user
+        }
+
+        return [
+            {
+                "device_requirement_key": row.device_requirement_key,
+                "requested_device": row.name,
+                "status": row.status,
+                **PortalService._requested_values(
+                    "MSP Requested Device", row.name, REQUESTED_DEVICE_FIELDS
+                ),
+                "intended_holder_client_user": row.intended_holder_client_user,
+                "intended_holder_requested_client_user": row.intended_holder_requested_client_user,
+                "intended_holder_subject_key": holders.get(row.intended_holder_requested_client_user)
+                if row.intended_holder_requested_client_user
+                else None,
+            }
+            for row in records
+        ]
 
     @staticmethod
     def _may_decide(doc):
@@ -932,7 +1108,7 @@ class PortalService:
                 ),
                 "link": notifications.portal_url(f"/requests/{doc.name}"),
             },
-            reference_doctype="MSP Service Request",
+            reference_doctype="MSP Request",
             reference_name=doc.name,
         )
 
@@ -991,9 +1167,26 @@ class PortalService:
                     "summary": summary,
                     "link": f"{frappe.utils.get_url()}/msp/requests/{doc.name}",
                 },
-                reference_doctype="MSP Service Request",
+                reference_doctype="MSP Request",
                 reference_name=doc.name,
             )
+
+    @staticmethod
+    def _device_owner(device, customer):
+        """The customer and holder of a machine a line names, refused when it is not this customer's."""
+        owner = frappe.db.get_value(
+            "MSP Managed Device", device, ["customer", "assigned_client_user"], as_dict=True
+        )
+
+        if not owner:
+            raise NotFoundError(f"Managed Device {device} not found.", "NOT_FOUND")
+
+        if owner.customer != customer:
+            raise ValidationError(
+                f"Device {device} does not belong to {customer}.", "PERMISSION_DENIED", 403
+            )
+
+        return owner
 
     @staticmethod
     def _scoped_line(line, customer):
@@ -1002,37 +1195,51 @@ class PortalService:
         service = line.get("requested_service")
         scope = ServiceDefinitionService.scope_of(service)
         device = line.get("managed_device")
-
-        if line.get("is_new_user"):
-            from nexgen_msp.api.internal.services.department_service import DepartmentService
-
-            line["new_user_department"] = DepartmentService.validate_department(
-                line.get("new_user_department")
-            )
+        future = request_intents.requested_subject_of(line)
 
         # a machine nobody has registered yet is still a machine: the line stays about the
         # Device, and says the Device is the one still to be prepared
-        if line.get("is_new_device"):
+        if line.get("requested_device"):
             line["target_scope"] = "Device"
             line["managed_device"] = None
-            line["requested_for_user"] = (
-                line.get("requested_for_user") or line.get("client_user")
-            )
-            line["client_user"] = None if line.get("requested_for_user") else line.get("client_user")
+
+            if future:
+                line["requested_for_requested_client_user"] = future
+                line["requested_for_user"] = None
+            else:
+                line["requested_for_user"] = (
+                    line.get("requested_for_user") or line.get("client_user")
+                )
+
+            line["client_user"] = None
+            line["requested_client_user"] = None
 
             return line
 
-        if line.get("is_new_user"):
+        if future:
             # a machine act for somebody who does not exist yet is still about the machine.
             # The one they were shown in stock stays on the line: it is what they asked for,
             # and fulfilment stays free to hand over a different one and say so
             if request_intents.is_device_operation(line):
                 line["target_scope"] = "Device"
+                line["requested_for_requested_client_user"] = future
+                line["requested_client_user"] = None
+
+                return line
+
+            if scope in ("Device", "Both") and device:
+                PortalService._device_owner(device, customer)
+                line["target_scope"] = "Device"
+                line["requested_for_requested_client_user"] = future
+                line["requested_client_user"] = None
+                line["client_user"] = None
 
                 return line
 
             line["target_scope"] = "User"
             line["managed_device"] = None
+            line["requested_client_user"] = future
+            line["requested_for_requested_client_user"] = None
 
             return line
 
@@ -1040,17 +1247,7 @@ class PortalService:
         # person only, it stays about the person and the machine is "not specified" — the
         # technician settles it when delivering. Nobody is made to pick a machine.
         if scope in ("Device", "Both") and device:
-            owner = frappe.db.get_value(
-                "MSP Managed Device", device, ["customer", "assigned_client_user"], as_dict=True
-            )
-
-            if not owner:
-                raise NotFoundError(f"Managed Device {device} not found.", "NOT_FOUND")
-
-            if owner.customer != customer:
-                raise ValidationError(
-                    f"Device {device} does not belong to {customer}.", "PERMISSION_DENIED", 403
-                )
+            owner = PortalService._device_owner(device, customer)
 
             # the machine owns the service, but the request was still raised for somebody:
             # that person is kept beside it so the line does not lose them the day the
@@ -1072,12 +1269,13 @@ class PortalService:
         return line
 
     @staticmethod
-    def _resolved_operation(line, customer):
+    def _resolved_operation(line, customer, ignore=None):
         """Which operation this line asks for, read against what the application performs.
 
         A new person can only be granted something, whatever was sent.
         """
         code = (line.get("operation_code") or "").strip()
+        future = request_intents.requested_subject_of(line)
 
         if not code:
             # a line written before operations had codes still says what it wants
@@ -1090,7 +1288,7 @@ class PortalService:
         if definition["domain"] == operations.SERVICE:
             line["action"] = definition["legacy_action"]
 
-            if line.get("is_new_user") and line["action"] != "Add":
+            if future and line["action"] != "Add":
                 raise ValidationError(
                     "A new person can only be granted a service, not have one changed or removed.",
                     "VALIDATION_ERROR",
@@ -1101,16 +1299,28 @@ class PortalService:
         # asking for a machine names a person, not a machine: which one it turns out to be is
         # settled during fulfilment, so there is nothing here to check it against
         if code == "device.assign" and not line.get("managed_device"):
+            if not line.get("requested_device"):
+                raise ValidationError(
+                    "Say which Device, or describe the one still to be settled.", "VALIDATION_ERROR"
+                )
+
             # the same word every machine operation writes on a line: what changed is the
             # machine, and the operation code is what says which change it was
             line["action"] = "Change"
             line["target_scope"] = "Device"
-            line["is_new_device"] = 1
-            # a machine line records its person the way every machine line does: as the one it
-            # is wanted for, not as the holder of a service
-            line["requested_for_user"] = line.get("requested_for_user") or line.get("client_user")
+
+            if not line.get("requested_holder") and not line.get(
+                "requested_holder_requested_client_user"
+            ):
+                if future:
+                    line["requested_holder_requested_client_user"] = future
+                else:
+                    line["requested_holder"] = line.get("requested_for_user")
+
             line["client_user"] = None
+            line["requested_client_user"] = None
             line["requested_service"] = None
+            line["operation_payload"] = frappe.as_json(PortalService._holder_payload(line))
 
             return line
 
@@ -1127,16 +1337,30 @@ class PortalService:
                 line["operation_code"] = code
                 line["operation_label_snapshot"] = operations.get(code)["label"]
 
-        return PortalService._scoped_device_operation(line, customer, code)
+        return PortalService._scoped_device_operation(line, customer, code, ignore)
 
     @staticmethod
-    def _scoped_device_operation(line, customer, code):
+    def _holder_payload(line):
+        """The holder a machine line asks for, as its operation payload says it."""
+        if line.get("requested_holder"):
+            return {"requested_holder": line["requested_holder"]}
+
+        if line.get("requested_holder_requested_client_user"):
+            return {
+                "requested_holder_requested_client_user": line["requested_holder_requested_client_user"]
+            }
+
+        return {}
+
+    @staticmethod
+    def _scoped_device_operation(line, customer, code, ignore=None):
         """A Device operation: the machine, the people, and what the machine is doing now.
 
         Nothing is written to the Device here. The line records what was asked and what the
         Device looked like when it was asked, and execution does the rest.
         """
         device = line.get("managed_device")
+        future = request_intents.requested_subject_of(line)
 
         if not device or not frappe.db.exists("MSP Managed Device", device):
             raise NotFoundError("This Device does not belong to this Customer.", "NOT_FOUND")
@@ -1171,7 +1395,10 @@ class PortalService:
         if code in ("device.assign", "device.transfer"):
             # the person meant to hold it may be one this request still has to create: there
             # is no name to check yet, and the line already says who they are
-            awaited = bool(line.get("is_new_user")) and not wanted
+            if not wanted and not line.get("requested_holder_requested_client_user") and future:
+                line["requested_holder_requested_client_user"] = future
+
+            awaited = bool(line.get("requested_holder_requested_client_user")) and not wanted
 
             if not wanted and not awaited:
                 raise ValidationError("Say who should hold this Device.", "VALIDATION_ERROR")
@@ -1199,7 +1426,7 @@ class PortalService:
                         "The selected person already holds this Device.", "VALIDATION_ERROR"
                     )
 
-        pending = PortalService._pending_holder_request(device)
+        pending = PortalService._pending_holder_request(device, ignore)
 
         if pending:
             raise ValidationError(
@@ -1209,14 +1436,15 @@ class PortalService:
 
         line["target_scope"] = "Device"
         line["client_user"] = None
+        line["requested_client_user"] = None
         # who the machine is leaving, when it is leaving somebody. A line raised for a person
         # this request has yet to create names nobody here: they have no record to name, and
         # the machine's own history is in the snapshot below
-        line["requested_for_user"] = None if line.get("is_new_user") else holder
+        line["requested_for_user"] = None if future else holder
+        line["requested_for_requested_client_user"] = future or None
         line["requested_service"] = None
-        line["is_new_device"] = 0
         line["action"] = "Change"
-        line["operation_payload"] = frappe.as_json({"requested_holder": wanted} if wanted else {})
+        line["operation_payload"] = frappe.as_json(PortalService._holder_payload(line))
         line["state_snapshot"] = frappe.as_json(operations.snapshot_device(device))
 
         return line
@@ -1232,7 +1460,7 @@ class PortalService:
         return request_intents.pending_holder_request(device, exclude=ignore)
 
     @staticmethod
-    def _line_rows(lines, customer, request_type, strict=True):
+    def _line_rows(lines, customer, request_type, requested_date=None, strict=True, ignore=None):
         """The child rows of a request, built the same way whether it is saved or sent.
 
         A draft is not checked: it is a half-written page, and telling someone which machine
@@ -1245,7 +1473,7 @@ class PortalService:
 
         if strict:
             lines = [PortalService._scoped_line(line, customer) for line in lines]
-            lines = [PortalService._resolved_operation(line, customer) for line in lines]
+            lines = [PortalService._resolved_operation(line, customer, ignore) for line in lines]
 
         return lines, [
             {
@@ -1254,29 +1482,27 @@ class PortalService:
                 "operation_payload": line.get("operation_payload"),
                 "state_snapshot": line.get("state_snapshot"),
                 "requested_holder": line.get("requested_holder"),
+                "requested_holder_requested_client_user": line.get(
+                    "requested_holder_requested_client_user"
+                ),
                 "action": line.get("action") or request_type or "Add",
                 "target_scope": line.get("target_scope") or "User",
-                "is_new_user": 1 if line.get("is_new_user") else 0,
                 "subject_key": line.get("subject_key"),
                 "action_group_key": line.get("action_group_key"),
+                "device_requirement_key": line.get("device_requirement_key"),
                 "client_user": line.get("client_user"),
+                "requested_client_user": line.get("requested_client_user"),
                 "requested_for_user": line.get("requested_for_user"),
+                "requested_for_requested_client_user": line.get(
+                    "requested_for_requested_client_user"
+                ),
                 "source_service_assignment": line.get("source_service_assignment"),
-                "new_user_full_name": line.get("new_user_full_name"),
-                "new_user_department": line.get("new_user_department"),
-                "new_user_email": line.get("new_user_email"),
-                # neither is asked of the customer, but both save the technician a
-                # phone call when they happen to know them
-                "new_user_username": line.get("new_user_username"),
-                "is_new_device": 1 if line.get("is_new_device") else 0,
-                "new_device_label": line.get("new_device_label"),
-                "new_device_type": line.get("new_device_type"),
-                "new_device_serial": line.get("new_device_serial"),
                 "managed_device": line.get("managed_device"),
+                "requested_device": line.get("requested_device"),
                 "customer_site": line.get("customer_site"),
                 "requested_service": line.get("requested_service"),
                 "requested_quantity": line.get("requested_quantity") or 1,
-                "requested_effective_date": line.get("requested_effective_date"),
+                "requested_effective_date": requested_date or line.get("requested_effective_date"),
                 "comment": line.get("comment"),
                 # how this subject came to be in the request, kept exactly as it was selected
                 "selection_origin": line.get("selection_origin") or "Individual",
@@ -1288,7 +1514,271 @@ class PortalService:
         ]
 
     @staticmethod
-    def compose_from_groups(customer, subjects, action_groups):
+    def _refuse_former_keys(*collections):
+        """Refuse a payload that still describes a person or a machine through the former flags."""
+        for rows in collections:
+            for row in rows or []:
+                if not isinstance(row, dict):
+                    continue
+
+                for key in row:
+                    if key in FORMER_INPUT_KEYS or key.startswith(FORMER_INPUT_PREFIXES):
+                        raise ValidationError(
+                            f"{key} is no longer accepted. Describe a future person in subjects "
+                            "and a Device still to be settled in requested_devices.",
+                            "VALIDATION_ERROR",
+                        )
+
+    @staticmethod
+    def _drafted_subjects(subjects):
+        """The people of a request, each with its kind, by subject key."""
+        from nexgen_msp.api.internal.services.department_service import DepartmentService
+
+        people = {}
+
+        for row in subjects or []:
+            key = (row.get("subject_key") or "").strip()
+
+            if not key:
+                raise ValidationError("Every person of a request needs a subject_key.", "VALIDATION_ERROR")
+
+            if key in people:
+                raise ValidationError(f"{key} is named twice among the people of this request.", "VALIDATION_ERROR")
+
+            kind = row.get("kind") or ("existing" if row.get("client_user") else "new")
+
+            if kind not in SUBJECT_KINDS:
+                raise ValidationError(f"{kind} is not a kind of person.", "VALIDATION_ERROR")
+
+            if kind == "existing" and not row.get("client_user"):
+                raise ValidationError("Choose the Client User this person is.", "VALIDATION_ERROR")
+
+            if kind == "new":
+                if row.get("client_user"):
+                    raise ValidationError(
+                        "A new person cannot also be an existing one.", "VALIDATION_ERROR"
+                    )
+
+                if not (row.get("full_name") or "").strip():
+                    raise ValidationError("A full name is required.", "VALIDATION_ERROR")
+
+                row = {**row, "department": DepartmentService.validate_department(row.get("department"))}
+
+            people[key] = {**row, "subject_key": key, "kind": kind}
+
+        return people
+
+    @staticmethod
+    def _drafted_devices(requested_devices, people):
+        """The Devices still to be settled that a request describes, by device requirement key."""
+        machines = {}
+
+        for row in requested_devices or []:
+            key = (row.get("device_requirement_key") or "").strip()
+
+            if not key:
+                raise ValidationError(
+                    "Every requested Device needs a device_requirement_key.", "VALIDATION_ERROR"
+                )
+
+            if key in machines:
+                raise ValidationError(
+                    f"{key} is named twice among the requested Devices of this request.",
+                    "VALIDATION_ERROR",
+                )
+
+            holder = row.get("intended_holder_subject_key")
+
+            if holder and holder not in people:
+                raise ValidationError(f"{holder} is not a person of this request.", "VALIDATION_ERROR")
+
+            if holder and row.get("intended_holder_client_user"):
+                raise ValidationError(request_targets.BOTH_TARGETS, "VALIDATION_ERROR")
+
+            machines[key] = {**row, "device_requirement_key": key}
+
+        return machines
+
+    @staticmethod
+    def _keyed_device(row, machines):
+        """Name the requested Device a target or a line points at by its key."""
+        name = row.get("requested_device")
+
+        if not name or row.get("device_requirement_key"):
+            return
+
+        key = next(
+            (key for key, machine in machines.items() if machine.get("requested_device") == name),
+            None,
+        )
+
+        if not key:
+            raise ValidationError(request_targets.CROSS_REQUEST, "VALIDATION_ERROR")
+
+        row["device_requirement_key"] = key
+
+    @staticmethod
+    def _describe_minted(machines, key, holder):
+        if key in machines:
+            return
+
+        machines[key] = {
+            "device_requirement_key": key,
+            "display_label": "New device",
+            "intended_holder_subject_key": holder.get("subject_key") if holder.get("kind") == "new" else None,
+            "intended_holder_client_user": holder.get("client_user") if holder.get("kind") == "existing" else None,
+        }
+
+    @staticmethod
+    def _free_key(machines, key):
+        """The key itself, or the first numbered one no machine of this request uses yet."""
+        if key not in machines:
+            return key
+
+        count = 2
+
+        while f"{key}:{count}" in machines:
+            count += 1
+
+        return f"{key}:{count}"
+
+    @staticmethod
+    def _mint_group_devices(groups, people, machines):
+        """Give a requested Device to every machine target of an act that names none."""
+        for group in groups:
+            code = group.get("operation_code")
+
+            for target in group.get("targets") or []:
+                PortalService._keyed_device(target, machines)
+
+                if target.get("managed_device") or target.get("device_requirement_key"):
+                    continue
+
+                if code != "device.assign" and target.get("target_scope") != "Device":
+                    continue
+
+                subject = people.get(target.get("subject_key")) or {}
+                key = (
+                    PortalService._free_key(
+                        machines, f"new-device:{group.get('group_key')}:{target.get('subject_key')}"
+                    )
+                    if code == "device.assign"
+                    else f"new-device:{target.get('subject_key')}"
+                )
+                PortalService._describe_minted(machines, key, subject)
+                target["device_requirement_key"] = key
+
+    @staticmethod
+    def _mint_line_devices(lines, people, machines):
+        """Give a requested Device to every machine asked for by a line that names none."""
+        counted = {}
+
+        for line in lines:
+            PortalService._keyed_device(line, machines)
+
+            if line.get("managed_device") or line.get("device_requirement_key"):
+                continue
+
+            if (line.get("operation_code") or "") != "device.assign":
+                continue
+
+            subject_key = line.get("subject_key") or (
+                f"user:{line['client_user']}" if line.get("client_user") else "request"
+            )
+            subject = people.get(subject_key) or (
+                {"kind": "existing", "client_user": line.get("client_user")}
+                if line.get("client_user")
+                else {}
+            )
+
+            if line.get("action_group_key"):
+                key = PortalService._free_key(machines, f"new-device:{line['action_group_key']}:{subject_key}")
+            else:
+                counted[subject_key] = counted.get(subject_key, 0) + 1
+                key = f"new-device:{subject_key}:{counted[subject_key]}"
+
+            PortalService._describe_minted(machines, key, subject)
+            line["device_requirement_key"] = key
+
+    @staticmethod
+    def _canonical(given, actual):
+        """The canonical Requested record, refused when the caller named a different one."""
+        if given and given != actual:
+            raise ValidationError(request_targets.CROSS_REQUEST, "VALIDATION_ERROR")
+
+        return actual
+
+    @staticmethod
+    def _link_requested(line, people, machines, written):
+        """Point a line at the Requested records of its request, from the keys it carries."""
+        line = dict(line)
+        key = line.get("subject_key")
+        subject = people.get(key)
+
+        if subject and subject["kind"] == "new":
+            if line.get("client_user"):
+                raise ValidationError("A new person cannot also be an existing one.", "VALIDATION_ERROR")
+
+            line["requested_client_user"] = PortalService._canonical(
+                line.get("requested_client_user"), written["people"][key]
+            )
+        elif line.get("requested_client_user"):
+            raise ValidationError(request_targets.CROSS_REQUEST, "VALIDATION_ERROR")
+        elif subject and not line.get("client_user") and line.get("target_scope") != "Device":
+            line["client_user"] = subject.get("client_user")
+        elif key and not subject and not line.get("client_user") and not key.startswith("user:"):
+            raise ValidationError(f"{key} is not a person of this request.", "VALIDATION_ERROR")
+
+        device_key = line.get("device_requirement_key")
+
+        if device_key:
+            if line.get("managed_device"):
+                raise ValidationError(request_targets.BOTH_TARGETS, "VALIDATION_ERROR")
+
+            if device_key not in written["machines"]:
+                raise ValidationError(
+                    f"{device_key} is not a requested Device of this request.", "VALIDATION_ERROR"
+                )
+
+            line["requested_device"] = PortalService._canonical(
+                line.get("requested_device"), written["machines"][device_key]
+            )
+        elif line.get("requested_device"):
+            raise ValidationError(request_targets.CROSS_REQUEST, "VALIDATION_ERROR")
+
+        holder_key = line.pop("requested_holder_subject_key", None)
+
+        if holder_key:
+            holder = people.get(holder_key)
+
+            if not holder:
+                raise ValidationError(f"{holder_key} is not a person of this request.", "VALIDATION_ERROR")
+
+            if holder["kind"] == "new":
+                if line.get("requested_holder"):
+                    raise ValidationError(request_targets.BOTH_TARGETS, "VALIDATION_ERROR")
+
+                line["requested_holder_requested_client_user"] = PortalService._canonical(
+                    line.get("requested_holder_requested_client_user"), written["people"][holder_key]
+                )
+            else:
+                if line.get("requested_holder_requested_client_user"):
+                    raise ValidationError(request_targets.BOTH_TARGETS, "VALIDATION_ERROR")
+
+                line["requested_holder"] = PortalService._canonical(
+                    line.get("requested_holder"), holder.get("client_user")
+                )
+        elif line.get("requested_holder_requested_client_user") not in (
+            None,
+            "",
+            *written["people"].values(),
+        ):
+            raise ValidationError(request_targets.CROSS_REQUEST, "VALIDATION_ERROR")
+
+        return line
+
+    @staticmethod
+    def compose_from_groups(customer, subjects, action_groups, requested_date=None):
         """Turn what the customer built into the atomic lines it stands for.
 
         The builder hands over people and grouped actions, never lines: a group names the
@@ -1312,42 +1802,33 @@ class PortalService:
 
             for target in group.get("targets") or []:
                 subject = by_key.get(target.get("subject_key")) or {}
-                is_new = bool(subject.get("is_new_user"))
+                is_new = subject.get("kind") == "new"
                 lines.append(
                     {
                         "operation_code": code,
                         "operation_label_snapshot": label,
-                        "action": operations.work_action(code),
+                        "action": definition.get("legacy_action") or "Change",
                         "target_scope": target.get("target_scope") or "User",
                         "subject_key": target.get("subject_key"),
                         "action_group_key": group.get("group_key"),
                         "client_user": None if is_new else subject.get("client_user"),
-                        "is_new_user": 1 if is_new else 0,
-                        "new_user_full_name": subject.get("full_name") if is_new else None,
-                        "new_user_department": subject.get("department") if is_new else None,
-                        "new_user_email": subject.get("email") if is_new else None,
-                        "new_user_username": subject.get("username") if is_new else None,
+                        "requested_client_user": target.get("requested_client_user"),
                         "managed_device": target.get("managed_device"),
-                        # a machine-scoped service asked for somebody who holds no machine
-                        # is not a personal service: the machine is simply not settled yet,
-                        # and saying so is what puts it on the preparation list
-                        "is_new_device": 1
-                        if target.get("target_scope") == "Device" and not target.get("managed_device")
-                        else 0,
-                        # what the customer said about the machine they want, none of it
-                        # required: a hostname they use, a serial they read off the box, a type
-                        "new_device_label": target.get("new_device_label"),
-                        "new_device_type": target.get("new_device_type"),
-                        "new_device_serial": target.get("new_device_serial"),
+                        "device_requirement_key": target.get("device_requirement_key"),
+                        "requested_device": target.get("requested_device"),
                         # a machine asked for somebody names them here, the way every machine
                         # line does: the person it is wanted for, not the holder of a service
                         "requested_for_user": target.get("client_user")
-                        if code == "device.assign"
+                        if code == "device.assign" and not is_new
                         else None,
                         "requested_service": group.get("service_item"),
                         "source_service_assignment": target.get("source_service_assignment"),
                         "requested_holder": target.get("requested_holder"),
-                        "requested_effective_date": group.get("requested_effective_date"),
+                        "requested_holder_subject_key": target.get("requested_holder_subject_key"),
+                        "requested_holder_requested_client_user": target.get(
+                            "requested_holder_requested_client_user"
+                        ),
+                        "requested_effective_date": requested_date,
                         "comment": group.get("comment"),
                         "selection_origin": _selection_origin(group.get("source_scope_type")),
                         "selection_group_key": group.get("source_scope_key"),
@@ -1374,10 +1855,10 @@ class PortalService:
         if not subjects:
             return {}
 
-        from nexgen_msp.api.portal.services.request_v3_service import RequestV3Service
+        from nexgen_msp.api.portal.services.request_scope_service import RequestScopeService
 
         try:
-            projected = RequestV3Service.scope_projection(customer=customer, subjects=subjects)
+            projected = RequestScopeService.scope_projection(customer=customer, subjects=subjects)
         except Exception:
             # a snapshot is worth having, but never at the cost of the request itself
             return {}
@@ -1394,38 +1875,57 @@ class PortalService:
         }
 
     @staticmethod
-    def _snapshot_rows(subjects, action_groups, customer=None):
+    def _canonical_target(target, people, written):
+        """A target as the saved configuration keeps it: with the Requested records it names."""
+        target = dict(target)
+        subject = people.get(target.get("subject_key")) or {}
+        holder = people.get(target.get("requested_holder_subject_key")) or {}
+
+        target["requested_client_user"] = (
+            written["people"].get(target.get("subject_key")) if subject.get("kind") == "new" else None
+        )
+        target["requested_device"] = written["machines"].get(target.get("device_requirement_key"))
+
+        if holder.get("kind") == "new":
+            target["requested_holder_requested_client_user"] = written["people"].get(
+                target.get("requested_holder_subject_key")
+            )
+
+        return target
+
+    @staticmethod
+    def _snapshot_rows(people, action_groups, customer, written):
         """The two child tables that keep the customer's own view of what they asked."""
-        subjects = frappe.parse_json(subjects) if isinstance(subjects, str) else (subjects or [])
         groups = (
             frappe.parse_json(action_groups)
             if isinstance(action_groups, str)
             else (action_groups or [])
         )
-        context = PortalService._subject_context(customer, subjects)
+        context = PortalService._subject_context(customer, list(people.values()))
         subject_rows = [
             {
-                "subject_key": row.get("subject_key"),
-                "client_user": row.get("client_user"),
-                "is_new_user": 1 if row.get("is_new_user") else 0,
+                "subject_key": key,
+                "client_user": row.get("client_user") if row["kind"] == "existing" else None,
+                "requested_client_user": written["people"].get(key) if row["kind"] == "new" else None,
                 "full_name_snapshot": row.get("full_name") or row.get("client_user") or "Unknown",
                 "department_snapshot": row.get("department"),
                 "email_snapshot": row.get("email"),
                 "username_snapshot": row.get("username"),
-                "added_via": row.get("added_via") or "Existing",
+                "added_via": row.get("added_via") or ("New" if row["kind"] == "new" else "Existing"),
                 "selection_label": row.get("selection_label"),
                 # written here, from the database, and not from whatever the browser sent:
                 # the snapshot is what we can stand behind six months later
-                "context_snapshot_json": frappe.as_json(
-                    context.get(row.get("subject_key")) or {}
-                ),
+                "context_snapshot_json": frappe.as_json(context.get(key) or {}),
             }
-            for row in subjects
+            for key, row in people.items()
         ]
         group_rows = []
 
         for group in groups:
-            targets = group.get("targets") or []
+            targets = [
+                PortalService._canonical_target(target, people, written)
+                for target in group.get("targets") or []
+            ]
             exclusions = group.get("exclusions") or []
             reached = {target.get("subject_key") for target in targets}
             group_rows.append(
@@ -1449,7 +1949,6 @@ class PortalService:
                     # later is the draft that was saved and not an approximation of it
                     "configuration_snapshot_json": frappe.as_json(
                         {
-                            "requested_effective_date": group.get("requested_effective_date"),
                             "comment": group.get("comment"),
                             "targets": targets,
                             "exclusions": exclusions,
@@ -1463,11 +1962,13 @@ class PortalService:
                                 "targets": [
                                     {
                                         "target_type": "Device"
-                                        if target.get("managed_device")
+                                        if target.get("managed_device") or target.get("requested_device")
                                         else "ServiceAssignment",
                                         "target": target.get("managed_device")
+                                        or target.get("requested_device")
                                         or target.get("source_service_assignment")
-                                        or target.get("client_user"),
+                                        or target.get("client_user")
+                                        or target.get("requested_client_user"),
                                     }
                                 ],
                             }
@@ -1497,12 +1998,7 @@ class PortalService:
         subject of work, and that is said rather than quietly dropped.
         """
         people = sorted(
-            {
-                row.get("client_user") or row.get("requested_for_user")
-                for row in rows
-                if not row.get("is_new_user")
-            }
-            - {None, ""}
+            {row.get("client_user") or row.get("requested_for_user") for row in rows} - {None, ""}
         )
 
         if not people:
@@ -1554,6 +2050,16 @@ class PortalService:
             )
 
     @staticmethod
+    def _guard_one_destination(rows):
+        """Refuse a machine that the same request hands to two different people."""
+        for machine, holders in request_intents.handed_over(rows).items():
+            if len(holders) > 1:
+                raise ValidationError(
+                    f"{request_intents.machine_label(machine)}: {request_intents.ONE_DESTINATION}",
+                    "VALIDATION_ERROR",
+                )
+
+    @staticmethod
     def _collapse_duplicates(rows):
         """The same operation on the same target belongs in the request once.
 
@@ -1570,26 +2076,7 @@ class PortalService:
         kept = []
 
         for row in rows:
-            if row.get("is_new_user"):
-                # two future colleagues may share a name: what the builder wrote is the identity
-                identity = row.get("subject_key") or (
-                    row.get("new_user_full_name"),
-                    row.get("new_user_department"),
-                    row.get("new_user_email"),
-                    row.get("new_user_username"),
-                )
-            else:
-                identity = (row.get("client_user"), row.get("requested_for_user"))
-
-            key = (
-                row.get("operation_code"),
-                row.get("requested_service"),
-                identity,
-                row.get("managed_device"),
-                row.get("source_service_assignment"),
-                bool(row.get("is_new_device")),
-            )
-
+            key = request_intents.target_key(row)
             first = seen.get(key, _UNSEEN)
 
             if first is _UNSEEN:
@@ -1604,7 +2091,11 @@ class PortalService:
             # two acts asking for a machine without naming one are two machines: that is
             # what the requirement key already prepares for. Named twice, it is one machine
             # asked for twice, and that is the duplicate this refuses
-            if request_intents.is_device_operation(row) and not row.get("managed_device"):
+            if (
+                request_intents.is_device_operation(row)
+                and not row.get("managed_device")
+                and not row.get("requested_device")
+            ):
                 kept.append(row)
                 continue
 
@@ -1642,10 +2133,10 @@ class PortalService:
     @staticmethod
     def _own_draft(name):
         """A draft belongs to whoever started it, and to nobody else."""
-        if not frappe.db.exists("MSP Service Request", name):
-            raise NotFoundError(f"Service Request {name} not found.", "NOT_FOUND")
+        if not frappe.db.exists("MSP Request", name):
+            raise NotFoundError(f"Request {name} not found.", "NOT_FOUND")
 
-        doc = frappe.get_doc("MSP Service Request", name)
+        doc = frappe.get_doc("MSP Request", name)
 
         if doc.status != "Draft":
             raise ValidationError(
@@ -1663,6 +2154,223 @@ class PortalService:
         return doc
 
     @staticmethod
+    def _own_sent_request(name):
+        """A sent request its requester may still modify, its row locked until the change is written."""
+        if not name or not frappe.db.exists("MSP Request", name):
+            raise NotFoundError(f"Request {name} not found.", "NOT_FOUND")
+
+        PortalService._resolve_customer(frappe.db.get_value("MSP Request", name, "customer"))
+        refusal = requester_edit_refusal(name, for_update=True)
+
+        if refusal == "not_requester":
+            raise ValidationError(NOT_THE_REQUESTER, "PERMISSION_DENIED", 403)
+
+        if refusal:
+            raise ValidationError(REQUEST_LOCKED, "REQUEST_LOCKED")
+
+        return frappe.get_doc("MSP Request", name, for_update=True)
+
+    @staticmethod
+    def _write_requested(request, people, machines):
+        """Write the Requested Client Users and Requested Devices a draft describes."""
+        from nexgen_msp.api.internal.services.requested_client_user_service import (
+            RequestedClientUserService,
+        )
+        from nexgen_msp.api.internal.services.requested_device_service import RequestedDeviceService
+
+        written = {"people": {}, "machines": {}}
+
+        for key, subject in people.items():
+            if subject["kind"] != "new":
+                continue
+
+            name = RequestedClientUserService.create_or_update_draft(
+                request, key, {field: subject.get(field) for field in REQUESTED_PERSON_FIELDS}
+            )
+            written["people"][key] = PortalService._canonical(subject.get("requested_client_user"), name)
+
+        for key, machine in machines.items():
+            holder_key = machine.get("intended_holder_subject_key")
+            holder = people.get(holder_key) if holder_key else None
+            values = {field: machine.get(field) for field in REQUESTED_DEVICE_FIELDS}
+            values["intended_holder_client_user"] = (
+                holder.get("client_user")
+                if holder and holder["kind"] == "existing"
+                else machine.get("intended_holder_client_user")
+            )
+            values["intended_holder_requested_client_user"] = (
+                written["people"].get(holder_key) if holder and holder["kind"] == "new" else None
+            )
+            name = RequestedDeviceService.create_or_update_draft(
+                request, key, values, subject_key=holder_key or ""
+            )
+            written["machines"][key] = PortalService._canonical(machine.get("requested_device"), name)
+
+        return written
+
+    @staticmethod
+    def _discard_requested(request, keep=None):
+        """Delete the Requested records of a draft that are not among the ones kept."""
+        keep = keep or {"people": {}, "machines": {}}
+
+        for doctype, kept in (
+            ("MSP Requested Device", set(keep["machines"].values())),
+            ("MSP Requested Client User", set(keep["people"].values())),
+        ):
+            for name in frappe.get_all(doctype, filters={"request": request}, pluck="name"):
+                if name not in kept:
+                    frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+
+    @staticmethod
+    def _write(
+        name,
+        customer,
+        request_type,
+        priority,
+        details,
+        requested_date,
+        lines,
+        subjects,
+        requested_devices,
+        action_groups,
+        submit,
+        modify=False,
+    ):
+        """Write a request from its people, its requested Devices and its acts, in one transaction."""
+        from nexgen_msp.api.internal.services.requested_client_user_service import (
+            RequestedClientUserService,
+        )
+        from nexgen_msp.api.internal.services.requested_device_service import RequestedDeviceService
+
+        subjects = _parsed(subjects)
+        requested_devices = _parsed(requested_devices)
+        groups = _parsed(action_groups)
+        lines = _parsed(lines)
+        requested_date = requested_date or None
+
+        PortalService._refuse_former_keys(
+            subjects,
+            requested_devices,
+            lines,
+            groups,
+            [target for group in groups for target in group.get("targets") or []],
+        )
+
+        people = PortalService._drafted_subjects(subjects)
+        machines = PortalService._drafted_devices(requested_devices, people)
+
+        if groups:
+            PortalService._mint_group_devices(groups, people, machines)
+            # the customer built people and grouped actions; the lines are ours to derive
+            lines = PortalService.compose_from_groups(
+                customer, list(people.values()), groups, requested_date
+            )
+        else:
+            PortalService._mint_line_devices(lines, people, machines)
+
+        if not lines:
+            raise ValidationError("At least one line is required.", "VALIDATION_ERROR")
+
+        refusal = requested_date_refusal(
+            requested_date, frappe.db.get_value("MSP Request", name, "creation") if name else None
+        )
+
+        if refusal:
+            raise ValidationError(refusal, "VALIDATION_ERROR")
+
+        strict = submit or modify
+        savepoint = "write_request"
+        frappe.db.savepoint(savepoint)
+
+        try:
+            if modify:
+                doc = PortalService._own_sent_request(name)
+                frappe.flags.requester_edit = doc.name
+            elif name:
+                # a draft being sent: the same document grows up rather than a second one
+                doc = PortalService._own_draft(name)
+            else:
+                _, first_rows = PortalService._line_rows(
+                    lines, customer, request_type, requested_date, strict=False
+                )
+                first_rows = [
+                    {**row, **{field: None for field in request_targets.REQUESTED_LINKS}}
+                    for row in first_rows
+                ]
+                # the scoped service above is the permission boundary; generic document access
+                # is deliberately closed to customer accounts
+                doc = frappe.get_doc(
+                    {
+                        "doctype": "MSP Request",
+                        "customer": customer,
+                        "request_type": request_type,
+                        "priority": priority or "Medium",
+                        # a request opened by the team is not a request from the customer
+                        "source": "Internal" if permissions.is_internal() else "Portal",
+                        "status": "Draft",
+                        "requester": frappe.session.user,
+                        "requested_date": requested_date,
+                        "lines": first_rows,
+                    }
+                ).insert(ignore_permissions=True)
+
+            written = PortalService._write_requested(doc.name, people, machines)
+            linked = [PortalService._link_requested(line, people, machines, written) for line in lines]
+            _, rows = PortalService._line_rows(
+                linked, customer, request_type, requested_date, strict=strict, ignore=doc.name
+            )
+            subject_rows, group_rows = PortalService._snapshot_rows(people, groups, customer, written)
+            opening_status, approved_by = None, None
+
+            if strict:
+                PortalService._guard_selection_still_stands(rows, customer)
+                PortalService._guard_one_destination(rows)
+                rows = PortalService._collapse_duplicates(rows)
+                PortalService._guard_approval_scope(rows, customer)
+                request_type = PortalService._request_type_of(rows, request_type)
+
+            if submit:
+                opening_status, approved_by = PortalService._opening_status(customer, rows)
+
+            doc.request_type = request_type or doc.request_type
+            doc.priority = priority or doc.priority
+            # one note for the whole request, never one per line
+            doc.details = (details or "").strip() or None
+            doc.requested_date = requested_date
+            doc.set("lines", rows)
+            doc.set("subjects", subject_rows)
+            doc.set("action_groups", group_rows)
+
+            PortalService._discard_requested(doc.name, written)
+
+            if strict:
+                RequestedClientUserService.freeze(doc.name)
+                RequestedDeviceService.freeze(doc.name)
+
+            if submit:
+                doc.status = opening_status
+
+            doc.save(ignore_permissions=True)
+
+            if modify:
+                doc.add_comment("Comment", MODIFIED_COMMENT)
+
+            if approved_by:
+                # raised by someone who may approve their own: the accord is theirs, recorded
+                # rather than left implicit
+                doc.db_set("customer_approved_by", approved_by, update_modified=False)
+                doc.db_set("customer_approved_at", frappe.utils.now(), update_modified=False)
+        except Exception:
+            frappe.db.rollback(save_point=savepoint)
+            raise
+        finally:
+            frappe.flags.requester_edit = None
+
+        frappe.db.commit()
+
+        return doc
+
+    @staticmethod
     def save_draft(
         name=None,
         customer=None,
@@ -1672,55 +2380,31 @@ class PortalService:
         details=None,
         subjects=None,
         action_groups=None,
+        requested_devices=None,
+        requested_date=None,
     ):
         """Put a half-written request aside and come back to it.
 
         A draft reaches nobody: not our queue, not the approvers, not the colleagues at the
         customer. It is the author's own until they send it.
-
-        A draft may hold people and no action yet, which is the normal way one is started.
         """
         customer = PortalService._resolve_customer(customer)
         # a draft is the start of a request: whoever may not raise one may not start one
         PortalService._guard_may_submit(customer)
-        subject_rows, group_rows = PortalService._snapshot_rows(subjects, action_groups, customer)
 
-        if group_rows:
-            lines = PortalService.compose_from_groups(customer, subjects, action_groups)
-
-        rows = []
-
-        if lines:
-            _, rows = PortalService._line_rows(lines, customer, request_type, strict=False)
-
-        if name:
-            doc = PortalService._own_draft(name)
-            doc.request_type = request_type or doc.request_type
-            doc.priority = priority or doc.priority
-            # one note for the whole request, never one per line
-            doc.details = (details or "").strip() or None
-            doc.set("lines", rows)
-            doc.set("subjects", subject_rows)
-            doc.set("action_groups", group_rows)
-            doc.save(ignore_permissions=True)
-        else:
-            doc = frappe.get_doc(
-                {
-                    "doctype": "MSP Service Request",
-                    "customer": customer,
-                    "request_type": request_type,
-                    "priority": priority or "Medium",
-                    "details": (details or "").strip() or None,
-                    "source": "Internal" if permissions.is_internal() else "Portal",
-                    "status": "Draft",
-                    "requester": frappe.session.user,
-                    "lines": rows,
-                    "subjects": subject_rows,
-                    "action_groups": group_rows,
-                }
-            ).insert(ignore_permissions=True)
-
-        frappe.db.commit()
+        doc = PortalService._write(
+            name,
+            customer,
+            request_type,
+            priority,
+            details,
+            requested_date,
+            lines,
+            subjects,
+            requested_devices,
+            action_groups,
+            submit=False,
+        )
 
         return PortalService.get_request(doc.name)
 
@@ -1728,7 +2412,8 @@ class PortalService:
     def discard_draft(name=None):
         """Throw away a draft. Only ever a draft, and only ever the author's own."""
         doc = PortalService._own_draft(name)
-        frappe.delete_doc("MSP Service Request", doc.name, force=True, ignore_permissions=True)
+        frappe.delete_doc("MSP Request", doc.name, force=True, ignore_permissions=True)
+        PortalService._discard_requested(doc.name)
         frappe.db.commit()
 
         return {"discarded": name}
@@ -1743,73 +2428,68 @@ class PortalService:
         details=None,
         subjects=None,
         action_groups=None,
+        requested_devices=None,
+        requested_date=None,
     ):
         customer = PortalService._resolve_customer(customer)
-        subject_rows, group_rows = PortalService._snapshot_rows(subjects, action_groups, customer)
-
-        if group_rows:
-            # the customer built people and grouped actions; the lines are ours to derive
-            lines = PortalService.compose_from_groups(customer, subjects, action_groups)
-
-        lines, rows = PortalService._line_rows(lines, customer, request_type)
-
         PortalService._guard_may_submit(customer)
-        PortalService._guard_selection_still_stands(rows, customer)
-        rows = PortalService._collapse_duplicates(rows)
-        PortalService._guard_approval_scope(rows, customer)
 
-        opening_status, approved_by = PortalService._opening_status(customer, rows)
-
-        request_type = PortalService._request_type_of(rows, request_type)
-
-        if name:
-            # a draft being sent: the same document grows up rather than a second one
-            doc = PortalService._own_draft(name)
-            doc.request_type = request_type or doc.request_type
-            doc.priority = priority or doc.priority
-            # one note for the whole request, never one per line
-            doc.details = (details or "").strip() or None
-            doc.set("lines", rows)
-            doc.set("subjects", subject_rows)
-            doc.set("action_groups", group_rows)
-            doc.status = opening_status
-        else:
-            doc = frappe.get_doc(
-                {
-                    "doctype": "MSP Service Request",
-                    "customer": customer,
-                    "request_type": request_type,
-                    "priority": priority or "Medium",
-                    "details": (details or "").strip() or None,
-                    # a request opened by the team is not a request from the customer
-                    "source": "Internal" if permissions.is_internal() else "Portal",
-                    "status": opening_status,
-                    "requester": frappe.session.user,
-                    "lines": rows,
-                    "subjects": subject_rows,
-                    "action_groups": group_rows,
-                }
-            )
-
-        if name:
-            doc.save(ignore_permissions=True)
-        else:
-            # the scoped service above is the permission boundary; generic document access
-            # is deliberately closed to customer accounts
-            doc.insert(ignore_permissions=True)
-
-        if approved_by:
-            # raised by someone who may approve their own: the accord is theirs, recorded
-            # rather than left implicit
-            doc.db_set("customer_approved_by", approved_by, update_modified=False)
-            doc.db_set("customer_approved_at", frappe.utils.now(), update_modified=False)
-
-        frappe.db.commit()
+        doc = PortalService._write(
+            name,
+            customer,
+            request_type,
+            priority,
+            details,
+            requested_date,
+            lines,
+            subjects,
+            requested_devices,
+            action_groups,
+            submit=True,
+        )
 
         if doc.status == "Awaiting Customer Approval":
             PortalService._ask_for_approval(doc)
         else:
             PortalService._acknowledge(doc)
+
+        return PortalService.get_request(doc.name)
+
+    @staticmethod
+    def update_request(
+        name=None,
+        customer=None,
+        request_type=None,
+        priority=None,
+        lines=None,
+        details=None,
+        subjects=None,
+        action_groups=None,
+        requested_devices=None,
+        requested_date=None,
+    ):
+        """The requester rewrites a request already sent, until work on it starts; its status stays."""
+        doc = PortalService._own_sent_request(name)
+
+        if customer and customer != doc.customer:
+            raise ValidationError("This request belongs to another Customer.", "VALIDATION_ERROR")
+
+        PortalService._guard_may_submit(doc.customer)
+
+        PortalService._write(
+            doc.name,
+            doc.customer,
+            request_type,
+            priority,
+            details,
+            requested_date,
+            lines,
+            subjects,
+            requested_devices,
+            action_groups,
+            submit=False,
+            modify=True,
+        )
 
         return PortalService.get_request(doc.name)
 
@@ -1838,7 +2518,7 @@ class PortalService:
             "can_approve": bool(rights.get("can_approve")),
             "department": rights.get("department"),
             "awaiting": frappe.db.count(
-                "MSP Service Request",
+                "MSP Request",
                 {"customer": customer, "status": "Awaiting Customer Approval"},
             )
             if rights.get("can_approve")
@@ -1857,10 +2537,10 @@ class PortalService:
 
     @staticmethod
     def _decide(name, approve, reason=None):
-        if not name or not frappe.db.exists("MSP Service Request", name):
-            raise NotFoundError(f"Service Request {name} not found.", "NOT_FOUND")
+        if not name or not frappe.db.exists("MSP Request", name):
+            raise NotFoundError(f"Request {name} not found.", "NOT_FOUND")
 
-        doc = frappe.get_doc("MSP Service Request", name)
+        doc = frappe.get_doc("MSP Request", name)
 
         # a portal caller only ever sees their own company; this makes it explicit
         PortalService._resolve_customer(doc.customer)
@@ -1963,7 +2643,7 @@ class PortalService:
                 ),
                 "link": notifications.portal_url(f"/requests/{doc.name}"),
             },
-            reference_doctype="MSP Service Request",
+            reference_doctype="MSP Request",
             reference_name=doc.name,
         )
 
@@ -1990,7 +2670,7 @@ class PortalService:
                     ),
                     "link": notifications.portal_url(f"/requests/{doc.name}"),
                 },
-                reference_doctype="MSP Service Request",
+                reference_doctype="MSP Request",
                 reference_name=doc.name,
             )
             return
@@ -2010,7 +2690,7 @@ class PortalService:
                 "reason_block": f"<p>{frappe.utils.escape_html(reason)}</p>" if reason else "",
                 "link": notifications.portal_url(f"/requests/{doc.name}"),
             },
-            reference_doctype="MSP Service Request",
+            reference_doctype="MSP Request",
             reference_name=doc.name,
         )
 
@@ -2616,7 +3296,7 @@ class PortalService:
             return None
 
         request = frappe.db.get_value(
-            "MSP Service Request",
+            "MSP Request",
             run.dispute_request,
             ["name", "status", "rejection_reason"],
             as_dict=True,
@@ -2823,7 +3503,7 @@ class PortalService:
         # a dispute travels as a request, so it lands in the same queue as everything else
         request = frappe.get_doc(
             {
-                "doctype": "MSP Service Request",
+                "doctype": "MSP Request",
                 "customer": doc.customer,
                 "request_type": "Billing Dispute",
                 "priority": "High",
@@ -2945,7 +3625,7 @@ class PortalService:
             frappe.db.sql(
                 """
                 select name, request_type, status, modified as `on`
-                from `tabMSP Service Request`
+                from `tabMSP Request`
                 where customer = %(customer)s
                 order by modified desc limit %(cap)s
                 """,

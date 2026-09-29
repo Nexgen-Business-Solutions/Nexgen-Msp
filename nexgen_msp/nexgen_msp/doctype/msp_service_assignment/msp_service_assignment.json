@@ -227,7 +227,7 @@
    "fieldname": "source_request",
    "fieldtype": "Link",
    "label": "Source Request",
-   "options": "MSP Service Request",
+   "options": "MSP Request",
    "read_only": 1
   },
   {
@@ -289,14 +289,14 @@
    "fieldname": "activation_work_order",
    "fieldtype": "Link",
    "label": "Activation Work Order",
-   "options": "MSP Service Work Order",
+   "options": "MSP Work Order",
    "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-25 03:36:49.472922",
+ "modified": "2026-09-28 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nexgen MSP",
  "name": "MSP Service Assignment",

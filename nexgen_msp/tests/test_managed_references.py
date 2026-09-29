@@ -237,12 +237,15 @@ class TestWhatTheSpreadsheetIsAllowedToSay(ReferenceCase):
         self.assertIn("Settings", str(caught.exception))
 
     def test_it_never_creates_the_department_it_could_not_find(self):
-        before = frappe.db.count("MSP Department")
+        def named():
+            return frappe.db.count("MSP Department", {"department_name": ("like", "%Special Projects%")})
+
+        before = named()
 
         with self.assertRaises(ServiceRefused):
             DepartmentService.resolve_department("Special Projects")
 
-        self.assertEqual(frappe.db.count("MSP Department"), before)
+        self.assertEqual((before, named()), (0, 0))
 
     def test_an_abbreviation_is_never_guessed(self):
         full = self.department("Human Resources")

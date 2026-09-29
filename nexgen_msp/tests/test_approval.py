@@ -185,7 +185,7 @@ class TestACompanyNobodyCanActFor(MSPTestCase):
             )
         finally:
             frappe.set_user("Administrator")
-        name = self.track("MSP Service Request", out["name"])
+        name = self.track("MSP Request", out["name"])
 
         self.assertEqual(out["status"], "Awaiting Customer Approval")
         mails = self.mails_to_admin()

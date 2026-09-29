@@ -1,10 +1,5 @@
 """Approving a request creates the work that grants it, and creates it exactly once.
 
-The plan is not a list of request lines. It is a list of jobs: one account to open per
-person, one machine to settle per machine, one act per approved service. A customer who
-writes one person and asks four things for them gets one account and one machine, never
-four of each.
-
 Nothing here carries any work out. Building a plan writes work orders and touches no
 person, no machine and no service assignment.
 """
@@ -18,12 +13,13 @@ from nexgen_msp.utils.errors import ValidationError as ServiceRefused
 
 from .base import MSPTestCase
 
-WORK_ORDER = "MSP Service Work Order"
+WORK_ORDER = "MSP Work Order"
 
 
 class ExecutionPlanCase(MSPTestCase):
     def setUp(self):
         super().setUp()
+        self.newcomers, self.owed = {}, {}
         self.tag = frappe.generate_hash(length=6)
         self.customer = self.make_customer(self.tag)
         self.track("MSP Approval Authority", self.customer)
@@ -50,10 +46,9 @@ class ExecutionPlanCase(MSPTestCase):
 
         return service
 
-    def line(self, service, **fields):
+    def line(self, service, on_requested_device=False, **fields):
         action = fields.pop("action", "Add")
-
-        return {
+        row = {
             "operation_code": self.operation(action),
             "action": action,
             "target_scope": "User",
@@ -62,30 +57,64 @@ class ExecutionPlanCase(MSPTestCase):
             **fields,
         }
 
-    def new_person_line(self, service, full_name="Marie Dupont", **fields):
-        return self.line(
-            service,
-            client_user=None,
-            is_new_user=1,
-            new_user_full_name=full_name,
-            new_user_department=self.make_department("Human Resources"),
-            **fields,
-        )
+        if on_requested_device:
+            owner = row.get("subject_key") or f"user:{row['client_user']}"
+            row["target_scope"] = "Device"
+            row["device_requirement_key"] = f"new-device:{owner}"
+            self.owed[row["device_requirement_key"]] = {
+                "device_requirement_key": row["device_requirement_key"],
+                "intended_holder_subject_key": owner if owner in self.newcomers else None,
+                "intended_holder_client_user": row.get("client_user"),
+            }
+
+        return row
+
+    def described(self, lines):
+        """The future people and the requested Devices a set of lines names."""
+        return {
+            "subjects": [
+                self.newcomers[key]
+                for key in dict.fromkeys(line.get("subject_key") for line in lines)
+                if key in self.newcomers
+            ],
+            "requested_devices": [
+                self.owed[key]
+                for key in dict.fromkeys(line.get("device_requirement_key") for line in lines)
+                if key in self.owed
+            ],
+        }
+
+    def new_person_line(self, service, full_name="Marie Dupont", subject_key=None, **fields):
+        key = subject_key or f"new:{frappe.scrub(full_name)}"
+        self.newcomers[key] = {
+            "subject_key": key,
+            "kind": "new",
+            "full_name": full_name,
+            "department": self.make_department("Human Resources"),
+        }
+
+        return self.line(service, client_user=None, subject_key=key, **fields)
 
     def raise_request(self, *lines):
         out = self.as_user(
             self.asker,
             lambda: PortalService.create_request(
-                customer=self.customer, request_type="Add", lines=list(lines)
+                customer=self.customer,
+                request_type="Add",
+                lines=list(lines),
+                **self.described(lines),
             ),
         )
 
-        return self.track("MSP Service Request", out["name"])
+        return self.track("MSP Request", out["name"])
 
     def decide(self, name, verdicts=None):
         """Rule on every line, then approve. Verdicts are given by line number."""
         verdicts = verdicts or {}
-        doc = frappe.get_doc("MSP Service Request", name)
+        doc = frappe.get_doc("MSP Request", name)
+
+        if doc.status == "Submitted":
+            self.as_user(self.tech, lambda: RequestService.run_action(name=name, action="start_review"))
 
         return self.as_user(
             self.tech,
@@ -109,7 +138,7 @@ class ExecutionPlanCase(MSPTestCase):
         return name
 
     def orders(self, request, work_type=None):
-        filters = {"service_request": request}
+        filters = {"request": request}
         if work_type:
             filters["work_type"] = work_type
 
@@ -126,8 +155,11 @@ class ExecutionPlanCase(MSPTestCase):
                 "device_requirement_key",
                 "service_item",
                 "request_line_idx",
+                "request_line_name",
                 "client_user",
+                "requested_client_user",
                 "managed_device",
+                "requested_device",
                 "target_scope",
                 "effective_date",
             ],
@@ -138,6 +170,12 @@ class ExecutionPlanCase(MSPTestCase):
         return self.as_user(
             self.tech, lambda: RequestExecutionService.get_execution_plan(request=request)
         )
+
+    def cards(self, request):
+        return [card for group in self.plan(request)["action_groups"] for card in group["work"]]
+
+    def requested(self, request, doctype="MSP Requested Client User"):
+        return frappe.get_all(doctype, filters={"request": request}, pluck="name")
 
 
 class TestOneJobPerThingToDo(ExecutionPlanCase):
@@ -160,33 +198,51 @@ class TestOneJobPerThingToDo(ExecutionPlanCase):
             )
         )
 
-        self.assertEqual(len(self.orders(name, "User Setup")), 1)
-        self.assertEqual(len(self.orders(name, "Service Action")), 4)
+        people = self.requested(name)
+        services = self.orders(name, "Service Action")
+
+        self.assertEqual(self.orders(name, "User Setup"), [], "nobody is created by a work order of its own")
+        self.assertEqual(len(people), 1, "one person to resolve")
+        self.assertEqual(len(services), 4)
+        self.assertEqual({order.requested_client_user for order in services}, set(people))
 
     def test_three_device_services_for_one_person_settle_one_machine(self):
         name = self.approve(
             self.raise_request(
-                self.new_person_line(self.offering("PC1", scope="Device"), is_new_device=1),
-                self.new_person_line(self.offering("PC2", scope="Device"), is_new_device=1),
-                self.new_person_line(self.offering("PC3", scope="Device"), is_new_device=1),
+                self.new_person_line(self.offering("PC1", scope="Device"), on_requested_device=True),
+                self.new_person_line(self.offering("PC2", scope="Device"), on_requested_device=True),
+                self.new_person_line(self.offering("PC3", scope="Device"), on_requested_device=True),
             )
         )
 
-        self.assertEqual(len(self.orders(name, "Device Provisioning")), 1)
-        self.assertEqual(self.orders(name, "Device Provisioning")[0].action, "Register Device")
+        machines = self.requested(name, "MSP Requested Device")
+        services = self.orders(name, "Service Action")
+
+        self.assertEqual(self.orders(name, "Device Provisioning"), [])
+        self.assertEqual(len(machines), 1, "one machine to resolve")
+        self.assertEqual({order.requested_device for order in services}, set(machines))
+        self.assertEqual({order.target_scope for order in services}, {"Device"})
 
     def test_marie_with_three_user_services_and_four_device_services(self):
         lines = [self.new_person_line(self.offering(f"PD{n}")) for n in range(3)]
         lines += [
-            self.new_person_line(self.offering(f"PE{n}", scope="Device"), is_new_device=1)
+            self.new_person_line(self.offering(f"PE{n}", scope="Device"), on_requested_device=True)
             for n in range(4)
         ]
 
         name = self.approve(self.raise_request(*lines))
 
-        self.assertEqual(len(self.orders(name, "User Setup")), 1)
-        self.assertEqual(len(self.orders(name, "Device Provisioning")), 1)
-        self.assertEqual(len(self.orders(name, "Service Action")), 7)
+        services = self.orders(name, "Service Action")
+        people = self.requested(name)
+        machines = self.requested(name, "MSP Requested Device")
+
+        self.assertEqual(self.orders(name, "User Setup") + self.orders(name, "Device Provisioning"), [])
+        self.assertEqual((len(people), len(machines)), (1, 1))
+        self.assertEqual(len(services), 7)
+        self.assertEqual(
+            sorted(order.requested_client_user or order.requested_device for order in services),
+            sorted(people * 3 + machines * 4),
+        )
 
     def test_a_person_already_on_file_needs_no_account_opening(self):
         name = self.approve(self.raise_request(self.line(self.offering("PF"))))
@@ -243,7 +299,7 @@ class TestBuildingItTwiceChangesNothing(ExecutionPlanCase):
         name = self.approve(
             self.raise_request(
                 self.new_person_line(self.offering("ID1")),
-                self.new_person_line(self.offering("ID2"), is_new_device=1),
+                self.new_person_line(self.offering("ID2"), on_requested_device=True),
             )
         )
         before = {order.name for order in self.orders(name)}
@@ -255,10 +311,15 @@ class TestBuildingItTwiceChangesNothing(ExecutionPlanCase):
     def test_every_work_order_carries_the_key_it_stands_for(self):
         name = self.approve(self.raise_request(self.new_person_line(self.offering("ID3"))))
 
-        keys = {order.plan_key for order in self.orders(name)}
+        orders = self.orders(name)
+        person = self.requested(name)[0]
 
-        self.assertTrue(any(key.startswith(f"{name}:user:") for key in keys))
-        self.assertTrue(any(key.startswith(f"{name}:service:") for key in keys))
+        self.assertEqual([order.plan_key for order in orders], [f"{name}:service:{orders[0].request_line_name}"])
+        self.assertEqual(orders[0].requested_client_user, person)
+        self.assertEqual(
+            orders[0].subject_key,
+            frappe.db.get_value("MSP Requested Client User", person, "subject_key"),
+        )
 
     def test_a_request_nobody_has_decided_has_no_plan_to_build(self):
         name = self.raise_request(self.line(self.offering("ID4")))
@@ -272,7 +333,7 @@ class TestBuildingItTwiceChangesNothing(ExecutionPlanCase):
 class TestHandingAMachineOverIsWorkOfItsOwn(ExecutionPlanCase):
     """A machine can change hands between the day a request is written and the day it is approved."""
 
-    def test_a_machine_that_has_since_moved_on_is_transferred_explicitly(self):
+    def test_a_machine_that_has_since_moved_on_is_shown_with_who_holds_it_now(self):
         from nexgen_msp.api.internal.services.device_lifecycle_service import (
             DeviceLifecycleService,
         )
@@ -288,13 +349,17 @@ class TestHandingAMachineOverIsWorkOfItsOwn(ExecutionPlanCase):
         DeviceLifecycleService.transfer(device=device, client_user=bob)
 
         self.approve(name)
-        provisioning = self.orders(name, "Device Provisioning")
+        card = self.cards(name)[0]
 
-        self.assertEqual(len(provisioning), 1)
-        self.assertEqual(provisioning[0].action, "Transfer Device")
-        self.assertEqual(provisioning[0].managed_device, device)
+        self.assertEqual(self.orders(name, "Device Provisioning"), [], "the plan moves no machine")
+        self.assertEqual(card["managed_device"], device)
+        self.assertEqual(card["device"]["assigned_client_user"], bob)
+        self.assertEqual(
+            card["target"]["sublabel"],
+            f"requested for {frappe.db.get_value('MSP Client User', self.john, 'full_name')}",
+        )
 
-    def test_nothing_is_activated_on_that_machine_before_it_is_handed_over(self):
+    def test_nothing_hands_that_machine_back_without_a_line_asking_for_it(self):
         from nexgen_msp.api.internal.services.device_lifecycle_service import (
             DeviceLifecycleService,
         )
@@ -309,9 +374,12 @@ class TestHandingAMachineOverIsWorkOfItsOwn(ExecutionPlanCase):
         DeviceLifecycleService.transfer(device=device, client_user=bob)
         self.approve(name)
 
-        self.assertFalse(self.plan(name)["groups"][0]["services"][0]["ready"])
+        self.assertEqual([order.work_type for order in self.orders(name)], ["Service Action"])
+        self.assertEqual(
+            frappe.db.get_value("MSP Managed Device", device, "assigned_client_user"), bob
+        )
 
-    def test_a_machine_on_the_shelf_is_assigned_rather_than_transferred(self):
+    def test_a_machine_on_the_shelf_is_not_given_to_anybody_by_the_plan(self):
         device = self.make_device(self.customer, hostname="TR2")
         service = self.offering("TR2", scope="Device")
 
@@ -327,30 +395,42 @@ class TestHandingAMachineOverIsWorkOfItsOwn(ExecutionPlanCase):
             )
         )
 
-        self.assertEqual(self.orders(name, "Device Provisioning")[0].action, "Assign Device")
+        self.assertEqual([order.work_type for order in self.orders(name)], ["Service Action"])
+        self.assertFalse(frappe.db.get_value("MSP Managed Device", device, "assigned_client_user"))
 
 
 class TestWhatCanBePickedUpNow(ExecutionPlanCase):
     def test_a_service_for_a_person_yet_to_exist_waits_for_them(self):
         name = self.approve(self.raise_request(self.new_person_line(self.offering("WT1"))))
+        person = self.requested(name)[0]
 
-        group = self.plan(name)["groups"][0]
+        card = self.cards(name)[0]
 
-        self.assertTrue(group["user_setup"]["ready"])
-        self.assertFalse(group["services"][0]["ready"])
-        self.assertIn("person", group["services"][0]["waiting_on"])
+        self.assertFalse(card["ready"])
+        self.assertEqual(card["display_status"], "Waiting for prerequisite")
+        self.assertEqual(card["waiting_on"], "Requested Client User must be resolved")
+        self.assertEqual(card["prerequisite_action"]["requested_entity"], person)
+        self.assertEqual(
+            frappe.get_all("MSP Requested Client User", filters={"name": person}, pluck="status"), ["Open"]
+        )
 
     def test_a_device_service_waits_for_the_machine_and_the_machine_for_the_person(self):
         name = self.approve(
             self.raise_request(
-                self.new_person_line(self.offering("WT2", scope="Device"), is_new_device=1)
+                self.new_person_line(self.offering("WT2", scope="Device"), on_requested_device=True)
             )
         )
-        group = self.plan(name)["groups"][0]
+        machine = self.requested(name, "MSP Requested Device")[0]
+        card = self.cards(name)[0]
 
-        self.assertTrue(group["user_setup"]["ready"])
-        self.assertFalse(group["devices"][0]["work"]["ready"])
-        self.assertFalse(group["services"][0]["ready"])
+        self.assertFalse(card["ready"])
+        self.assertEqual(card["prerequisite_action"]["kind"], "prepare_device")
+        self.assertEqual(card["prerequisite_action"]["requested_entity"], machine)
+        self.assertEqual(
+            frappe.db.get_value("MSP Requested Device", machine, "intended_holder_requested_client_user"),
+            self.requested(name)[0],
+            "the machine waits for the person it is meant for",
+        )
 
     def test_nothing_waits_when_the_person_and_the_machine_are_both_on_file(self):
         device = self.make_device(self.customer, hostname="WT3", holder=self.john)
@@ -366,7 +446,13 @@ class TestWhatCanBePickedUpNow(ExecutionPlanCase):
             )
         )
 
-        self.assertTrue(all(card["ready"] for card in self.plan(name)["groups"][0]["services"]))
+        cards = self.cards(name)
+
+        self.assertEqual([card["waiting_on"] for card in cards], [None, None])
+        self.assertNotIn("Waiting for prerequisite", {card["display_status"] for card in cards})
+        self.assertFalse(
+            [row for card in cards for row in card["requirements"] if row["kind"].startswith("requested_")]
+        )
 
     def test_waiting_is_never_written_on_the_work_order_as_a_status(self):
         name = self.approve(self.raise_request(self.new_person_line(self.offering("WT4"))))
@@ -383,27 +469,29 @@ class TestThePlanReadsAsAJob(ExecutionPlanCase):
             self.raise_request(self.line(service), self.line(service, client_user=bob))
         )
 
-        groups = self.plan(name)["groups"]
+        people = self.plan(name)["people"]
 
-        self.assertEqual(len(groups), 2)
-        self.assertEqual({group["subject_key"] for group in groups}, {f"user:{self.john}", f"user:{bob}"})
+        self.assertEqual(len(people), 2)
+        self.assertEqual({row["subject_key"] for row in people}, {f"user:{self.john}", f"user:{bob}"})
+        self.assertEqual({row["total"] for row in people}, {1})
 
     def test_a_person_still_to_be_created_is_described_from_the_request(self):
         name = self.approve(self.raise_request(self.new_person_line(self.offering("GR2"))))
 
-        person = self.plan(name)["groups"][0]["person"]
+        person = self.plan(name)["people"][0]
 
         self.assertTrue(person["is_new"])
         self.assertEqual(person["full_name"], "Marie Dupont")
-        self.assertIsNone(person["name"])
+        self.assertIsNone(person["client_user"])
+        self.assertEqual(person["requested_client_user"], self.requested(name)[0])
 
     def test_a_person_on_file_is_described_from_their_record(self):
         name = self.approve(self.raise_request(self.line(self.offering("GR3"))))
 
-        person = self.plan(name)["groups"][0]["person"]
+        person = self.plan(name)["people"][0]
 
         self.assertFalse(person["is_new"])
-        self.assertEqual(person["name"], self.john)
+        self.assertEqual(person["client_user"], self.john)
 
     def test_the_technician_walks_four_steps(self):
         name = self.approve(self.raise_request(self.line(self.offering("GR4"))))
@@ -426,13 +514,13 @@ class TestThePlanReadsAsAJob(ExecutionPlanCase):
             self.raise_request(
                 self.new_person_line(self.offering("GR6A")),
                 self.new_person_line(self.offering("GR6B")),
-                self.new_person_line(self.offering("GR6C", scope="Device"), is_new_device=1),
+                self.new_person_line(self.offering("GR6C", scope="Device"), on_requested_device=True),
             )
         )
 
         self.assertEqual(
             self.plan(name)["summary"],
-            {"people": 1, "devices": 1, "services": 3, "open": 5, "blocked": 0, "failed": 0},
+            {"people": 1, "devices": 1, "services": 3, "open": 3, "blocked": 0, "failed": 0},
         )
 
 
@@ -449,23 +537,41 @@ class TestApprovingIsWhatCreatesTheWork(ExecutionPlanCase):
 
         self.assertEqual(len(self.orders(name)), 1)
 
-    def test_ruling_on_the_first_line_opens_the_review_by_itself(self):
+    def test_ruling_on_a_line_waits_for_the_work_to_start(self):
         name = self.raise_request(self.line(self.offering("AP2")), self.line(self.offering("AP3")))
 
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Submitted")
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "status"), "Submitted")
+
+        with self.assertRaises(ServiceRefused) as refused:
+            self.as_user(
+                self.tech,
+                lambda: RequestService.set_line_status(name=name, idx=1, line_status="Approved"),
+            )
+
+        self.assertEqual(refused.exception.message, "Start work on this request before deciding its lines.")
+        self.assertEqual(refused.exception.code, "WORK_NOT_STARTED")
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "status"), "Submitted")
+        self.assertEqual(
+            frappe.db.get_value("MSP Request Line", {"parent": name, "idx": 1}, "line_status"), "Pending"
+        )
+
+        self.as_user(self.tech, lambda: RequestService.run_action(name=name, action="start_review"))
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "status"), "Under Review")
 
         self.as_user(
             self.tech,
             lambda: RequestService.set_line_status(name=name, idx=1, line_status="Approved"),
         )
 
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Under Review")
+        self.assertEqual(
+            frappe.db.get_value("MSP Request Line", {"parent": name, "idx": 1}, "line_status"), "Approved"
+        )
 
     def test_building_the_plan_activates_nothing(self):
         name = self.approve(
             self.raise_request(
                 self.new_person_line(self.offering("AP4")),
-                self.new_person_line(self.offering("AP5", scope="Device"), is_new_device=1),
+                self.new_person_line(self.offering("AP5", scope="Device"), on_requested_device=True),
             )
         )
 

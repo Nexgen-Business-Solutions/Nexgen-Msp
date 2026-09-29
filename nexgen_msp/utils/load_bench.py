@@ -152,7 +152,7 @@ def _requests(customer, item, people, count, tag, today):
         name = f"{PREFIX}-SR-{tag}-{index}"
         frappe.db.sql(
             """
-            insert into `tabMSP Service Request`
+            insert into `tabMSP Request`
                 (name, creation, modified, owner, modified_by, customer, request_type,
                  status, priority, source)
             values (%s, now(), now(), 'Administrator', 'Administrator', %s, 'Add',
@@ -162,12 +162,12 @@ def _requests(customer, item, people, count, tag, today):
         )
         frappe.db.sql(
             """
-            insert into `tabMSP Service Request Line`
+            insert into `tabMSP Request Line`
                 (name, creation, modified, owner, modified_by, parent, parenttype,
                  parentfield, idx, target_scope, client_user, requested_service,
                  requested_quantity, requested_effective_date, line_status, action)
             values (%s, now(), now(), 'Administrator', 'Administrator', %s,
-                    'MSP Service Request', 'lines', 1, 'User', %s, %s, 1, %s,
+                    'MSP Request', 'lines', 1, 'User', %s, %s, 1, %s,
                     'Pending', 'Add')
             """,
             (f"{PREFIX}-SRL-{tag}-{index}", name, f"{PREFIX}-U-{tag}-{index % people}",
@@ -243,8 +243,8 @@ def _build(people, devices, services_per_person, requests, tag=None):
 def _purge(tag):
     """Everything this run wrote, and nothing else."""
     for table, column in (
-        ("MSP Service Request Line", "name"),
-        ("MSP Service Request", "name"),
+        ("MSP Request Line", "name"),
+        ("MSP Request", "name"),
         ("MSP Service Assignment", "name"),
         ("MSP Device Holder", "parent"),
         ("MSP Managed Device", "name"),

@@ -16,7 +16,12 @@ export type AskedGroup = {
 };
 
 export const keyOf = (target: RequestTarget) =>
-  `${target.subject_key}|${target.managed_device ?? ''}|${target.source_service_assignment ?? ''}`;
+  `${target.subject_key}|${target.managed_device ?? target.device_requirement_key ?? ''}|${
+    target.source_service_assignment ?? ''
+  }`;
+
+export const askedKeyOf = (operationCode: string, target: RequestTarget) =>
+  operationCode === 'device.assign' ? target.subject_key : keyOf(target);
 
 export const askedIndex = (groups: AskedGroup[]) => {
   const found = new Map<string, Set<string>>();
@@ -25,7 +30,7 @@ export const askedIndex = (groups: AskedGroup[]) => {
     const key = `${group.operationCode}|${group.serviceItem ?? ''}`;
     const covered = found.get(key) ?? new Set<string>();
 
-    group.targets.forEach((target) => covered.add(keyOf(target)));
+    group.targets.forEach((target) => covered.add(askedKeyOf(group.operationCode, target)));
     found.set(key, covered);
   }
 
@@ -46,5 +51,22 @@ export const askedAmong = (
 ) => {
   const asked = askedFrom(index, operationCode, serviceItem);
 
-  return targets.filter((target) => asked.has(keyOf(target))).length;
+  return targets.filter((target) => asked.has(askedKeyOf(operationCode, target))).length;
+};
+
+export const machinesAskedFor = (groups: AskedGroup[]) => {
+  const found = new Map<string, string[]>();
+
+  for (const group of groups) {
+    if (group.operationCode !== 'device.assign') continue;
+
+    for (const target of group.targets) {
+      const labels = found.get(target.subject_key) ?? [];
+
+      labels.push(target.device_label || 'A Device of your choice');
+      found.set(target.subject_key, labels);
+    }
+  }
+
+  return found;
 };

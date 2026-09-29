@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { as, go, land, openRow, seek } from './ground';
+import { acceptEverything, as, go, land, openRow, seek, startWork, submitRequest } from './ground';
 import { NEWCOMER, NEWCOMER_USERNAME, PERSONAL_SERVICE } from './names';
 
 /**
@@ -34,7 +34,7 @@ test.describe('The customer asks for somebody who is not on file', () => {
     await dialog.getByRole('button', { name: /No Department yet|Department/ }).first().click();
     await page.getByRole('option', { name: new RegExp(DEPARTMENT) }).first().click();
     await dialog.getByLabel('Username').fill(NEWCOMER_USERNAME);
-    await dialog.getByRole('button', { name: 'Add to request' }).click();
+    await dialog.getByRole('button', { name: 'Add person' }).click();
     await expect(dialog).toHaveCount(0, { timeout: 20_000 });
 
     await expect(page.locator('tbody tr').filter({ hasText: NEWCOMER })).toHaveCount(1);
@@ -78,36 +78,36 @@ test.describe('The customer asks for somebody who is not on file', () => {
     // described rather than picked, and none of it required
     const theirRow = forMachine.locator('tbody tr').filter({ hasText: NEWCOMER }).first();
 
-    await theirRow.getByRole('button', { name: 'One already on file' }).click();
+    await theirRow.getByRole('button', { name: 'One that already exists' }).click();
     await page.getByRole('option', { name: 'A new one' }).click();
-    await forMachine.getByRole('button', { name: 'Type' }).click();
-    await page.getByRole('option', { name: 'Laptop', exact: true }).click();
-    await forMachine.getByRole('button', { name: 'Add action' }).click();
-    await expect(forMachine).toHaveCount(0, { timeout: 20_000 });
+    await theirRow.getByRole('button', { name: `New device for ${NEWCOMER}` }).click();
 
-    // a second machine for the same person: asking twice is two machines, not a duplicate
+    const described = page.getByRole('dialog').filter({ hasText: 'Fill what you have.' });
+
+    await described.getByRole('button', { name: 'Not known yet' }).click();
+    await page.getByRole('option', { name: 'Laptop', exact: true }).click();
+    await described.getByRole('button', { name: 'Add device' }).click();
+    await expect(described).toHaveCount(0, { timeout: 20_000 });
+    await expect(theirRow).toContainText('NEW DEVICE');
+    await forMachine.getByRole('button', { name: 'Add action' }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0, { timeout: 20_000 });
+
     await machines.getByRole('button', { name: 'Ask for a Device' }).click();
 
     const second = page.getByRole('dialog');
 
     await expect(second.getByLabel(`Include ${NEWCOMER}`)).toBeEnabled();
-    await second.getByRole('button', { name: 'Add action' }).click();
+    await expect(second.getByLabel(`Include ${NEWCOMER}`)).not.toBeChecked();
+    await expect(second.getByText('Already asked in this request: New laptop')).toBeVisible();
+    await second.getByRole('button', { name: 'Cancel' }).click();
     await expect(second).toHaveCount(0, { timeout: 20_000 });
 
     await expect(
       page.getByText(/Assign device/).first(),
-      'both machine requests are on the recap'
+      'the machine request is on the recap'
     ).toBeVisible();
 
-    await page.getByRole('button', { name: /Continue/ }).click();
-    await page.getByRole('button', { name: /Continue/ }).click();
-
-    await expect(page.getByText('Confirm the exact snapshot and requested actions.')).toBeVisible();
-    await page.getByRole('button', { name: 'Submit request' }).click();
-    await page.waitForURL(
-      (url) => /\/msp\/requests/.test(url.pathname) && !url.pathname.endsWith('/new'),
-      { timeout: 30_000 }
-    );
+    await submitRequest(page, 2);
   });
 });
 
@@ -125,7 +125,7 @@ test.describe('And the same act cannot be asked for twice', () => {
     const dialog = page.getByRole('dialog');
 
     await dialog.getByLabel('Full name').fill(`${NEWCOMER} Twin`);
-    await dialog.getByRole('button', { name: 'Add to request' }).click();
+    await dialog.getByRole('button', { name: 'Add person' }).click();
     await expect(dialog).toHaveCount(0, { timeout: 20_000 });
 
     await page.getByRole('button', { name: /Continue/ }).click();
@@ -152,10 +152,10 @@ test.describe('And the same act cannot be asked for twice', () => {
     );
     await expect(add, 'and it cannot be added a second time').toBeDisabled();
 
-    const recap = (await page.locator('body').innerText()).replace(/\s+/g, ' ');
-    const asked = recap.match(new RegExp(`Add ${PERSONAL_SERVICE}`, 'g')) ?? [];
-
-    expect(asked.length, 'the recap carries it once, not twice').toBeLessThanOrEqual(1);
+    await expect(
+      page.locator('strong').filter({ hasText: new RegExp(`^Add ${PERSONAL_SERVICE}$`) }),
+      'the requested actions carry it once, not twice'
+    ).toHaveCount(1);
   });
 });
 
@@ -172,14 +172,9 @@ test.describe('Nexgen creates them while doing the work', () => {
     page,
   }) => {
     await openLatest(page);
+    await startWork(page);
 
-    const accept = page.getByRole('button', { name: /^Accept all( pending| \d+)$/ }).first();
-
-    await expect(accept).toBeVisible({ timeout: 25_000 });
-    await accept.click();
-    await expect(page.getByText('Line review complete')).toBeVisible({ timeout: 25_000 });
-    await page.getByRole('button', { name: 'Continue to Execute' }).click();
-    await page.waitForLoadState('networkidle');
+    expect(await acceptEverything(page)).toBe(2);
 
     // the username came with the request, so the work is never stopped to ask for it
     await expect(
@@ -187,38 +182,44 @@ test.describe('Nexgen creates them while doing the work', () => {
       'the username was given when the request was raised'
     ).toHaveCount(0);
 
-    // and the machine they asked for is on the preparation list, not invented as a service
+    const table = page.getByRole('region', { name: 'Execution workspace' });
+    const service = table.locator('tbody tr[data-work-order]').filter({ hasText: `Add ${PERSONAL_SERVICE}` });
+    const person = table.locator('tbody tr[data-requested-entity]').filter({ hasText: NEWCOMER });
+    const machine = table.locator('tbody tr[data-requested-entity]').filter({ hasText: 'Prepare Device' });
+
+    await page
+      .getByRole('complementary', { name: 'Execution view' })
+      .getByRole('button', { name: /^All remaining work/ })
+      .click();
+    await expect(person.getByRole('button', { name: 'Create user' }), 'the person still has to be created').toBeEnabled();
+    await expect(machine, 'the Device asked for is work to prepare').toHaveCount(1);
     await expect(
-      page.getByRole('button', { name: /Prepare \d+ Devices/ }),
-      'the Device asked for is work to prepare'
-    ).toBeVisible({ timeout: 25_000 });
-
-    const create = page.getByRole('button', { name: /Create \d+ Client Users/ });
-
-    await expect(create, 'the person still has to be created').toBeVisible({ timeout: 25_000 });
-    await create.click();
+      machine.getByRole('button', { name: 'Prepare Device' }),
+      'a machine is not prepared before the person it is for exists'
+    ).toBeDisabled();
+    await expect(machine).toContainText(`Waits for ${NEWCOMER}`);
+    await expect(service.getByRole('button', { name: 'Add service' })).toBeDisabled();
+    await expect(service.getByRole('button', { name: 'Prepare person' })).toHaveCount(0);
+    await person.getByRole('button', { name: 'Create user' }).click();
 
     const dialog = page.getByRole('dialog');
 
-    await expect(dialog).toBeVisible({ timeout: 20_000 });
-
-    // the people still to create are listed: pick the one this request is for
-    await dialog.getByRole('button', { name: new RegExp(NEWCOMER) }).first().click();
+    await expect(dialog.getByRole('heading', { name: 'Prepare requested Client User' })).toBeVisible();
 
     // the details the customer gave are already in the form, so nobody types them twice
-    await expect(
-      dialog.getByLabel(`Full name for ${NEWCOMER}`),
-      'the name came with the request'
-    ).toHaveValue(NEWCOMER, { timeout: 20_000 });
-    await expect(
-      dialog.getByLabel(`Username for ${NEWCOMER}`),
-      'and so did the username'
-    ).toHaveValue(NEWCOMER_USERNAME, { timeout: 20_000 });
+    await expect(dialog.getByRole('textbox', { name: 'Full name' }), 'the name came with the request').toHaveValue(
+      NEWCOMER
+    );
+    await expect(dialog.getByRole('textbox', { name: 'Username' }), 'and so did the username').toHaveValue(
+      NEWCOMER_USERNAME
+    );
 
-    await dialog.getByRole('button', { name: 'Create this person' }).click();
-    await expect(dialog.getByText('1 of 1 completed')).toBeVisible({ timeout: 30_000 });
-    await dialog.getByRole('button', { name: 'Close' }).last().click();
-    await expect(page.getByRole('dialog')).toHaveCount(0, { timeout: 20_000 });
+    await dialog.getByRole('button', { name: 'Save & resolve' }).click();
+    await expect(dialog).toHaveCount(0, { timeout: 30_000 });
+    await expect(person).toContainText('Completed');
+    await expect(person.getByRole('button', { name: 'Create user' })).toHaveCount(0);
+    await expect(machine.getByRole('button', { name: 'Prepare Device' })).toBeEnabled();
+    await expect(service).toContainText('Ready');
   });
 
   test('and the username they were asked for is the one they hold', async ({ page }) => {

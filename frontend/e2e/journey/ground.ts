@@ -1,10 +1,11 @@
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { request as playwrightRequest, expect, type Page } from '@playwright/test';
 import { run } from '../bench';
+import { statePath } from '../state';
 import { totp } from '../totp';
 
 const BASE = process.env.MSP_BASE_URL ?? 'http://msp.localhost:8000';
-const FILE = new URL('./.journey.json', import.meta.url);
+export const FILE = statePath('journey', 'journey.json');
 
 export type Ground = {
   customer: string;
@@ -36,8 +37,6 @@ export const buildGround = async (): Promise<Ground> => {
     printed.slice(printed.indexOf('{'), printed.lastIndexOf('}') + 1)
   ) as Ground;
 
-  mkdirSync(new URL('./.auth/', import.meta.url), { recursive: true });
-
   for (const who of ['admin', 'technician', 'manager', 'operator', 'requester'] as const) {
     const context = await playwrightRequest.newContext({ baseURL: BASE });
     const first = await context.post('/api/method/nexgen_msp.api.auth.endpoints.v1.pre_login', {
@@ -61,7 +60,7 @@ export const buildGround = async (): Promise<Ground> => {
     if (!second.ok()) throw new Error(`${who}: ${await second.text()}`);
 
     await context.storageState({
-      path: new URL(`./.auth/${who}.json`, import.meta.url).pathname,
+      path: statePath('journey', 'auth', `${who}.json`),
     });
     await context.dispose();
   }
@@ -82,7 +81,7 @@ export const ground: Ground = (() => {
 })();
 
 export const as = (who: Who) => ({
-  storageState: new URL(`./.auth/${who}.json`, import.meta.url).pathname,
+  storageState: statePath('journey', 'auth', `${who}.json`),
 });
 
 /**
@@ -142,6 +141,17 @@ export const openRow = async (page: Page, text: string | RegExp) => {
     await row.locator('td').first().click();
   }
 
+  await page.waitForLoadState('networkidle');
+};
+
+export const openOurLatestRequest = async (page: Page) => {
+  await land(page);
+  await go(page, 'Requests');
+  await seek(page, ground.customer);
+  await page.locator('tbody tr').filter({ hasText: ground.customer }).first().locator('td').first().click();
+  await expect(page.getByRole('heading', { name: /^(Request )?SR-\d{4}-\d+$/ }).first()).toBeVisible({
+    timeout: 25_000,
+  });
   await page.waitForLoadState('networkidle');
 };
 
@@ -221,73 +231,164 @@ export const openOwnInvoice = async (page: Page) => {
   });
 };
 
-/**
- * Carry out every ready line of the execution step, the way a technician does.
- *
- * The step shows one person at a time, so the work is: give what the act still needs, run the
- * line's own primary button, then move to the next person. It ends when the request says so.
- */
-export const runReadyWork = async (page: Page, primaryLabel: string, username: string) => {
-  const needed = page.getByRole('button', { name: /Complete \d+ usernames/ });
+export const startWork = async (page: Page) => {
+  const start = page.getByRole('button', { name: 'Start work', exact: true });
 
-  // let the step render before asking what it needs: a count() taken too early reads zero and
-  // the work is then attempted without the values it cannot run without
-  await expect(
-    needed
-      .or(page.getByText('Ready to execute'))
-      .or(page.getByText('Execution complete'))
-      .first(),
-    'the execution step says where it stands'
-  ).toBeVisible({ timeout: 25_000 });
+  await expect(start, 'a request sent to Nexgen waits for the work to start').toBeVisible({
+    timeout: 25_000,
+  });
+  await expect(page.getByRole('button', { name: 'Continue to Execute' })).toHaveCount(0);
+  await start.click();
+  await expect(start).toHaveCount(0, { timeout: 25_000 });
+  await expect(page.getByRole('button', { name: 'Continue to Execute' })).toBeVisible({
+    timeout: 25_000,
+  });
+  await page.waitForLoadState('networkidle');
+};
 
-  if (await needed.count()) {
-    await needed.click();
+export const acceptEverything = async (page: Page) => {
+  const actions = page.getByRole('region', { name: 'Requested actions' });
+  const open = actions.locator('button:enabled', { hasText: 'Accept all' });
+  const single = actions.getByRole('button', { name: 'Accept', exact: true });
+  const remaining = page.getByText(/^\d+ decisions? remaining$/);
+
+  await expect(remaining, 'the review offers a decision per action group').toBeVisible({
+    timeout: 25_000,
+  });
+
+  const expected = Number(((await remaining.textContent()) ?? '').split(' ')[0]);
+
+  expect(expected, 'there are lines to decide on').toBeGreaterThan(0);
+
+  const left = async () =>
+    (await remaining.count()) ? Number(((await remaining.first().textContent()) ?? '0').split(' ')[0]) : 0;
+
+  for (const buttons of [open, single]) {
+    while ((await left()) > 0 && (await buttons.count())) {
+      const before = await left();
+
+      await buttons.first().click();
+      await expect.poll(left, { timeout: 25_000 }).toBeLessThan(before);
+    }
+  }
+
+  await expect(page.getByText(`${expected} accepted · 0 rejected`)).toBeVisible({ timeout: 25_000 });
+  await page.getByRole('button', { name: 'Continue to Execute' }).click();
+  await expect(page.getByRole('heading', { name: 'Execute', exact: true })).toBeVisible({
+    timeout: 25_000,
+  });
+  await page.waitForLoadState('networkidle');
+
+  return expected;
+};
+
+export const runReadyWork = async (page: Page, usernames: string | null) => {
+  await page
+    .getByRole('complementary', { name: 'Execution view' })
+    .getByRole('button', { name: /^All remaining work/ })
+    .click();
+
+  const owed = page.getByRole('button', { name: /^Complete \d+ usernames$/ });
+
+  if (usernames) {
+    await expect(owed, 'the work says which usernames it still needs').toBeVisible({ timeout: 25_000 });
+    await owed.click();
 
     const dialog = page.getByRole('dialog');
-    const fields = dialog.getByLabel(/^Username for /);
+    const fields = dialog.getByRole('textbox', { name: /^Username for / });
+
+    await expect(fields.first()).toBeVisible();
 
     for (const [index, box] of (await fields.all()).entries()) {
-      await box.fill(`${username}${index + 1}`);
+      await box.fill(`${usernames}${index + 1}`);
     }
 
-    await dialog.getByRole('button', { name: /^Save (& continue|progress)$/ }).click();
+    await dialog.getByRole('button', { name: 'Save & continue' }).click();
     await expect(dialog).toHaveCount(0, { timeout: 25_000 });
   }
 
-  // the step says so, or it has already handed over to the recap, which says the same thing
-  const done = page
-    .getByText('Execution complete')
-    .or(page.getByText('What was actually done'))
-    .first();
+  await expect(owed, 'no username is left to give').toHaveCount(0, { timeout: 25_000 });
 
-  for (let guard = 0; guard < 24; guard += 1) {
-    if (await done.count()) return;
+  const ready = page.getByRole('button', { name: /^Execute \d+ ready$/ });
 
-    const primary = page.getByRole('button', { name: primaryLabel, exact: true }).last();
+  await expect(ready).toBeVisible({ timeout: 25_000 });
 
-    if (await primary.count()) {
-      await primary.click();
+  const action = ((await ready.textContent()) ?? '').trim();
 
-      const apply = page.getByRole('dialog');
+  await ready.click();
 
-      await expect(apply).toBeVisible({ timeout: 20_000 });
-      await apply.getByRole('button', { name: primaryLabel, exact: true }).click();
-      await expect(apply).toHaveCount(0, { timeout: 30_000 });
-      await page.waitForLoadState('networkidle');
+  const dating = page.getByRole('dialog');
 
-      continue;
-    }
+  await expect(dating.getByRole('heading', { name: action, exact: true }), 'the work asks for its effective date first').toBeVisible();
+  await expect(dating.getByLabel('Effective date')).not.toHaveValue('');
+  await dating.getByRole('button', { name: action, exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Execution recap' }), 'every accepted line was carried out').toBeVisible({
+    timeout: 40_000,
+  });
+};
 
-    // nothing to run on this person: the step shows them one at a time
-    const next = page.getByRole('button', { name: 'Next' });
+export const closeRequest = async (page: Page) => {
+  await page.getByRole('button', { name: 'Continue to Final validation' }).click();
+  await expect(page.getByText('READY TO COMPLETE', { exact: true })).toBeVisible({ timeout: 25_000 });
+  await page.getByRole('button', { name: 'Validate & complete request' }).click();
+  await expect(page.getByRole('button', { name: 'Refresh' }).first()).toBeVisible({ timeout: 30_000 });
+};
 
-    if (!(await next.count()) || !(await next.isEnabled())) break;
-
-    await next.click();
-    await page.waitForLoadState('networkidle');
+export const submitRequest = async (page: Page, steps: number) => {
+  for (let step = 0; step < steps; step += 1) {
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
   }
 
-  await expect(done, 'every accepted line was carried out').toBeVisible({ timeout: 40_000 });
+  await expect(page.getByRole('heading', { name: 'Review request' })).toBeVisible({ timeout: 25_000 });
+  await expect(
+    page.getByText('Confirm the exact snapshot and requested actions before submission.')
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Submit request' }).click();
+  await expect(page.getByRole('button', { name: 'New request' })).toBeVisible({ timeout: 30_000 });
+};
+
+export const approveFromBar = async (page: Page) => {
+  await expect(page.getByText('Internal approval required')).toBeVisible({ timeout: 25_000 });
+  await page.getByRole('button', { name: 'Approve and send to Nexgen' }).click();
+  await expect(page.getByText('Internal approval required')).toHaveCount(0, { timeout: 30_000 });
+  await expect(page.getByRole('region', { name: 'Request information' })).toContainText(
+    /Approved · /
+  );
+};
+
+export const refuseFromBar = async (page: Page, reason: string) => {
+  await expect(page.getByText('Internal approval required')).toBeVisible({ timeout: 25_000 });
+  await page.getByRole('button', { name: 'Reject', exact: true }).click();
+
+  const dialog = page.getByRole('dialog');
+  const confirm = dialog.getByRole('button', { name: 'Reject request' });
+
+  await expect(confirm, 'a refusal with no reason is not a refusal').toBeDisabled();
+  await dialog.getByLabel('Reason *').fill(reason);
+  await confirm.click();
+  await expect(dialog).toHaveCount(0, { timeout: 20_000 });
+  await expect(page.getByText('Internal approval required')).toHaveCount(0, { timeout: 30_000 });
+  await expect(page.getByText('REJECTED', { exact: true }).first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText(reason).first()).toBeVisible();
+};
+
+export const pickScope = async (page: Page, entry: RegExp) => {
+  const rail = page.locator('aside').filter({ hasText: 'Apply actions to' });
+
+  await rail.getByRole('button', { name: entry }).click();
+  await expect(rail.getByRole('button', { name: entry })).toHaveAttribute('aria-current', 'true');
+};
+
+export const addExisting = async (page: Page, person: string) => {
+  await page.getByRole('button', { name: /Select existing/ }).click();
+
+  const dialog = page.getByRole('dialog');
+
+  await dialog.getByLabel('Search').fill(person);
+  await dialog.getByRole('button', { name: `Add ${person}` }).click();
+  await dialog.getByRole('button', { name: 'Done' }).click();
+  await expect(dialog).toHaveCount(0, { timeout: 20_000 });
+  await expect(page.locator('tbody tr').filter({ hasText: person })).toHaveCount(1);
 };
 
 /**

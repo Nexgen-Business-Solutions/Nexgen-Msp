@@ -76,12 +76,12 @@ def _service(code, scope, label):
     return item
 
 
-def _contract(services):
+def _contract(services, customer=CUSTOMER):
     price_list = frappe.db.get_value(
         "Price List", {"selling": 1, "enabled": 1}, ["name", "currency"], as_dict=True
     )
     started = frappe.utils.add_days(frappe.utils.today(), -365)
-    existing = frappe.db.get_value("MSP Contract", {"customer": CUSTOMER}, "name")
+    existing = frappe.db.get_value("MSP Contract", {"customer": customer}, "name")
 
     contract = (
         frappe.get_doc("MSP Contract", existing)
@@ -89,7 +89,7 @@ def _contract(services):
         else frappe.get_doc(
             {
                 "doctype": "MSP Contract",
-                "customer": CUSTOMER,
+                "customer": customer,
                 "status": "Active",
                 "start_date": started,
                 "billing_frequency": "Monthly",
@@ -110,14 +110,14 @@ def _contract(services):
 
     for service in services:
         if not frappe.db.exists(
-            "Item Price", {"item_code": service, "customer": CUSTOMER, "selling": 1}
+            "Item Price", {"item_code": service, "customer": customer, "selling": 1}
         ):
             frappe.get_doc(
                 {
                     "doctype": "Item Price",
                     "item_code": service,
                     "price_list": price_list.name,
-                    "customer": CUSTOMER,
+                    "customer": customer,
                     "selling": 1,
                     "buying": 0,
                     "currency": price_list.currency,
@@ -129,23 +129,23 @@ def _contract(services):
     return contract.name
 
 
-def _department(name):
+def _department(name, customer=CUSTOMER):
     full = f"{PREFIX} {name}"
     existing = frappe.db.get_value(
-        "MSP Department", {"customer": CUSTOMER, "department_name": full}, "name"
+        "MSP Department", {"customer": customer, "department_name": full}, "name"
     )
 
     if existing:
         return existing
 
     return frappe.get_doc(
-        {"doctype": "MSP Department", "customer": CUSTOMER, "department_name": full}
+        {"doctype": "MSP Department", "customer": customer, "department_name": full}
     ).insert(ignore_permissions=True).name
 
 
-def _person(full_name, department=None):
+def _person(full_name, department=None, customer=CUSTOMER, username=None):
     existing = frappe.db.get_value(
-        "MSP Client User", {"customer": CUSTOMER, "full_name": f"{PREFIX} {full_name}"}, "name"
+        "MSP Client User", {"customer": customer, "full_name": f"{PREFIX} {full_name}"}, "name"
     )
 
     if existing:
@@ -154,16 +154,17 @@ def _person(full_name, department=None):
     return frappe.get_doc(
         {
             "doctype": "MSP Client User",
-            "customer": CUSTOMER,
+            "customer": customer,
             "full_name": f"{PREFIX} {full_name}",
             "department": department,
+            "username": username,
             "lifecycle_status": "Active",
             "start_date": frappe.utils.add_days(frappe.utils.today(), -200),
         }
     ).insert(ignore_permissions=True).name
 
 
-def _device(hostname, holder=None):
+def _device(hostname, holder=None, customer=CUSTOMER, held_since=None):
     serial = f"{PREFIX}-SN-{hostname}"
     existing = frappe.db.get_value("MSP Managed Device", {"serial_number": serial}, "name")
 
@@ -173,7 +174,7 @@ def _device(hostname, holder=None):
     doc = frappe.get_doc(
         {
             "doctype": "MSP Managed Device",
-            "customer": CUSTOMER,
+            "customer": customer,
             "hostname": f"{PREFIX}-{hostname}",
             "device_type": "PC",
             "status": "Stock",
@@ -182,7 +183,7 @@ def _device(hostname, holder=None):
     ).insert(ignore_permissions=True)
 
     if holder:
-        device_holders.hand_over(doc, holder)
+        device_holders.hand_over(doc, holder, on_date=held_since)
         doc.status = "Active"
         doc.save(ignore_permissions=True)
 
@@ -301,6 +302,13 @@ def setup():
         customer=CUSTOMER,
         rights={"can_submit": 1, "can_approve": 1},
     )
+    requester = _account(
+        "customer",
+        "MSP Customer Manager",
+        "asker",
+        customer=CUSTOMER,
+        rights={"can_submit": 1, "can_approve": 0},
+    )
     frappe.db.commit()
 
     print(
@@ -316,6 +324,8 @@ def setup():
                 "operator_secret": operator["secret"],
                 "manager": manager["email"],
                 "manager_secret": manager["secret"],
+                "requester": requester["email"],
+                "requester_secret": requester["secret"],
                 "person": alice,
                 "colleague": bob,
                 "other_department": carol,
@@ -335,13 +345,13 @@ def setup():
 
 
 def submitted_request():
-    """A V3 request the fulfilment screens can be read against, raised the way a customer does.
+    """A request the fulfilment screens can be read against, raised the way a customer does.
 
     Two people, one act: end the mailbox for the whole selection. One of them does not have
     it, so the request carries one line and records the other as untouched — which is exactly
     the shape the approval and review screens have to show.
     """
-    from nexgen_msp.api.portal.services.request_v3_service import RequestV3Service
+    from nexgen_msp.api.portal.services.request_scope_service import RequestScopeService
 
     frappe.set_user(f"{PREFIX.lower()}.manager@example.invalid")
     frappe.clear_cache(user=frappe.session.user)
@@ -363,7 +373,7 @@ def submitted_request():
             }
             for row in people
         ]
-        options = RequestV3Service.operation_options(customer=CUSTOMER, subjects=subjects)
+        options = RequestScopeService.operation_options(customer=CUSTOMER, subjects=subjects)
         card = next(
             option
             for domain in options["domains"]
@@ -409,7 +419,7 @@ def add_request():
     """
     from nexgen_msp.api.internal.services.request_execution_service import RequestExecutionService
     from nexgen_msp.api.internal.services.request_service import RequestService
-    from nexgen_msp.api.portal.services.request_v3_service import RequestV3Service
+    from nexgen_msp.api.portal.services.request_scope_service import RequestScopeService
 
     people = frappe.get_all(
         "MSP Client User",
@@ -437,7 +447,7 @@ def add_request():
     frappe.clear_cache(user=frappe.session.user)
 
     try:
-        options = RequestV3Service.operation_options(customer=CUSTOMER, subjects=subjects)
+        options = RequestScopeService.operation_options(customer=CUSTOMER, subjects=subjects)
         card = next(
             option
             for domain in options["domains"]
@@ -472,6 +482,8 @@ def add_request():
     frappe.clear_cache(user=frappe.session.user)
 
     try:
+        RequestService.run_action(name=name, action="start_review")
+
         for idx in range(1, len(action["targets"]) + 1):
             RequestService.set_line_status(name=name, idx=idx, line_status="Approved")
 
@@ -498,21 +510,61 @@ def new_person_request():
 
     Two services for one new person: a personal one and one that runs on a machine they do
     not hold, because they do not exist yet. That is the shape the preparation dialogs are
-    for — a Client User to create, a Device to settle, and a username to record.
+    for — a Client User to create, a Device to settle, and a username to record. Its lines
+    are left undecided: the browser run reviews them itself.
     """
-    from nexgen_msp.api.internal.services.request_execution_service import RequestExecutionService
-    from nexgen_msp.api.internal.services.request_service import RequestService
-    from nexgen_msp.api.portal.services.request_v3_service import RequestV3Service
+    from nexgen_msp.api.portal.services.request_scope_service import RequestScopeService
 
     subjects = [
-        {"subject_key": "new:e2e-recruit", "is_new_user": True, "full_name": f"{PREFIX} Recruit"}
+        {
+            "subject_key": "new:e2e-recruit",
+            "kind": "new",
+            "client_user": None,
+            "full_name": f"{PREFIX} Recruit",
+            "added_via": "New",
+        }
+    ]
+    requested_devices = [
+        {
+            "device_requirement_key": "new-device:e2e-recruit",
+            "display_label": "New laptop",
+            "device_type": "Laptop",
+            "intended_holder_subject_key": "new:e2e-recruit",
+        }
     ]
     frappe.set_user(f"{PREFIX.lower()}.manager@example.invalid")
     frappe.clear_cache(user=frappe.session.user)
 
     try:
-        options = RequestV3Service.operation_options(customer=CUSTOMER, subjects=subjects)
-        groups = []
+        options = RequestScopeService.operation_options(
+            customer=CUSTOMER, subjects=subjects, requested_devices=requested_devices
+        )
+        groups = [
+            {
+                "group_key": "grp:e2e-recruit-laptop",
+                "operation_code": "device.assign",
+                "operation_label_snapshot": "Assign device",
+                "domain": "Device",
+                "service_item": None,
+                "source_scope_type": "Person",
+                "source_scope_key": "new:e2e-recruit",
+                "source_scope_label": f"{PREFIX} Recruit",
+                "selected_subject_count": 1,
+                "targets": [
+                    {
+                        "subject_key": "new:e2e-recruit",
+                        "client_user": None,
+                        "full_name": f"{PREFIX} Recruit",
+                        "target_scope": "Device",
+                        "managed_device": None,
+                        "device_requirement_key": "new-device:e2e-recruit",
+                        "requested_holder_subject_key": "new:e2e-recruit",
+                        "source_service_assignment": None,
+                    }
+                ],
+                "exclusions": [],
+            }
+        ]
 
         for domain in options["domains"]:
             if domain["key"] != "Service":
@@ -540,34 +592,16 @@ def new_person_request():
                 )
 
         out = PortalService.create_request(
-            customer=CUSTOMER, subjects=subjects, action_groups=groups
+            customer=CUSTOMER,
+            subjects=subjects,
+            requested_devices=requested_devices,
+            action_groups=groups,
         )
-    finally:
-        frappe.set_user("Administrator")
-
-    name = out["name"]
-    frappe.set_user(f"{PREFIX.lower()}.tech@example.invalid")
-    frappe.clear_cache(user=frappe.session.user)
-
-    try:
-        for idx in range(1, len(groups) + 1):
-            RequestService.set_line_status(name=name, idx=idx, line_status="Approved")
-
-        RequestService.run_action(name=name, action="approve")
-        plan = RequestExecutionService.get_execution_plan(request=name)
     finally:
         frappe.set_user("Administrator")
 
     frappe.db.commit()
-    print(
-        json.dumps(
-            {
-                "request": name,
-                "requirements": sorted({row["kind"] for row in plan["requirements"]}),
-            },
-            indent=2,
-        )
-    )
+    print(json.dumps({"request": out["name"], "lines": len(out["lines"])}, indent=2))
 
 
 JOURNEY = f"{PREFIX} Journey"
@@ -650,8 +684,10 @@ def journey_teardown():
     frappe.set_user("Administrator")
 
     for doctype, field in (
-        ("MSP Service Work Order", "customer"),
-        ("MSP Service Request", "customer"),
+        ("MSP Work Order", "customer"),
+        ("MSP Requested Device", "customer"),
+        ("MSP Requested Client User", "customer"),
+        ("MSP Request", "customer"),
         ("MSP Billing Run", "customer"),
     ):
         for row in frappe.get_all(doctype, filters={field: JOURNEY}, pluck="name"):
@@ -741,14 +777,17 @@ def teardown():
     frappe.set_user("Administrator")
     people = frappe.get_all("MSP Client User", filters={"customer": CUSTOMER}, pluck="name")
     devices = frappe.get_all("MSP Managed Device", filters={"customer": CUSTOMER}, pluck="name")
-    requests = frappe.get_all("MSP Service Request", filters={"customer": CUSTOMER}, pluck="name")
+    requests = frappe.get_all("MSP Request", filters={"customer": CUSTOMER}, pluck="name")
 
     for request in requests:
         for order in frappe.get_all(
-            "MSP Service Work Order", filters={"service_request": request}, pluck="name"
+            "MSP Work Order", filters={"request": request}, pluck="name"
         ):
-            frappe.delete_doc("MSP Service Work Order", order, force=True, ignore_permissions=True)
-        frappe.delete_doc("MSP Service Request", request, force=True, ignore_permissions=True)
+            frappe.delete_doc("MSP Work Order", order, force=True, ignore_permissions=True)
+        for doctype in ("MSP Requested Device", "MSP Requested Client User"):
+            for row in frappe.get_all(doctype, filters={"request": request}, pluck="name"):
+                frappe.delete_doc(doctype, row, force=True, ignore_permissions=True)
+        frappe.delete_doc("MSP Request", request, force=True, ignore_permissions=True)
 
     frappe.db.sql("delete from `tabMSP Service Assignment` where customer = %s", CUSTOMER)
 
@@ -800,3 +839,509 @@ def teardown():
 
     frappe.db.commit()
     print(f"{PREFIX}: removed")
+
+
+MATRIX = f"{PREFIX} Matrix"
+MATRIX_ACCOUNTS = {
+    "admin": ("internal", "MSP System Admin", "mxadmin", None),
+    "technician": ("internal", "MSP Technician", "mxtech", None),
+    "manager": ("customer", "MSP Customer Manager", "mxmanager", {"can_submit": 1, "can_approve": 1}),
+    "operator": ("customer", "MSP Customer Operator", "mxoperator", {"can_submit": 0, "can_approve": 0}),
+    "requester": ("customer", "MSP Customer Manager", "mxasker", {"can_submit": 1, "can_approve": 0}),
+}
+MATRIX_SERVICES = (
+    ("MX-MAIL", "User", "Matrix Mailbox"),
+    ("MX-VPN", "User", "Matrix VPN"),
+    ("MX-ARCH1", "User", "Matrix Archive One"),
+    ("MX-ARCH2", "User", "Matrix Archive Two"),
+    ("MX-AV", "Device", "Matrix Antivirus"),
+    ("MX-BACKUP", "Device", "Matrix Backup"),
+)
+MATRIX_PEOPLE = (
+    ("bare", 60),
+    ("named", 15),
+    ("user_active", 30),
+    ("user_suspended", 15),
+    ("device_active", 23),
+    ("device_suspended", 12),
+    ("holder", 15),
+    ("archive_one", 2),
+    ("archive_two", 2),
+)
+MATRIX_STOCK = 20
+MATRIX_TEAMS = 8
+MATRIX_TEAM_SIZE = 3
+MATRIX_REAL = ("MSP Service Assignment", "MSP Client User", "MSP Managed Device", "MSP Request")
+
+
+def _matrix_email(suffix):
+    return f"{PREFIX.lower()}.{suffix}@example.invalid"
+
+
+def _matrix_counts():
+    """How many rows each register holds, split by whose they are."""
+    counts = {}
+
+    for doctype in MATRIX_REAL:
+        rows = frappe.db.sql(
+            f"""
+            select
+                sum(case when customer = %(matrix)s then 1 else 0 end),
+                sum(case when customer like 'ZZ%%' and customer != %(matrix)s then 1 else 0 end),
+                sum(case when customer is null or customer not like 'ZZ%%' then 1 else 0 end)
+            from `tab{doctype}`
+            """,
+            {"matrix": MATRIX},
+        )[0]
+        counts[doctype] = {
+            "matrix": int(rows[0] or 0),
+            "other_tests": int(rows[1] or 0),
+            "real": int(rows[2] or 0),
+        }
+
+    return counts
+
+
+def matrix_counts():
+    """Print the register counts, the matrix's own apart from everybody else's."""
+    print(json.dumps(_matrix_counts(), indent=2))
+
+
+def matrix_ground():
+    """Build the matrix company: a pool of people and machines addressed by index, and five ways in."""
+    frappe.set_user("Administrator")
+    before = _matrix_counts()
+
+    if not frappe.db.exists("Customer", MATRIX):
+        frappe.get_doc(
+            {
+                "doctype": "Customer",
+                "customer_name": MATRIX,
+                "customer_type": "Company",
+                "customer_group": frappe.db.get_value("Customer Group", {"is_group": 0}, "name"),
+                "territory": frappe.db.get_value("Territory", {"is_group": 0}, "name"),
+            }
+        ).insert(ignore_permissions=True)
+
+    services = {code: _service(code, scope, label) for code, scope, label in MATRIX_SERVICES}
+    _contract(list(services.values()), customer=MATRIX)
+    labels = {code: f"{PREFIX} {label}" for code, _scope, label in MATRIX_SERVICES}
+
+    alpha = _department("Matrix Alpha", customer=MATRIX)
+    beta = _department("Matrix Beta", customer=MATRIX)
+    teams = {
+        f"{PREFIX} Matrix Team {index:02d}": _department(f"Matrix Team {index:02d}", customer=MATRIX)
+        for index in range(1, MATRIX_TEAMS + 1)
+    }
+
+    past = frappe.utils.add_days(frappe.utils.today(), -120)
+    paused = frappe.utils.add_days(frappe.utils.today(), -30)
+    number = {"person": 0, "machine": 0}
+
+    def person(department, username=False):
+        number["person"] += 1
+        label = f"Matrix P{number['person']:03d}"
+        name = _person(
+            label,
+            department,
+            customer=MATRIX,
+            username=f"zze2e.mx.p{number['person']:03d}" if username else None,
+        )
+        return name, f"{PREFIX} {label}"
+
+    def machine(holder=None):
+        number["machine"] += 1
+        hostname = f"MATRIX-D{number['machine']:03d}"
+        return (
+            _device(hostname, holder, customer=MATRIX, held_since=frappe.utils.add_days(frappe.utils.today(), -200)),
+            f"{PREFIX}-{hostname}",
+        )
+
+    def activate(code, client_user=None, managed_device=None):
+        return ServiceLifecycleService.activate(
+            customer=MATRIX,
+            service_item=services[code],
+            target_scope="Device" if managed_device else "User",
+            client_user=client_user,
+            managed_device=managed_device,
+            effective_date=past,
+        )["name"]
+
+    people = {}
+    held = {}
+
+    for kind, size in MATRIX_PEOPLE:
+        people[kind] = []
+
+        for index in range(size):
+            department = beta if index % 4 == 3 else alpha
+            name, full = person(department, username=kind == "named")
+            people[kind].append(full)
+
+            if kind == "user_active":
+                activate("MX-MAIL", client_user=name)
+                activate("MX-VPN", client_user=name)
+            elif kind == "user_suspended":
+                ServiceLifecycleService.suspend(
+                    assignment=activate("MX-MAIL", client_user=name), effective_date=paused
+                )
+            elif kind in ("device_active", "device_suspended", "holder"):
+                device, hostname = machine(name)
+                held[full] = hostname
+
+                if kind == "device_active":
+                    activate("MX-AV", managed_device=device)
+                elif kind == "device_suspended":
+                    ServiceLifecycleService.suspend(
+                        assignment=activate("MX-AV", managed_device=device), effective_date=paused
+                    )
+            elif kind == "archive_one":
+                activate("MX-ARCH1", client_user=name)
+            elif kind == "archive_two":
+                activate("MX-ARCH2", client_user=name)
+
+    stock = [machine()[1] for _index in range(MATRIX_STOCK)]
+    members = {}
+
+    for team, department in teams.items():
+        members[team] = [person(department)[1] for _index in range(MATRIX_TEAM_SIZE)]
+
+    accounts = {
+        who: _account(kind, role, suffix, customer=MATRIX if kind == "customer" else None, rights=rights)
+        for who, (kind, role, suffix, rights) in MATRIX_ACCOUNTS.items()
+    }
+    frappe.db.commit()
+
+    print(
+        json.dumps(
+            {
+                "customer": MATRIX,
+                "password": PASSWORD,
+                "departments": {"alpha": f"{PREFIX} Matrix Alpha", "beta": f"{PREFIX} Matrix Beta"},
+                "services": labels,
+                "people": people,
+                "held": held,
+                "stock": stock,
+                "teams": members,
+                "counts_before": before,
+                "counts_after": _matrix_counts(),
+                **{
+                    f"{who}{suffix}": value
+                    for who, row in accounts.items()
+                    for suffix, value in (("", row["email"]), ("_secret", row["secret"]))
+                },
+            },
+            indent=2,
+        )
+    )
+
+
+def _matrix_names():
+    """Every record the matrix owns, by name, listed before anything is removed."""
+    requests = frappe.get_all("MSP Request", filters={"customer": MATRIX}, pluck="name")
+    names = {
+        "MSP Request": requests,
+        "MSP Work Order": [],
+        "MSP Requested Client User": [],
+        "MSP Requested Device": [],
+    }
+
+    for request in requests:
+        for doctype in ("MSP Work Order", "MSP Requested Client User", "MSP Requested Device"):
+            names[doctype] += frappe.get_all(doctype, filters={"request": request}, pluck="name")
+
+    for doctype in (
+        "MSP Work Order",
+        "MSP Requested Client User",
+        "MSP Requested Device",
+        "MSP Service Assignment",
+        "MSP Managed Device",
+        "MSP Client User",
+        "MSP Contract",
+        "MSP Department",
+    ):
+        names[doctype] = sorted(
+            set(names.get(doctype, []))
+            | set(frappe.get_all(doctype, filters={"customer": MATRIX}, pluck="name"))
+        )
+
+    names["MSP Approval Authority"] = frappe.get_all(
+        "MSP Approval Authority", filters={"name": MATRIX}, pluck="name"
+    )
+    names["Item Price"] = frappe.get_all("Item Price", filters={"customer": MATRIX}, pluck="name")
+    items = [f"{PREFIX}-SVC-{code}" for code, _scope, _label in MATRIX_SERVICES]
+    names["Item"] = [item for item in items if frappe.db.exists("Item", item)]
+    names["MSP Service Definition"] = [
+        definition
+        for item in names["Item"]
+        for definition in frappe.get_all("MSP Service Definition", filters={"item": item}, pluck="name")
+    ]
+    names["User"] = [
+        _matrix_email(suffix)
+        for _kind, _role, suffix, _rights in MATRIX_ACCOUNTS.values()
+        if frappe.db.exists("User", _matrix_email(suffix))
+    ]
+    names["Customer"] = [MATRIX] if frappe.db.exists("Customer", MATRIX) else []
+
+    return names
+
+
+def _matrix_residue():
+    """Rows still carrying the matrix's name, per register."""
+    return {
+        "MSP Client User": frappe.db.count("MSP Client User", {"full_name": ["like", f"{MATRIX}%"]}),
+        "MSP Managed Device": frappe.db.count(
+            "MSP Managed Device", {"hostname": ["like", f"{PREFIX}-MATRIX%"]}
+        ),
+        "MSP Department": frappe.db.count("MSP Department", {"name": ["like", f"{MATRIX}%"]}),
+        "MSP Service Assignment": frappe.db.count("MSP Service Assignment", {"customer": MATRIX}),
+        "MSP Request": frappe.db.count("MSP Request", {"customer": MATRIX}),
+        "MSP Work Order": frappe.db.count("MSP Work Order", {"customer": MATRIX}),
+        "MSP Requested Client User": frappe.db.count("MSP Requested Client User", {"customer": MATRIX}),
+        "MSP Requested Device": frappe.db.count("MSP Requested Device", {"customer": MATRIX}),
+        "MSP Contract": frappe.db.count("MSP Contract", {"customer": MATRIX}),
+        "Item": frappe.db.count("Item", {"item_name": ["like", f"{MATRIX}%"]}),
+        "Item Price": frappe.db.count("Item Price", {"customer": MATRIX}),
+        "User": sum(
+            1
+            for _kind, _role, suffix, _rights in MATRIX_ACCOUNTS.values()
+            if frappe.db.exists("User", _matrix_email(suffix))
+        ),
+        "Customer": frappe.db.count("Customer", {"name": MATRIX}),
+    }
+
+
+def matrix_teardown():
+    """Remove the matrix company by the names it owns, counting before and after."""
+    frappe.set_user("Administrator")
+    before = _matrix_counts()
+    names = _matrix_names()
+    listed = {doctype: len(rows) for doctype, rows in names.items()}
+
+    for doctype in (
+        "MSP Work Order",
+        "MSP Requested Device",
+        "MSP Requested Client User",
+        "MSP Request",
+        "MSP Service Assignment",
+        "MSP Managed Device",
+        "MSP Client User",
+        "MSP Contract",
+        "MSP Department",
+        "MSP Approval Authority",
+        "Item Price",
+        "MSP Service Definition",
+        "Item",
+    ):
+        for name in names[doctype]:
+            if frappe.db.exists(doctype, name):
+                frappe.delete_doc(
+                    doctype, name, force=True, ignore_permissions=True, delete_permanently=True
+                )
+
+    for email in names["User"]:
+        _purge_journey_account(email)
+
+    for name in names["Customer"]:
+        frappe.delete_doc("Customer", name, force=True, ignore_permissions=True, delete_permanently=True)
+
+    frappe.db.commit()
+    after = _matrix_counts()
+    print(
+        json.dumps(
+            {
+                "listed": listed,
+                "counts_before": before,
+                "counts_after": after,
+                "residue": _matrix_residue(),
+            },
+            indent=2,
+        )
+    )
+
+
+def _matrix_holdings(client_user=None, managed_device=None):
+    field = "client_user" if client_user else "managed_device"
+    rows = frappe.get_all(
+        "MSP Service Assignment",
+        filters={"customer": MATRIX, field: client_user or managed_device},
+        fields=["name", "service_item", "operational_status", "effective_start_date", "effective_end_date"],
+        order_by="creation asc",
+    )
+
+    return [
+        {
+            "service": frappe.db.get_value("Item", row.service_item, "item_name"),
+            "status": row.operational_status,
+            "start": str(row.effective_start_date or ""),
+            "end": str(row.effective_end_date or ""),
+        }
+        for row in rows
+    ]
+
+
+def matrix_facts(note=None, people=None, machines=None):
+    """Read, and only read, what one matrix request left in the records."""
+    frappe.set_user("Administrator")
+    people = json.loads(people) if isinstance(people, str) else list(people or [])
+    machines = json.loads(machines) if isinstance(machines, str) else list(machines or [])
+    request = None
+
+    if note:
+        found = frappe.get_all(
+            "MSP Request",
+            filters={"customer": MATRIX, "details": note},
+            pluck="name",
+            order_by="creation desc",
+        )
+        request = found[0] if found else None
+
+    person_name = lambda name: frappe.db.get_value("MSP Client User", name, "full_name") if name else None
+    hostname = lambda name: frappe.db.get_value("MSP Managed Device", name, "hostname") if name else None
+    item_name = lambda name: frappe.db.get_value("Item", name, "item_name") if name else None
+    facts = {
+        "request": None,
+        "count": 0,
+        "total": frappe.db.count("MSP Request", {"customer": MATRIX}),
+    }
+
+    if request:
+        doc = frappe.get_doc("MSP Request", request)
+        facts["count"] = len(frappe.get_all("MSP Request", filters={"customer": MATRIX, "details": note}))
+        requested_people = frappe.get_all(
+            "MSP Requested Client User",
+            filters={"request": request},
+            fields=["name", "full_name", "department", "username", "email", "status", "resolution_mode", "resolved_client_user", "cancel_reason"],
+        )
+        requested_machines = frappe.get_all(
+            "MSP Requested Device",
+            filters={"request": request},
+            fields=["name", "display_label", "hostname", "serial_number", "device_type", "status", "resolution_mode", "resolved_managed_device", "cancel_reason"],
+        )
+        requested_label = {row.name: row.full_name for row in requested_people}
+        requested_label.update({row.name: row.display_label for row in requested_machines})
+        orders = frappe.get_all(
+            "MSP Work Order",
+            filters={"request": request},
+            fields=[
+                "name", "operation_code", "status", "effective_date", "client_user", "requested_client_user",
+                "managed_device", "requested_device", "service_item", "requested_holder",
+                "requested_holder_requested_client_user", "resulting_assignment", "request_line_idx", "origin",
+                "override_reason",
+            ],
+            order_by="request_line_idx asc",
+        )
+        facts["request"] = {
+            "name": doc.name,
+            "status": doc.status,
+            "requested_date": str(doc.requested_date or ""),
+            "requester": doc.requester,
+            "rejection_reason": doc.rejection_reason,
+            "modified_by": doc.modified_by,
+        }
+        facts["lines"] = [
+            {
+                "idx": line.idx,
+                "operation": line.operation_code,
+                "status": line.line_status,
+                "reason": line.rejection_reason,
+                "person": person_name(line.client_user) or requested_label.get(line.requested_client_user),
+                "machine": hostname(line.managed_device) or requested_label.get(line.requested_device),
+                "service": item_name(line.requested_service),
+                "holder": person_name(line.requested_holder)
+                or requested_label.get(line.requested_holder_requested_client_user),
+                "date": str(line.requested_effective_date or ""),
+            }
+            for line in doc.lines
+        ]
+        facts["work_orders"] = [
+            {
+                "line": row.request_line_idx,
+                "operation": row.operation_code,
+                "status": row.status,
+                "date": str(row.effective_date or ""),
+                "person": person_name(row.client_user) or requested_label.get(row.requested_client_user),
+                "machine": hostname(row.managed_device) or requested_label.get(row.requested_device),
+                "service": item_name(row.service_item),
+                "holder": person_name(row.requested_holder)
+                or requested_label.get(row.requested_holder_requested_client_user),
+                "origin": row.origin,
+                "override_reason": row.override_reason,
+            }
+            for row in orders
+        ]
+        facts["requested_people"] = [
+            {
+                "name": row.full_name,
+                "department": row.department,
+                "username": row.username,
+                "email": row.email,
+                "status": row.status,
+                "mode": row.resolution_mode,
+                "resolved": person_name(row.resolved_client_user),
+                "cancel_reason": row.cancel_reason,
+            }
+            for row in requested_people
+        ]
+        facts["requested_machines"] = [
+            {
+                "label": row.display_label,
+                "hostname": row.hostname,
+                "serial": row.serial_number,
+                "type": row.device_type,
+                "status": row.status,
+                "mode": row.resolution_mode,
+                "resolved": hostname(row.resolved_managed_device),
+                "cancel_reason": row.cancel_reason,
+            }
+            for row in requested_machines
+        ]
+
+    facts["people"] = {}
+
+    for full_name in people:
+        found = frappe.get_all(
+            "MSP Client User",
+            filters={"customer": MATRIX, "full_name": full_name},
+            fields=["name", "username", "department", "email", "lifecycle_status"],
+        )
+        facts["people"][full_name] = (
+            {
+                "exists": len(found),
+                "username": found[0].username,
+                "department": found[0].department,
+                "email": found[0].email,
+                "machines": frappe.get_all(
+                    "MSP Managed Device",
+                    filters={"customer": MATRIX, "assigned_client_user": found[0].name},
+                    pluck="hostname",
+                    order_by="hostname asc",
+                ),
+                "services": _matrix_holdings(client_user=found[0].name),
+            }
+            if found
+            else {"exists": 0}
+        )
+
+    facts["machines"] = {}
+
+    for label in machines:
+        found = frappe.get_all(
+            "MSP Managed Device",
+            filters={"customer": MATRIX, "hostname": label},
+            fields=["name", "status", "assigned_client_user", "serial_number", "device_type"],
+        )
+        facts["machines"][label] = (
+            {
+                "exists": len(found),
+                "status": found[0].status,
+                "serial": found[0].serial_number,
+                "type": found[0].device_type,
+                "holder": person_name(found[0].assigned_client_user),
+                "services": _matrix_holdings(managed_device=found[0].name),
+            }
+            if found
+            else {"exists": 0}
+        )
+
+    print(json.dumps(facts, indent=2, default=str))

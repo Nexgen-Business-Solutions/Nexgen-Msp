@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronDown, Search } from 'lucide-react';
 import { useAnchoredDropdown } from '@/shared/hooks/useAnchoredDropdown';
@@ -7,6 +7,7 @@ export interface SelectOption {
   value: string;
   label: string;
   description?: string;
+  disabled?: boolean;
 }
 
 interface Props {
@@ -18,6 +19,8 @@ interface Props {
   className?: string;
   openDirection?: 'up' | 'down';
   searchable?: boolean;
+  onSearch?: (query: string) => void;
+  footnote?: ReactNode;
 }
 
 // past a handful of entries, scrolling to find one stops being reasonable
@@ -32,26 +35,29 @@ const Select: React.FC<Props> = ({
   className,
   openDirection = 'down',
   searchable,
+  onSearch,
+  footnote,
 }) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const close = useCallback(() => {
     setOpen(false);
     setQuery('');
-  }, []);
+    onSearch?.('');
+  }, [onSearch]);
   const { anchorRef, panelRef, panelStyle } = useAnchoredDropdown(open, close, openDirection);
 
   const selected = options.find((option) => option.value === value);
-  const withSearch = searchable ?? options.length > SEARCH_THRESHOLD;
+  const withSearch = searchable ?? (Boolean(onSearch) || options.length > SEARCH_THRESHOLD);
 
   const shown = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!needle) return options;
+    if (!needle || onSearch) return options;
 
     return options.filter((option) =>
       `${option.label} ${option.description ?? ''}`.toLowerCase().includes(needle)
     );
-  }, [options, query]);
+  }, [options, query, onSearch]);
 
   const pick = (next: string) => {
     onChange(next);
@@ -102,7 +108,10 @@ const Select: React.FC<Props> = ({
                     autoFocus
                     type="text"
                     value={query}
-                    onChange={(event) => setQuery(event.target.value)}
+                    onChange={(event) => {
+                      setQuery(event.target.value);
+                      onSearch?.(event.target.value);
+                    }}
                     placeholder="Search…"
                     className="h-8 w-full rounded-md border border-slate-200 pl-8 pr-2 text-sm outline-none focus:border-blue-500"
                   />
@@ -122,11 +131,15 @@ const Select: React.FC<Props> = ({
                   type="button"
                   role="option"
                   aria-selected={isSelected}
+                  aria-disabled={option.disabled || undefined}
+                  disabled={option.disabled}
                   onClick={() => pick(option.value)}
                   className={`flex w-full items-start justify-between gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors ${
                     isSelected
                       ? 'bg-blue-50 font-semibold text-blue-700'
-                      : 'text-slate-700 hover:bg-slate-50'
+                      : option.disabled
+                        ? 'cursor-not-allowed text-slate-400'
+                        : 'text-slate-700 hover:bg-slate-50'
                   }`}
                 >
                   <span className="min-w-0">
@@ -145,6 +158,7 @@ const Select: React.FC<Props> = ({
                 </button>
               );
             })}
+            {footnote}
           </div>,
           document.body
         )}

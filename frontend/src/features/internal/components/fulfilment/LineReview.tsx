@@ -1,21 +1,20 @@
-import { keyOfPerson, nameOfPerson } from './personOfLine';
-import React, { useMemo, useState } from 'react';
-import { AlertCircle, Check, Laptop, TriangleAlert, UserRound, X } from 'lucide-react';
+import React, { useState } from 'react';
+import { AlertCircle, Check, TriangleAlert, X } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
-import type { RequestDetail, RequestDetailLine } from '@/lib/api/internal';
-import { useSetLineStatus, useSetLineStatuses } from '../../hooks/useRequests';
-import PersonHeader from './PersonHeader';
-import PeopleWorkspace from '@/shared/components/PeopleWorkspace';
+import type { RequestDetail } from '@/lib/api/internal';
 import {
-  btnAccept,
-  btnPrimary,
-  btnReject,
-  bulkBar,
-  lineRow,
-  nextBar,
-  pill,
-  warnBar,
-} from '../../lib/fulfilmentStyles';
+  RequestPresentation,
+  type RequestActionGroupPresentation,
+  type RequestSubjectPresentation,
+  type RequestTargetPresentation,
+} from '@/shared/request';
+import {
+  useInternalRequestPresentation,
+  useSetLineStatus,
+  useSetLineStatuses,
+} from '../../hooks/useRequests';
+import PersonHeader from './PersonHeader';
+import { btnAccept, btnPrimary, btnReject, warnBar } from '../../lib/fulfilmentStyles';
 
 type Props = {
   request: RequestDetail;
@@ -24,36 +23,19 @@ type Props = {
   continuing: boolean;
 };
 
-// a machine still to be prepared names its person as the one it is requested for
-const personKey = keyOfPerson;
-const personName = nameOfPerson;
+const text = (value: unknown) => (typeof value === 'string' && value ? value : null);
 
-const serviceOf = (line: RequestDetailLine) => line.requested_service_name || line.requested_service;
-const actOf = (line: RequestDetailLine) => line.action_label || line.action;
+const pendingOf = (group: RequestActionGroupPresentation) =>
+  group.targets
+    .filter((target) => target.line_status === 'Pending' && target.line_idx !== null)
+    .map((target) => target.line_idx as number);
 
-// an act on the machine itself: the machine is the subject, and the holders are the change
-const onMachine = (line: RequestDetailLine) => (line.operation_code ?? '').startsWith('device.');
-
-const askedFor = (value?: string | null) =>
-  value
-    ? new Date(String(value)).toLocaleDateString(undefined, {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-      })
-    : null;
-
-/**
- * Step 1: which of the lines the customer asked for Nexgen will carry out. Nothing runs here.
- *
- * A group decision is offered where several lines plainly call for the same one; it is still
- * written line by line, and the page says which lines took it.
- */
 const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, continuing }) => {
+  const presentation = useInternalRequestPresentation(request.name);
   const one = useSetLineStatus();
   const many = useSetLineStatuses();
-  const [rejecting, setRejecting] = useState<RequestDetailLine | null>(null);
-  const [rejectingGroup, setRejectingGroup] = useState<RequestDetailLine[] | null>(null);
+  const [rejecting, setRejecting] = useState<RequestTargetPresentation | null>(null);
+  const [rejectingGroup, setRejectingGroup] = useState<RequestActionGroupPresentation | null>(null);
   const [reason, setReason] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -62,82 +44,21 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
   const pending = lines.filter((line) => line.line_status === 'Pending');
   const accepted = lines.filter((line) => line.line_status === 'Approved');
   const rejected = lines.filter((line) => line.line_status === 'Rejected');
-  const check = (idx: number) => request.review?.lines.find((row) => row.idx === idx);
+  const check = (idx: number | null) => request.review?.lines.find((row) => row.idx === idx);
 
-  const people = useMemo(() => {
-    const groups = new Map<string, { key: string; name: string; isNew: boolean; first: RequestDetailLine; lines: RequestDetailLine[] }>();
-
-    for (const line of lines) {
-      const key = personKey(line);
-      const group = groups.get(key) ?? {
-        key,
-        name: personName(line),
-        isNew: key.startsWith('new:'),
-        first: line,
-        lines: [],
-      };
-      group.lines.push(line);
-      groups.set(key, group);
-    }
-
-    return [...groups.values()];
-  }, [lines]);
-
-  // the same act on the same service, still waiting, for more than one person
-  /**
-   * The acts the customer added, as they added them.
-   *
-   * A group is read from the key the request stored, never rebuilt by matching service and
-   * action strings — two people asked for the same thing in two separate acts are two acts.
-   * A request raised before V3 carries no key, and only then is the old pairing used, so an
-   * old request still offers a group decision rather than nothing.
-   */
-  const shared = useMemo(() => {
-    const byAct = new Map<string, RequestDetailLine[]>();
-
-    for (const line of pending) {
-      const key =
-        line.action_group_key || `legacy:${line.requested_service}|${line.action_label || line.action}`;
-      byAct.set(key, [...(byAct.get(key) ?? []), line]);
-    }
-
-    return [...byAct.values()].filter((group) => group.length > 1);
-  }, [pending]);
-
-  const labelOf = (group: RequestDetailLine[]) => {
-    const asked = request.action_groups?.find(
-      (row) => row.group_key === group[0].action_group_key
-    );
-
-    return asked?.operation_label_snapshot ?? `${actOf(group[0])} ${serviceOf(group[0])}`;
-  };
-
-  const rejectMany = async (group: RequestDetailLine[], why: string) => {
-    setNotice(null);
-
-    const outcome = await many.mutateAsync({
-      name: request.name,
-      idxs: group.map((line) => line.idx),
-      line_status: 'Rejected',
-      reason: why,
-    });
-
-    if (outcome.failed) {
-      setNotice(`${outcome.decided} rejected, ${outcome.failed} not.`);
-    }
-  };
-
-  const decideMany = async (group: RequestDetailLine[]) => {
+  const decideMany = async (idxs: number[], lineStatus: 'Approved' | 'Rejected', why?: string) => {
     setNotice(null);
     try {
       const outcome = await many.mutateAsync({
         name: request.name,
-        idxs: group.map((line) => line.idx),
-        line_status: 'Approved',
+        idxs,
+        line_status: lineStatus,
+        ...(why ? { reason: why } : {}),
       });
       if (outcome.failed) {
+        const verb = lineStatus === 'Approved' ? 'accepted' : 'rejected';
         setNotice(
-          `${outcome.decided} accepted, ${outcome.failed} not: ` +
+          `${outcome.decided} ${verb}, ${outcome.failed} not: ` +
             outcome.results
               .filter((row) => !row.ok)
               .map((row) => `line ${row.idx} — ${row.message}`)
@@ -150,11 +71,11 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
   };
 
   const confirmReject = async () => {
-    if (!rejecting || !reason.trim()) return;
+    if (!rejecting || rejecting.line_idx === null || !reason.trim()) return;
     try {
       await one.mutateAsync({
         name: request.name,
-        idx: rejecting.idx,
+        idx: rejecting.line_idx,
         line_status: 'Rejected',
         reason: reason.trim(),
       });
@@ -165,97 +86,113 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
     }
   };
 
+  const personDetail = (subject: RequestSubjectPresentation) => {
+    if (subject.type === 'new') {
+      const entity = presentation.data?.requested_entities.find((row) => row.key === subject.subject_key);
+      const snapshot = entity?.requested_snapshot ?? {};
+      return (
+        <PersonHeader
+          fullName={subject.full_name}
+          isNew
+          asked={{
+            department: subject.department ?? text(snapshot.department),
+            email: text(snapshot.email),
+            username: text(snapshot.username),
+          }}
+        />
+      );
+    }
+    return (
+      <PersonHeader
+        fullName={subject.full_name}
+        facts={subject.client_user ? request.people?.[subject.client_user] : null}
+      />
+    );
+  };
+
+  const groupControls = (group: RequestActionGroupPresentation) => {
+    const open = pendingOf(group);
+    return (
+      <>
+        <button
+          type="button"
+          disabled={!open.length || many.isLoading || one.isLoading}
+          onClick={() => decideMany(open, 'Approved')}
+          className={btnAccept}
+        >
+          Accept all
+        </button>
+        <button
+          type="button"
+          disabled={!open.length || many.isLoading || one.isLoading}
+          onClick={() => {
+            setReason('');
+            setRejectingGroup(group);
+          }}
+          className={btnReject}
+        >
+          Reject all
+        </button>
+      </>
+    );
+  };
+
+  const targetControls = (target: RequestTargetPresentation) => {
+    const rate = check(target.line_idx);
+    return (
+      <>
+        {rate && (rate.priced || rate.duplicate) && (
+          <span className={`w-full text-xs ${rate.priced ? 'text-slate-500' : 'text-amber-700'}`}>
+            {rate.priced
+              ? request.review?.shows_rates && rate.rate !== null
+                ? `Rate ${rate.rate.toLocaleString()} ${request.review.currency ?? ''}`
+                : 'Rate set in contract'
+              : ''}
+            {rate.duplicate ? ` · already held (${rate.duplicate})` : ''}
+          </span>
+        )}
+        {target.line_idx !== null && target.line_status !== 'Approved' && (
+          <button
+            type="button"
+            disabled={one.isLoading || many.isLoading}
+            onClick={() =>
+              one.mutate({ name: request.name, idx: target.line_idx as number, line_status: 'Approved' })
+            }
+            className={btnAccept}
+          >
+            <Check size={13} />
+            Accept
+          </button>
+        )}
+        {target.line_idx !== null && target.line_status !== 'Rejected' && (
+          <button
+            type="button"
+            onClick={() => {
+              setReason('');
+              setRejecting(target);
+            }}
+            className={btnReject}
+          >
+            <X size={13} />
+            Reject
+          </button>
+        )}
+      </>
+    );
+  };
+
+  if (!presentation.data) {
+    return (
+      <p className="py-8 text-center text-sm text-slate-500">
+        {presentation.error ? (presentation.error as Error).message : 'Loading the request…'}
+      </p>
+    );
+  }
+
   const error = (one.error ?? many.error) as Error | undefined;
 
   return (
     <div className="space-y-4">
-      {/* <div className={banner}>
-        <p className="font-semibold">Technician decision</p>
-        <p className="mt-0.5">
-          Nothing is executed at this stage. You are deciding which requested lines enter the
-          work plan.
-        </p>
-      </div> */}
-
-      {decidable && pending.length > 0 && (
-        <div className={bulkBar}>
-          <div>
-            <p className="text-sm font-semibold text-slate-900">Group decisions</p>
-            <p className="text-xs text-slate-500">
-              Useful when several lines clearly call for the same decision.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {shared.map((group) => (
-              <button
-                key={`accept-${group[0].action_group_key ?? group[0].idx}`}
-                type="button"
-                disabled={many.isLoading}
-                onClick={() => decideMany(group)}
-                className={btnAccept}
-              >
-                Accept all {group.length}
-              </button>
-            ))}
-            <button
-              type="button"
-              disabled={many.isLoading}
-              onClick={() => decideMany(pending)}
-              className={btnAccept}
-            >
-              Accept all pending
-            </button>
-          </div>
-        </div>
-      )}
-
-      {shared.map((group) => (
-        <div
-          key={`shared-${group[0].action_group_key ?? group[0].idx}`}
-          className="rounded-lg border border-slate-200 bg-white px-4 py-3"
-        >
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-slate-900">
-                {labelOf(group)} · {group.length} targets
-              </p>
-              <p className="text-xs text-slate-500">
-                {actOf(group[0])} for {group.length} people.
-              </p>
-            </div>
-
-            {decidable && (
-              <div className="flex flex-wrap gap-1.5">
-                <button
-                  type="button"
-                  disabled={many.isLoading}
-                  onClick={() => decideMany(group)}
-                  className={btnAccept}
-                >
-                  Accept all {group.length}
-                </button>
-                <button
-                  type="button"
-                  disabled={many.isLoading}
-                  onClick={() => setRejectingGroup(group)}
-                  className={btnReject}
-                >
-                  Reject all {group.length}
-                </button>
-              </div>
-            )}
-          </div>
-
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {group.map((line) => (
-              <span key={line.idx} className={pill('slate')}>
-                {personName(line)}
-              </span>
-            ))}
-          </div>
-        </div>
-      ))}
-
       {notice && <p className={warnBar}>{notice}</p>}
       {error && !rejecting && (
         <p className="flex items-start gap-2 rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
@@ -264,181 +201,41 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
         </p>
       )}
 
-      <PeopleWorkspace
-        people={people.map((person) => {
-          const open = person.lines.filter((line) => line.line_status === 'Pending').length;
-          return {
-            key: person.key,
-            name: person.name,
-            hint: open ? `${open} decision${open > 1 ? 's' : ''} remaining` : 'Decided',
-            done: open === 0,
-          };
-        })}
-      >
-        {(key) => {
-          const person = people.find((row) => row.key === key) as (typeof people)[number];
-          return (
-        <div>
-          <PersonHeader
-            fullName={person.name}
-            isNew={person.isNew}
-            facts={person.isNew ? null : request.people?.[person.key]}
-            asked={{
-              department: person.first.new_user_department,
-              email: person.first.new_user_email,
-              username: person.first.new_user_username,
-            }}
-          />
-
-          {person.lines.map((line) => {
-            const onDevice = Boolean(line.managed_device || line.is_new_device);
-            const rate = check(line.idx);
-
-            return (
-              <div
-                key={line.idx}
-                className={`${lineRow} ${
-                  line.line_status === 'Approved'
-                    ? 'bg-emerald-50/30'
-                    : line.line_status === 'Rejected'
-                      ? 'bg-red-50/30'
-                      : 'bg-white'
-                }`}
-              >
-                <span
-                  aria-hidden
-                  className={`flex h-9 w-9 items-center justify-center rounded-lg border ${
-                    line.line_status === 'Rejected'
-                      ? 'border-red-200 bg-red-50 text-red-600'
-                      : line.line_status === 'Approved'
-                        ? 'border-emerald-200 bg-emerald-50 text-emerald-600'
-                        : 'border-slate-200 bg-slate-50 text-slate-500'
-                  }`}
+      <RequestPresentation
+        presentation={presentation.data}
+        mode="internal_review"
+        withHeader={false}
+        renderPersonDetail={personDetail}
+        renderGroupControls={decidable ? groupControls : undefined}
+        renderTargetControls={decidable ? targetControls : undefined}
+        footer={
+          decidable ? (
+            <div className="flex flex-col items-stretch justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3 sm:flex-row sm:items-center">
+              {pending.length > 0 ? (
+                <p className="text-xs text-slate-500">Every line must be accepted or rejected before execution.</p>
+              ) : (
+                <p className="text-xs font-semibold text-slate-700">
+                  {accepted.length} accepted · {rejected.length} rejected
+                </p>
+              )}
+              {pending.length > 0 || accepted.length > 0 ? (
+                <button
+                  type="button"
+                  disabled={continuing || pending.length > 0}
+                  onClick={onContinue}
+                  className={`${btnPrimary} py-2.5`}
                 >
-                  {onDevice ? <Laptop size={16} /> : <UserRound size={16} />}
-                </span>
-
-                <div className="min-w-0">
-                  {onMachine(line) ? (
-                    <>
-                      <p className="text-sm font-semibold text-slate-900">{actOf(line)}</p>
-                      <p className="text-sm text-slate-700">{line.device_hostname}</p>
-                      <p className="text-sm text-slate-700">
-                        {line.client_user_name || 'Unassigned'} →{' '}
-                        {line.requested_holder_name || 'Unassigned'}
-                      </p>
-                      <p className="mt-0.5 text-xs text-slate-500">
-                        Device
-                        {askedFor(line.requested_effective_date)
-                          ? ` · Requested for ${askedFor(line.requested_effective_date)}`
-                          : ''}
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-sm font-semibold text-slate-900">
-                        {serviceOf(line)} · {actOf(line)}
-                      </p>
-                      <p className="mt-0.5 text-xs text-slate-500">
-                        {person.name} · {onDevice ? 'Device' : 'User'} scope
-                        {onDevice
-                          ? ` · ${line.device_hostname || (line.is_new_device ? 'device to be prepared' : 'device')}`
-                          : ''}
-                      </p>
-                    </>
-                  )}
-                  {rate && (
-                    <p
-                      className={`mt-0.5 inline-flex items-center gap-1 text-xs ${
-                        rate.priced ? 'text-slate-500' : 'text-amber-700'
-                      }`}
-                    >
-                      {/* {rate.priced ? <Check size={12} /> : <CircleAlert size={12} />} */}
-                      {rate.priced
-                        ? request.review?.shows_rates && rate.rate !== null
-                          ? `Rate ${rate.rate.toLocaleString()} ${request.review.currency ?? ''}`
-                          : 'Rate set in contract'
-                        : ''}
-                      {rate.duplicate ? ` · already held (${rate.duplicate})` : ''}
-                    </p>
-                  )}
-                  <p
-                    className={`mt-1 text-xs font-semibold ${
-                      line.line_status === 'Approved'
-                        ? 'text-emerald-700'
-                        : line.line_status === 'Rejected'
-                          ? 'text-red-700'
-                          : 'text-gray-700'
-                    }`}
-                  >
-                    {line.line_status === 'Approved'
-                      ? ''
-                      : line.line_status === 'Rejected'
-                        ? `Rejected${line.rejection_reason ? ` · ${line.rejection_reason}` : ''}`
-                        : ''}
-                  </p>
-                </div>
-
-                {decidable && (
-                  <div className="col-start-2 flex flex-wrap gap-2 sm:col-start-auto">
-                    {line.line_status !== 'Approved' && (
-                      <button
-                        type="button"
-                        disabled={one.isLoading}
-                        onClick={() =>
-                          one.mutate({ name: request.name, idx: line.idx, line_status: 'Approved' })
-                        }
-                        className={btnAccept}
-                      >
-                        <Check size={13} />
-                        Accept
-                      </button>
-                    )}
-                    {line.line_status !== 'Rejected' && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setReason('');
-                          setRejecting(line);
-                        }}
-                        className={btnReject}
-                      >
-                        <X size={13} />
-                        Reject
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-          );
-        }}
-      </PeopleWorkspace>
-
-      {decidable &&
-        (pending.length === 0 ? (
-          <div className={nextBar}>
-            <div>
-              <p className="text-sm font-semibold text-emerald-800">Line review complete</p>
-              <p className="text-xs text-emerald-700">
-                {accepted.length} accepted · {rejected.length} rejected
-              </p>
+                  Continue to Execute
+                </button>
+              ) : (
+                <button type="button" onClick={onRejectRequest} className={`${btnReject} py-2.5`}>
+                  Reject request
+                </button>
+              )}
             </div>
-            {accepted.length > 0 ? (
-              <button type="button" disabled={continuing} onClick={onContinue} className={btnPrimary}>
-                Continue to Execute
-              </button>
-            ) : (
-              <button type="button" onClick={onRejectRequest} className={btnReject}>
-                Reject request
-              </button>
-            )}
-          </div>
-        ) : (
-          <p className={warnBar}>Every request line needs a decision before execution can start.</p>
-        ))}
+          ) : undefined
+        }
+      />
 
       <Modal
         open={Boolean(rejecting)}
@@ -453,7 +250,7 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
             <button
               type="button"
               onClick={() => setRejecting(null)}
-              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
               Cancel
             </button>
@@ -461,7 +258,7 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
               type="button"
               onClick={confirmReject}
               disabled={!reason.trim() || one.isLoading}
-              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+              className="rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
             >
               Reject line
             </button>
@@ -471,10 +268,14 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
         {rejecting && (
           <p className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
             <span className="font-semibold">
-              {serviceOf(rejecting)} · {actOf(rejecting)}
+              {rejecting.operation_label} · {rejecting.target_label}
             </span>
-            <br />
-            {personName(rejecting)}
+            {rejecting.person_label && (
+              <>
+                <br />
+                {rejecting.person_label}
+              </>
+            )}
           </p>
         )}
         {one.error instanceof Error && (
@@ -524,7 +325,7 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
               onClick={async () => {
                 if (!rejectingGroup) return;
 
-                await rejectMany(rejectingGroup, reason.trim());
+                await decideMany(pendingOf(rejectingGroup), 'Rejected', reason.trim());
                 setRejectingGroup(null);
                 setReason('');
               }}
@@ -537,9 +338,9 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
       >
         {rejectingGroup && (
           <p className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-            <span className="font-semibold">{labelOf(rejectingGroup)}</span>
+            <span className="font-semibold">{rejectingGroup.operation_label}</span>
             <br />
-            {rejectingGroup.length} line(s) will carry this reason.
+            {pendingOf(rejectingGroup).length} line(s) will carry this reason.
           </p>
         )}
         <label

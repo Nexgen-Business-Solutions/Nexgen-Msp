@@ -96,13 +96,22 @@ class TestIdentifiersKeepTheirRules(MSPTestCase):
                         "action": "Add",
                         "target_scope": "User",
                         "client_user": person,
-                        "new_user_username": "taken",
+                        "subject_key": f"user:{person}",
                         "requested_service": service,
+                    }
+                ],
+                subjects=[
+                    {
+                        "subject_key": f"user:{person}",
+                        "kind": "existing",
+                        "client_user": person,
+                        "full_name": "Ursula",
+                        "username": "taken",
                     }
                 ],
             ),
         )
-        self.track("MSP Service Request", out["name"])
+        self.track("MSP Request", out["name"])
 
         self.assertFalse(frappe.db.get_value("MSP Client User", person, "username"))
 
@@ -122,13 +131,22 @@ class TestIdentifiersKeepTheirRules(MSPTestCase):
                         "action": "Add",
                         "target_scope": "Device",
                         "managed_device": machine,
-                        "new_device_serial": "SN-TAKEN",
                         "requested_service": service,
-                    }
+                    },
+                    {
+                        "operation_code": self.operation(),
+                        "action": "Add",
+                        "target_scope": "Device",
+                        "device_requirement_key": "new-device:taken",
+                        "requested_service": service,
+                    },
+                ],
+                requested_devices=[
+                    {"device_requirement_key": "new-device:taken", "serial_number": "SN-TAKEN"}
                 ],
             ),
         )
-        self.track("MSP Service Request", out["name"])
+        self.track("MSP Request", out["name"])
 
         self.assertFalse(frappe.db.get_value("MSP Managed Device", machine, "serial_number"))
 
@@ -156,14 +174,15 @@ class TestIdentifiersKeepTheirRules(MSPTestCase):
                 ],
             ),
         )
-        name = self.track("MSP Service Request", out["name"])
+        name = self.track("MSP Request", out["name"])
 
+        self.as_user(self.tech, lambda: RequestService.run_action(name, "start_review"))
         self.as_user(self.tech, lambda: RequestService.set_line_status(name, 1, "Approved"))
         self.as_user(self.tech, lambda: RequestService.run_action(name, "approve"))
         work = frappe.get_all(
-            "MSP Service Work Order", filters={"service_request": name}, pluck="name"
+            "MSP Work Order", filters={"request": name}, pluck="name"
         )[0]
-        self.track("MSP Service Work Order", work)
+        self.track("MSP Work Order", work)
 
         with self.assertRaises(ValidationError):
             self.as_user(
@@ -181,7 +200,7 @@ class TestIdentifiersKeepTheirRules(MSPTestCase):
         )
         self.track(
             "MSP Service Assignment",
-            frappe.db.get_value("MSP Service Work Order", work, "resulting_assignment"),
+            frappe.db.get_value("MSP Work Order", work, "resulting_assignment"),
         )
 
         self.assertEqual(frappe.db.get_value("MSP Client User", self.bob, "username"), "b.bob")
@@ -208,14 +227,15 @@ class TestIdentifiersKeepTheirRules(MSPTestCase):
                 ],
             ),
         )
-        name = self.track("MSP Service Request", out["name"])
+        name = self.track("MSP Request", out["name"])
 
+        self.as_user(self.tech, lambda: RequestService.run_action(name, "start_review"))
         self.as_user(self.tech, lambda: RequestService.set_line_status(name, 1, "Approved"))
         self.as_user(self.tech, lambda: RequestService.run_action(name, "approve"))
         work = frappe.get_all(
-            "MSP Service Work Order", filters={"service_request": name}, pluck="name"
+            "MSP Work Order", filters={"request": name}, pluck="name"
         )[0]
-        self.track("MSP Service Work Order", work)
+        self.track("MSP Work Order", work)
 
         with self.assertRaises(ValidationError) as caught:
             self.as_user(

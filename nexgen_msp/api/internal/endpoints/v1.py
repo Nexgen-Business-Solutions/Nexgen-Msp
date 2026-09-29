@@ -3,6 +3,9 @@ import frappe
 from nexgen_msp.utils import device_holders as holders
 from nexgen_msp.utils import remarks as remarks_util
 
+from nexgen_msp.api.internal.services.request_presentation_service import (
+    RequestPresentationService,
+)
 from nexgen_msp.api.internal.services.request_service import RequestService
 from nexgen_msp.utils.errors import NotFoundError
 from nexgen_msp.utils.wrapper_error_decorator import handle_errors
@@ -61,6 +64,12 @@ def get_request(name=None):
 
 @frappe.whitelist()
 @handle_errors
+def get_request_presentation(name=None):
+    return RequestPresentationService.for_internal(name=name)
+
+
+@frappe.whitelist()
+@handle_errors
 def list_customer_requests(customer=None, limit=30):
     return RequestService.list_customer_requests(customer=customer, limit=limit)
 
@@ -105,48 +114,6 @@ def get_request_execution_plan(name=None):
 @handle_errors
 def build_request_execution_plan(name=None):
     return _execution().build_execution_plan(request=name)
-
-
-@frappe.whitelist()
-@handle_errors
-def execute_user_setup(work_order=None, username=None, email=None, department=None, notes=None):
-    return _execution().execute_user_setup(
-        work_order=work_order, username=username, email=email, department=department, notes=notes
-    )
-
-
-@frappe.whitelist()
-@handle_errors
-def execute_device_provisioning(
-    work_order=None,
-    mode=None,
-    managed_device=None,
-    hostname=None,
-    serial_number=None,
-    device_type=None,
-    interfaces=None,
-    effective_date=None,
-    confirm_transfer=None,
-    notes=None,
-    manufacturer=None,
-    model=None,
-    operating_system=None,
-):
-    return _execution().execute_device_provisioning(
-        work_order=work_order,
-        mode=mode,
-        managed_device=managed_device,
-        hostname=hostname,
-        serial_number=serial_number,
-        device_type=device_type,
-        interfaces=interfaces,
-        effective_date=effective_date,
-        confirm_transfer=confirm_transfer,
-        notes=notes,
-        manufacturer=manufacturer,
-        model=model,
-        operating_system=operating_system,
-    )
 
 
 @frappe.whitelist()
@@ -209,16 +176,76 @@ def execute_service_actions(work_orders=None, effective_date=None, confirm_bille
 
 @frappe.whitelist()
 @handle_errors
-def get_technician_options(name=None, subject_key=None):
-    return _execution().technician_options(request=name, subject_key=subject_key)
+def get_requested_client_user(name=None):
+    return _execution().get_requested(kind="client_user", name=name)
 
 
 @frappe.whitelist()
 @handle_errors
-def add_technician_action(name=None, subject_key=None, option=None, reason=None):
-    return _execution().add_technician_action(
-        request=name, subject_key=subject_key, option=option, reason=reason
+def save_requested_client_user(name=None, values=None):
+    return _execution().save_requested(kind="client_user", name=name, values=values)
+
+
+@frappe.whitelist()
+@handle_errors
+def resolve_requested_client_user(name=None, mode=None, values=None, client_user=None):
+    return _execution().resolve_requested(
+        kind="client_user", name=name, mode=mode, values=values, target=client_user
     )
+
+
+@frappe.whitelist()
+@handle_errors
+def cancel_requested_client_user(name=None, reason=None):
+    return _execution().cancel_requested(kind="client_user", name=name, reason=reason)
+
+
+@frappe.whitelist()
+@handle_errors
+def get_requested_device(name=None):
+    return _execution().get_requested(kind="device", name=name)
+
+
+@frappe.whitelist()
+@handle_errors
+def save_requested_device(name=None, values=None):
+    return _execution().save_requested(kind="device", name=name, values=values)
+
+
+@frappe.whitelist()
+@handle_errors
+def resolve_requested_device(name=None, mode=None, values=None, managed_device=None):
+    return _execution().resolve_requested(
+        kind="device", name=name, mode=mode, values=values, target=managed_device
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def cancel_requested_device(name=None, reason=None):
+    return _execution().cancel_requested(kind="device", name=name, reason=reason)
+
+
+@frappe.whitelist()
+@handle_errors
+def list_selectable_client_users(customer=None, search=None, limit=None):
+    from nexgen_msp.api.internal.services.requested_client_user_service import (
+        RequestedClientUserService,
+    )
+
+    RequestService._guard_internal()
+
+    return RequestedClientUserService.selectable_client_user_page(customer, search, limit)
+
+
+@frappe.whitelist()
+@handle_errors
+def list_selectable_devices(customer=None, search=None, limit=None):
+    from nexgen_msp.api.internal.services.requested_device_service import RequestedDeviceService
+
+    RequestService._guard_internal()
+
+    return RequestedDeviceService.selectable_device_page(customer, search, limit)
 
 
 @frappe.whitelist()
@@ -834,7 +861,6 @@ def create_client_user(
     start_date=None,
     remarks=None,
     source_request=None,
-    request_line=None,
 ):
     from nexgen_msp.api.internal.services.user_service import UserService
 
@@ -847,7 +873,6 @@ def create_client_user(
         start_date=start_date,
         remarks=remarks,
         source_request=source_request,
-        request_line=request_line,
     )
 
 

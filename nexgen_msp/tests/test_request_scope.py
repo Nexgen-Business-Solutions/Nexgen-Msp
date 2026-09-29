@@ -11,6 +11,7 @@ import frappe
 from nexgen_msp.api.internal.services.authority_service import AuthorityService
 from nexgen_msp.api.portal.services.portal_service import PortalService
 from nexgen_msp.api.portal.services.request_builder_service import RequestBuilderService
+from nexgen_msp.api.portal.services.request_scope_service import RequestScopeService
 from nexgen_msp.utils.errors import NexgenError
 
 from .base import MSPTestCase
@@ -137,23 +138,41 @@ class TestExpandingOneChangeOverMany(ScopeCase):
         self.machine_service = self.make_service(f"SCD{self.tag[:3]}", scope="Device")
         self.cover_service(self.customer, self.machine_service)
 
-    def targets(self, operation_code, service, people):
+    def options(self, people):
+        subjects = [
+            {
+                "subject_key": f"user:{person}",
+                "kind": "existing",
+                "client_user": person,
+                "full_name": frappe.db.get_value("MSP Client User", person, "full_name"),
+                "added_via": "Existing",
+            }
+            for person in people
+        ]
+
         return self.as_user(
             self.asker,
-            lambda: RequestBuilderService.bulk_targets(
-                customer=self.customer,
-                operation_code=operation_code,
-                service_item=service,
-                people=people,
-            ),
+            lambda: RequestScopeService.operation_options(customer=self.customer, subjects=subjects),
+        )
+
+    def targets(self, operation_code, service, people):
+        """The act one service offers to these people, with its targets and its exceptions."""
+        domain = next(
+            (row for row in self.options(people)["domains"] if row["key"] == "Service"), {"options": []}
+        )
+        card = next((row for row in domain["options"] if row["object_key"] == service), {"actions": []})
+
+        return next(
+            (row for row in card["actions"] if row["operation_code"] == operation_code),
+            {"targets": [], "exclusions": []},
         )
 
     def test_a_user_service_expands_to_one_line_per_person(self):
         out = self.targets("service.add", self.service, [self.alice, self.bob])
 
-        self.assertEqual(out["eligible_count"], 2)
-        self.assertEqual(out["excluded_count"], 0)
-        self.assertEqual({row["target_scope"] for row in out["eligible"]}, {"User"})
+        self.assertEqual(len(out["targets"]), 2)
+        self.assertEqual(out["exclusions"], [])
+        self.assertEqual({row["target_scope"] for row in out["targets"]}, {"User"})
 
     def test_somebody_who_already_has_it_is_named_as_an_exception(self):
         from nexgen_msp.api.internal.services.service_lifecycle_service import (
@@ -169,18 +188,18 @@ class TestExpandingOneChangeOverMany(ScopeCase):
         self.track("MSP Service Assignment", opened["name"])
 
         out = self.targets("service.add", self.service, [self.alice, self.bob])
-        excluded = {row["client_user"]: row["reason"] for row in out["excluded"]}
+        excluded = {row["client_user"]: row["reason_code"] for row in out["exclusions"]}
 
-        self.assertEqual(out["eligible_count"], 1)
-        self.assertEqual(excluded[self.alice], "Service already active")
+        self.assertEqual([row["client_user"] for row in out["targets"]], [self.bob])
+        self.assertEqual(excluded[self.alice], "ALREADY_ACTIVE")
 
     def test_a_disabled_person_is_never_a_target(self):
         left = self.person("Left", self.finance, status="Disabled")
 
         out = self.targets("service.add", self.service, [self.alice, left])
-        excluded = {row["client_user"]: row["reason"] for row in out["excluded"]}
 
-        self.assertEqual(excluded[left], "Person is disabled")
+        self.assertNotIn(left, [row["client_user"] for row in out["targets"]])
+        self.assertIn(left, [row["client_user"] for row in out["exclusions"]])
 
     def test_a_device_service_reaches_the_machines_those_people_hold(self):
         one = self.make_device(
@@ -191,26 +210,32 @@ class TestExpandingOneChangeOverMany(ScopeCase):
         )
 
         out = self.targets("service.add", self.machine_service, [self.alice, self.bob])
-        excluded = {row["client_user"]: row["reason"] for row in out["excluded"]}
+        excluded = {row["client_user"]: row["reason_code"] for row in out["exclusions"]}
 
         self.assertEqual(
-            {row["managed_device"] for row in out["eligible"]}, {one, two}, "both machines, not one"
+            {row["managed_device"] for row in out["targets"]}, {one, two}, "both machines, not one"
         )
-        self.assertEqual(out["device_count"], 2)
-        self.assertEqual(excluded[self.bob], "Person has no current Device")
+        self.assertEqual(excluded[self.bob], "NO_CURRENT_DEVICE")
 
     def test_an_existing_assignment_operation_needs_a_matching_assignment(self):
         out = self.targets("service.suspend", self.service, [self.alice])
-        excluded = {row["client_user"]: row["reason"] for row in out["excluded"]}
 
-        self.assertEqual(out["eligible_count"], 0)
-        self.assertEqual(excluded[self.alice], "No matching current assignment")
+        self.assertEqual(out["targets"], [])
+        self.assertTrue(
+            all(row["reason_code"] == "NO_CURRENT_ASSIGNMENT" for row in out["exclusions"])
+        )
 
-    def test_a_holder_operation_is_never_a_bulk_change(self):
-        with self.assertRaises(NexgenError) as refused:
-            self.targets("device.transfer", self.service, [self.alice])
+    def test_a_holder_operation_names_each_machine_rather_than_a_crowd(self):
+        one = self.make_device(
+            self.customer, hostname=f"BH1-{self.tag[:4]}", holder=self.alice, serial=f"ZZTEST-H{self.tag}"
+        )
 
-        self.assertEqual(refused.exception.code, "OPERATION_NOT_REQUESTABLE")
+        devices = next(row for row in self.options([self.alice, self.bob])["domains"] if row["key"] == "Device")
+        transfer = next(row for row in devices["options"] if row["operation_code"] == "device.transfer")
+
+        self.assertEqual([row["managed_device"] for row in transfer["targets"]], [one])
+        self.assertEqual(transfer["targets"][0]["current_holder"], self.alice)
+        self.assertEqual([row["reason_code"] for row in transfer["exclusions"]], ["NO_CURRENT_DEVICE"])
 
 
 class TestWhatTheRequestKeeps(ScopeCase):
@@ -234,7 +259,7 @@ class TestWhatTheRequestKeeps(ScopeCase):
             lambda: PortalService.create_request(customer=self.customer, lines=list(lines)),
         )
 
-        return self.track("MSP Service Request", out["name"])
+        return self.track("MSP Request", out["name"])
 
     def test_the_same_person_picked_twice_is_asked_for_once(self):
         name = self.raised(
@@ -243,7 +268,7 @@ class TestWhatTheRequestKeeps(ScopeCase):
         )
 
         rows = frappe.get_all(
-            "MSP Service Request Line", filters={"parent": name}, fields=["client_user"]
+            "MSP Request Line", filters={"parent": name}, fields=["client_user"]
         )
 
         self.assertEqual([row.client_user for row in rows], [self.alice])
@@ -261,7 +286,7 @@ class TestWhatTheRequestKeeps(ScopeCase):
         )
 
         row = frappe.db.get_value(
-            "MSP Service Request Line",
+            "MSP Request Line",
             {"parent": name},
             ["selection_origin", "selection_group_key", "selection_label"],
             as_dict=True,
@@ -329,21 +354,33 @@ class TestTheLoadOneRequestMayCarry(ScopeCase):
         self.assertGreaterEqual(selection["active_count"], 500)
         self.assertLess(selecting, 10, f"resolving the company took {selecting:.1f}s")
 
-        started = time.time()
-        resolved = [
-            self.as_user(
-                self.asker,
-                lambda service=service: RequestBuilderService.bulk_targets(
-                    customer=self.customer,
-                    operation_code="service.add",
-                    service_item=service,
-                    people=people,
-                ),
-            )
-            for service in services
+        subjects = [
+            {
+                "subject_key": f"user:{person}",
+                "kind": "existing",
+                "client_user": person,
+                "full_name": f"ZZTEST Load {self.tag} {index}",
+                "added_via": "Company",
+            }
+            for index, person in enumerate(people)
         ]
+
+        started = time.time()
+        options = self.as_user(
+            self.asker,
+            lambda: RequestScopeService.operation_options(customer=self.customer, subjects=subjects),
+        )
         expanding = time.time() - started
-        targets = sum(row["eligible_count"] for row in resolved)
+        resolved = [
+            {"service_item": card["object_key"], "targets": action["targets"]}
+            for domain in options["domains"]
+            if domain["key"] == "Service"
+            for card in domain["options"]
+            if card["object_key"] in services
+            for action in card["actions"]
+            if action["operation_code"] == "service.add"
+        ]
+        targets = sum(len(row["targets"]) for row in resolved)
 
         self.assertEqual(targets, 1500)
         self.assertLess(expanding, 60, f"expanding 1500 targets took {expanding:.1f}s")
@@ -358,7 +395,7 @@ class TestTheLoadOneRequestMayCarry(ScopeCase):
                 "selection_label": "Entire company",
             }
             for answer in resolved
-            for row in answer["eligible"]
+            for row in answer["targets"]
         ]
 
         started = time.time()
@@ -367,9 +404,9 @@ class TestTheLoadOneRequestMayCarry(ScopeCase):
             lambda: PortalService.create_request(customer=self.customer, lines=lines),
         )
         submitting = time.time() - started
-        name = self.track("MSP Service Request", out["name"])
+        name = self.track("MSP Request", out["name"])
 
-        self.assertEqual(frappe.db.count("MSP Service Request Line", {"parent": name}), 1500)
+        self.assertEqual(frappe.db.count("MSP Request Line", {"parent": name}), 1500)
         self.assertLess(submitting, 120, f"submitting 1500 lines took {submitting:.1f}s")
 
         started = time.time()
@@ -425,9 +462,9 @@ class TestWhoMayAgreeToIt(ScopeCase):
                 customer=self.customer, lines=[self.line(self.alice)]
             ),
         )
-        name = self.track("MSP Service Request", out["name"])
+        name = self.track("MSP Request", out["name"])
 
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Submitted")
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "status"), "Submitted")
 
     def test_a_company_wide_approver_settles_it(self):
         AuthorityService.set_account_rights(self.asker, {"can_submit": 1, "can_approve": 1})
@@ -438,6 +475,6 @@ class TestWhoMayAgreeToIt(ScopeCase):
                 customer=self.customer, lines=[self.line(self.alice), self.line(self.carla)]
             ),
         )
-        name = self.track("MSP Service Request", out["name"])
+        name = self.track("MSP Request", out["name"])
 
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "status"), "Submitted")
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "status"), "Submitted")

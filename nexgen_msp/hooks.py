@@ -229,14 +229,14 @@ website_redirects = [
 permission_query_conditions = {
 	"MSP Client User": "nexgen_msp.utils.access.raw_msp_query_condition",
 	"MSP Managed Device": "nexgen_msp.utils.access.raw_msp_query_condition",
-	"MSP Service Request": "nexgen_msp.utils.access.raw_msp_query_condition",
+	"MSP Request": "nexgen_msp.utils.access.raw_msp_query_condition",
 	"MSP Service Assignment": "nexgen_msp.utils.access.raw_msp_query_condition",
 }
 
 has_permission = {
 	"MSP Client User": "nexgen_msp.utils.access.has_raw_msp_permission",
 	"MSP Managed Device": "nexgen_msp.utils.access.has_raw_msp_permission",
-	"MSP Service Request": "nexgen_msp.utils.access.has_raw_msp_permission",
+	"MSP Request": "nexgen_msp.utils.access.has_raw_msp_permission",
 	"MSP Service Assignment": "nexgen_msp.utils.access.has_raw_msp_permission",
 }
 

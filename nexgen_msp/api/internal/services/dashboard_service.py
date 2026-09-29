@@ -7,8 +7,11 @@ from nexgen_msp.api.internal.services.request_service import (
     OPEN_STATUSES,
     RequestService,
 )
+from nexgen_msp.utils import request_targets
 from nexgen_msp.utils.assignments import OPEN_ASSIGNMENT_STATUSES
 
+
+PERSON = request_targets.line_person_sql("srl")
 
 ACTIONABLE_STATUSES = ("Submitted", "Under Review", "Approved", "In Progress")
 
@@ -105,7 +108,7 @@ class DashboardService:
             select status, priority,
                    count(*) as total,
                    sum(timestampdiff(hour, creation, now()) > 48) as ageing
-            from `tabMSP Service Request`
+            from `tabMSP Request`
             -- a draft is still being written and a refused one never reached us: neither is
             -- work waiting on this team
             where status != 'Draft' and ifnull(refused_by_customer, 0) = 0
@@ -132,10 +135,10 @@ class DashboardService:
         counters["completed"] = by_status.get("Completed", 0)
         # the card lists requests, so it counts requests too — the lines are its caption
         counters["requests_to_execute"] = frappe.db.sql(
-            """
+            f"""
             select count(distinct sr.name)
-            from `tabMSP Service Request Line` srl
-            join `tabMSP Service Request` sr on sr.name = srl.parent
+            from `tabMSP Request Line` srl
+            join `tabMSP Request` sr on sr.name = srl.parent
             where sr.status in ('Approved', 'In Progress')
               and ifnull(sr.refused_by_customer, 0) = 0
               and srl.line_status = 'Approved'
@@ -144,18 +147,18 @@ class DashboardService:
                   left join `tabMSP Managed Device` sad on sad.name = sa.managed_device
                   where sa.source_request = srl.parent
                     and sa.service_item = srl.requested_service
-                    and (srl.client_user is null or srl.client_user = ''
-                         or sa.client_user = srl.client_user
-                         or sad.assigned_client_user = srl.client_user)
+                    and ({PERSON} is null
+                         or sa.client_user = {PERSON}
+                         or sad.assigned_client_user = {PERSON})
               )
             """
         )[0][0]
 
         counters["lines_to_execute"] = frappe.db.sql(
-            """
+            f"""
             select count(*)
-            from `tabMSP Service Request Line` srl
-            join `tabMSP Service Request` sr on sr.name = srl.parent
+            from `tabMSP Request Line` srl
+            join `tabMSP Request` sr on sr.name = srl.parent
             where sr.status in ('Approved', 'In Progress')
               and ifnull(sr.refused_by_customer, 0) = 0
               and srl.line_status = 'Approved'
@@ -164,9 +167,9 @@ class DashboardService:
                   left join `tabMSP Managed Device` sad on sad.name = sa.managed_device
                   where sa.source_request = srl.parent
                     and sa.service_item = srl.requested_service
-                    and (srl.client_user is null or srl.client_user = ''
-                         or sa.client_user = srl.client_user
-                         or sad.assigned_client_user = srl.client_user)
+                    and ({PERSON} is null
+                         or sa.client_user = {PERSON}
+                         or sad.assigned_client_user = {PERSON})
               )
             """
         )[0][0]
@@ -176,19 +179,21 @@ class DashboardService:
     @staticmethod
     def _queue():
         return frappe.db.sql(
-            """
+            f"""
             select
                 sr.name, sr.customer, sr.request_type, sr.status, sr.priority,
                 sr.creation,
                 timestampdiff(hour, sr.creation, now()) as age_hours,
-                (select count(*) from `tabMSP Service Request Line` srl where srl.parent = sr.name)
+                (select count(*) from `tabMSP Request Line` srl where srl.parent = sr.name)
                     as line_count,
-                (select group_concat(distinct coalesce(cu.full_name, srl.new_user_full_name)
+                (select group_concat(distinct coalesce(cu.full_name, rcu.full_name)
                     order by srl.idx separator ', ')
-                    from `tabMSP Service Request Line` srl
-                    left join `tabMSP Client User` cu on cu.name = srl.client_user
+                    from `tabMSP Request Line` srl
+                    left join `tabMSP Client User` cu on cu.name = {PERSON}
+                    left join `tabMSP Requested Client User` rcu
+                        on rcu.name = coalesce(srl.requested_client_user, srl.requested_for_requested_client_user)
                     where srl.parent = sr.name) as users
-            from `tabMSP Service Request` sr
+            from `tabMSP Request` sr
             where sr.status in %(statuses)s and ifnull(sr.refused_by_customer, 0) = 0
             order by field(sr.priority, 'Urgent', 'High', 'Medium', 'Low'), sr.creation asc
             limit 8
@@ -201,19 +206,21 @@ class DashboardService:
     def _pending_lines():
         """The actual bench work: approved lines with no assignment behind them yet."""
         return frappe.db.sql(
-            """
+            f"""
             select
                 srl.parent as request, srl.idx, srl.action,
                 sr.customer, sr.priority,
-                coalesce(cu.full_name, srl.new_user_full_name) as user_name,
+                coalesce(cu.full_name, rcu.full_name) as user_name,
                 coalesce(item.item_name, srl.requested_service) as service,
                 device.hostname,
                 srl.requested_effective_date,
                 srl.comment
-            from `tabMSP Service Request Line` srl
-            join `tabMSP Service Request` sr on sr.name = srl.parent
-            left join `tabMSP Client User` cu on cu.name = srl.client_user
-            left join `tabMSP Managed Device` device on device.name = srl.managed_device
+            from `tabMSP Request Line` srl
+            join `tabMSP Request` sr on sr.name = srl.parent
+            left join `tabMSP Client User` cu on cu.name = {PERSON}
+            left join `tabMSP Requested Client User` rcu
+                on rcu.name = coalesce(srl.requested_client_user, srl.requested_for_requested_client_user)
+            left join `tabMSP Managed Device` device on device.name = {request_targets.line_device_sql("srl")}
             left join `tabItem` item on item.name = srl.requested_service
             where sr.status in ('Approved', 'In Progress')
               and ifnull(sr.refused_by_customer, 0) = 0
@@ -223,9 +230,9 @@ class DashboardService:
                   left join `tabMSP Managed Device` sad on sad.name = sa.managed_device
                   where sa.source_request = srl.parent
                     and sa.service_item = srl.requested_service
-                    and (srl.client_user is null or srl.client_user = ''
-                         or sa.client_user = srl.client_user
-                         or sad.assigned_client_user = srl.client_user)
+                    and ({PERSON} is null
+                         or sa.client_user = {PERSON}
+                         or sad.assigned_client_user = {PERSON})
               )
             order by field(sr.priority, 'Urgent', 'High', 'Medium', 'Low'),
                      srl.requested_effective_date asc

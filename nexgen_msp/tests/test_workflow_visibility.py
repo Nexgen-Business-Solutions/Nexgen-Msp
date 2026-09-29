@@ -65,14 +65,14 @@ class TestWhoSeesWhatAndMayDoWhat(MSPTestCase):
                 customer=self.customer, request_type="Add", lines=[self.line()]
             ),
         )
-        return self.track("MSP Service Request", out["name"]), out
+        return self.track("MSP Request", out["name"]), out
 
     def drafted_by(self, email):
         out = self.as_user(
             email,
             lambda: PortalService.save_draft(customer=self.customer, request_type="Add", lines=[self.line()]),
         )
-        return self.track("MSP Service Request", out["name"])
+        return self.track("MSP Request", out["name"])
 
     def portal_sees(self, email, name):
         listed = self.as_user(email, lambda: PortalService.list_requests(page_length=500))
@@ -102,7 +102,7 @@ class TestWhoSeesWhatAndMayDoWhat(MSPTestCase):
             fn()
 
     def status(self, name):
-        return frappe.db.get_value("MSP Service Request", name, "status")
+        return frappe.db.get_value("MSP Request", name, "status")
 
     def to_in_progress(self, name):
         self.act(self.tech, name, "start_review")
@@ -168,7 +168,7 @@ class TestWhoSeesWhatAndMayDoWhat(MSPTestCase):
         self.as_user(self.decider, lambda: PortalService.reject_request(name, "not this quarter"))
 
         self.assertEqual(self.status(name), "Rejected")
-        self.assertTrue(frappe.db.get_value("MSP Service Request", name, "refused_by_customer"))
+        self.assertTrue(frappe.db.get_value("MSP Request", name, "refused_by_customer"))
 
         seen = self.portal_opens(self.author, name)
         self.assertIsNotNone(seen)
@@ -186,7 +186,7 @@ class TestWhoSeesWhatAndMayDoWhat(MSPTestCase):
         name, out = self.raised_by(self.both)
 
         self.assertEqual(out["status"], "Submitted")
-        self.assertEqual(frappe.db.get_value("MSP Service Request", name, "customer_approved_by"), self.both)
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "customer_approved_by"), self.both)
         self.assertTrue(self.we_see(self.tech, name))
 
     def test_holding_only_the_right_to_approve_one_cannot_raise(self):
@@ -194,7 +194,7 @@ class TestWhoSeesWhatAndMayDoWhat(MSPTestCase):
         self.refused(lambda: self.drafted_by(self.decider) and self.as_user(
             self.decider,
             lambda: PortalService.create_request(
-                name=frappe.db.get_value("MSP Service Request", {"requester": self.decider, "status": "Draft"}, "name"),
+                name=frappe.db.get_value("MSP Request", {"requester": self.decider, "status": "Draft"}, "name"),
                 customer=self.customer, request_type="Add", lines=[self.line()],
             ),
         ))
@@ -248,9 +248,9 @@ class TestWhoSeesWhatAndMayDoWhat(MSPTestCase):
         )
 
         work = frappe.get_all(
-            "MSP Service Work Order", filters={"service_request": name}, pluck="name"
+            "MSP Work Order", filters={"request": name}, pluck="name"
         )[0]
-        self.track("MSP Service Work Order", work)
+        self.track("MSP Work Order", work)
 
         self.refused(lambda: self.act(self.tech, name, "complete"))
 
@@ -260,7 +260,7 @@ class TestWhoSeesWhatAndMayDoWhat(MSPTestCase):
         )
         self.track(
             "MSP Service Assignment",
-            frappe.db.get_value("MSP Service Work Order", work, "resulting_assignment"),
+            frappe.db.get_value("MSP Work Order", work, "resulting_assignment"),
         )
         self.act(self.tech, name, "complete")
         self.assertEqual(self.status(name), "Completed")
@@ -284,7 +284,7 @@ class TestWhoSeesWhatAndMayDoWhat(MSPTestCase):
             self.act(self.tech, name, "reject", f"refused at {stage}")
 
             self.assertEqual(self.status(name), "Rejected")
-            self.assertFalse(frappe.db.get_value("MSP Service Request", name, "refused_by_customer"))
+            self.assertFalse(frappe.db.get_value("MSP Request", name, "refused_by_customer"))
             self.assertEqual(self.portal_opens(self.both, name)["rejection_reason"], f"refused at {stage}")
             self.assertTrue(self.we_see(self.admin, name), "refused by us, it stays in our history")
             self.refused(lambda: self.act(self.admin, name, "start_review"))

@@ -68,18 +68,20 @@ class DepartmentService:
                     where lower(trim(cu.department)) = lower(trim(d.department_name))) as users,
                 (select count(*) from `tabMSP Approver` a
                     where lower(trim(a.department)) = lower(trim(d.department_name))) as approvers,
-                (select count(*) from `tabMSP Service Request Line` srl
-                    join `tabMSP Service Request` sr on sr.name = srl.parent
-                    where lower(trim(srl.new_user_department)) = lower(trim(d.department_name))
+                (select count(*) from `tabMSP Requested Client User` rcu
+                    join `tabMSP Request` sr on sr.name = rcu.request
+                    where lower(trim(rcu.department)) = lower(trim(d.department_name))
+                      and rcu.status = 'Open'
                       and sr.status not in %(closed)s) as open_requests,
                 (
                     (select count(*) from `tabMSP Client User` cu
                         where lower(trim(cu.department)) = lower(trim(d.department_name)))
                     + (select count(*) from `tabMSP Approver` a
                         where lower(trim(a.department)) = lower(trim(d.department_name)))
-                    + (select count(*) from `tabMSP Service Request Line` srl
-                        join `tabMSP Service Request` sr on sr.name = srl.parent
-                        where lower(trim(srl.new_user_department)) = lower(trim(d.department_name))
+                    + (select count(*) from `tabMSP Requested Client User` rcu
+                        join `tabMSP Request` sr on sr.name = rcu.request
+                        where lower(trim(rcu.department)) = lower(trim(d.department_name))
+                          and rcu.status = 'Open'
                           and sr.status not in %(closed)s)
                 ) as used
             from `tabMSP Department` d
@@ -328,16 +330,17 @@ class DepartmentService:
                 doctype, {"department": old}, "department", new, update_modified=False
             )
 
-        active_lines = frappe.db.sql_list(
-            """select line.name from `tabMSP Service Request Line` line
-                join `tabMSP Service Request` request on request.name = line.parent
-                where line.new_user_department = %(old)s
+        requested = frappe.db.sql_list(
+            """select rcu.name from `tabMSP Requested Client User` rcu
+                join `tabMSP Request` request on request.name = rcu.request
+                where rcu.department = %(old)s
+                  and rcu.status = 'Open'
                   and request.status not in %(closed)s""",
             values,
         )
-        for name in active_lines:
+        for name in requested:
             frappe.db.set_value(
-                "MSP Service Request Line", name, "new_user_department", new, update_modified=False
+                "MSP Requested Client User", name, "department", new, update_modified=False
             )
 
     @staticmethod
@@ -357,9 +360,10 @@ class DepartmentService:
                     where lower(trim(cu.department)) = %(normalized)s)
                 + (select count(*) from `tabMSP Approver` a
                     where lower(trim(a.department)) = %(normalized)s)
-                + (select count(*) from `tabMSP Service Request Line` srl
-                    join `tabMSP Service Request` sr on sr.name = srl.parent
-                    where lower(trim(srl.new_user_department)) = %(normalized)s
+                + (select count(*) from `tabMSP Requested Client User` rcu
+                    join `tabMSP Request` sr on sr.name = rcu.request
+                    where lower(trim(rcu.department)) = %(normalized)s
+                      and rcu.status = 'Open'
                       and sr.status not in %(closed)s) as used
             """,
             {"normalized": DepartmentService._normalized(department_name), "closed": CLOSED_STATUSES},

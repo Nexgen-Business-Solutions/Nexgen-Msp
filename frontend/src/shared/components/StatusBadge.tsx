@@ -1,9 +1,10 @@
 import React from 'react';
 
-// four meanings, four tones: waiting on someone (amber), done or live (emerald),
-// refused or off (red), everything else at rest (slate)
+// five meanings, five tones: waiting on someone (amber), agreed and being worked on (blue),
+// done or live (emerald), refused or off (red), everything else at rest (slate)
 const WAITING = 'bg-amber-100 text-amber-700';
 const DONE = 'bg-emerald-100 text-emerald-700';
+const UNDERWAY = 'bg-blue-100 text-blue-700';
 const OFF = 'bg-red-100 text-red-700';
 
 const PALETTE: Record<string, string> = {
@@ -16,7 +17,8 @@ const PALETTE: Record<string, string> = {
   'Invoice Drafted': WAITING,
   Urgent: OFF,
   High: WAITING,
-  Approved: DONE,
+  Approved: UNDERWAY,
+  'In Progress': UNDERWAY,
   Completed: DONE,
   Active: DONE,
   Invoiced: DONE,

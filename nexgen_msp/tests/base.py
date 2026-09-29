@@ -45,6 +45,7 @@ class MSPTestCase(IntegrationTestCase):
                 # document it refers to and would sit in the site's outbox for ever
                 self._purge_mail(doctype, name)
                 self._purge_work(doctype, name)
+                self._purge_requested(doctype, name)
                 self._purge_definition(doctype, name)
 
                 self._purge_runs(doctype, name)
@@ -75,15 +76,24 @@ class MSPTestCase(IntegrationTestCase):
         that point would otherwise leave it behind pointing at a request that no longer
         exists.
         """
-        if doctype != "MSP Service Request":
+        if doctype != "MSP Request":
             return
 
         for order in frappe.get_all(
-            "MSP Service Work Order", filters={"service_request": name}, pluck="name"
+            "MSP Work Order", filters={"request": name}, pluck="name"
         ):
             frappe.delete_doc(
-                "MSP Service Work Order", order, force=True, ignore_permissions=True
+                "MSP Work Order", order, force=True, ignore_permissions=True
             )
+
+    def _purge_requested(self, doctype, name):
+        """The Requested Client Users and Requested Devices of a request go with the request."""
+        if doctype != "MSP Request":
+            return
+
+        for requested in ("MSP Requested Device", "MSP Requested Client User"):
+            for record in frappe.get_all(requested, filters={"request": name}, pluck="name"):
+                frappe.delete_doc(requested, record, force=True, ignore_permissions=True)
 
     def _purge_definition(self, doctype, name):
         """What MSP knows about an Item goes with the Item.

@@ -219,7 +219,7 @@ class TestWhatIsMoving(User360Case):
             ),
         )
 
-        return self.track("MSP Service Request", out["name"])
+        return self.track("MSP Request", out["name"])
 
     def line(self, service, **fields):
         action = fields.pop("action", "Add")

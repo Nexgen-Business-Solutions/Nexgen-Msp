@@ -18,13 +18,14 @@ import frappe
 
 from nexgen_msp.api.internal.services.request_execution_service import RequestExecutionService
 from nexgen_msp.api.internal.services.request_service import RequestService
+from nexgen_msp.api.internal.services.requested_client_user_service import RequestedClientUserService
 from nexgen_msp.api.internal.services.service_lifecycle_service import ServiceLifecycleService
 from nexgen_msp.api.internal.services.user_360_service import User360Service
 from nexgen_msp.api.portal.services.portal_service import PortalService
 
 from .base import MSPTestCase
 
-WORK_ORDER = "MSP Service Work Order"
+WORK_ORDER = "MSP Work Order"
 ASSIGNMENT = "MSP Service Assignment"
 
 
@@ -92,14 +93,20 @@ class RequestMatrixCase(MSPTestCase):
         finally:
             frappe.set_user("Administrator")
 
-    def raise_as(self, who, *lines):
+    def raise_as(self, who, *lines, subjects=None):
         out = self.as_user(
-            who, lambda: PortalService.create_request(customer=self.customer, lines=list(lines))
+            who,
+            lambda: PortalService.create_request(
+                customer=self.customer, lines=list(lines), subjects=subjects
+            ),
         )
 
-        return self.track("MSP Service Request", out["name"])
+        return self.track("MSP Request", out["name"])
 
     def decide(self, name, idx, status, reason=None, actor=None):
+        if frappe.db.get_value("MSP Request", name, "status") == "Submitted":
+            self.as_user(self.tech, lambda: RequestService.run_action(name=name, action="start_review"))
+
         self.as_user(
             actor or self.tech,
             lambda: RequestService.set_line_status(
@@ -110,7 +117,7 @@ class RequestMatrixCase(MSPTestCase):
     def start_work(self, name, actor=None):
         self.as_user(actor or self.tech, lambda: RequestService.run_action(name=name, action="approve"))
 
-        for order in frappe.get_all(WORK_ORDER, filters={"service_request": name}, pluck="name"):
+        for order in frappe.get_all(WORK_ORDER, filters={"request": name}, pluck="name"):
             self.track(WORK_ORDER, order)
 
     def carry_out(self, name, actor=None):
@@ -119,7 +126,7 @@ class RequestMatrixCase(MSPTestCase):
 
         for order in frappe.get_all(
             WORK_ORDER,
-            filters={"service_request": name},
+            filters={"request": name},
             fields=["name", "work_type", "status", "operation_code", "service_item"],
             order_by="creation asc",
         ):
@@ -162,7 +169,8 @@ class RequestMatrixCase(MSPTestCase):
     def through(self, line, decision="Approved", actor=None, who=None, reason=None):
         """Raise one line, decide it, and carry out whatever it planned."""
         name = self.raise_as(who or self.manager, line)
-        doc = frappe.get_doc("MSP Service Request", name)
+        doc = frappe.get_doc("MSP Request", name)
+        self.as_user(actor or self.tech, lambda: RequestService.run_action(name=name, action="start_review"))
 
         for row in doc.lines:
             self.decide(name, row.idx, decision, reason=reason, actor=actor)
@@ -259,7 +267,7 @@ class TestTheHarness(RequestMatrixCase):
 
         self.assertEqual(frappe.db.count(ASSIGNMENT, {"client_user": self.alice}), before)
         self.assertEqual(
-            frappe.db.count(WORK_ORDER, {"service_request": name}),
+            frappe.db.count(WORK_ORDER, {"request": name}),
             0,
             "a refused line plans no work",
         )
@@ -438,7 +446,7 @@ class TestEveryMachineAct(RequestMatrixCase):
             },
         )
 
-        line = frappe.get_doc("MSP Service Request", name).lines[0]
+        line = frappe.get_doc("MSP Request", name).lines[0]
 
         self.assertEqual(line.operation_code, "device.transfer")
         self.assertEqual(line.requested_holder, self.bruno)
@@ -448,7 +456,7 @@ class TestEveryMachineAct(RequestMatrixCase):
 
         self.assertEqual(self.holder_of(self.laptop), self.alice, "asking is not doing")
 
-        doc = frappe.get_doc("MSP Service Request", name)
+        doc = frappe.get_doc("MSP Request", name)
         for row in doc.lines:
             self.decide(name, row.idx, "Approved")
         self.start_work(name)
@@ -463,9 +471,9 @@ class TestEveryMachineAct(RequestMatrixCase):
 class TestWhatIsRefusedAtTheDoor(RequestMatrixCase):
     """Combinations the application must not let through, each for its own reason."""
 
-    def refused(self, line, saying):
+    def refused(self, line, saying, subjects=None):
         with self.assertRaises(Exception) as caught:
-            self.raise_as(self.manager, line)
+            self.raise_as(self.manager, line, subjects=subjects)
 
         self.assertIn(saying, str(getattr(caught.exception, "message", caught.exception)))
 
@@ -474,11 +482,11 @@ class TestWhatIsRefusedAtTheDoor(RequestMatrixCase):
             {
                 "operation_code": "service.change",
                 "target_scope": "User",
-                "is_new_user": 1,
-                "new_user_full_name": "ZZTEST Newcomer",
+                "subject_key": "new:newcomer",
                 "requested_service": self.personal,
             },
             "A new person can only be granted a service",
+            subjects=[{"subject_key": "new:newcomer", "kind": "new", "full_name": "ZZTEST Newcomer"}],
         )
 
     def test_a_service_nobody_holds_cannot_be_suspended(self):
@@ -518,7 +526,7 @@ class TestRequestsMadeOfSeveralThings(RequestMatrixCase):
         return self.raise_as(self.manager, *lines)
 
     def statuses(self, name):
-        return [row.line_status for row in frappe.get_doc("MSP Service Request", name).lines]
+        return [row.line_status for row in frappe.get_doc("MSP Request", name).lines]
 
     def test_two_people_one_service_is_two_lines_carried_out_together(self):
         name = self.raise_many(
@@ -526,7 +534,7 @@ class TestRequestsMadeOfSeveralThings(RequestMatrixCase):
             self.service_line("service.add", client_user=self.bruno),
         )
 
-        for row in frappe.get_doc("MSP Service Request", name).lines:
+        for row in frappe.get_doc("MSP Request", name).lines:
             self.decide(name, row.idx, "Approved")
 
         self.start_work(name)
@@ -540,7 +548,7 @@ class TestRequestsMadeOfSeveralThings(RequestMatrixCase):
             self.service_line("service.add"),
             self.service_line("service.add", client_user=self.bruno),
         )
-        rows = frappe.get_doc("MSP Service Request", name).lines
+        rows = frappe.get_doc("MSP Request", name).lines
 
         self.decide(name, rows[0].idx, "Approved")
         self.decide(name, rows[1].idx, "Rejected", reason="Bruno is leaving")
@@ -567,7 +575,7 @@ class TestRequestsMadeOfSeveralThings(RequestMatrixCase):
             },
         )
 
-        for row in frappe.get_doc("MSP Service Request", name).lines:
+        for row in frappe.get_doc("MSP Request", name).lines:
             self.decide(name, row.idx, "Approved")
 
         self.start_work(name)
@@ -593,12 +601,12 @@ class TestRequestsMadeOfSeveralThings(RequestMatrixCase):
         )
 
         self.assertEqual(
-            frappe.db.get_value("MSP Service Request", name, "request_type"),
+            frappe.db.get_value("MSP Request", name, "request_type"),
             "Mixed",
             "a request about both is called neither",
         )
 
-        for row in frappe.get_doc("MSP Service Request", name).lines:
+        for row in frappe.get_doc("MSP Request", name).lines:
             self.decide(name, row.idx, "Approved")
 
         self.start_work(name)
@@ -613,11 +621,11 @@ class TestRequestsMadeOfSeveralThings(RequestMatrixCase):
             self.service_line("service.add", client_user=self.bruno),
         )
 
-        for row in frappe.get_doc("MSP Service Request", name).lines:
+        for row in frappe.get_doc("MSP Request", name).lines:
             self.decide(name, row.idx, "Rejected", reason="not this quarter")
 
         self.assertEqual(set(self.statuses(name)), {"Rejected"})
-        self.assertEqual(frappe.db.count(WORK_ORDER, {"service_request": name}), 0)
+        self.assertEqual(frappe.db.count(WORK_ORDER, {"request": name}), 0)
 
     def test_asking_twice_for_the_same_thing_never_opens_it_twice(self):
         """One wish, one service, however many times it was written down.
@@ -628,7 +636,7 @@ class TestRequestsMadeOfSeveralThings(RequestMatrixCase):
         """
         name = self.raise_many(self.service_line("service.add"), self.service_line("service.add"))
 
-        for row in frappe.get_doc("MSP Service Request", name).lines:
+        for row in frappe.get_doc("MSP Request", name).lines:
             self.decide(name, row.idx, "Approved")
 
         self.start_work(name)
@@ -669,7 +677,7 @@ class TestTheAccordInsideTheCompany(RequestMatrixCase):
         name = self.raise_as(self.clerk, self.service_line("service.add"))
 
         self.assertEqual(
-            frappe.db.get_value("MSP Service Request", name, "status"),
+            frappe.db.get_value("MSP Request", name, "status"),
             "Awaiting Customer Approval",
         )
         self.assertEqual(
@@ -684,7 +692,7 @@ class TestTheAccordInsideTheCompany(RequestMatrixCase):
         self.as_user(self.manager, lambda: PortalService.approve_request(name=name))
 
         self.assertEqual(
-            frappe.db.get_value("MSP Service Request", name, "status"), "Submitted"
+            frappe.db.get_value("MSP Request", name, "status"), "Submitted"
         )
 
     def test_a_refusal_inside_the_company_stops_it_there(self):
@@ -696,7 +704,7 @@ class TestTheAccordInsideTheCompany(RequestMatrixCase):
         )
 
         self.assertEqual(
-            frappe.db.get_value("MSP Service Request", name, "status"), "Rejected"
+            frappe.db.get_value("MSP Request", name, "status"), "Rejected"
         )
         self.assertEqual(
             frappe.db.count(ASSIGNMENT, {"client_user": self.alice, "service_item": self.personal}),
@@ -717,7 +725,7 @@ class TestTheAccordInsideTheCompany(RequestMatrixCase):
         name = self.raise_as(self.manager, self.service_line("service.add"))
 
         self.assertEqual(
-            frappe.db.get_value("MSP Service Request", name, "status"),
+            frappe.db.get_value("MSP Request", name, "status"),
             "Submitted",
             "deciding for yourself is deciding",
         )
@@ -738,7 +746,7 @@ class TestWhoCarriesItOut(RequestMatrixCase):
 
     def test_a_customer_account_cannot_decide_our_lines(self):
         name = self.raise_as(self.manager, self.service_line("service.add"))
-        row = frappe.get_doc("MSP Service Request", name).lines[0]
+        row = frappe.get_doc("MSP Request", name).lines[0]
 
         with self.assertRaises(Exception):
             self.decide(name, row.idx, "Approved", actor=self.manager)
@@ -769,7 +777,7 @@ class TestHowThePeopleWereChosen(RequestMatrixCase):
 
     def test_a_person_named_one_by_one_carries_no_group(self):
         name = self.through(self.service_line("service.add"))
-        line = frappe.get_doc("MSP Service Request", name).lines[0]
+        line = frappe.get_doc("MSP Request", name).lines[0]
 
         # the word the application uses for somebody picked on their own
         self.assertEqual(line.selection_origin, "Individual")
@@ -779,7 +787,7 @@ class TestHowThePeopleWereChosen(RequestMatrixCase):
         name = self.through(
             self.from_scope(self.alice, "Department", self.sales, key=self.sales)
         )
-        line = frappe.get_doc("MSP Service Request", name).lines[0]
+        line = frappe.get_doc("MSP Request", name).lines[0]
 
         self.assertEqual(line.selection_origin, "Department")
         self.assertEqual(line.selection_label, self.sales)
@@ -789,7 +797,7 @@ class TestHowThePeopleWereChosen(RequestMatrixCase):
         name = self.through(
             self.from_scope(self.bruno, "Company", "Entire company")
         )
-        line = frappe.get_doc("MSP Service Request", name).lines[0]
+        line = frappe.get_doc("MSP Request", name).lines[0]
 
         self.assertEqual(line.selection_origin, "Company")
         self.one_of(self.bruno, self.personal)
@@ -801,13 +809,13 @@ class TestHowThePeopleWereChosen(RequestMatrixCase):
             self.from_scope(self.bruno, "Department", self.sales, key=self.sales),
         )
 
-        for row in frappe.get_doc("MSP Service Request", name).lines:
+        for row in frappe.get_doc("MSP Request", name).lines:
             self.decide(name, row.idx, "Approved")
 
         self.start_work(name)
         self.carry_out(name)
 
-        for row in frappe.get_doc("MSP Service Request", name).lines:
+        for row in frappe.get_doc("MSP Request", name).lines:
             self.assertEqual(row.selection_origin, "Department")
 
         self.one_of(self.alice, self.personal)
@@ -819,50 +827,64 @@ class TestHowThePeopleWereChosen(RequestMatrixCase):
             {
                 "operation_code": "service.add",
                 "target_scope": "User",
-                "is_new_user": 1,
-                "new_user_full_name": f"ZZTEST Newcomer {self.tag[:4]}",
-                "new_user_department": self.sales,
-                "new_user_username": f"zz.new{self.tag[:4]}",
+                "subject_key": "new:newcomer",
                 "requested_service": self.personal,
             },
+            subjects=[
+                {
+                    "subject_key": "new:newcomer",
+                    "kind": "new",
+                    "full_name": f"ZZTEST Newcomer {self.tag[:4]}",
+                    "department": self.sales,
+                    "username": f"zz.new{self.tag[:4]}",
+                }
+            ],
         )
 
-        for row in frappe.get_doc("MSP Service Request", name).lines:
+        for row in frappe.get_doc("MSP Request", name).lines:
             self.decide(name, row.idx, "Approved")
 
         self.start_work(name)
 
-        waiting = frappe.get_all(
-            WORK_ORDER,
-            filters={"service_request": name, "work_type": "User Setup"},
-            fields=["name", "status"],
+        requested = frappe.get_all(
+            "MSP Requested Client User", filters={"request": name}, pluck="name"
         )
 
-        self.assertEqual(len(waiting), 1, "somebody has to be put on file first")
+        self.assertEqual(len(requested), 1, "somebody has to be put on file first")
+        self.assertEqual(
+            frappe.get_all(WORK_ORDER, filters={"request": name}, pluck="work_type"),
+            ["Service Action"],
+            "putting them on file is not a work order of its own",
+        )
 
-        self.as_user(
+        person = self.as_user(
             self.tech,
-            lambda: RequestExecutionService.execute_user_setup(
-                work_order=waiting[0].name,
-                username=f"zz.new{self.tag[:4]}",
-                department=self.sales,
-            ),
+            lambda: RequestedClientUserService.resolve_create(requested[0], {"department": self.sales}),
         )
-
-        person = frappe.db.get_value(
-            "MSP Client User",
-            {"customer": self.customer, "full_name": f"ZZTEST Newcomer {self.tag[:4]}"},
-            "name",
-        )
-
-        self.assertIsNotNone(person, "the work put them on file")
         self.track("MSP Client User", person)
 
-        self.assertTrue(frappe.db.exists("MSP Client User", person))
+        self.assertEqual(
+            person,
+            frappe.db.get_value(
+                "MSP Client User",
+                {"customer": self.customer, "full_name": f"ZZTEST Newcomer {self.tag[:4]}"},
+                "name",
+            ),
+            "the work put them on file",
+        )
         self.assertEqual(
             frappe.db.get_value("MSP Client User", person, "department"),
             self.sales,
             "a new person ends up with the Department they were asked for",
+        )
+
+        self.carry_out(name)
+
+        self.one_of(person, self.personal)
+        self.assertEqual(
+            frappe.db.get_value("MSP Request Line", {"parent": name}, "requested_client_user"),
+            requested[0],
+            "the line still names the person the customer described",
         )
 
     def test_the_same_act_reaches_the_same_state_whichever_door_it_came_through(self):
@@ -878,7 +900,7 @@ class TestHowThePeopleWereChosen(RequestMatrixCase):
             self.assertEqual(self.state(held).operational_status, "Active")
             self.assertEqual(self.state(held).billing_status, "Billable")
             self.assertEqual(
-                frappe.db.get_value("MSP Service Request", name, "status"), "Completed"
+                frappe.db.get_value("MSP Request", name, "status"), "Completed"
             )
 
 
@@ -891,11 +913,11 @@ class TestWhoCanBeGivenAMachine(RequestMatrixCase):
     """
 
     def options(self, subjects):
-        from nexgen_msp.api.portal.services.request_v3_service import RequestV3Service
+        from nexgen_msp.api.portal.services.request_scope_service import RequestScopeService
 
         out = self.as_user(
             self.manager,
-            lambda: RequestV3Service.operation_options(customer=self.customer, subjects=subjects),
+            lambda: RequestScopeService.operation_options(customer=self.customer, subjects=subjects),
         )
 
         for domain in out["domains"]:

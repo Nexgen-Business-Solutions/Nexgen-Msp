@@ -1,20 +1,8 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import {
-  ArrowLeft,
-  ArrowRightLeft,
-  ArrowUpRight,
-  CircleX,
-  Laptop,
-  PauseCircle,
-  PencilLine,
-  PlayCircle,
-  Plus,
-  ShieldCheck,
-  Undo2,
-} from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, Laptop, Plus } from 'lucide-react';
 import StatusBadge from '@/shared/components/StatusBadge';
-import RowActionsMenu, { type RowAction } from '@/shared/components/RowActionsMenu';
+import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import Select from '@/shared/components/Select';
 import RemarkLog from '@/shared/components/RemarkLog';
 import ConfirmModal from '@/shared/components/ConfirmModal';
@@ -41,6 +29,11 @@ import {
 import { useMyApprovalRights, usePortalUserFile } from '@/features/portal/hooks/usePortal';
 import { useDeviceFilterOptions } from '../hooks/useDevices';
 import type { HeldDevice, UserPortfolioEntry, UserServiceEntry } from '@/lib/api/internal';
+import {
+  buildDeviceRowActions,
+  buildServiceAssignmentRowActions,
+  type EntityRowAction,
+} from '../actions';
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'Never');
 
@@ -171,26 +164,32 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
       ? data.devices.find((slot) => slot.device.name === row.managed_device) ?? null
       : null;
 
-  const serviceActions = (service: UserPortfolioEntry, device: HeldDevice | null): RowAction[] => {
-    // a machine they gave back is acted on from its next holder's page, not from here
-    if (!service.current_holding) return [];
-
-    const status = service.operational_status;
+  const serviceActions = (
+    service: UserPortfolioEntry,
+    device: HeldDevice | null
+  ): EntityRowAction[] => {
     const act = (action: ServiceAction) => () => setApplying({ service, device, action });
 
-    return [
-      { label: 'Suspend', icon: PauseCircle, onClick: act('Suspend'), disabled: status !== 'Active' },
-      { label: 'Resume', icon: PlayCircle, onClick: act('Resume'), disabled: status !== 'Suspended' },
-      { label: 'Change service', icon: PencilLine, onClick: act('Change'), disabled: !['Active', 'Suspended'].includes(status) },
-      {
-        label: 'Stop service',
-        icon: CircleX,
-        onClick: act('End'),
-        danger: true,
-        disabled: !['Active', 'Suspended'].includes(status),
-      },
-    ];
+    return buildServiceAssignmentRowActions({
+      status: service.operational_status,
+      canWrite: canAct,
+      // a machine they gave back is acted on from its next holder's page, not from here
+      currentHolding: Boolean(service.current_holding),
+      onSuspend: act('Suspend'),
+      onResume: act('Resume'),
+      onChange: act('Change'),
+      onEnd: act('End'),
+    });
   };
+
+  const deviceActions = (slot: HeldDevice): EntityRowAction[] =>
+    buildDeviceRowActions({
+      canWrite: canAct,
+      onAddService: () => setDeviceService(slot.device.name),
+      onTransfer: () => setMoving({ device: slot, kind: 'transfer' }),
+      onReturnToStock: () => setMoving({ device: slot, kind: 'repossess' }),
+      onOpen: () => navigate(`/msp/devices/${slot.device.name}`),
+    });
 
   return (
     <div className="space-y-4 px-6 pb-6 pt-4">
@@ -428,18 +427,7 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3">
                     <div className="flex justify-end">
-                      <RowActionsMenu
-                        actions={[
-                          ...(canAct
-                            ? [
-                                { label: 'Add service', icon: ShieldCheck, onClick: () => setDeviceService(slot.device.name) },
-                                { label: 'Transfer to someone else', icon: ArrowRightLeft, onClick: () => setMoving({ device: slot, kind: 'transfer' }) },
-                                { label: 'Return to stock', icon: Undo2, onClick: () => setMoving({ device: slot, kind: 'repossess' }) },
-                              ]
-                            : []),
-                          { label: 'Open device', icon: Laptop, onClick: () => navigate(`/msp/devices/${slot.device.name}`) },
-                        ]}
-                      />
+                      <RowActionsMenu actions={deviceActions(slot)} />
                     </div>
                   </td>
                 </tr>

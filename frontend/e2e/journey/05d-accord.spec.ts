@@ -1,5 +1,15 @@
 import { expect, test, type Page } from '@playwright/test';
-import { as, createPerson, go, land, openRow } from './ground';
+import {
+  addExisting,
+  approveFromBar,
+  as,
+  createPerson,
+  go,
+  land,
+  openRow,
+  refuseFromBar,
+  submitRequest,
+} from './ground';
 import { ACCORD_ONE, ACCORD_TWO, PERSONAL_SERVICE } from './names';
 
 /**
@@ -23,19 +33,7 @@ const raise = async (page: Page, person: string) => {
   await page.getByRole('button', { name: /New request|Raise a request/ }).first().click();
   await page.waitForLoadState('networkidle');
 
-  await page.getByRole('button', { name: /Select existing/ }).click();
-
-  const picker = page.getByRole('dialog');
-
-  await picker.getByLabel('Search').fill(person);
-  await picker
-    .locator('div')
-    .filter({ hasText: person })
-    .getByRole('button', { name: /^Add$/ })
-    .last()
-    .click();
-  await picker.getByRole('button', { name: 'Done' }).click();
-  await expect(picker).toHaveCount(0, { timeout: 20_000 });
+  await addExisting(page, person);
 
   await page.getByRole('button', { name: /Continue/ }).click();
   await expect(page.getByText('Group actions stay explicit')).toBeVisible({ timeout: 20_000 });
@@ -53,14 +51,7 @@ const raise = async (page: Page, person: string) => {
   await impact.getByRole('button', { name: 'Add action' }).click();
   await expect(impact).toHaveCount(0, { timeout: 20_000 });
 
-  await page.getByRole('button', { name: /Continue/ }).click();
-  await page.getByRole('button', { name: /Continue/ }).click();
-  await expect(page.getByText('Confirm the exact snapshot and requested actions.')).toBeVisible();
-  await page.getByRole('button', { name: 'Submit request' }).click();
-  await page.waitForURL(
-      (url) => /\/msp\/requests/.test(url.pathname) && !url.pathname.endsWith('/new'),
-      { timeout: 30_000 }
-    );
+  await submitRequest(page, 2);
 };
 
 const openLatest = async (page: Page) => {
@@ -135,18 +126,7 @@ test.describe('The person who decides refuses one', () => {
     await page.waitForLoadState('networkidle');
 
     await openRow(page, /SR-/);
-
-    await expect(page.getByText('This request is waiting for your accord')).toBeVisible({
-      timeout: 25_000,
-    });
-
-    await page.getByRole('button', { name: 'Refuse it' }).click();
-    await page
-      .getByPlaceholder(/Why are you refusing/)
-      .fill('ZZE2E journey: not this quarter, the budget is spent');
-    await page.getByRole('button', { name: 'Confirm the refusal' }).click();
-
-    await expect(page.getByText(/REJECTED|Rejected/).first()).toBeVisible({ timeout: 30_000 });
+    await refuseFromBar(page, 'ZZE2E journey: not this quarter, the budget is spent');
   });
 });
 
@@ -177,14 +157,7 @@ test.describe('The one they agree to does reach us', () => {
     const decidingPage = await deciding.newPage();
 
     await openLatest(decidingPage);
-    await expect(
-      decidingPage.getByText('This request is waiting for your accord')
-    ).toBeVisible({ timeout: 25_000 });
-
-    await decidingPage.getByRole('button', { name: /Approve and send to Nexgen/ }).click();
-    await expect(
-      decidingPage.getByText(/AWAITING CUSTOMER APPROVAL/i)
-    ).toHaveCount(0, { timeout: 30_000 });
+    await approveFromBar(decidingPage);
     await deciding.close();
 
     const ours = await browser.newContext(as('technician'));

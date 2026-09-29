@@ -3,11 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   ArrowRightLeft,
-  CircleX,
-  PauseCircle,
   Pencil,
-  PencilLine,
-  PlayCircle,
   Plus,
   PowerOff,
   RotateCcw,
@@ -19,7 +15,7 @@ import StatusBadge from '@/shared/components/StatusBadge';
 import Select from '@/shared/components/Select';
 import { useSession } from '@/shared/hooks/useSession';
 import RemarkLog from '@/shared/components/RemarkLog';
-import RowActionsMenu, { type RowAction } from '@/shared/components/RowActionsMenu';
+import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import ConfirmModal from '@/shared/components/ConfirmModal';
 import DeviceServiceModal from '../components/DeviceServiceModal';
 import EditDeviceModal from '../components/EditDeviceModal';
@@ -34,6 +30,7 @@ import type { DeviceDetail as DeviceDetailData, DeviceRow, UserServiceRow } from
 import { deviceKeys, useDeleteDevice, useDeviceDetail } from '../hooks/useDevices';
 import { usePortalDeviceFile } from '@/features/portal/hooks/usePortal';
 import { isAvailable, isDeployed, isOutOfService, canRetire } from '../utils/deviceStatus';
+import { buildServiceAssignmentRowActions } from '../actions';
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
 
@@ -207,6 +204,26 @@ export default function DeviceDetail({ portal = false }: { portal?: boolean } = 
   const openServices = services.filter(
     (row) => !['Ended', 'Cancelled'].includes(row.operational_status)
   );
+  const serviceActions = (row: UserServiceRow) => {
+    const act = (action: ServiceAction) => () =>
+      setTarget({
+        row: {
+          ...row,
+          device_serial_number: device.serial_number,
+          device_user_name: device.user_name,
+        },
+        action,
+      });
+
+    return buildServiceAssignmentRowActions({
+      status: row.operational_status,
+      canWrite: canAct,
+      onSuspend: act('Suspend'),
+      onResume: act('Resume'),
+      onChange: act('Change'),
+      onEnd: act('End'),
+    });
+  };
 
   return (
     <div className="space-y-5 px-6 pb-6 pt-4">
@@ -493,67 +510,7 @@ export default function DeviceDetail({ portal = false }: { portal?: boolean } = 
                   <td className="whitespace-nowrap px-4 py-3">
                     <div className="flex justify-end">
                       {canAct && (
-                      <RowActionsMenu
-                        actions={
-                          [
-                            {
-                              label: 'Suspend',
-                              icon: PauseCircle,
-                              onClick: () => setTarget({
-                                row: {
-                                  ...row,
-                                  device_serial_number: device.serial_number,
-                                  device_user_name: device.user_name,
-                                },
-                                action: 'Suspend',
-                              }),
-                              disabled: row.operational_status !== 'Active',
-                            },
-                            {
-                              label: 'Resume',
-                              icon: PlayCircle,
-                              onClick: () => setTarget({
-                                row: {
-                                  ...row,
-                                  device_serial_number: device.serial_number,
-                                  device_user_name: device.user_name,
-                                },
-                                action: 'Resume',
-                              }),
-                              disabled: row.operational_status !== 'Suspended',
-                            },
-                            {
-                              label: 'Change service',
-                              icon: PencilLine,
-                              onClick: () => setTarget({
-                                row: {
-                                  ...row,
-                                  device_serial_number: device.serial_number,
-                                  device_user_name: device.user_name,
-                                },
-                                action: 'Change',
-                              }),
-                              disabled: !['Active', 'Suspended'].includes(row.operational_status),
-                            },
-                            {
-                              label: 'Stop service',
-                              icon: CircleX,
-                              onClick: () => setTarget({
-                                row: {
-                                  ...row,
-                                  device_serial_number: device.serial_number,
-                                  device_user_name: device.user_name,
-                                },
-                                action: 'End',
-                              }),
-                              danger: true,
-                              disabled: !['Active', 'Suspended'].includes(
-                                row.operational_status
-                              ),
-                            },
-                          ] as RowAction[]
-                        }
-                      />
+                      <RowActionsMenu actions={serviceActions(row)} />
                       )}
                     </div>
                   </td>

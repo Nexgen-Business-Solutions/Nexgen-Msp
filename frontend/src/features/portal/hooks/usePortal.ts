@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as portal from '@/lib/api/portal';
+import { getPortalRequestPresentation, previewRequest } from '@/lib/api/requestPresentation';
 import { usePortalFilters, emptyFilters, type ListKey } from '../store/usePortalFilters';
+import { useDebouncedValue } from '@/shared/hooks/useDebouncedValue';
 
 export const portalKeys = {
   all: ['portal'] as const,
@@ -142,6 +144,13 @@ export const useServiceRequest = (name?: string) =>
     enabled: Boolean(name),
   });
 
+export const usePortalRequestPresentation = (name?: string) =>
+  useQuery({
+    queryKey: [...portalKeys.request(name || ''), 'presentation'],
+    queryFn: ({ signal }) => getPortalRequestPresentation(name as string, signal),
+    enabled: Boolean(name),
+  });
+
 export const useCatalogue = () => {
   const customer = usePortalFilters((state) => state.customer);
 
@@ -181,6 +190,20 @@ export const useCreateServiceRequest = () => {
     onSuccess: (created) => {
       forgetRequests(queryClient, customer);
       queryClient.setQueryData(portalKeys.request(created.name), created);
+    },
+  });
+};
+
+export const useUpdateServiceRequest = () => {
+  const queryClient = useQueryClient();
+  const customer = usePortalFilters((state) => state.customer);
+
+  return useMutation({
+    mutationFn: (payload: Omit<portal.RequestPayload, 'customer'> & { name: string }) =>
+      portal.updateRequest({ ...payload, customer: customer || undefined }),
+    onSuccess: (updated) => {
+      forgetRequests(queryClient, customer);
+      queryClient.setQueryData(portalKeys.request(updated.name), updated);
     },
   });
 };
@@ -373,16 +396,6 @@ export const useUserChoices = () => {
   });
 };
 
-export const useDeviceChoices = () => {
-  const customer = usePortalFilters((state) => state.customer);
-
-  return useQuery({
-    queryKey: [...portalKeys.all, 'deviceChoices', customer] as const,
-    queryFn: ({ signal }) => portal.listDeviceChoices(customer || undefined, signal),
-    staleTime: 60 * 1000,
-  });
-};
-
 export const useDepartments = () =>
   useQuery({
     queryKey: [...portalKeys.all, 'departments'] as const,
@@ -418,8 +431,8 @@ export const requestBuilderKeys = {
     [...requestBuilderKeys.all, 'users', customer ?? '', search ?? ''] as const,
   subject: (clientUser?: string) =>
     [...requestBuilderKeys.all, 'subject', clientUser ?? ''] as const,
-  newUser: (customer?: string | null) =>
-    [...requestBuilderKeys.all, 'new-user', customer ?? ''] as const,
+  newPerson: (customer?: string | null) =>
+    [...requestBuilderKeys.all, 'new-person', customer ?? ''] as const,
   submission: (customer?: string | null) =>
     [...requestBuilderKeys.all, 'submission', customer ?? ''] as const,
 };
@@ -448,15 +461,6 @@ export const useCompanySelection = (enabled: boolean) => {
   });
 };
 
-export const useBulkTargets = () => {
-  const customer = usePortalFilters((state) => state.customer);
-
-  return useMutation({
-    mutationFn: (payload: { operation_code: string; service_item: string; people: string[] }) =>
-      portal.resolveBulkTargets({ ...payload, customer: customer || undefined }),
-  });
-};
-
 export const useRequestUserSearch = (search?: string) => {
   const customer = usePortalFilters((state) => state.customer);
 
@@ -475,12 +479,12 @@ export const useRequestSubjectContext = (clientUser?: string) =>
     enabled: Boolean(clientUser),
   });
 
-export const useNewUserRequestContext = (enabled = true) => {
+export const useNewPersonContext = (enabled = true) => {
   const customer = usePortalFilters((state) => state.customer);
 
   return useQuery({
-    queryKey: requestBuilderKeys.newUser(customer),
-    queryFn: ({ signal }) => portal.getNewUserRequestContext(customer ?? undefined, signal),
+    queryKey: requestBuilderKeys.newPerson(customer),
+    queryFn: ({ signal }) => portal.getNewPersonContext(customer ?? undefined, signal),
     enabled,
   });
 };
@@ -512,11 +516,16 @@ export const useRequestScope = (subjects: portal.RequestSubjectDraft[]) => {
 export const useRequestOperations = (
   subjects: portal.RequestSubjectDraft[],
   subjectKeys: string[],
-  actionGroups: portal.RequestActionGroupDraft[] = []
+  actionGroups: portal.RequestActionGroupDraft[] = [],
+  requestedDevices: portal.RequestedDeviceDraft[] = [],
+  editing: string | null = null
 ) => {
   const customer = usePortalFilters((state) => state.customer);
   const scope = subjectKeys.join('|');
   const all = subjects.map((subject) => subject.subject_key).join('|');
+  const machines = requestedDevices
+    .map((device) => `${device.device_requirement_key}:${device.intended_holder_subject_key ?? device.intended_holder_client_user ?? ''}`)
+    .join('|');
   // adding a machine changes what may be asked of the person who gets it, so the evaluation
   // is read again the moment the draft does
   const asked = actionGroups
@@ -524,7 +533,7 @@ export const useRequestOperations = (
     .join('|');
 
   return useQuery({
-    queryKey: [...requestBuilderKeys.all, 'operations', customer, all, scope, asked] as const,
+    queryKey: [...requestBuilderKeys.all, 'operations', customer, all, scope, asked, machines, editing] as const,
     queryFn: ({ signal }) =>
       portal.evaluateRequestOperations(
         {
@@ -532,10 +541,52 @@ export const useRequestOperations = (
           subjects,
           subject_keys: subjectKeys,
           action_groups: actionGroups,
+          requested_devices: requestedDevices,
+          request: editing ?? undefined,
         },
         signal
       ),
     enabled: subjectKeys.length > 0,
     keepPreviousData: true,
+  });
+};
+
+export const useSelectableClientUsers = (search?: string) => {
+  const customer = usePortalFilters((state) => state.customer);
+  const debounced = useDebouncedValue((search ?? '').trim(), 300);
+
+  return useQuery({
+    queryKey: [...requestBuilderKeys.all, 'selectable-users', customer ?? '', debounced] as const,
+    queryFn: ({ signal }) =>
+      portal.listSelectableClientUsers(
+        { customer: customer || undefined, ...(debounced ? { search: debounced } : {}) },
+        signal
+      ),
+    keepPreviousData: true,
+  });
+};
+
+export const useSelectableDevices = (search?: string) => {
+  const customer = usePortalFilters((state) => state.customer);
+  const debounced = useDebouncedValue((search ?? '').trim(), 300);
+
+  return useQuery({
+    queryKey: [...requestBuilderKeys.all, 'selectable-devices', customer ?? '', debounced] as const,
+    queryFn: ({ signal }) =>
+      portal.listSelectableDevices(
+        { customer: customer || undefined, ...(debounced ? { search: debounced } : {}) },
+        signal
+      ),
+    keepPreviousData: true,
+  });
+};
+
+export const useRequestPreview = (payload: Omit<portal.RequestPayload, 'name' | 'customer'>) => {
+  const customer = usePortalFilters((state) => state.customer);
+
+  return useQuery({
+    queryKey: [...requestBuilderKeys.all, 'preview', customer ?? '', JSON.stringify(payload)] as const,
+    queryFn: ({ signal }) => previewRequest({ ...payload, customer: customer || undefined }, signal),
+    enabled: payload.subjects.length > 0,
   });
 };
