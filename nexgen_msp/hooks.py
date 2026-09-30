@@ -254,6 +254,12 @@ doc_events = {
 # Scheduled Tasks
 # ---------------
 
+scheduler_events = {
+	"cron": {
+		"0 */3 * * *": ["nexgen_msp.utils.reminders.every_three_hours"],
+	},
+}
+
 # scheduler_events = {
 # 	"all": [
 # 		"nexgen_msp.tasks.all"

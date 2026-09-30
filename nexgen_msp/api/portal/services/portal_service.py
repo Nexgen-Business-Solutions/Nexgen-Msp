@@ -1129,20 +1129,10 @@ class PortalService:
         if doc.status == "Awaiting Customer Approval":
             return
 
-        recipients = frappe.db.sql_list(
-            """
-            select distinct u.name
-            from `tabUser` u
-            join `tabHas Role` r on r.parent = u.name and r.parenttype = 'User'
-            where u.enabled = 1
-              and u.name not in ('Administrator', 'Guest')
-              and r.role in %(roles)s
-            """,
-            {"roles": permissions.INTERNAL_ROLES},
-        )
-
         # whoever raised it has already had their own acknowledgement
-        recipients = [address for address in recipients if address != doc.requester]
+        recipients = [
+            address for address in PortalService._our_team() if address != doc.requester
+        ]
 
         if not recipients:
             return
@@ -2491,7 +2481,50 @@ class PortalService:
             modify=True,
         )
 
+        PortalService._tell_of_modification(frappe.get_doc("MSP Request", doc.name))
+
         return PortalService.get_request(doc.name)
+
+    @staticmethod
+    def _tell_of_modification(doc):
+        """Tell whoever the request is waiting on that what they are holding has changed."""
+        from nexgen_msp.utils import notifications
+
+        if doc.status == "Awaiting Customer Approval":
+            recipients = PortalService._approvers_of(doc)
+        else:
+            recipients = PortalService._our_team()
+
+        recipients = [address for address in recipients if address != frappe.session.user]
+
+        if not recipients:
+            return
+
+        summary = notifications.summary_table(
+            [
+                ("Request", doc.name),
+                ("Customer", doc.customer),
+                ("Services requested", str(len(doc.lines))),
+                ("Requested for", frappe.utils.formatdate(doc.requested_date)
+                 if doc.requested_date else "-"),
+            ]
+        )
+
+        for address in recipients:
+            notifications.send(
+                "MSP Request Modified",
+                [address],
+                {
+                    "full_name": frappe.db.get_value("User", address, "full_name") or address,
+                    "request": doc.name,
+                    "customer": doc.customer,
+                    "modified_by": frappe.utils.get_fullname(frappe.session.user),
+                    "summary": summary,
+                    "link": notifications.portal_url(f"/requests/{doc.name}"),
+                },
+                reference_doctype="MSP Request",
+                reference_name=doc.name,
+            )
 
     @staticmethod
     def my_approval_rights(customer=None):
@@ -2597,28 +2630,52 @@ class PortalService:
 
         PortalService._tell_requester(doc, approve, reason)
 
+        # approved, so it is ours now: whoever will carry it out has to hear of it
+        if approve:
+            PortalService._tell_our_team(doc)
+
         return PortalService.get_request(doc.name)
+
+    @staticmethod
+    def _our_team():
+        """Every enabled Nexgen account that may act on a request."""
+        return frappe.db.sql_list(
+            """
+            select distinct u.name
+            from `tabUser` u
+            join `tabHas Role` r on r.parent = u.name and r.parenttype = 'User'
+            where u.enabled = 1
+              and u.name not in ('Administrator', 'Guest')
+              and r.role in %(roles)s
+            """,
+            {"roles": permissions.INTERNAL_ROLES},
+        )
+
+    @staticmethod
+    def _approvers_of(doc):
+        """The accounts that may approve this request, leaving out whoever raised it."""
+        authority = approval.authority_for(doc.customer)
+
+        if not authority:
+            return []
+
+        # the matrix names accounts now: the address is the account itself
+        return [
+            row.user
+            for row in authority.approvers
+            if row.can_approve and row.user and row.user != doc.requester
+        ]
 
     @staticmethod
     def _ask_for_approval(doc):
         """Tell the people who can decide that something is waiting for them."""
         from nexgen_msp.utils import notifications
 
-        authority = approval.authority_for(doc.customer)
-
-        if not authority:
+        if not approval.authority_for(doc.customer):
             approval.warn_admins_of_gaps(doc.customer, request=doc.name)
             return
 
-        recipients = []
-
-        for row in authority.approvers:
-            if not row.can_approve:
-                continue
-
-            # the matrix names accounts now: the address is the account itself
-            if row.user and row.user != doc.requester:
-                recipients.append(row.user)
+        recipients = PortalService._approvers_of(doc)
 
         if not recipients:
             # waiting on an accord nobody can give: our administrators hear of it

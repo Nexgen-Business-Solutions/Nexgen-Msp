@@ -103,7 +103,7 @@ TEMPLATES = {
         "subject": "{{ request }} from {{ customer }} - {{ app_name }}",
         "body": HEADING.format(text="A request has come in")
         + "<p>Hello {{ full_name }},</p>"
-        + "<p>{{ customer }} has raised a request. Nobody is assigned to it yet.</p>"
+        + "<p>{{ customer }} has raised a request.</p>"
         + "{{ summary }}"
         + BUTTON.format(url="link", label="Open the request"),
     },
@@ -125,6 +125,33 @@ TEMPLATES = {
         + "once you have approved it.</p>"
         + "{{ summary }}"
         + BUTTON.format(url="link", label="Review it"),
+    },
+    "MSP Request Modified": {
+        "subject": "{{ request }} was modified - {{ app_name }}",
+        "body": HEADING.format(text="A request has changed")
+        + "<p>Hello {{ full_name }},</p>"
+        + "<p>{{ modified_by }} has modified request {{ request }} for {{ customer }}. "
+        + "What is written below replaces what was asked before.</p>"
+        + "{{ summary }}"
+        + BUTTON.format(url="link", label="Open the request"),
+    },
+    "MSP Request Approval Reminder": {
+        "subject": "Reminder: {{ request }} still needs your approval - {{ app_name }}",
+        "body": HEADING.format(text="Still waiting for your approval")
+        + "<p>Hello {{ full_name }},</p>"
+        + "<p>Request {{ request }} for {{ customer }} has been waiting since {{ waiting_since }}. "
+        + "It reaches Nexgen only once you have approved it.</p>"
+        + "{{ summary }}"
+        + BUTTON.format(url="link", label="Review it"),
+    },
+    "MSP Request Waiting Reminder": {
+        "subject": "Reminder: {{ request }} is waiting to be handled - {{ app_name }}",
+        "body": HEADING.format(text="A request is still waiting")
+        + "<p>Hello {{ full_name }},</p>"
+        + "<p>{{ customer }} is waiting on request {{ request }}, received {{ waiting_since }}. "
+        + "Nobody has started the work on it yet.</p>"
+        + "{{ summary }}"
+        + BUTTON.format(url="link", label="Open the request"),
     },
     "MSP Request Approved By Customer": {
         "subject": "{{ request }} approved - {{ app_name }}",
