@@ -511,4 +511,53 @@ describe('Prepare requested Device', () => {
       })
     );
   });
+
+  it('offers the network interfaces on the new Device, and sends only the ones filled in', async () => {
+    vi.mocked(internal.listSelectableDevices).mockResolvedValue(pageOf(devices));
+    vi.mocked(internal.resolveRequestedDevice).mockResolvedValue({ entity: laptop(), plan: planStub });
+    const dialog = show(
+      <PrepareRequestedDeviceModal entity={laptop()} customer="ACME" onClose={vi.fn()} onSaved={vi.fn()} />
+    );
+
+    fireEvent.click(within(dialog).getByRole('tab', { name: 'Register new Device' }));
+    expect(within(dialog).getByText('Network interfaces')).toBeInTheDocument();
+
+    const macs = within(dialog).getAllByPlaceholderText('AA-BB-CC-DD-EE-FF');
+
+    expect(macs).toHaveLength(2);
+
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Hostname' }), { target: { value: 'ACI-LT-121' } });
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Serial number' }), { target: { value: 'SN-0121' } });
+    fireEvent.change(macs[0], { target: { value: 'AA:BB:CC:DD:EE:01' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save & resolve' }));
+
+    await waitFor(() =>
+      expect(internal.resolveRequestedDevice).toHaveBeenCalledWith(
+        expect.objectContaining({
+          mode: 'new',
+          interfaces: [{ interface_type: 'Wi-Fi', mac_address: 'AA:BB:CC:DD:EE:01' }],
+        })
+      )
+    );
+  });
+
+  it('registers a Device with no interface at all, because none is required', async () => {
+    vi.mocked(internal.listSelectableDevices).mockResolvedValue(pageOf(devices));
+    vi.mocked(internal.resolveRequestedDevice).mockResolvedValue({ entity: laptop(), plan: planStub });
+    const dialog = show(
+      <PrepareRequestedDeviceModal entity={laptop()} customer="ACME" onClose={vi.fn()} onSaved={vi.fn()} />
+    );
+
+    fireEvent.click(within(dialog).getByRole('tab', { name: 'Register new Device' }));
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Hostname' }), { target: { value: 'ACI-LT-122' } });
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Serial number' }), { target: { value: 'SN-0122' } });
+
+    const resolve = within(dialog).getByRole('button', { name: 'Save & resolve' });
+
+    expect(resolve, 'an empty interface never holds the registration back').toBeEnabled();
+    fireEvent.click(resolve);
+
+    await waitFor(() => expect(internal.resolveRequestedDevice).toHaveBeenCalled());
+    expect(vi.mocked(internal.resolveRequestedDevice).mock.calls[0][0]).not.toHaveProperty('interfaces');
+  });
 });

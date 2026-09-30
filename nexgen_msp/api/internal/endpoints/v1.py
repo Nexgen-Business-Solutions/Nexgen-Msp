@@ -214,9 +214,14 @@ def save_requested_device(name=None, values=None):
 
 @frappe.whitelist()
 @handle_errors
-def resolve_requested_device(name=None, mode=None, values=None, managed_device=None):
+def resolve_requested_device(name=None, mode=None, values=None, managed_device=None, interfaces=None):
     return _execution().resolve_requested(
-        kind="device", name=name, mode=mode, values=values, target=managed_device
+        kind="device",
+        name=name,
+        mode=mode,
+        values=values,
+        target=managed_device,
+        interfaces=interfaces,
     )
 
 

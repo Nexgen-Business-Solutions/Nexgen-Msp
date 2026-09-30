@@ -393,7 +393,7 @@ class RequestedDeviceService:
         return managed_device
 
     @staticmethod
-    def resolve_new(name, prepared_values=None, effective_date=None):
+    def resolve_new(name, prepared_values=None, effective_date=None, interfaces=None):
         """Register the Managed Device this Requested Device stands for, once."""
         RequestService._guard_internal()
 
@@ -424,6 +424,9 @@ class RequestedDeviceService:
                 manufacturer=doc.manufacturer,
                 model=doc.model,
                 operating_system=doc.operating_system,
+                # the MAC addresses are read off the machine in hand, so they arrive with the
+                # registration and never with what the customer asked for
+                interfaces=interfaces,
                 source_request=doc.request,
                 _commit=False,
             )

@@ -2528,17 +2528,17 @@ class RequestExecutionService:
 		return RequestExecutionService._prepared(kind, name)
 
 	@staticmethod
-	def resolve_requested(kind=None, name=None, mode=None, values=None, target=None):
+	def resolve_requested(kind=None, name=None, mode=None, values=None, target=None, interfaces=None):
 		"""Resolve a Requested entity to a new record or a chosen one, and say where the work stands."""
 		RequestService._guard_internal()
 		RequestExecutionService._requested_record(kind, name)
 		service = RequestExecutionService._requested_service(kind)
-		ways = {"create": service.resolve_create} if kind == "client_user" else {"new": service.resolve_new}
-
 		if mode == "existing":
 			service.resolve_existing(name, target)
-		elif ways.get(mode):
-			ways[mode](name, values)
+		elif kind == "client_user" and mode == "create":
+			service.resolve_create(name, values)
+		elif kind == "device" and mode == "new":
+			service.resolve_new(name, values, interfaces=frappe.parse_json(interfaces) if isinstance(interfaces, str) else interfaces)
 		else:
 			raise ValidationError(f"{mode} is not a way to resolve this requested target.", "VALIDATION_ERROR")
 

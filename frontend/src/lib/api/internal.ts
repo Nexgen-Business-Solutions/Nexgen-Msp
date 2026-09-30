@@ -546,12 +546,14 @@ export const resolveRequestedDevice = (payload: {
   mode: 'existing' | 'new';
   values?: RequestedDeviceValues;
   managed_device?: string;
+  interfaces?: DeviceInterface[];
 }) =>
   post<RequestedEntityOutcome>(`${BASE}.resolve_requested_device`, {
     name: payload.name,
     mode: payload.mode,
     ...(payload.values ? { values: JSON.stringify(payload.values) } : {}),
     ...(payload.managed_device ? { managed_device: payload.managed_device } : {}),
+    ...(payload.interfaces?.length ? { interfaces: JSON.stringify(payload.interfaces) } : {}),
   });
 
 export const cancelRequestedClientUser = (payload: { name: string; reason: string }) =>

@@ -604,6 +604,60 @@ class TestResolvingTheRequestedDevice(RequestedWorkCase):
         card = self.card(first["plan"], "service.add")
         self.assertEqual((card["managed_device"], card["display_status"]), (device, "Ready"))
 
+    def test_registering_records_the_network_interfaces_the_technician_read_off_the_machine(self):
+        name = self.sophos_on_a_new_laptop()
+        rdev = self.requested(name, REQUESTED_DEVICE)[0]
+
+        created = self.as_tech(
+            lambda: v1.resolve_requested_device(
+                name=rdev,
+                mode="new",
+                values=frappe.as_json(
+                    {"hostname": f"ZZNIC{self.tag[:4]}", "serial_number": f"ZZTEST-NIC-{self.tag}"}
+                ),
+                interfaces=frappe.as_json(
+                    [
+                        {"interface_type": "Wi-Fi", "mac_address": "AA:BB:CC:DD:EE:01"},
+                        {"interface_type": "LAN", "mac_address": "AA:BB:CC:DD:EE:02"},
+                    ]
+                ),
+            )
+        )["entity"]["resolved_to"]["name"]
+
+        rows = frappe.get_all(
+            "MSP Network Interface",
+            filters={"parent": created, "parenttype": "MSP Managed Device"},
+            fields=["interface_type", "mac_address"],
+            order_by="idx asc",
+        )
+
+        self.assertEqual(
+            [(row.interface_type, row.mac_address) for row in rows],
+            [("Wi-Fi", "AA:BB:CC:DD:EE:01"), ("LAN", "AA:BB:CC:DD:EE:02")],
+        )
+
+    def test_registering_without_interfaces_still_registers_the_machine(self):
+        name = self.sophos_on_a_new_laptop()
+        rdev = self.requested(name, REQUESTED_DEVICE)[0]
+
+        created = self.as_tech(
+            lambda: v1.resolve_requested_device(
+                name=rdev,
+                mode="new",
+                values=frappe.as_json(
+                    {"hostname": f"ZZNON{self.tag[:4]}", "serial_number": f"ZZTEST-NON-{self.tag}"}
+                ),
+            )
+        )["entity"]["resolved_to"]["name"]
+
+        self.assertTrue(frappe.db.exists("MSP Managed Device", created))
+        self.assertEqual(
+            frappe.db.count(
+                "MSP Network Interface", {"parent": created, "parenttype": "MSP Managed Device"}
+            ),
+            0,
+        )
+
     def test_a_failed_registration_leaves_no_machine_behind(self):
         from unittest.mock import patch
 

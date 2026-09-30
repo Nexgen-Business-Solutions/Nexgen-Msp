@@ -4,7 +4,8 @@ import Modal from '@/shared/components/Modal';
 import FieldLabel from '@/shared/components/FieldLabel';
 import TruncatedNote from '@/shared/components/TruncatedNote';
 import Select from '@/shared/components/Select';
-import type { RequestedDeviceValues } from '@/lib/api/internal';
+import InterfaceEditor from '@/shared/components/InterfaceEditor';
+import type { DeviceInterface, RequestedDeviceValues } from '@/lib/api/internal';
 import type { RequestedEntityPresentation } from '@/lib/api/requestPresentation';
 import {
   useResolveRequestedDevice,
@@ -52,6 +53,11 @@ const PrepareRequestedDeviceModal: React.FC<Props> = ({ entity, customer, onClos
   const [picked, setPicked] = useState<Tab | null>(null);
   const [opening, setOpening] = useState<Tab | null>(null);
   const [values, setValues] = useState<Record<string, string>>(() => initialValues(entity));
+  // the MAC addresses belong to the machine in hand, not to what the customer asked for
+  const [interfaces, setInterfaces] = useState<DeviceInterface[]>([
+    { interface_type: 'Wi-Fi', mac_address: '' },
+    { interface_type: 'LAN', mac_address: '' },
+  ]);
   const [search, setSearch] = useState('');
   const [chosen, setChosen] = useState<string | null>(null);
   const [savedNote, setSavedNote] = useState(false);
@@ -105,7 +111,14 @@ const PrepareRequestedDeviceModal: React.FC<Props> = ({ entity, customer, onClos
   const saveAndResolve = async () => {
     try {
       if (tab === 'new') {
-        await resolve.mutateAsync({ name: entity.name as string, mode: 'new', values: payload() });
+        const filled = interfaces.filter((item) => item.mac_address.trim());
+
+        await resolve.mutateAsync({
+          name: entity.name as string,
+          mode: 'new',
+          values: payload(),
+          ...(filled.length ? { interfaces: filled } : {}),
+        });
       } else {
         await resolve.mutateAsync({
           name: entity.name as string,
@@ -242,6 +255,9 @@ const PrepareRequestedDeviceModal: React.FC<Props> = ({ entity, customer, onClos
                 <input className={fieldInput} value={values[key]} onChange={(event) => set(key, event.target.value)} />
               </label>
             ))}
+            <div className="sm:col-span-2">
+              <InterfaceEditor value={interfaces} onChange={setInterfaces} suggestions={options.data?.interface_types ?? undefined} />
+            </div>
           </div>
         )}
 
