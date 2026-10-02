@@ -100,11 +100,12 @@ TEMPLATES = {
         + MUTED.format(text="You will be notified as soon as it has been reviewed."),
     },
     "MSP Request For Our Team": {
-        "subject": "{{ request }} from {{ customer }} - {{ app_name }}",
+        "subject": "{{ request }} · {{ customer }} · {{ headline }} - {{ app_name }}",
         "body": HEADING.format(text="A request has come in")
         + "<p>Hello {{ full_name }},</p>"
-        + "<p>{{ customer }} has raised a request.</p>"
+        + "<p>{{ customer }} has raised a request. Whoever opens it first carries it out.</p>"
         + "{{ summary }}"
+        + "{{ acts }}"
         + BUTTON.format(url="link", label="Open the request"),
     },
     "MSP Authority Gap": {
@@ -145,12 +146,13 @@ TEMPLATES = {
         + BUTTON.format(url="link", label="Review it"),
     },
     "MSP Request Waiting Reminder": {
-        "subject": "Reminder: {{ request }} is waiting to be handled - {{ app_name }}",
+        "subject": "Reminder: {{ request }} · {{ customer }} · {{ headline }} - {{ app_name }}",
         "body": HEADING.format(text="A request is still waiting")
         + "<p>Hello {{ full_name }},</p>"
         + "<p>{{ customer }} is waiting on request {{ request }}, received {{ waiting_since }}. "
         + "Nobody has started the work on it yet.</p>"
         + "{{ summary }}"
+        + "{{ acts }}"
         + BUTTON.format(url="link", label="Open the request"),
     },
     "MSP Request Approved By Customer": {
@@ -282,6 +284,117 @@ def send(name, recipients, context, reference_doctype=None, reference_name=None,
     except Exception:
         frappe.log_error(title=f"{name} could not be sent", message=frappe.get_traceback())
         return False
+
+
+def request_headline(request):
+    """The request in one line, for a subject somebody scans in a list of mail."""
+    doc = request if hasattr(request, "lines") else frappe.get_doc("MSP Request", request)
+    groups = [
+        group.operation_label_snapshot or group.operation_code
+        for group in (doc.get("action_groups") or [])
+    ]
+
+    if not groups:
+        return _plural(len(doc.lines), "action", "actions")
+
+    if len(groups) == 1:
+        return groups[0]
+
+    return f"{groups[0]} +{len(groups) - 1}"
+
+
+def request_briefing(request):
+    """What a request is about, in the few lines somebody reads before opening it.
+
+    A technician who opens their mail wants to know whose company it is, when it is wanted
+    for, and what is actually being asked — not a count of lines. The acts are listed as the
+    customer grouped them, with what each one reaches, and whatever has to be created first
+    is named, because that is the part that cannot be done in a minute.
+    """
+    doc = request if hasattr(request, "lines") else frappe.get_doc("MSP Request", request)
+    people = {row.subject_key for row in doc.lines if row.subject_key}
+    machines = {row.managed_device for row in doc.lines if row.managed_device}
+    newcomers = frappe.db.count(
+        "MSP Requested Client User", {"request": doc.name, "status": "Open"}
+    )
+    new_machines = frappe.db.count(
+        "MSP Requested Device", {"request": doc.name, "status": "Open"}
+    )
+    reach = ", ".join(
+        filter(
+            None,
+            (
+                _plural(len(people), "person", "people") if people else "",
+                _plural(len(machines), "machine", "machines") if machines else "",
+            ),
+        )
+    )
+    to_create = ", ".join(
+        filter(
+            None,
+            (
+                _plural(newcomers, "person", "people") if newcomers else "",
+                _plural(new_machines, "machine", "machines") if new_machines else "",
+            ),
+        )
+    )
+
+    rows = [
+        ("Customer", doc.customer),
+        ("Raised by", frappe.db.get_value("User", doc.requester, "full_name") or doc.requester or "-"),
+        ("Wanted for", frappe.utils.formatdate(doc.requested_date) if doc.requested_date else "As soon as possible"),
+        ("Priority", doc.priority or "Medium"),
+        ("Reaches", reach or "-"),
+    ]
+
+    if to_create:
+        rows.append(("To create first", to_create))
+
+    if doc.details:
+        rows.append(("Note", frappe.utils.escape_html(doc.details)))
+
+    return {"summary": _card(rows), "acts": _acts(doc)}
+
+
+def _plural(count, one, many):
+    return f"{count} {one if count == 1 else many}"
+
+
+def _acts(doc):
+    """Every act the customer grouped, with what it reaches, as a plain list."""
+    counts = {}
+
+    for row in doc.lines:
+        counts[row.action_group_key] = counts.get(row.action_group_key, 0) + 1
+
+    items = []
+
+    for group in doc.get("action_groups") or []:
+        reached = counts.get(group.group_key, 0)
+
+        if not reached:
+            continue
+
+        items.append(
+            '<li style="margin:4px 0;color:#0f172a;">'
+            f"<strong>{frappe.utils.escape_html(group.operation_label_snapshot or group.operation_code)}</strong>"
+            f' <span style="color:#64748b;">· {_plural(reached, "target", "targets")}'
+            + (
+                f" · {frappe.utils.escape_html(group.source_scope_label)}"
+                if group.source_scope_label and group.source_scope_type != "All"
+                else ""
+            )
+            + "</span></li>"
+        )
+
+    if not items:
+        return ""
+
+    return (
+        '<div style="margin:18px 0;"><div style="font-size:13px;font-weight:700;color:#0f172a;'
+        'margin-bottom:6px;">What is asked</div>'
+        f'<ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.5;">{"".join(items)}</ul></div>'
+    )
 
 
 def summary_table(rows):

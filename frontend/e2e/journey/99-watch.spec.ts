@@ -75,7 +75,7 @@ test.describe('The journey, watched', () => {
     await expect(page.getByRole('heading', { name: 'People' })).toBeVisible();
     await pause(page, 2);
 
-    await page.getByRole('button', { name: /Select existing/ }).click();
+    await page.getByRole('button', { name: /Existing user/ }).click();
     await pause(page, 2);
     await page.getByRole('button', { name: 'Done' }).click();
     await pause(page);

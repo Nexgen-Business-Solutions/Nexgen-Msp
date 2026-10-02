@@ -14,18 +14,22 @@ import type {
 } from '@/lib/api/portal';
 import { askedAmong, askedFrom, askedIndex, keyOf, machinesAskedFor } from '../askedScope';
 import { recall, remember } from '@/shared/lib/openingSelection';
+import RecordLink from '@/shared/components/RecordLink';
+import RequestDeviceSummary from './RequestDeviceSummary';
 import RequestPersonSummary from './RequestPersonSummary';
 import { machinesTaken } from '../machinesTaken';
 import { useRequestOperations, useRequestScope } from '../hooks/usePortal';
 import {
   REVIEW_NEEDED,
   type HolderPerson,
+  type NewPersonValues,
   type RequestActionGroup,
   type RequestSubject,
   type useRequestBuilder,
 } from '../hooks/useRequestBuilder';
 import RequestDevicePicker from './RequestDevicePicker';
 import RequestNewDeviceModal from './RequestNewDeviceModal';
+import RequestNewPersonModal from './RequestNewPersonModal';
 
 type Builder = ReturnType<typeof useRequestBuilder>;
 type Scope = { type: 'All' | 'Department' | 'Person'; key: string | null; label: string };
@@ -386,8 +390,11 @@ const Transfers: React.FC<{
   subjects: RequestSubject[];
   onClose: () => void;
   onAdd: (targets: RequestTarget[]) => void;
-}> = ({ option, subjects, onClose, onAdd }) => {
+  /** names somebody who does not exist yet, so a machine can be handed to them */
+  onNewPerson?: (values: NewPersonValues) => string;
+}> = ({ option, subjects, onClose, onAdd, onNewPerson }) => {
   const [holders, setHolders] = useState<Record<string, string>>({});
+  const [naming, setNaming] = useState<string | null>(null);
   const chosen = option.targets.filter(
     (target) => holders[target.managed_device ?? ''] && holders[target.managed_device ?? ''] !== ''
   );
@@ -408,6 +415,19 @@ const Transfers: React.FC<{
 
     return next;
   };
+
+  if (naming && onNewPerson) {
+    return (
+      <RequestNewPersonModal
+        onClose={() => setNaming(null)}
+        onAdd={(values) => {
+          const key = onNewPerson(values);
+          setHolders((current) => ({ ...current, [naming]: `subject:${key}` }));
+          setNaming(null);
+        }}
+      />
+    );
+  }
 
   return (
     <Modal
@@ -479,6 +499,15 @@ const Transfers: React.FC<{
                         })),
                     ]}
                   />
+                  {onNewPerson && (
+                    <button
+                      type="button"
+                      onClick={() => setNaming(target.managed_device ?? '')}
+                      className="mt-1 text-[11px] font-semibold text-blue-600 transition-colors hover:text-blue-700"
+                    >
+                      New person
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -1167,7 +1196,11 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
               key={row.subject_key}
               active={scope.type === 'Person' && scope.key === row.subject_key}
               title={row.full_name || 'New person'}
-              hint={`${row.devices.length} Devices · ${row.current_services.length} current services`}
+              hint={
+                row.kind === 'device'
+                  ? `Device · ${row.current_services.length} current services`
+                  : `${row.devices.length} Devices · ${row.current_services.length} current services`
+              }
               badge={row.kind === 'new'}
               onClick={() =>
                 setScope({
@@ -1185,22 +1218,32 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
           <div>
             <h3 className="text-base font-semibold text-slate-900">
-              {person
-                ? person.full_name
-                : scope.type === 'Department'
-                  ? `${scope.label} Department`
-                  : 'All selected people'}
+              {person ? (
+                <RecordLink
+                  name={person.kind === 'device' ? person.managed_device : person.client_user}
+                  kind={person.kind === 'device' ? 'device' : 'user'}
+                >
+                  {person.full_name}
+                </RecordLink>
+              ) : scope.type === 'Department' ? (
+                `${scope.label} Department`
+              ) : (
+                'All selected people'
+              )}
             </h3>
             <p className="mt-0.5 text-xs text-slate-500">
               {person
-                ? `${person.department || 'No Department'} · ${person.devices.length} Devices · ${person.current_services.length} current services`
+                ? person.kind === 'device'
+                  ? `Device · nobody holds it · ${person.current_services.length} current services`
+                  : `${person.department || 'No Department'} · ${person.devices.length} Devices · ${person.current_services.length} current services`
                 : `${scoped.length} people · actions may apply to all or only part of this ${
                     scope.type === 'Department' ? 'group' : 'selection'
                   }.`}
             </p>
           </div>
 
-          {person && <RequestPersonSummary person={person} />}
+          {person && person.kind !== 'device' && <RequestPersonSummary person={person} />}
+          {person && person.kind === 'device' && <RequestDeviceSummary device={person} />}
 
           {!person && (
             <button
@@ -1496,6 +1539,7 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
             subjects={builder.subjects}
             onClose={() => setDevice(null)}
             onAdd={(targets) => add(device, targets, device.exclusions, 'Device')}
+            onNewPerson={builder.addNewSubject}
           />
         ) : device.operation_code === 'device.assign' ? (
           <AssignDevice

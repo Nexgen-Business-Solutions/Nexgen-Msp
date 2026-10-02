@@ -150,7 +150,7 @@ SELECTION_ORIGIN = {"All": "Company", "Department": "Department", "Person": "Ind
 FORMER_INPUT_KEYS = ("is_new_user", "is_new_device")
 FORMER_INPUT_PREFIXES = ("new_user_", "new_device_")
 
-SUBJECT_KINDS = ("existing", "new")
+SUBJECT_KINDS = ("existing", "new", "device")
 
 NOT_THE_REQUESTER = "Only the person who raised this request can modify it."
 REQUEST_LOCKED = "This request can no longer be modified: work on it has started."
@@ -952,11 +952,23 @@ class PortalService:
         rows = []
 
         for row in doc.get("subjects") or []:
+            machine = row.get("managed_device") or row.get("requested_device")
             entry = {
                 "subject_key": row.subject_key,
-                "kind": "new" if row.requested_client_user else "existing",
+                "kind": "device"
+                if machine
+                else "new"
+                if row.requested_client_user
+                else "existing",
                 "client_user": row.client_user,
                 "requested_client_user": row.requested_client_user,
+                "managed_device": row.get("managed_device"),
+                "requested_device": row.get("requested_device"),
+                "device_requirement_key": frappe.db.get_value(
+                    "MSP Requested Device", row.requested_device, "device_requirement_key"
+                )
+                if row.get("requested_device")
+                else None,
                 "full_name": row.full_name_snapshot,
                 "department": row.department_snapshot,
                 "email": row.email_snapshot,
@@ -1137,14 +1149,7 @@ class PortalService:
         if not recipients:
             return
 
-        summary = notifications.summary_table(
-            [
-                ("Request", doc.name),
-                ("Customer", doc.customer),
-                ("Services requested", str(len(doc.lines))),
-                ("Priority", doc.priority or "Medium"),
-            ]
-        )
+        briefing = notifications.request_briefing(doc)
 
         for address in recipients:
             notifications.send(
@@ -1154,8 +1159,9 @@ class PortalService:
                     "full_name": frappe.db.get_value("User", address, "full_name") or address,
                     "request": doc.name,
                     "customer": doc.customer,
-                    "summary": summary,
-                    "link": f"{frappe.utils.get_url()}/msp/requests/{doc.name}",
+                    "headline": notifications.request_headline(doc),
+                    **briefing,
+                    "link": notifications.portal_url(f"/requests/{doc.name}"),
                 },
                 reference_doctype="MSP Request",
                 reference_name=doc.name,
@@ -1535,13 +1541,30 @@ class PortalService:
             if key in people:
                 raise ValidationError(f"{key} is named twice among the people of this request.", "VALIDATION_ERROR")
 
-            kind = row.get("kind") or ("existing" if row.get("client_user") else "new")
+            kind = row.get("kind") or (
+                "device"
+                if row.get("managed_device") or row.get("requested_device")
+                else "existing"
+                if row.get("client_user")
+                else "new"
+            )
 
             if kind not in SUBJECT_KINDS:
                 raise ValidationError(f"{kind} is not a kind of person.", "VALIDATION_ERROR")
 
             if kind == "existing" and not row.get("client_user"):
                 raise ValidationError("Choose the Client User this person is.", "VALIDATION_ERROR")
+
+            if kind == "device":
+                if row.get("client_user") or row.get("requested_client_user"):
+                    raise ValidationError(
+                        "A Device subject is a machine, not a person.", "VALIDATION_ERROR"
+                    )
+
+                if not (row.get("managed_device") or row.get("device_requirement_key")):
+                    raise ValidationError(
+                        "Choose the Device this subject is.", "VALIDATION_ERROR"
+                    )
 
             if kind == "new":
                 if row.get("client_user"):
@@ -1897,11 +1920,18 @@ class PortalService:
                 "subject_key": key,
                 "client_user": row.get("client_user") if row["kind"] == "existing" else None,
                 "requested_client_user": written["people"].get(key) if row["kind"] == "new" else None,
+                "managed_device": row.get("managed_device") if row["kind"] == "device" else None,
+                "requested_device": (
+                    written["machines"].get(row.get("device_requirement_key"))
+                    if row["kind"] == "device" and row.get("device_requirement_key")
+                    else None
+                ),
                 "full_name_snapshot": row.get("full_name") or row.get("client_user") or "Unknown",
                 "department_snapshot": row.get("department"),
                 "email_snapshot": row.get("email"),
                 "username_snapshot": row.get("username"),
-                "added_via": row.get("added_via") or ("New" if row["kind"] == "new" else "Existing"),
+                "added_via": row.get("added_via")
+                or {"new": "New", "device": "Device"}.get(row["kind"], "Existing"),
                 "selection_label": row.get("selection_label"),
                 # written here, from the database, and not from whatever the browser sent:
                 # the snapshot is what we can stand behind six months later

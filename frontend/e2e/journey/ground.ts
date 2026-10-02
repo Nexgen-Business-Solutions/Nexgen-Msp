@@ -380,7 +380,7 @@ export const pickScope = async (page: Page, entry: RegExp) => {
 };
 
 export const addExisting = async (page: Page, person: string) => {
-  await page.getByRole('button', { name: /Select existing/ }).click();
+  await page.getByRole('button', { name: /Existing user/ }).click();
 
   const dialog = page.getByRole('dialog');
 

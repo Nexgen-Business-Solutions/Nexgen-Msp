@@ -1,4 +1,5 @@
 import React from 'react';
+import RecordLink from '@/shared/components/RecordLink';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import type { ActionWorkGroup, PersonFacts, WorkCard, WorkPrerequisite } from '@/lib/api/internal';
 import type { RequestedEntityPresentation } from '@/lib/api/requestPresentation';
@@ -75,7 +76,13 @@ const EntityRow: React.FC<{
         {typeof department === 'string' && department && (
           <p className="mt-0.5 text-[11px] text-slate-500">{department}</p>
         )}
-        {resolved && <p className="mt-0.5 text-[11px] text-slate-500">{resolved}</p>}
+        {resolved && (
+          <p className="mt-0.5 text-[11px] text-slate-500">
+            <RecordLink name={entity.resolved_to?.name} kind={person ? 'user' : 'device'}>
+              {resolved}
+            </RecordLink>
+          </p>
+        )}
       </td>
       <td className="px-3 py-2.5 align-middle">
         <p className="text-xs font-semibold text-slate-900">{action}</p>
@@ -149,7 +156,15 @@ const WorkTable: React.FC<Props> = ({
             <tr key={card.name} data-work-order={card.name} className="border-b border-slate-100 last:border-b-0">
               <td className="px-3 py-2.5 align-middle">
                 <p className="flex flex-wrap items-center gap-1.5 text-xs font-semibold text-slate-900">
-                  {card.target.label}
+                  {card.managed_device ? (
+                    <RecordLink name={card.managed_device} kind="device">
+                      {card.target.label}
+                    </RecordLink>
+                  ) : (
+                    <RecordLink name={card.client_user} kind="user">
+                      {card.target.label}
+                    </RecordLink>
+                  )}
                   {card.target.badge && <span className={newBadge}>{card.target.badge}</span>}
                 </p>
                 {relation ? (

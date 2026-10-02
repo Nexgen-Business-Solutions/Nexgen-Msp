@@ -771,6 +771,12 @@ def cancel_billing_run(name=None):
 
 @frappe.whitelist()
 @handle_errors
+def discard_billing_run(name=None):
+    return _billing().discard(name=name)
+
+
+@frappe.whitelist()
+@handle_errors
 def get_billing_invoice(name=None):
     return _billing().invoice_view(name=name)
 

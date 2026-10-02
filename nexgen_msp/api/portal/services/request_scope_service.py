@@ -30,7 +30,15 @@ CURRENT_STATUSES = ("Pending Setup", "Active", "Suspended")
 LIVE_LIFECYCLE = ("Pending", "Active")
 
 # every refusal a customer can meet, said the same way everywhere
+FREE_DEVICE = "Free device"
+
+# a machine on the shelf is exactly the one somebody asks for; a retired one is gone for good
+RETIRED_STATUSES = ("Retired",)
+
 REASON_TEXT = {
+    "DEVICE_NOT_ACTIVE": "This Device is not active.",
+    "DEVICE_NOT_YET_REGISTERED": "This Device will exist once the request is carried out.",
+    "DEVICE_HAS_NO_PERSON": "This is a machine, not a person.",
     "NO_CURRENT_ASSIGNMENT": "No current assignment for this service.",
     "ALREADY_ACTIVE": "Service is already active.",
     "NOT_SUSPENDED": "Service is not suspended.",
@@ -137,8 +145,54 @@ def _parse(value):
 
 
 def _kind(draft):
-    """Whether a subject of the builder is a person on file or one still to be created."""
-    return draft.get("kind") or ("existing" if draft.get("client_user") else "new")
+    """What a subject of the builder is: a person on file, one still to be created, or a machine.
+
+    A machine stands on its own only while nobody holds it. The moment it has a holder the
+    request is about that person, and the machine is simply one of the things they have.
+    """
+    if draft.get("kind"):
+        return draft["kind"]
+
+    if draft.get("managed_device") or draft.get("requested_device"):
+        return "device"
+
+    return "existing" if draft.get("client_user") else "new"
+
+
+def _machines_of(drafts):
+    """The Managed Devices the selection names as subjects of their own."""
+    return sorted(
+        {
+            draft["managed_device"]
+            for draft in drafts
+            if draft.get("managed_device") and _kind(draft) == "device"
+        }
+    )
+
+
+def _standalone(customer, names):
+    """Those machines, read the way a holding is read, so every domain treats them alike."""
+    found = {}
+
+    if not names:
+        return found
+
+    for row in frappe.get_all(
+        "MSP Managed Device",
+        filters={"name": ("in", names), "customer": customer},
+        fields=["name", "hostname", "serial_number", "status", "device_type", "assigned_client_user"],
+    ):
+        found[row.name] = {
+            "name": row.name,
+            "label": row.hostname or row.serial_number or row.name,
+            "status": row.status,
+            "hostname": row.hostname,
+            "device_type": row.device_type,
+            "serial_number": row.serial_number,
+            "holder": row.assigned_client_user,
+        }
+
+    return found
 
 
 def _load_state(customer, drafts, editing=None):
@@ -170,13 +224,17 @@ def _load_state(customer, drafts, editing=None):
     }
     existing = sorted(people)
     holdings = _holdings(customer, existing)
-    devices = sorted({row["name"] for rows in holdings.values() for row in rows})
+    standalone = _standalone(customer, _machines_of(drafts))
+    devices = sorted(
+        {row["name"] for rows in holdings.values() for row in rows} | set(standalone)
+    )
     assignments = _assignments(customer, existing, devices)
 
     return {
         "customer": customer,
         "people": people,
         "holdings": holdings,
+        "standalone": standalone,
         "assignments": assignments,
         "billed": _billed_through(
             [row["assignment"] for rows in assignments["by_user"].values() for row in rows]
@@ -447,11 +505,15 @@ def _offered(customer):
 
 # ---------------------------------------------------------------------- projection
 def _project(draft, state):
-    """One person as the People table shows them."""
+    """One subject as the People table shows it: a person, a person to come, or a machine."""
     key = draft["subject_key"]
     person = state["people"].get(draft.get("client_user") or "")
+    kind = _kind(draft)
 
-    if _kind(draft) == "new":
+    if kind == "device":
+        return _project_machine(draft, state)
+
+    if kind == "new":
         return {
             "subject_key": key,
             "kind": "new",
@@ -526,6 +588,107 @@ def _project(draft, state):
         "last_billed": max(billed) if billed else None,
         "usable": usable,
         "reason_code": None if usable else "PERSON_DISABLED",
+    }
+
+
+def _project_machine(draft, state):
+    """A machine nobody holds, shown in the People table in its own right.
+
+    It carries itself in `devices`, so every act that reads a row's machines reaches it
+    without knowing it is looking at a subject rather than at somebody's laptop.
+    """
+    key = draft["subject_key"]
+    wanted = draft.get("device_requirement_key")
+    machine = state["standalone"].get(draft.get("managed_device") or "")
+
+    if not machine and wanted:
+        # a machine the customer is having made: it carries itself exactly as a machine
+        # arriving in the same request does, so the acts that reach a machine reach it
+        label = draft.get("full_name") or "New device"
+
+        return {
+            "subject_key": key,
+            "kind": "device",
+            "client_user": None,
+            "requested_client_user": None,
+            "managed_device": None,
+            "requested_device": draft.get("requested_device"),
+            "device_requirement_key": wanted,
+            "full_name": label,
+            "department": None,
+            "email": None,
+            "username": None,
+            "added_via": "Device",
+            "selection_label": draft.get("selection_label"),
+            "devices": [
+                {
+                    "name": None,
+                    "label": label,
+                    "status": "Active",
+                    "device_requirement_key": wanted,
+                    "requested_device": draft.get("requested_device"),
+                }
+            ],
+            "current_services": [],
+            "last_billed": None,
+            "usable": True,
+            "reason_code": None,
+        }
+
+    if not machine:
+        return {
+            "subject_key": key,
+            "kind": "device",
+            "client_user": None,
+            "requested_client_user": None,
+            "managed_device": draft.get("managed_device"),
+            "requested_device": draft.get("requested_device"),
+            "device_requirement_key": None,
+            "full_name": draft.get("full_name") or FREE_DEVICE,
+            "department": None,
+            "email": None,
+            "username": None,
+            "added_via": "Device",
+            "selection_label": draft.get("selection_label"),
+            "devices": [],
+            "current_services": [],
+            "last_billed": None,
+            # a machine of another company is not ours to touch
+            "usable": False,
+            "reason_code": "CROSS_CUSTOMER_TARGET",
+        }
+
+    running = state["assignments"]["by_device"].get(machine["name"], [])
+
+    return {
+        "subject_key": key,
+        "kind": "device",
+        "client_user": None,
+        "requested_client_user": None,
+        "managed_device": machine["name"],
+        "requested_device": None,
+        "device_requirement_key": None,
+        "full_name": machine["label"] or FREE_DEVICE,
+        "department": None,
+        "email": None,
+        "username": None,
+        "added_via": "Device",
+        "selection_label": draft.get("selection_label"),
+        "devices": [machine],
+        "current_services": [
+            {
+                "assignment": row["assignment"],
+                "service_item": row["service_item"],
+                "label": row["label"],
+                "scope": row["assignment_scope"],
+                "status": row["operational_status"],
+                "managed_device": row.get("managed_device"),
+            }
+            for row in sorted(running, key=lambda row: row["label"])
+        ],
+        "last_billed": None,
+        "usable": machine["status"] not in RETIRED_STATUSES,
+        "reason_code": None if machine["status"] not in RETIRED_STATUSES else "DEVICE_NOT_ACTIVE",
     }
 
 
@@ -613,15 +776,24 @@ def _evaluate_service(code, item, scope, rows, state):
 
             continue
 
+        if row["kind"] == "device" and "Device" not in wanted:
+            exclusions.append(_exclusion(row, "DEVICE_HAS_NO_PERSON"))
+
+            continue
+
         before = len(targets)
         refused = []
 
         for concrete in wanted:
+            if concrete == "User" and row["kind"] == "device":
+                continue
+
             if concrete == "Device":
                 devices = [
                     device
                     for device in row["devices"]
-                    if device["status"] == "Active"
+                    # a machine asked about in its own right is acted on wherever it stands
+                    if (device["status"] == "Active" or row["kind"] == "device")
                     and received.get(device["name"], row["subject_key"]) == row["subject_key"]
                 ]
                 # a machine this same request hands them is a machine they will have
@@ -768,7 +940,10 @@ def _device_domain(rows, state):
         {"device": device, "row": row}
         for row in rows
         for device in row["devices"]
-        if row["usable"] and device["status"] == "Active"
+        # somebody's machine has to be live to be acted on; a machine asked for in its own
+        # right is acted on wherever it stands, and standing in stock is why it was asked for
+        if row["usable"]
+        and (device["status"] == "Active" or row["kind"] == "device")
     ]
     options = []
     assign = _assign_option(rows, held, state["customer"])
@@ -779,10 +954,18 @@ def _device_domain(rows, state):
     if not held:
         return {"key": "Device", "label": "Devices", "options": options}
 
-    people = sorted({entry["row"]["client_user"] for entry in held})
-
     for code in DEVICE_CODES:
         definition = operations.get(code)
+        # a machine nobody holds cannot be taken back: there is nobody to take it from
+        reachable = [
+            entry
+            for entry in held
+            if code != "device.repossess" or entry["row"]["client_user"]
+        ]
+
+        if not reachable:
+            continue
+
         targets = [
             {
                 "subject_key": entry["row"]["subject_key"],
@@ -795,23 +978,34 @@ def _device_domain(rows, state):
                 "current_holder_label": entry["row"]["full_name"],
                 "source_service_assignment": None,
             }
-            for entry in held
+            for entry in reachable
         ]
+        # "Change holder" is the wrong word for a machine nobody holds: there is no holder to
+        # change. The act is the same one; only what it is called follows the machines it reaches
+        label = (
+            "Assign holder"
+            if code == "device.transfer"
+            and not any(entry["row"]["client_user"] for entry in reachable)
+            else definition["label"]
+        )
+
         options.append(
             {
                 "operation_code": code,
-                "operation_label": definition["label"],
-                "operation_label_snapshot": definition["label"],
+                "operation_label": label,
+                "operation_label_snapshot": label,
                 "object_key": None,
                 "object_label": definition["label"],
                 "targets": targets,
                 "exclusions": [
                     _exclusion(row, "NO_CURRENT_DEVICE")
                     for row in rows
-                    if row["usable"] and not [d for d in row["devices"] if d["status"] == "Active"]
+                    if row["usable"]
+                    and row["kind"] != "device"
+                    and not [d for d in row["devices"] if d["status"] == "Active"]
                 ],
                 "applicable_target_count": len(targets),
-                "applicable_subject_count": len(people),
+                "applicable_subject_count": len({entry["row"]["subject_key"] for entry in reachable}),
                 # the same people the exclusions above name, and no others: counting "holds no
                 # machine at all" while excluding on "holds no *active* machine" made the two
                 # disagree, and the screen showed a figure its own list did not support
@@ -824,7 +1018,7 @@ def _device_domain(rows, state):
                     }
                     - {entry["row"]["subject_key"] for entry in held}
                 ),
-                "device_count": len({entry["device"]["name"] for entry in held}),
+                "device_count": len({entry["device"]["name"] for entry in reachable}),
                 # everybody of the company, not only the people this request happens to name:
                 # handing a machine to a colleague is not a reason to add that colleague to
                 # the request, and a picker that cannot offer them is simply empty
@@ -870,7 +1064,7 @@ def _assign_option(rows, held, customer):
     with_machine = {entry["row"]["subject_key"] for entry in held}
     # everybody the scope can act on: a person who already holds one may still be given
     # another, and the ones who hold none are simply the obvious case
-    wanted = [row for row in rows if row["usable"]]
+    wanted = [row for row in rows if row["usable"] and row["kind"] != "device"]
 
     if not wanted:
         return None

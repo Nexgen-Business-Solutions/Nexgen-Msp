@@ -164,7 +164,7 @@ const person = (
   full_name: fullName,
   department: 'Accounting',
   is_new: false,
-  client_user: subjectKey.replace('user:', ''),
+  client_user: subjectKey.startsWith('user:') ? subjectKey.slice(5) : null,
   requested_client_user: null,
   total: 1,
   remaining: 1,
@@ -1794,8 +1794,30 @@ describe('step 2 — execute', () => {
     const workspace = screen.getByRole('region', { name: 'Execution workspace' });
     expect(within(workspace).getByRole('heading', { name: 'Marie Dupont' })).toBeInTheDocument();
     expect(within(workspace).getByText('Purchasing · all accepted work involving this person')).toBeInTheDocument();
+
+    // she does not exist yet, so there is no file to open and her name is plain text
+    expect(
+      within(within(workspace).getByRole('heading', { name: 'Marie Dupont' })).queryByRole('link')
+    ).not.toBeInTheDocument();
     expect(rowOf('WO-HOLD')).toBeInTheDocument();
     expect(rowOf('WO-01')).toBeNull();
+  });
+
+  it('opens the chosen person their own file, in a tab of its own', async () => {
+    await renderPage(request(), plan());
+
+    const rail = await screen.findByRole('complementary', { name: 'Execution view' });
+    fireEvent.click(within(within(rail).getByRole('list', { name: 'People' })).getByText('John Doe'));
+
+    const workspace = screen.getByRole('region', { name: 'Execution workspace' });
+    const opened = within(
+      within(workspace).getByRole('heading', { name: 'John Doe' })
+    ).getByRole('link');
+
+    // a technician reads a file without losing the row they were half way through
+    expect(opened).toHaveAttribute('href', '/msp/users/CU-1');
+    expect(opened).toHaveAttribute('target', '_blank');
+    expect(opened).toHaveAttribute('rel', 'noreferrer');
   });
 
   it('shows no preparation summary and no guidance sentences: the Create user row opens the preparation', async () => {

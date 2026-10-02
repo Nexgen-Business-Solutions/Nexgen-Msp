@@ -5,6 +5,7 @@ import type {
   RequestRelationship,
   RequestTargetPresentation,
 } from './types';
+import RecordLink from '@/shared/components/RecordLink';
 import { badgeClass, linkButtonClass, sectionClass, sectionHeadClass } from './format';
 
 type Props = {
@@ -88,7 +89,12 @@ function TargetTable({
                     {target.person_is_new && <span className={`${badgeClass('amber')} ml-1.5`}>NEW</span>}
                   </td>
                   <td className={td}>
-                    {target.target_label}
+                    <RecordLink
+                      name={target.target_name}
+                      kind={target.target_kind === 'managed_device' ? 'device' : 'user'}
+                    >
+                      {target.target_label}
+                    </RecordLink>
                     {target.target_badge && (
                       <span className={`${badgeClass('amber')} ml-1.5`}>{target.target_badge}</span>
                     )}

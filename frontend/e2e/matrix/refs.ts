@@ -174,6 +174,7 @@ export const poolOf = (s: Scenario): string[] => {
   };
   const walkStep = (step: PeopleStep) => {
     if ('existing' in step) refs.push(...step.existing);
+    if ('devices' in step) machines.push(...step.devices.filter((ref) => !('requested' in ref)));
     if ('department' in step) refs.push({ team: step.department, at: -1 });
   };
 

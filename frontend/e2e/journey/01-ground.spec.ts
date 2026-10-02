@@ -53,7 +53,7 @@ test.describe('Phase 0 — doors that are shut', () => {
 
     // they are not refused after clicking: the way in is simply never offered to them
     await expect(page.getByRole('button', { name: /New request|Raise a request/ })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: /Select existing/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Existing user/ })).toHaveCount(0);
   });
 
   test('and the explanation is there for anyone who reaches the form anyway', async ({ page }) => {

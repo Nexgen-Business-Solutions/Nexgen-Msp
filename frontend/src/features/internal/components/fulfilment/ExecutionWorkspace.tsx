@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { ListChecks } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
+import RecordLink from '@/shared/components/RecordLink';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import { recall, remember } from '@/shared/lib/openingSelection';
 import type { ExecutionPlan, PersonFacts, WorkCard, WorkRequirement } from '@/lib/api/internal';
@@ -262,7 +263,18 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onSaved, onContinue
         <section aria-label="Execution workspace" className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white">
           <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-4 py-3">
             <div className="min-w-0">
-              <h3 className="text-sm font-bold text-slate-900">{title}</h3>
+              <h3 className="text-sm font-bold text-slate-900">
+                {selectedPerson ? (
+                  <RecordLink
+                    name={selectedPerson.managed_device ?? selectedPerson.client_user}
+                    kind={selectedPerson.managed_device ? 'device' : 'user'}
+                  >
+                    {title}
+                  </RecordLink>
+                ) : (
+                  title
+                )}
+              </h3>
               <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p>
               <div className="mt-1.5 flex flex-wrap gap-1.5">
                 <Counter value={counts.ready} label="ready" tone="border-emerald-200 bg-emerald-50 text-emerald-700" />

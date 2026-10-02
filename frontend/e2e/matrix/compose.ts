@@ -65,7 +65,7 @@ const peopleTable = (page: Page) =>
 
 export const addPeople = async (page: Page, s: Scenario, step: PeopleStep) => {
   if ('existing' in step) {
-    await page.getByRole('button', { name: 'Select existing' }).click();
+    await page.getByRole('button', { name: 'Existing user' }).click();
 
     const dialog = dialogNamed(page, 'Select existing user');
 
@@ -75,6 +75,24 @@ export const addPeople = async (page: Page, s: Scenario, step: PeopleStep) => {
       await dialog.getByLabel('Search').fill(name);
       await dialog.getByRole('button', { name: `Add ${name}`, exact: true }).click();
       await expect(peopleTable(page).filter({ hasText: name })).toHaveCount(1);
+    }
+
+    await dialog.getByRole('button', { name: 'Done' }).click();
+    await expect(dialog).toHaveCount(0);
+
+    return;
+  }
+
+  if ('devices' in step) {
+    await page.getByRole('button', { name: 'Select Device' }).click();
+
+    const dialog = dialogNamed(page, 'Select Device');
+
+    for (const ref of step.devices) {
+      const hostname = machineName(s, ref);
+
+      await dialog.getByLabel('Search').fill(hostname);
+      await dialog.getByRole('button', { name: `Add ${hostname}`, exact: true }).click();
     }
 
     await dialog.getByRole('button', { name: 'Done' }).click();

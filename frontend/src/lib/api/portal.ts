@@ -328,9 +328,12 @@ export type RequestedDeviceSnapshot = RequestedDeviceDraft & {
 
 export type RequestSubjectSnapshot = {
   subject_key: string;
-  kind: 'existing' | 'new';
+  kind: 'existing' | 'new' | 'device';
   client_user: string | null;
   requested_client_user?: string | null;
+  managed_device?: string | null;
+  requested_device?: string | null;
+  device_requirement_key?: string | null;
   full_name: string;
   department: string | null;
   email: string | null;
@@ -858,16 +861,19 @@ export const getRequestSubmissionContext = (customer?: string, signal?: AbortSig
 /** One person in the request snapshot, whichever door they came in through. */
 export type RequestSubjectDraft = {
   subject_key: string;
-  kind: 'existing' | 'new';
+  kind: 'existing' | 'new' | 'device';
   client_user: string | null;
   requested_client_user?: string | null;
+  managed_device?: string | null;
+  requested_device?: string | null;
+  device_requirement_key?: string | null;
   full_name: string;
   department?: string | null;
   email?: string | null;
   username?: string | null;
   external_employee_id?: string | null;
   start_date?: string | null;
-  added_via: 'Existing' | 'New' | 'Department' | 'Company';
+  added_via: 'Existing' | 'New' | 'Department' | 'Company' | 'Device';
   selection_label?: string | null;
 };
 
@@ -889,9 +895,11 @@ export type RequestedDeviceDraft = {
 /** The same person as the server reads them: what they hold and what runs on them today. */
 export type RequestSubjectRow = {
   subject_key: string;
-  kind: 'existing' | 'new';
+  kind: 'existing' | 'new' | 'device';
   client_user: string | null;
   requested_client_user: string | null;
+  managed_device?: string | null;
+  requested_device?: string | null;
   full_name: string;
   department: string | null;
   email: string | null;

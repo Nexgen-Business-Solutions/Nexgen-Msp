@@ -2,6 +2,7 @@ import type { PeopleKind, ServiceKey, Who } from './ground';
 import { ACCORD } from './rows/accord';
 import { CANCEL } from './rows/cancel';
 import { DATES } from './rows/dates';
+import { DEVICES } from './rows/devices';
 import { MACHINES } from './rows/machines';
 import { MACHINES2 } from './rows/machines2';
 import { PEOPLE } from './rows/people';
@@ -35,6 +36,8 @@ export type NewMachineSpec = {
 export type PeopleStep =
   | { existing: Ref[] }
   | { future: FutureSpec }
+  /** a machine chosen in its own right: its holder enters instead when it has one */
+  | { devices: MachineRef[] }
   | { department: number; minus?: Ref[] }
   | { everybody: true };
 
@@ -468,4 +471,4 @@ const SLICE: Scenario[] = [
   },
 ];
 
-export const SCENARIOS: Scenario[] = [...SLICE, ...PEOPLE, ...MACHINES, ...ACCORD, ...MACHINES2, ...CANCEL, ...DATES];
+export const SCENARIOS: Scenario[] = [...SLICE, ...PEOPLE, ...MACHINES, ...ACCORD, ...MACHINES2, ...CANCEL, ...DATES, ...DEVICES];

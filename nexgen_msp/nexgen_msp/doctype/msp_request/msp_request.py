@@ -167,16 +167,21 @@ class MSPRequest(Document):
 			self.validate_subject_pairs()
 
 	def validate_subject_pairs(self):
-		"""Refuse a subject that names both, or neither, an existing and a requested person."""
+		"""Refuse a subject that names both, or neither, of a pair of targets.
+
+		A subject is a person — on file or still to be created — or a machine asked about in
+		its own right because nobody holds it. It is exactly one of those things, never two.
+		"""
 		from nexgen_msp.utils import request_targets
 
 		for row in self.get("subjects") or []:
-			named = [field for field in ("client_user", "requested_client_user") if row.get(field)]
+			people = [field for field in ("client_user", "requested_client_user") if row.get(field)]
+			machines = [field for field in ("managed_device", "requested_device") if row.get(field)]
 
-			if len(named) == 2:
+			if len(people) == 2 or len(machines) == 2 or (people and machines):
 				frappe.throw(_("Subject {0}: {1}").format(row.idx, _(request_targets.BOTH_TARGETS)))
 
-			if not named:
+			if not people and not machines:
 				frappe.throw(_("Subject {0}: {1}").format(row.idx, _(request_targets.TARGET_REQUIRED)))
 
 	INTENTION = (

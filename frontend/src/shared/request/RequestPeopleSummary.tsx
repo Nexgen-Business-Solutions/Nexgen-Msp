@@ -1,5 +1,6 @@
 import { Fragment, useState, type ReactNode } from 'react';
 import type { RequestSubjectPresentation } from './types';
+import RecordLink from '@/shared/components/RecordLink';
 import { badgeClass, linkButtonClass, sectionClass, sectionHeadClass } from './format';
 
 type Props = {
@@ -47,6 +48,7 @@ export default function RequestPeopleSummary({ subjects, total, renderPersonDeta
                 <Fragment key={subject.subject_key}>
                   <tr>
                     <td className={`${td} font-semibold text-slate-900`}>
+                      <span className="inline-flex items-center gap-1.5">
                       {renderPersonDetail ? (
                         <button
                           type="button"
@@ -59,11 +61,21 @@ export default function RequestPeopleSummary({ subjects, total, renderPersonDeta
                       ) : (
                         subject.full_name
                       )}
+                      {subject.type === 'device' ? (
+                        <RecordLink name={subject.managed_device} kind="device" />
+                      ) : (
+                        <RecordLink name={subject.client_user} kind="user" />
+                      )}
+                      </span>
                     </td>
                     <td className={td}>{subject.department || '—'}</td>
                     <td className={td}>
                       <span className={badgeClass(subject.type === 'new' ? 'amber' : 'slate')}>
-                        {subject.type === 'new' ? 'NEW' : 'EXISTING'}
+                        {subject.type === 'new'
+                          ? 'NEW'
+                          : subject.type === 'device'
+                            ? 'DEVICE'
+                            : 'EXISTING'}
                       </span>
                     </td>
                     <td className={td}>

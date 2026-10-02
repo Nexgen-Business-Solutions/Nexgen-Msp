@@ -226,6 +226,46 @@ class TestAModificationIsAnnounced(MailCase):
             self.assertNotIn(self.approver, row["to"])
 
 
+class TestTheTechnicianMailsFrameTheRequest(MailCase):
+    def test_the_team_mail_names_the_company_the_day_the_acts_and_what_is_to_be_created(self):
+        self.raise_as(self.approver, self.scenario())
+
+        mail = self.mails("MSP Request For Our Team")[0]
+
+        self.assertIn(self.customer, mail["subject"], "the company is read before opening it")
+        self.assertIn("What is asked", mail["message"])
+        self.assertIn("Wanted for", mail["message"])
+        self.assertIn("Priority", mail["message"])
+        self.assertIn("To create first", mail["message"], "a newcomer and a machine are the slow part")
+        self.assertIn("person", mail["message"])
+        self.assertIn("machine", mail["message"])
+
+    def test_the_acts_are_listed_as_the_customer_grouped_them(self):
+        self.raise_as(self.approver, self.scenario())
+
+        mail = self.mails("MSP Request For Our Team")[0]
+
+        for group in frappe.get_doc(REQUEST, mail["reference"]).action_groups:
+            self.assertIn(group.operation_label_snapshot, mail["message"], group.group_key)
+
+        self.assertEqual(mail["message"].count("<li"), 4, "one line per act, and no empty act")
+
+    def test_a_request_with_nothing_to_create_says_so_by_leaving_the_line_out(self):
+        self.raise_as(self.approver, self.simple())
+
+        mail = self.mails("MSP Request For Our Team")[0]
+
+        self.assertNotIn("To create first", mail["message"])
+        self.assertIn("What is asked", mail["message"])
+
+    def test_the_note_the_customer_wrote_travels_with_it(self):
+        payload = self.simple()
+        payload["details"] = "They start on Monday."
+        self.raise_as(self.approver, payload)
+
+        self.assertIn("They start on Monday.", self.mails("MSP Request For Our Team")[0]["message"])
+
+
 class TestTheThreeHourlyReminders(MailCase):
     def test_a_request_waiting_for_its_company_is_pointed_out_to_the_approver(self):
         name = self.raise_as(self.asker, self.simple())
@@ -248,7 +288,9 @@ class TestTheThreeHourlyReminders(MailCase):
         reminded = [row for row in self.mails("MSP Request Waiting Reminder") if row["reference"] == name]
         self.assertTrue(reminded)
         self.assertIn(self.tech, {address for row in reminded for address in row["to"]})
-        self.assertIn("waiting to be handled", reminded[0]["subject"])
+        self.assertIn(self.customer, reminded[0]["subject"], "the subject frames it at a glance")
+        self.assertIn("Wanted for", reminded[0]["message"])
+        self.assertIn("What is asked", reminded[0]["message"])
 
     def test_a_request_somebody_has_started_is_never_reminded_about(self):
         name = self.raise_as(self.approver, self.simple())
@@ -297,6 +339,7 @@ class TestEveryTemplateRenders(MailCase):
                     "reason_block": "",
                     "summary": "",
                     "waiting_since": "today",
+                    "acts": "",
                     "link": "https://example.invalid/msp",
                     "role": "MSP Technician",
                     "missing": "nobody may approve",

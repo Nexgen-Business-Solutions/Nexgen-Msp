@@ -918,6 +918,12 @@ class RequestExecutionService:
 		}
 
 	@staticmethod
+	def _machine_label(reading, machine):
+		card = reading.device(machine)
+
+		return (card.hostname or card.serial_number or machine) if card else machine
+
+	@staticmethod
 	def _people(doc, orders, reading):
 		"""Every person the accepted work is for, in the order the request speaks of them."""
 		keys = [row.subject_key for row in doc.get("subjects") or [] if row.subject_key]
@@ -934,6 +940,19 @@ class RequestExecutionService:
 
 		people = []
 
+		machines = {
+			row.subject_key: row.managed_device
+			for row in doc.get("subjects") or []
+			if row.subject_key and row.get("managed_device")
+		}
+		# a machine the request is having made has no record to name yet, so it is read by
+		# the label the customer gave it
+		wanted = {
+			row.subject_key: row.requested_device
+			for row in doc.get("subjects") or []
+			if row.subject_key and row.get("requested_device") and not row.get("managed_device")
+		}
+
 		for key in keys:
 			requested = reading.person_of_key(key) if not key.startswith("user:") else None
 			mine = [
@@ -948,14 +967,30 @@ class RequestExecutionService:
 
 			client_user = RequestExecutionService._subject_person(key, reading)
 			card = reading.client_user(client_user)
+			# a subject nobody holds is the machine itself, and it is read by its hostname
+			machine = machines.get(key)
+			asked = reading.machines.get(wanted[key]) if key in wanted else None
+			label = (
+				card.full_name
+				if card
+				else requested.full_name
+				if requested
+				else RequestExecutionService._machine_label(reading, machine)
+				if machine
+				else (asked.display_label or asked.name)
+				if asked
+				else key
+			)
 
 			people.append(
 				{
 					"subject_key": key,
-					"full_name": card.full_name if card else (requested.full_name if requested else key),
+					"full_name": label,
 					"department": card.department if card else (requested.department if requested else None),
 					"is_new": bool(requested),
 					"client_user": client_user,
+					"managed_device": machine,
+					"requested_device": wanted.get(key),
 					"requested_client_user": requested.name if requested else None,
 					"total": len(mine),
 					"remaining": len(

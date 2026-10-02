@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Building2, Layers, Plus, UserPlus, X } from 'lucide-react';
+import { Building2, Laptop, Layers, Plus, UserPlus, X } from 'lucide-react';
 import FieldLabel from '@/shared/components/FieldLabel';
 import Modal from '@/shared/components/Modal';
 import Select from '@/shared/components/Select';
@@ -9,9 +9,13 @@ import {
   useCompanySelection,
   useDepartmentSelection,
   useNewPersonContext,
+  usePortalFilterOptions,
   useRequestScope,
   useSelectableClientUsers,
+  useSelectableDevices,
 } from '../hooks/usePortal';
+import RequestNewDeviceModal from './RequestNewDeviceModal';
+import RequestNewPersonModal from './RequestNewPersonModal';
 import type { useRequestBuilder } from '../hooks/useRequestBuilder';
 
 type Builder = ReturnType<typeof useRequestBuilder>;
@@ -148,105 +152,166 @@ const SelectExisting: React.FC<{ builder: Builder; onClose: () => void }> = ({
   );
 };
 
-const OPTIONAL_FIELDS = [
-  ['email', 'Email', 'text'],
-  ['username', 'Username', 'text'],
-  ['startDate', 'Start date', 'date'],
-] as const;
+/**
+ * A request raised about a machine.
+ *
+ * Whose machine it is decides what the request is about. One somebody holds belongs to that
+ * person, so they are the subject and the machine is simply one of the things they have —
+ * exactly as if they had been picked by name. One nobody holds belongs to nobody, so it
+ * stands in the table in its own right.
+ */
+const SelectDevice: React.FC<{ builder: Builder; onClose: () => void }> = ({ builder, onClose }) => {
+  const [search, setSearch] = useState('');
+  const [describing, setDescribing] = useState(false);
+  const results = useSelectableDevices(search || undefined);
+  const options = usePortalFilterOptions();
+  const rows = results.data?.rows ?? [];
 
-type OptionalField = (typeof OPTIONAL_FIELDS)[number][0];
+  const taken = new Set(
+    builder.subjects.flatMap((subject) => (subject.managedDevice ? [subject.managedDevice] : []))
+  );
+  const held = new Set(builder.subjects.flatMap((subject) => (subject.clientUser ? [subject.clientUser] : [])));
 
-const NewPerson: React.FC<{ builder: Builder; onClose: () => void }> = ({ builder, onClose }) => {
-  const context = useNewPersonContext();
-  const [fullName, setFullName] = useState('');
-  const [department, setDepartment] = useState('');
-  const [values, setValues] = useState<Record<OptionalField, string>>({
-    email: '',
-    username: '',
-    startDate: '',
-  });
-  const [refused, setRefused] = useState(false);
-
-  const add = () => {
-    if (!fullName.trim()) {
-      setRefused(true);
+  const add = (device: (typeof rows)[number]) => {
+    if (device.current_holder) {
+      builder.addExistingSubject({
+        name: device.current_holder,
+        full_name: device.current_holder_name || device.current_holder,
+      });
 
       return;
     }
 
-    builder.addNewSubject({ fullName, department, ...values });
-    onClose();
+    builder.addDeviceSubject({
+      name: device.name,
+      label: device.hostname || device.serial_number || 'Free device',
+    });
   };
+
+  const already = (device: (typeof rows)[number]) =>
+    device.current_holder ? held.has(device.current_holder) : taken.has(device.name);
+
+  if (describing) {
+    return (
+      <RequestNewDeviceModal
+        deviceTypes={options.data?.device_types ?? []}
+        futurePeople={builder.subjects
+          .filter((subject) => subject.kind === 'new')
+          .map((subject) => ({ key: subject.key, fullName: subject.fullName || 'New person' }))}
+        onClose={() => setDescribing(false)}
+        onAdd={(device, holder) => {
+          // a machine described for somebody is the request we already know how to make:
+          // the builder puts that person in the table and raises Assign Device on them
+          if (device.intended_holder_client_user || device.intended_holder_subject_key) {
+            builder.addActionGroup(null, [device], { holders: holder ? [holder] : [] });
+          } else {
+            builder.addDeviceSubject(
+              {
+                label: device.display_label,
+                deviceRequirementKey: device.device_requirement_key,
+              },
+              device
+            );
+          }
+
+          setDescribing(false);
+          onClose();
+        }}
+      />
+    );
+  }
 
   return (
     <Modal
       open
       onClose={onClose}
-      icon={UserPlus}
-      title="New person"
-      subtitle="Fill what you have. Nexgen can complete the missing information during fulfilment."
-      widthClass="max-w-xl"
+      icon={Laptop}
+      title="Select Device"
+      subtitle="Pick a Device of this Customer, or describe one it does not have yet."
+      widthClass="max-w-2xl"
       footer={
-        <div className="flex items-center justify-end gap-2">
-          <button type="button" onClick={onClose} className={quietBtn}>
-            Cancel
+        <div className="flex items-center justify-between gap-2">
+          <button type="button" onClick={() => setDescribing(true)} className={actionBtn}>
+            <Plus size={13} />
+            New device
           </button>
-          <button type="button" onClick={add} className={primaryBtn}>
-            Add person
+          <button type="button" onClick={onClose} className={primaryBtn}>
+            Done
           </button>
         </div>
       }
     >
       <div className="space-y-3">
         <div>
-          <FieldLabel required>Full name</FieldLabel>
+          <FieldLabel>Search</FieldLabel>
           <input
             autoFocus
-            value={fullName}
-            aria-label="Full name"
-            onChange={(event) => {
-              setFullName(event.target.value);
-              setRefused(false);
-            }}
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            aria-label="Search"
+            placeholder="Hostname, serial or holder"
             className={inputClass}
           />
-          {refused && (
-            <p className="mt-1 text-xs font-medium text-red-600">Enter the person's full name.</p>
-          )}
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div>
-            <FieldLabel>Department</FieldLabel>
-            <Select
-              className="w-full"
-              value={department}
-              onChange={setDepartment}
-              placeholder="No Department yet"
-              options={(context.data?.departments ?? []).map((row) => ({
-                value: row.value,
-                label: row.label,
-              }))}
-            />
-          </div>
-
-          {OPTIONAL_FIELDS.map(([field, label, type]) => (
-            <div key={field}>
-              <FieldLabel>{label}</FieldLabel>
-              <input
-                type={type}
-                value={values[field]}
-                aria-label={label}
-                onChange={(event) =>
-                  setValues((current) => ({ ...current, [field]: event.target.value }))
+        <div className="max-h-80 divide-y divide-slate-100 overflow-auto rounded-lg border border-slate-200">
+          {rows.map((device) => (
+            <div
+              key={device.name}
+              data-device={device.name}
+              aria-disabled={!device.selectable || undefined}
+              title={device.selectable ? undefined : (device.unavailable_reason ?? undefined)}
+              className={`flex items-center justify-between gap-3 px-3 py-2 ${
+                device.selectable ? '' : 'bg-slate-50/70'
+              }`}
+            >
+              <div className="min-w-0">
+                <p
+                  className={`truncate text-sm font-semibold ${
+                    device.selectable ? 'text-slate-900' : 'text-slate-400'
+                  }`}
+                >
+                  {device.hostname || device.serial_number || 'Free device'}
+                  <span className="ml-1.5 text-[11px] font-medium text-slate-400">{device.status}</span>
+                </p>
+                <p className="truncate text-xs text-slate-500">
+                  {device.selectable
+                    ? [
+                        device.device_type,
+                        device.serial_number,
+                        device.current_holder_name
+                          ? `Held by ${device.current_holder_name}`
+                          : 'Nobody holds it',
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')
+                    : device.unavailable_reason}
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={!device.selectable || already(device)}
+                aria-label={`Add ${device.hostname || device.name}`}
+                title={
+                  already(device)
+                    ? device.current_holder
+                      ? 'Its holder is already in this request'
+                      : 'Already in this request'
+                    : undefined
                 }
-                className={inputClass}
-              />
+                onClick={() => add(device)}
+                className={`${actionBtn} disabled:cursor-not-allowed disabled:opacity-40`}
+              >
+                {already(device) ? 'Added' : 'Add'}
+              </button>
             </div>
           ))}
-        </div>
 
-        <p className="text-[11px] text-slate-500">Optional. Leave this blank if you do not know it.</p>
+          {rows.length === 0 && (
+            <p className="px-3 py-6 text-center text-sm text-slate-500">No result.</p>
+          )}
+        </div>
+        <TruncatedNote page={results.data} />
       </div>
     </Modal>
   );
@@ -388,7 +453,9 @@ const AddCompany: React.FC<{ builder: Builder; onClose: () => void }> = ({ build
  * worked out in the browser — the row is what the server says they hold and run today.
  */
 const RequestPeopleStep: React.FC<{ builder: Builder }> = ({ builder }) => {
-  const [opened, setOpened] = useState<'existing' | 'new' | 'department' | 'company' | null>(null);
+  const [opened, setOpened] = useState<
+    'existing' | 'new' | 'device' | 'department' | 'company' | null
+  >(null);
   const scope = useRequestScope(builder.subjectDrafts);
   const rows = scope.data?.subjects ?? [];
   const byKey = new Map(rows.map((row) => [row.subject_key, row]));
@@ -429,7 +496,11 @@ const RequestPeopleStep: React.FC<{ builder: Builder }> = ({ builder }) => {
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={() => setOpened('existing')} className={actionBtn}>
             <Plus size={13} />
-            Select existing
+            Existing user
+          </button>
+          <button type="button" onClick={() => setOpened('device')} className={actionBtn}>
+            <Laptop size={13} />
+            Select Device
           </button>
           <button type="button" onClick={() => setOpened('new')} className={actionBtn}>
             <UserPlus size={13} />
@@ -549,7 +620,13 @@ const RequestPeopleStep: React.FC<{ builder: Builder }> = ({ builder }) => {
       {opened === 'existing' && (
         <SelectExisting builder={builder} onClose={() => setOpened(null)} />
       )}
-      {opened === 'new' && <NewPerson builder={builder} onClose={() => setOpened(null)} />}
+      {opened === 'device' && <SelectDevice builder={builder} onClose={() => setOpened(null)} />}
+      {opened === 'new' && (
+        <RequestNewPersonModal
+          onClose={() => setOpened(null)}
+          onAdd={(values) => builder.addNewSubject(values)}
+        />
+      )}
       {opened === 'department' && (
         <AddDepartment builder={builder} onClose={() => setOpened(null)} />
       )}

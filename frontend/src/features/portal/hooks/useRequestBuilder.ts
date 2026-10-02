@@ -64,9 +64,13 @@ export type RequestActionGroup = {
 /** The person a group of intentions is about, whether or not they exist yet. */
 export type RequestSubject = {
   key: string;
-  kind: 'existing' | 'new';
+  kind: 'existing' | 'new' | 'device';
   clientUser?: string;
   requestedClientUser?: string;
+  /** a machine asked about in its own right, because nobody holds it */
+  managedDevice?: string;
+  requestedDevice?: string;
+  deviceRequirementKey?: string;
   fullName?: string;
   department?: string;
   email?: string;
@@ -124,7 +128,9 @@ export const deviceLabelOf = (values: Partial<RequestedDeviceDraft>) =>
   (values.device_type ? `New ${values.device_type.toLowerCase()}` : 'New device');
 
 const addedVia = (subject: RequestSubject): RequestSubjectDraft['added_via'] =>
-  subject.kind === 'new'
+  subject.kind === 'device'
+    ? 'Device'
+    : subject.kind === 'new'
     ? 'New'
     : subject.selectionOrigin === 'Department'
       ? 'Department'
@@ -161,6 +167,9 @@ export const restoreSaved = (saved: PortalRequestDetail, keepNames = true): Rest
       kind: row.kind,
       clientUser: row.client_user ?? undefined,
       requestedClientUser: keepNames ? (row.requested_client_user ?? undefined) : undefined,
+      managedDevice: row.managed_device ?? undefined,
+      requestedDevice: keepNames ? (row.requested_device ?? undefined) : undefined,
+      deviceRequirementKey: row.device_requirement_key ?? undefined,
       fullName: row.full_name,
       department: row.department ?? undefined,
       email: row.email ?? undefined,
@@ -233,12 +242,14 @@ const namedTarget = (
   return next;
 };
 
-const referencedDevices = (groups: RequestActionGroup[]) =>
-  new Set(
-    groups.flatMap((group) =>
+const referencedDevices = (groups: RequestActionGroup[], subjects: RequestSubject[] = []) =>
+  new Set([
+    ...(groups.flatMap((group) =>
       group.targets.map((target) => target.device_requirement_key).filter(Boolean)
-    ) as string[]
-  );
+    ) as string[]),
+    // a machine described in the People step is wanted for itself, before any act names it
+    ...(subjects.map((subject) => subject.deviceRequirementKey).filter(Boolean) as string[]),
+  ]);
 
 export const useRequestBuilder = (
   onCreated?: (created: { name: string }) => void,
@@ -472,6 +483,57 @@ export const useRequestBuilder = (
     return key;
   };
 
+  /**
+   * A machine the request is about, because nobody holds it.
+   *
+   * A machine somebody holds is not a subject of its own: the request is about that person,
+   * and the machine is one of the things they have. The caller sorts that out and sends the
+   * holder here instead, so this only ever receives a free machine.
+   */
+  const addDeviceSubject = (
+    device: {
+      name?: string | null;
+      label: string;
+      deviceRequirementKey?: string | null;
+    },
+    described?: RequestedDeviceDraft
+  ) => {
+    const existing = subjects.find((subject) =>
+      device.name
+        ? subject.managedDevice === device.name
+        : subject.deviceRequirementKey === device.deviceRequirementKey
+    );
+
+    if (existing) return existing.key;
+
+    const key = device.name ? `device:${device.name}` : `device:${device.deviceRequirementKey}`;
+
+    if (described) {
+      setRequestedDevices((current) =>
+        current.some((row) => row.device_requirement_key === described.device_requirement_key)
+          ? current
+          : [...current, described]
+      );
+    }
+
+    setSubjects((current) =>
+      current.some((subject) => subject.key === key)
+        ? current
+        : [
+            ...current,
+            {
+              key,
+              kind: 'device',
+              managedDevice: device.name ?? undefined,
+              deviceRequirementKey: device.deviceRequirementKey ?? undefined,
+              fullName: device.label,
+            },
+          ]
+    );
+
+    return key;
+  };
+
   const scopeCount = (group: Pick<RequestActionGroup, 'sourceScopeType' | 'sourceScopeKey'>) =>
     group.sourceScopeType === 'All'
       ? subjects.length
@@ -502,9 +564,10 @@ export const useRequestBuilder = (
         };
       })
       .filter((group) => group.targets.length > 0);
-    const used = referencedDevices(groups);
+    const kept = subjects.filter((subject) => !keys.has(subject.key));
+    const used = referencedDevices(groups, kept);
 
-    setSubjects((current) => current.filter((subject) => !keys.has(subject.key)));
+    setSubjects(kept);
     setActionGroups(groups);
     setRequestedDevices((current) =>
       current
@@ -644,7 +707,7 @@ export const useRequestBuilder = (
 
   const removeActionGroup = (groupKey: string) => {
     const next = actionGroups.filter((group) => group.groupKey !== groupKey);
-    const used = referencedDevices(next);
+    const used = referencedDevices(next, subjects);
 
     setActionGroups(next);
     setRequestedDevices((current) =>
@@ -680,6 +743,10 @@ export const useRequestBuilder = (
         client_user: subject.kind === 'existing' ? (subject.clientUser ?? null) : null,
         requested_client_user:
           subject.kind === 'new' ? (subject.requestedClientUser ?? null) : null,
+        managed_device: subject.kind === 'device' ? (subject.managedDevice ?? null) : null,
+        requested_device: subject.kind === 'device' ? (subject.requestedDevice ?? null) : null,
+        device_requirement_key:
+          subject.kind === 'device' ? (subject.deviceRequirementKey ?? null) : null,
         full_name: subject.fullName ?? '',
         department: subject.department ?? null,
         email: subject.email ?? null,
@@ -824,6 +891,7 @@ export const useRequestBuilder = (
     addExistingSubject,
     addGroupSubjects,
     addNewSubject,
+    addDeviceSubject,
     removeSubject,
     removeSubjectsFor,
     payload,

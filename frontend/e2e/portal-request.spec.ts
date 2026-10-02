@@ -37,7 +37,7 @@ test.describe('A customer raises a request, from the first click to the record',
     ]);
     await expect(page.getByText('Every selection method feeds the same table.')).toBeVisible();
 
-    await page.getByRole('button', { name: /Select existing/ }).click();
+    await page.getByRole('button', { name: /Existing user/ }).click();
     await page.getByLabel('Search').fill('ZZE2E Alice');
     await page.getByRole('button', { name: 'Add ZZE2E Alice' }).click();
     await page.getByRole('button', { name: 'Done' }).click();
@@ -338,7 +338,7 @@ test.describe('A sent request, modified by the person who raised it until the wo
 
       await page.getByRole('button', { name: 'New request' }).click();
       await expect(page.getByRole('heading', { name: 'People' })).toBeVisible();
-      await page.getByRole('button', { name: /Select existing/ }).click();
+      await page.getByRole('button', { name: /Existing user/ }).click();
       await page.getByLabel('Search').fill('ZZE2E Bob');
       await page.getByRole('button', { name: 'Add ZZE2E Bob' }).click();
       await page.getByRole('button', { name: 'Done' }).click();

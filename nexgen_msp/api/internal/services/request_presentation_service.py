@@ -198,9 +198,14 @@ class RequestPresentationService:
                 "subject_key": row.subject_key,
                 "full_name": row.full_name_snapshot,
                 "department": row.department_snapshot,
-                "kind": "new" if row.requested_client_user else "existing",
+                "kind": "device"
+                if row.get("managed_device") or row.get("requested_device")
+                else "new"
+                if row.requested_client_user
+                else "existing",
                 "client_user": row.client_user,
                 "requested_client_user": row.requested_client_user,
+                "managed_device": row.get("managed_device"),
             }
 
         for line in doc.lines:
@@ -650,6 +655,8 @@ class RequestPresentationService:
                     "type": person["kind"],
                     "client_user": person["client_user"],
                     "requested_client_user": person["requested_client_user"],
+                    # a subject that is a machine opens its own file, not a person's
+                    "managed_device": person.get("managed_device"),
                     "related_work_count": len(
                         [row for row in rows if RequestPresentationService._concerns(row, key, person)]
                     ),
@@ -848,6 +855,9 @@ class RequestPresentationService:
             "person_is_new": bool(row["person_new"]),
             "target_label": label,
             "target_kind": kind,
+            # the record this target points at, so a reader can open its file without
+            # leaving the request: a Requested entity has none until it is resolved
+            "target_name": row["managed_device"] or (None if row["person_new"] else person.get("client_user")),
             "target_badge": badge,
             "operation_label": operation_label,
             "state_at_request": state,

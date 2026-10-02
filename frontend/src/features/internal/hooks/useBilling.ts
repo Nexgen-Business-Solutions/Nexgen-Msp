@@ -50,6 +50,19 @@ export const useRunAction = () => {
   });
 };
 
+/** A draft run thrown away: it leaves no row behind, so the whole listing is read again. */
+export const useDiscardBillingRun = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (name: string) => internal.discardBillingRun(name),
+    onSuccess: (_outcome, name) => {
+      queryClient.removeQueries({ queryKey: billingKeys.detail(name) });
+      queryClient.invalidateQueries({ queryKey: billingKeys.all });
+    },
+  });
+};
+
 export const useBillingFilterOptions = (customer?: string) =>
   useQuery({
     queryKey: [...billingKeys.all, 'filterOptions', customer] as const,

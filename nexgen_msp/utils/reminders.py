@@ -48,15 +48,11 @@ def _summary(row, lines):
     )
 
 
-def _lines_of(name):
-    return frappe.db.count("MSP Request Line", {"parent": name, "parenttype": REQUEST})
-
-
 def _since(creation):
     return f"{frappe.utils.format_datetime(creation)} ({frappe.utils.time_diff_in_hours(frappe.utils.now(), creation):.0f}h ago)"
 
 
-def _tell(template, address, row, lines):
+def _tell(template, address, row, lines, briefing=None):
     notifications.send(
         template,
         [address],
@@ -66,6 +62,9 @@ def _tell(template, address, row, lines):
             "customer": row.customer,
             "waiting_since": _since(row.creation),
             "summary": _summary(row, lines),
+            "acts": "",
+            "headline": "",
+            **(briefing or {}),
             "link": notifications.portal_url(f"/requests/{row.name}"),
         },
         reference_doctype=REQUEST,
@@ -103,13 +102,18 @@ def remind_our_team():
     sent = 0
 
     for row in rows:
-        lines = _lines_of(row.name)
+        doc = frappe.get_doc(REQUEST, row.name)
+        # read once per request, not once per technician
+        briefing = {
+            **notifications.request_briefing(doc),
+            "headline": notifications.request_headline(doc),
+        }
 
         for address in team:
             if address == row.requester:
                 continue
 
-            _tell("MSP Request Waiting Reminder", address, row, lines)
+            _tell("MSP Request Waiting Reminder", address, row, len(doc.lines), briefing)
             sent += 1
 
     return sent

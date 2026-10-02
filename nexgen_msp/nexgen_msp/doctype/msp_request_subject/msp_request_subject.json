@@ -8,6 +8,8 @@
   "subject_key",
   "client_user",
   "requested_client_user",
+  "managed_device",
+  "requested_device",
   "is_new_user",
   "full_name_snapshot",
   "column_break_identity",
@@ -41,6 +43,18 @@
    "options": "MSP Requested Client User"
   },
   {
+   "fieldname": "managed_device",
+   "fieldtype": "Link",
+   "label": "Managed Device",
+   "options": "MSP Managed Device"
+  },
+  {
+   "fieldname": "requested_device",
+   "fieldtype": "Link",
+   "label": "Requested Device",
+   "options": "MSP Requested Device"
+  },
+  {
    "fieldname": "is_new_user",
    "fieldtype": "Check",
    "label": "New Person",
@@ -50,7 +64,6 @@
    "fieldname": "full_name_snapshot",
    "fieldtype": "Data",
    "label": "Full Name",
-   "reqd": 1,
    "in_list_view": 1
   },
   {
@@ -76,7 +89,7 @@
    "fieldname": "added_via",
    "fieldtype": "Select",
    "label": "Added Via",
-   "options": "Existing\nNew\nDepartment\nCompany",
+   "options": "Existing\nNew\nDepartment\nCompany\nDevice",
    "default": "Existing"
   },
   {

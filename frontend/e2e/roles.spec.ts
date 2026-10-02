@@ -34,7 +34,7 @@ test.describe('A customer operator', () => {
     await open(page, '/msp/requests/new');
 
     await expect(page.getByText('You may not raise requests')).toBeVisible();
-    await expect(page.getByRole('button', { name: /Select existing/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Existing user/ })).toHaveCount(0);
   });
 
   test('still reads the company file they are there to read', async ({ page }) => {

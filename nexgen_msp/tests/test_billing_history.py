@@ -531,3 +531,77 @@ class TestABlockerHoldsTheRunAndCanLeaveIt(BillingHistoryCase):
         self.assertEqual(row.approved_by, frappe.session.user)
         self.assertEqual(row.reviewed_by, frappe.session.user)
         self.assertTrue(row.approved_at)
+
+
+class TestARunStillBeingPreparedIsResumedOrDropped(BillingHistoryCase):
+    """A run drawn and left: it has to be findable, carried on, or thrown away."""
+
+    def setUp(self):
+        super().setUp()
+        self.service = self.make_service(f"DR{self.tag[:3]}", scope="User")
+        self.cover(self.service)
+        self.running(self.service, client_user=self.john)
+
+    def test_what_is_still_being_prepared_is_listed_before_what_is_settled(self):
+        settled = self.drawn(**dict(zip(("start", "end"), self.month(back=2))))
+        open_run = self.drawn(**dict(zip(("start", "end"), self.month(back=9))))
+
+        BillingService.approve(name=settled)
+
+        listed = BillingService.list_runs(customer=self.customer)["rows"]
+        names = [row.name for row in listed]
+
+        self.assertEqual(
+            names[0],
+            open_run,
+            "the one still to finish comes first, although its period is the older of the two",
+        )
+        self.assertIn(settled, names)
+        self.assertEqual(frappe.db.get_value("MSP Billing Run", open_run, "docstatus"), 0)
+
+    def test_naming_one_customer_lists_that_customer_rather_than_failing(self):
+        mine = self.drawn(**dict(zip(("start", "end"), self.month(back=6))))
+
+        listed = BillingService.list_runs(customer=self.customer)["rows"]
+
+        self.assertIn(mine, [row.name for row in listed])
+        self.assertEqual({row.customer for row in listed}, {self.customer})
+
+    def test_it_is_deleted_outright_and_leaves_no_row_behind(self):
+        run = self.drawn(**dict(zip(("start", "end"), self.month(back=3))))
+        lines = frappe.db.count("MSP Billing Run Line", {"parent": run})
+
+        self.assertGreater(lines, 0, "it really did price something")
+
+        out = BillingService.discard(name=run)
+
+        self.assertEqual(out["name"], run)
+        self.assertFalse(frappe.db.exists("MSP Billing Run", run))
+        self.assertEqual(frappe.db.count("MSP Billing Run Line", {"parent": run}), 0)
+
+    def test_the_period_is_open_again_once_it_is_gone(self):
+        start, end = self.month(back=4)
+        run = self.drawn(start=start, end=end)
+        BillingService.discard(name=run)
+
+        again = self.drawn(start=start, end=end)
+
+        # the name is free again too, because nothing anywhere still points at the old run
+        self.assertTrue(frappe.db.exists("MSP Billing Run", again))
+        self.assertGreater(frappe.db.count("MSP Billing Run Line", {"parent": again}), 0)
+        self.assertEqual(
+            frappe.db.count("MSP Billing Run", {"customer": self.customer, "billing_period_start": start}),
+            1,
+            "drawing it again leaves one run for that period, not two",
+        )
+
+    def test_a_run_that_has_been_through_anything_is_cancelled_and_never_deleted(self):
+        run = self.drawn(**dict(zip(("start", "end"), self.month(back=5))))
+        BillingService.approve(name=run)
+
+        with self.assertRaises(ServiceRefused) as refused:
+            BillingService.discard(name=run)
+
+        self.assertIn("nobody has approved yet", str(refused.exception))
+        self.assertTrue(frappe.db.exists("MSP Billing Run", run))
+

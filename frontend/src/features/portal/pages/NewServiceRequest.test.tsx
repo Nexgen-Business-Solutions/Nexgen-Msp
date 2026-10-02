@@ -28,6 +28,7 @@ vi.mock('@/lib/api/portal', async (importOriginal) => {
     getRequest: vi.fn(),
     listSelectableClientUsers: vi.fn(),
     listSelectableDevices: vi.fn(),
+    getPortalFilterOptions: vi.fn(),
   };
 });
 
@@ -138,6 +139,34 @@ const projection = (keys: string[]): { customer: string; subjects: portal.Reques
             added_via: 'Existing',
             selection_label: null,
             devices: [],
+            current_services: [],
+            last_billed: null,
+            usable: true,
+            reason_code: null,
+          }
+        : key.startsWith('device:')
+        ? {
+            subject_key: key,
+            kind: 'device' as const,
+            client_user: null,
+            requested_client_user: null,
+            managed_device: key.slice(7),
+            full_name: 'ACI-LT-FREE',
+            department: null,
+            email: null,
+            username: null,
+            added_via: 'Device',
+            selection_label: null,
+            devices: [
+              {
+                name: key.slice(7),
+                label: 'ACI-LT-FREE',
+                status: 'Stock',
+                hostname: 'ACI-LT-FREE',
+                device_type: 'Laptop',
+                serial_number: 'SN-FREE',
+              },
+            ],
             current_services: [],
             last_billed: null,
             usable: true,
@@ -254,6 +283,11 @@ const setUp = () => {
   vi.mocked(portal.searchRequestUsers).mockResolvedValue([alice, brice]);
   vi.mocked(portal.listSelectableClientUsers).mockResolvedValue(pageOf([selectable(alice), selectable(brice)]));
   vi.mocked(portal.listSelectableDevices).mockResolvedValue(pageOf([]));
+  vi.mocked(portal.getPortalFilterOptions).mockResolvedValue({
+    user_statuses: [],
+    device_statuses: [],
+    device_types: ['Laptop', 'PC', 'Phone'],
+  });
   vi.mocked(presentationApi.previewRequest).mockResolvedValue(presentationFixture());
   vi.mocked(portal.getNewPersonContext).mockResolvedValue({
     customer: 'ACI',
@@ -287,7 +321,7 @@ beforeEach(() => {
 });
 
 const addAlice = async () => {
-  fireEvent.click(screen.getByRole('button', { name: /Select existing/ }));
+  fireEvent.click(screen.getByRole('button', { name: /Existing user/ }));
   fireEvent.click(await screen.findByRole('button', { name: 'Add Alice Ndom' }));
   fireEvent.click(screen.getByRole('button', { name: 'Done' }));
 };
@@ -348,7 +382,7 @@ describe('The Request Builder, step by step', () => {
     show();
     await addAlice();
 
-    fireEvent.click(screen.getByRole('button', { name: /Select existing/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Existing user/ }));
     expect(await screen.findByRole('button', { name: 'Add Brice Mvondo' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Add Alice Ndom' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
@@ -545,6 +579,146 @@ const transferOption: portal.RequestOperationOption = {
   ],
 };
 
+const FREE_AND_HELD = [
+  {
+    name: 'MD-FREE',
+    hostname: 'ACI-LT-FREE',
+    serial_number: 'SN-FREE',
+    asset_tag: null,
+    device_type: 'Laptop',
+    status: 'Stock',
+    current_holder: null,
+    current_holder_name: null,
+    selectable: true,
+    unavailable_reason: null,
+  },
+  {
+    name: 'MD-1',
+    hostname: 'ACI-LT-011',
+    serial_number: 'SN-011',
+    asset_tag: null,
+    device_type: 'Laptop',
+    status: 'Active',
+    current_holder: 'CU-001',
+    current_holder_name: 'Alice Ndom',
+    selectable: true,
+    unavailable_reason: null,
+  },
+];
+
+describe('a request raised about a machine', () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  const openDevices = async () => {
+    setUp();
+    vi.mocked(portal.listSelectableDevices).mockResolvedValue(pageOf(FREE_AND_HELD) as never);
+    show();
+    fireEvent.click(screen.getByRole('button', { name: 'Select Device' }));
+
+    return screen.findByRole('dialog');
+  };
+
+  it('offers every Device of the customer, saying who holds each one', async () => {
+    const dialog = await openDevices();
+
+    expect(within(dialog).getByText('Select Device')).toBeInTheDocument();
+    expect(await within(dialog).findByText(/Nobody holds it/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/Held by Alice Ndom/)).toBeInTheDocument();
+  });
+
+  it('puts a machine nobody holds in the table under its own hostname', async () => {
+    const dialog = await openDevices();
+
+    fireEvent.click(await within(dialog).findByRole('button', { name: 'Add ACI-LT-FREE' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
+
+    const row = (await screen.findByText('ACI-LT-FREE')).closest('tr') as HTMLElement;
+
+    expect(row).toBeInTheDocument();
+    expect(screen.queryByText('Alice Ndom')).not.toBeInTheDocument();
+  });
+
+  it('puts the holder in the table when somebody holds the machine, never the machine', async () => {
+    const dialog = await openDevices();
+
+    fireEvent.click(await within(dialog).findByRole('button', { name: 'Add ACI-LT-011' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
+
+    const row = (await screen.findByText('Alice Ndom')).closest('tr') as HTMLElement;
+
+    expect(row).toBeInTheDocument();
+    expect(screen.getAllByRole('row')).toHaveLength(2);
+    // the machine is one of the things she has, listed under her, never a subject of its own
+    expect(within(row).getAllByTitle(/ACI-LT-011/).length).toBeGreaterThan(0);
+  });
+
+  it('sends the machine as the subject, with no person attached to it', async () => {
+    const dialog = await openDevices();
+
+    fireEvent.click(await within(dialog).findByRole('button', { name: 'Add ACI-LT-FREE' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
+    await screen.findByText('ACI-LT-FREE');
+
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
+    await waitFor(() => expect(portal.evaluateRequestOperations).toHaveBeenCalled());
+
+    const sent = vi.mocked(portal.evaluateRequestOperations).mock.calls[0][0].subjects[0];
+
+    expect(sent.kind).toBe('device');
+    expect(sent.managed_device).toBe('MD-FREE');
+    expect(sent.client_user).toBeNull();
+    expect(sent.added_via).toBe('Device');
+    expect(sent.subject_key).toBe('device:MD-FREE');
+  });
+
+  it('shows the machine as a machine on the actions step, never as a person', async () => {
+    const dialog = await openDevices();
+
+    fireEvent.click(await within(dialog).findByRole('button', { name: 'Add ACI-LT-FREE' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
+    await screen.findByText('ACI-LT-FREE');
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
+
+    const details = await screen.findByRole('region', { name: 'ACI-LT-FREE details' });
+
+    expect(within(details).getByText('Serial number')).toBeInTheDocument();
+    expect(within(details).getByText('SN-FREE')).toBeInTheDocument();
+    expect(screen.queryByText('Department')).not.toBeInTheDocument();
+    expect(screen.getByText(/nobody holds it/)).toBeInTheDocument();
+  });
+
+  it('describes a machine the customer does not have yet, with the real list of types', async () => {
+    const dialog = await openDevices();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'New device' }));
+
+    const form = await screen.findByRole('dialog');
+
+    expect(within(form).getByText('New device')).toBeInTheDocument();
+    // the type is a choice, never a free text field
+    fireEvent.click(within(form).getByRole('button', { name: /Not known yet/ }));
+    expect(await screen.findByRole('option', { name: 'Laptop' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Phone' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('option', { name: 'Laptop' }));
+
+    fireEvent.change(within(form).getByLabelText('Hostname'), { target: { value: 'ACI-NEW-1' } });
+    fireEvent.click(within(form).getByRole('button', { name: 'Add device' }));
+
+    expect(await screen.findByText('ACI-NEW-1')).toBeInTheDocument();
+  });
+
+  it('adds the same machine only once', async () => {
+    const dialog = await openDevices();
+
+    fireEvent.click(await within(dialog).findByRole('button', { name: 'Add ACI-LT-FREE' }));
+
+    expect(await within(dialog).findByRole('button', { name: 'Add ACI-LT-FREE' })).toBeDisabled();
+  });
+});
+
 describe('people who do not exist yet', () => {
   afterEach(() => {
     cleanup();
@@ -653,7 +827,7 @@ describe('choosing existing people and machines', () => {
     ]));
     show();
 
-    fireEvent.click(screen.getByRole('button', { name: /Select existing/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Existing user/ }));
     const carla = await screen.findByRole('button', { name: 'Add Carla Disabled' });
     const dan = screen.getByRole('button', { name: 'Add Dan Archived' });
 
@@ -1052,7 +1226,7 @@ describe('the review and the draft', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Add action' }));
     fireEvent.click(screen.getByRole('button', { name: 'Back' }));
 
-    fireEvent.click(screen.getByRole('button', { name: /Select existing/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Existing user/ }));
     fireEvent.click(await screen.findByRole('button', { name: 'Add Brice Mvondo' }));
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
@@ -1199,7 +1373,7 @@ describe('where the Actions step opens', () => {
       );
     show();
     await addAlice();
-    fireEvent.click(screen.getByRole('button', { name: /Select existing/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Existing user/ }));
     fireEvent.click(await screen.findByRole('button', { name: 'Add Brice Mvondo' }));
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
@@ -1402,6 +1576,9 @@ const sentPayload = {
       kind: 'existing',
       client_user: 'CU-001',
       requested_client_user: null,
+      managed_device: null,
+      requested_device: null,
+      device_requirement_key: null,
       full_name: 'Alice Ndom',
       department: 'Purchasing',
       email: 'alice@aci.cm',

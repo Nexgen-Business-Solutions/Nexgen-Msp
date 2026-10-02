@@ -1,4 +1,5 @@
 import React from 'react';
+import RecordLink from '@/shared/components/RecordLink';
 import type { RequestSubjectRow } from '@/lib/api/portal';
 
 const Fact: React.FC<{ label: string; value?: string | null }> = ({ label, value }) => (
@@ -17,7 +18,18 @@ const RequestPersonSummary: React.FC<{ person: RequestSubjectRow }> = ({ person 
       <Fact label="Department" value={person.department} />
       <Fact label="Email" value={person.email} />
       <Fact label="Username" value={person.username} />
-      <Fact label="Record" value={person.kind === 'new' ? 'New person' : person.client_user} />
+      <div className="min-w-0">
+        <dt className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Record</dt>
+        <dd className="mt-0.5 truncate text-xs font-medium text-slate-900">
+          {person.kind === 'new' ? (
+            'New person'
+          ) : (
+            <RecordLink name={person.client_user} kind="user">
+              {person.client_user || '—'}
+            </RecordLink>
+          )}
+        </dd>
+      </div>
     </dl>
 
     <div className="mt-3 overflow-hidden rounded-lg border border-slate-200">
@@ -34,7 +46,9 @@ const RequestPersonSummary: React.FC<{ person: RequestSubjectRow }> = ({ person 
           {person.devices.map((device) => (
             <tr key={device.name} data-device={device.name}>
               <td className="px-3 py-2 text-xs font-semibold text-slate-900">
-                {device.hostname || device.label}
+                <RecordLink name={device.name} kind="device">
+                  {device.hostname || device.label}
+                </RecordLink>
               </td>
               <td className="px-3 py-2 text-xs text-slate-700">{device.device_type || '—'}</td>
               <td className="px-3 py-2 text-xs text-slate-700">{device.serial_number || '—'}</td>

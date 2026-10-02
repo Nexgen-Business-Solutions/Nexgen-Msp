@@ -8,6 +8,7 @@ import {
   Play,
   Plus,
   Receipt,
+  Trash2,
   TriangleAlert,
   Wallet,
 } from 'lucide-react';
@@ -16,7 +17,8 @@ import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import StatusBadge from '@/shared/components/StatusBadge';
 import Select from '@/shared/components/Select';
 import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
-import { useBillingDue, useBillingRuns } from '../hooks/useBilling';
+import Modal from '@/shared/components/Modal';
+import { useBillingDue, useBillingRuns, useDiscardBillingRun } from '../hooks/useBilling';
 import { useMspContracts } from '../hooks/useMspContracts';
 
 const COLUMNS = ['Run', 'Customer', 'Period', 'Lines', 'Exceptions', 'Total', 'Invoice', 'Status', ''];
@@ -47,6 +49,10 @@ const RANGES: Range[] = [
   { label: 'All time', from: null },
 ];
 
+/** A run nobody has approved and no invoice carries is still the preparer's to finish or drop. */
+const unsettled = (row: { status: string; sales_invoice?: string | null }) =>
+  !row.sales_invoice && ['Draft', 'Validating', 'Exception', 'Ready for Approval'].includes(row.status);
+
 export default function BillingRuns() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -59,6 +65,8 @@ export default function BillingRuns() {
     focus: '',
   });
   const [search, setSearch] = useState('');
+  const [dropping, setDropping] = useState<string | null>(null);
+  const discard = useDiscardBillingRun();
 
   const query = {
     customers: filters.customers as string[],
@@ -408,8 +416,8 @@ export default function BillingRuns() {
                         <RowActionsMenu
                           actions={[
                             {
-                              label: 'View run',
-                              icon: Eye,
+                              label: unsettled(row) ? 'Continue this run' : 'View run',
+                              icon: unsettled(row) ? Play : Eye,
                               onClick: () => navigate(`/msp/billing/${row.name}`),
                             },
                             {
@@ -418,6 +426,16 @@ export default function BillingRuns() {
                               onClick: () =>
                                 navigate(`/msp/customers/${encodeURIComponent(row.customer)}`),
                             },
+                            ...(unsettled(row)
+                              ? [
+                                  {
+                                    label: 'Delete this run',
+                                    icon: Trash2,
+                                    danger: true,
+                                    onClick: () => setDropping(row.name),
+                                  },
+                                ]
+                              : []),
                           ]}
                         />
                       </div>
@@ -429,6 +447,48 @@ export default function BillingRuns() {
         </div>
       </div>
 
+      <Modal
+        open={Boolean(dropping)}
+        onClose={() => setDropping(null)}
+        icon={Trash2}
+        tone="red"
+        title="Delete this run?"
+        subtitle="Nobody has approved it and no invoice carries it, so it leaves no trace. The period stays open and can be drawn again."
+        widthClass="max-w-lg"
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setDropping(null)}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+            >
+              Keep it
+            </button>
+            <button
+              type="button"
+              disabled={discard.isLoading}
+              onClick={async () => {
+                try {
+                  await discard.mutateAsync(dropping as string);
+                  setDropping(null);
+                } catch {
+                  return;
+                }
+              }}
+              className="rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:opacity-60"
+            >
+              Delete run
+            </button>
+          </div>
+        }
+      >
+        <p className="text-sm text-slate-700">{dropping}</p>
+        {discard.error instanceof Error && (
+          <p role="alert" className="mt-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2.5 text-sm font-medium text-red-700">
+            {discard.error.message}
+          </p>
+        )}
+      </Modal>
     </div>
   );
 }

@@ -45,6 +45,9 @@ DISPLAY_ONLY = (
     "last_billed_on",
 )
 
+# a run nobody has approved yet: still being worked on, and still the preparer's to drop
+UNSETTLED_STATUSES = ("Draft", "Validating", "Exception", "Ready for Approval")
+
 RUN_STATUSES = (
     "Draft",
     "Validating",
@@ -1500,6 +1503,37 @@ class BillingService:
         return BillingService.get_run(name)
 
     @staticmethod
+    def discard(name=None):
+        """Remove a run nobody approved, as though it had never been drawn.
+
+        Cancelling keeps a row for ever, which is right once a run has been approved or
+        invoiced: somebody has to be able to see what was dropped and why. A run still being
+        prepared has been through nothing — it is a working copy of figures that can be drawn
+        again in one click — so keeping it only clutters the register.
+        """
+        BillingService._guard_admin()
+
+        if not name or not frappe.db.exists("MSP Billing Run", name):
+            raise NotFoundError(f"Billing Run {name} not found.", "NOT_FOUND")
+
+        doc = frappe.get_doc("MSP Billing Run", name)
+
+        if doc.docstatus != 0 or doc.sales_invoice or doc.status not in UNSETTLED_STATUSES:
+            raise ValidationError(
+                "Only a run nobody has approved yet can be deleted. Cancel this one instead, "
+                "so the register keeps what was decided.",
+                "INVALID_TRANSITION",
+            )
+
+        customer, period = doc.customer, doc.billing_period_end
+
+        frappe.db.sql("delete from `tabMSP Billing Run Line` where parent = %s", name)
+        frappe.delete_doc("MSP Billing Run", name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+        return {"name": name, "customer": customer, "billing_period_end": str(period or "")}
+
+    @staticmethod
     def cancel(name=None):
         BillingService._guard_admin()
 
@@ -2099,9 +2133,17 @@ class BillingService:
         BillingService._guard_admin()
 
         def as_list(value):
-            value = frappe.parse_json(value) if isinstance(value, str) else value
+            if isinstance(value, str):
+                try:
+                    # the browser sends a JSON array; a caller naming one customer sends its
+                    # name, which is not JSON and must not be read as though it were
+                    value = frappe.parse_json(value)
+                except Exception:
+                    pass
+
             if value in (None, "", []):
                 return []
+
             return value if isinstance(value, list) else [value]
 
         wanted_customers = as_list(customers) or as_list(customer)
@@ -2111,6 +2153,7 @@ class BillingService:
         params = {
             "start": frappe.utils.cint(start),
             "page_length": frappe.utils.cint(page_length) or 20,
+            "unsettled": UNSETTLED_STATUSES,
         }
 
         if wanted_customers:
@@ -2156,7 +2199,9 @@ class BillingService:
                     as line_count
             from `tabMSP Billing Run` br
             {where}
-            order by br.billing_period_end desc, br.creation desc
+            order by (br.docstatus = 0 and ifnull(br.sales_invoice, '') = ''
+                      and br.status in %(unsettled)s) desc,
+                     br.billing_period_end desc, br.creation desc
             limit %(page_length)s offset %(start)s
             """,
             params,

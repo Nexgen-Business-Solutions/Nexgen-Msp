@@ -413,6 +413,7 @@ export type ExecutionPerson = {
   department: string | null;
   is_new: boolean;
   client_user: string | null;
+  managed_device?: string | null;
   requested_client_user: string | null;
   total: number;
   remaining: number;
@@ -1609,6 +1610,12 @@ export const runBillingAction = (action: string, name: string, extra?: Record<st
     name,
     ...extra,
   });
+
+export const discardBillingRun = (name: string) =>
+  post<{ name: string; customer: string; billing_period_end: string }>(
+    `${BASE}.discard_billing_run`,
+    { name }
+  );
 
 export const addUserDevice = (payload: {
   client_user: string;

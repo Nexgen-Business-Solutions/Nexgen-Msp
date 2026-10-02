@@ -61,8 +61,9 @@ export type RequestSubjectPresentation = {
   subject_key: string;
   full_name: string;
   department: string | null;
-  type: 'existing' | 'new';
+  type: 'existing' | 'new' | 'device';
   client_user: string | null;
+  managed_device?: string | null;
   requested_client_user: string | null;
   related_work_count: number;
 };
@@ -81,6 +82,7 @@ export type RequestTargetPresentation = {
   person_is_new: boolean;
   target_label: string;
   target_kind: 'client_user' | 'requested_client_user' | 'managed_device' | 'requested_device';
+  target_name?: string | null;
   target_badge: 'NEW' | 'NEW DEVICE' | 'UNRESOLVED' | null;
   operation_label: string;
   state_at_request: string | null;
