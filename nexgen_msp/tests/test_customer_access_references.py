@@ -200,3 +200,66 @@ class TestTheAccountsScreen(AccessCase):
         self.assertEqual(card["access"]["status"], permissions.HEALTHY)
         self.assertEqual(permissions.customer_permissions_of(user), {self.mine})
         self.assertEqual(permissions.customers_from_contacts(user), {self.mine})
+
+
+class TestMovingAnAccountToAnotherCompany(AccessCase):
+    """Naming one company must move every reference, or the account ends up half moved.
+
+    Four records say which company an account answers for, and a screen reads a different
+    one depending on the question. A move that writes some of them leaves the account
+    reachable where it no longer belongs.
+    """
+
+    def references(self, user):
+        return {
+            "permission": frappe.get_all(
+                "User Permission",
+                filters={"user": user, "allow": "Customer"},
+                pluck="for_value",
+            ),
+            "contact": sorted(permissions.customers_from_contacts(user)),
+            "allowed": permissions.get_allowed_customers(user),
+            "matrix": frappe.db.sql_list(
+                "select parent from `tabMSP Approver` where user = %s", user
+            ),
+        }
+
+    def test_it_writes_the_user_permission_and_the_contact_link_together(self):
+        user = self.account(suffix=f"mv{self.tag[:3]}")
+
+        TeamService.resolve_access_references(email=user, customers=[self.theirs])
+
+        told = self.references(user)
+        self.assertEqual(told["permission"], [self.theirs])
+        self.assertEqual(told["contact"], [self.theirs])
+        self.assertEqual(told["allowed"], [self.theirs])
+
+    def test_the_company_left_behind_keeps_no_reference_at_all(self):
+        user = self.account(suffix=f"ml{self.tag[:3]}")
+
+        TeamService.resolve_access_references(email=user, customers=[self.theirs])
+
+        told = self.references(user)
+        for side, value in told.items():
+            self.assertNotIn(self.mine, value, f"{self.mine} still named by {side}")
+
+    def test_the_authority_line_moves_with_the_rest(self):
+        from nexgen_msp.api.internal.services.authority_service import AuthorityService
+
+        user = self.account(suffix=f"ma{self.tag[:3]}")
+        AuthorityService.set_account_rights(user, {"can_submit": 1, "can_approve": 1})
+        self.assertEqual(self.references(user)["matrix"], [self.mine])
+
+        TeamService.resolve_access_references(email=user, customers=[self.theirs])
+
+        self.assertEqual(self.references(user)["matrix"], [])
+
+    def test_the_contact_itself_survives_the_move(self):
+        """The link changes company; the person is not deleted and recreated."""
+        user = self.account(suffix=f"mc{self.tag[:3]}")
+        before = frappe.get_all("Contact", filters={"user": user}, pluck="name")
+
+        TeamService.resolve_access_references(email=user, customers=[self.theirs])
+
+        self.assertEqual(frappe.get_all("Contact", filters={"user": user}, pluck="name"), before)
+        self.assertEqual(len(before), 1, "one person, one contact")

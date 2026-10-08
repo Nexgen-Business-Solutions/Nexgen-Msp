@@ -168,12 +168,146 @@ class TeamService:
 		from nexgen_msp.api.two_factor.services.two_factor_service import TwoFactorService
 
 		account["access"] = TeamService.access_integrity(email)
+		account["abilities"] = TeamService.abilities(email)
 		account["two_factor"] = TwoFactorService.has_secret(email)
 		account["is_self"] = email == frappe.session.user
 		# nothing to invite someone to until the account carries a role
 		account["can_invite"] = bool(account["role"])
 
 		return account
+
+	@staticmethod
+	def abilities(email):
+		"""What this account may actually do, asked of the rules themselves.
+
+		Every line is the answer the application gives when the question is really put, for
+		this very account, so a reader is never promised something the code would refuse.
+
+		An account answers for one company, so everything below is said in the singular.
+		"""
+		from nexgen_msp.utils import access
+
+		held = set(frappe.get_roles(email))
+		role = next((name for name in ALL_ROLES if name in held), None)
+		company = frappe.db.get_value(
+			"User Permission", {"user": email, "allow": "Customer"}, "for_value"
+		)
+		staff = access.is_staff(email)
+
+		def may(capability, **context):
+			try:
+				return bool(access.allows(capability, user=email, **context))
+			except Exception:
+				return False
+
+		may_edit_profile = may("edit_customer_profile", customer=company)
+		requests = [
+			{
+				"label": "Carry requests out",
+				"allowed": may("execute_requests"),
+				"detail": "Decide lines, prepare people and machines, run the work orders"
+				if staff
+				else "Carrying work out is ours; a customer asks and never executes",
+			},
+			{
+				"label": "Register new people and machines while fulfilling",
+				"allowed": may("execute_requests"),
+			},
+		]
+
+		if role in permissions.CUSTOMER_ROLES:
+			rights = approval.rights_of(company, email) if company else {}
+			department = rights.get("department")
+			requests = [
+				{
+					"label": "Raise requests from the portal",
+					"allowed": bool(rights.get("can_submit")),
+					"detail": "Named on the authority matrix"
+					if rights.get("can_submit")
+					else "Not named on the matrix, so nothing can be sent",
+				},
+				{
+					"label": "Approve this company's requests",
+					"allowed": bool(rights.get("can_approve")),
+					"detail": (
+						f"For the {department} Department only"
+						if rights.get("can_approve") and department
+						else "For the whole company"
+						if rights.get("can_approve")
+						else "Their own requests wait for somebody who may approve"
+					),
+				},
+				*requests,
+			]
+
+		return {
+			"role": role,
+			"role_label": _classify(email, held),
+			"family": permissions.family_of(role),
+			"scope": "Every customer we serve"
+			if staff
+			else company or "No company — this account reaches nothing",
+			"groups": [
+				{
+					"title": "Reach",
+					"items": [
+						{"label": "Read across every customer", "allowed": may("view_all_customers")},
+						{
+							"label": "Read every customer's people, machines, services and requests"
+							if staff
+							else "Read this company's people, machines, services and requests",
+							"allowed": may("view_customer_operations", customer=company),
+						},
+						{
+							"label": "Reach the Frappe desk",
+							"allowed": frappe.db.get_value("User", email, "user_type")
+							== "System User",
+						},
+					],
+				},
+				{"title": "Requests", "items": requests},
+				{
+					"title": "Commercial and money",
+					"items": [
+						{"label": "Add a customer", "allowed": may("create_customer")},
+						{
+							"label": "Change commercial terms",
+							"allowed": may("edit_customer_commercial"),
+						},
+						{
+							"label": "Change a customer's own details"
+							if staff
+							else "Change this company's own details",
+							"allowed": may_edit_profile,
+							"detail": "Address, contact details and departments"
+							if may_edit_profile
+							else None,
+						},
+						{"label": "Manage contracts", "allowed": may("manage_contracts")},
+						{"label": "Manage pricing", "allowed": may("manage_pricing")},
+						{
+							"label": "Draw and issue billing runs",
+							"allowed": bool(
+								frappe.has_permission("MSP Billing Run", "create", user=email)
+							),
+						},
+						{
+							"label": "Read invoices",
+							"allowed": role != permissions.CUSTOMER_OPERATOR_ROLE,
+							"detail": "The one thing a Customer Operator is kept away from"
+							if role == permissions.CUSTOMER_OPERATOR_ROLE
+							else None,
+						},
+						{
+							"label": "Manage accounts and portal access",
+							"allowed": bool(held.intersection(permissions.MANAGE_ACCESS_ROLES))
+							or email == "Administrator",
+						},
+						{"label": "Manage settings", "allowed": may("manage_settings")},
+					],
+				},
+			],
+		}
 
 	@staticmethod
 	def access_integrity(email):
@@ -249,6 +383,7 @@ class TeamService:
 			if row.for_value not in wanted:
 				frappe.delete_doc("User Permission", row.name, ignore_permissions=True)
 
+		approval.withdraw_from_elsewhere(email, wanted)
 		_drop_contact_links(email, wanted)
 		frappe.db.commit()
 

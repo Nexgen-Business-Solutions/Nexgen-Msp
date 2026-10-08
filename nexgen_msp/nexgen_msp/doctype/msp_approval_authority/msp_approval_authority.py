@@ -21,14 +21,24 @@ class MSPApprovalAuthority(Document):
 
 		Which company an account answers for is its customer permission — the same fact that
 		lets it hold a customer role at all.
+
+		The matrix is one document per company, so a save validates every line it holds, not
+		the line somebody just edited. The refusal therefore says where the offending line
+		sits and what to do with it: whoever reads it is rarely the person it names.
 		"""
 		for row in self.approvers:
 			allowed = permissions.get_allowed_customers(row.user)
 
 			if self.customer not in allowed:
+				who = frappe.bold(row.full_name or row.user)
 				frappe.throw(
-					_("{0} is not an account of {1}.").format(
-						frappe.bold(row.full_name or row.user), self.customer
+					_(
+						"The authority matrix of {0} holds a line for {1}, who answers for"
+						" {2}. Remove that line from this matrix before changing rights here."
+					).format(
+						self.customer,
+						who,
+						", ".join(allowed) if allowed else _("no company"),
 					)
 				)
 

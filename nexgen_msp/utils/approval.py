@@ -37,6 +37,51 @@ def has_approvers(customer):
     return bool(doc and any(row.can_approve for row in doc.approvers))
 
 
+def withdraw(user, customer):
+    """Take an account off a customer's matrix, because it no longer answers for it.
+
+    A line left behind is not merely untidy: the document refuses to validate while it holds
+    an account that does not belong to the company, so one stale line blocks every later
+    change to that company's rights — for everybody, not only for the account named.
+    """
+    if not user or not customer:
+        return False
+
+    name = frappe.db.get_value(AUTHORITY, {"customer": customer}, "name")
+
+    if not name:
+        return False
+
+    doc = frappe.get_doc(AUTHORITY, name)
+    kept = [row for row in doc.approvers if row.user != user]
+
+    if len(kept) == len(doc.approvers):
+        return False
+
+    doc.set("approvers", kept)
+    doc.save(ignore_permissions=True)
+    doc.add_comment("Comment", f"Removed {user}, who no longer answers for {customer}.")
+
+    return True
+
+
+def withdraw_from_elsewhere(user, answers_for):
+    """Take an account off every matrix but the ones it still answers for."""
+    if not user:
+        return []
+
+    kept = set(answers_for or [])
+    left = [
+        customer
+        for customer in frappe.db.sql_list(
+            "select distinct parent from `tabMSP Approver` where user = %s", user
+        )
+        if customer not in kept
+    ]
+
+    return [customer for customer in left if withdraw(user, customer)]
+
+
 def rights_of(customer, user=None):
     """What the signed-in account may do at this customer. Empty when it holds nothing.
 

@@ -270,7 +270,11 @@ export default function AccountDetail() {
         </div>
       </div>
 
-      <AccessReferencesPanel email={account.name} access={account.access} />
+      <AccessReferencesPanel
+        email={account.name}
+        access={account.access}
+        abilities={account.abilities}
+      />
 
       <PersonRightsPanel user={account.name} />
 

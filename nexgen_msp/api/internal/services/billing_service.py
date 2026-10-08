@@ -2451,8 +2451,11 @@ class BillingService:
         BillingService._recompute_last_billed(doc.customer)
         frappe.db.commit()
 
-        if frappe.utils.cint(notify):
-            BillingService._notify_customer(doc, invoice, BillingService._invoice_groups(doc))
+        # Withdrawn on the owner's instruction: a customer is no longer told by email that an
+        # invoice was issued. The template and the sender below are kept, so putting it back is
+        # a matter of restoring this call. Mail towards Nexgen is untouched.
+        # if frappe.utils.cint(notify):
+        #     BillingService._notify_customer(doc, invoice, BillingService._invoice_groups(doc))
 
         return BillingService.get_run(name)
 

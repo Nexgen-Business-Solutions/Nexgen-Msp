@@ -2746,6 +2746,26 @@ export type AccountAccess = {
   removed_permissions: string[];
 };
 
+export type AccountAbility = {
+  label: string;
+  allowed: boolean;
+  detail?: string | null;
+};
+
+export type AccountAbilityGroup = {
+  title: string;
+  items: AccountAbility[];
+};
+
+export type AccountAbilities = {
+  role: string | null;
+  role_label: string | null;
+  family: 'customer' | 'internal' | null;
+  /** the one company this account answers for, or what it reaches instead */
+  scope: string;
+  groups: AccountAbilityGroup[];
+};
+
 export type TeamMemberDetail = {
   name: string;
   full_name: string | null;
@@ -2764,6 +2784,7 @@ export type TeamMemberDetail = {
   desk_access: boolean;
   customers: string[];
   access: AccountAccess;
+  abilities: AccountAbilities;
   sign_ins: SignIn[];
   two_factor: boolean;
   is_self: boolean;

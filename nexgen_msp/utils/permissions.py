@@ -153,6 +153,17 @@ def contact_profile(user=None, allowed=None):
 
     return frappe._dict(customer=customer)
 
+def _withdraw_from_authority(user):
+    """A company taken away from an account takes its authority line with it.
+
+    Left behind, that line refuses to validate, and the whole matrix of the company it sits
+    in can no longer be saved — by anyone, for anyone.
+    """
+    from nexgen_msp.utils import approval
+
+    return approval.withdraw_from_elsewhere(user, customer_permissions_of(user))
+
+
 def add_customer_permission(user, customer):
     if has_customer_permission(user, customer):
         return False
@@ -178,6 +189,9 @@ def remove_customer_permission(user, customer=None):
     removed = frappe.db.get_all("User Permission", filters=filters, pluck="name")
     for name in removed:
         frappe.delete_doc("User Permission", name, ignore_permissions=True)
+
+    if removed:
+        _withdraw_from_authority(user)
 
     return len(removed)
 
@@ -445,6 +459,9 @@ def revoke_undeclared_customer_permissions(user):
 
     for name in stale:
         frappe.delete_doc("User Permission", name, ignore_permissions=True)
+
+    if stale:
+        _withdraw_from_authority(user)
 
     return len(stale)
 

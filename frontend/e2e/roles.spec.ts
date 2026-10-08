@@ -75,4 +75,55 @@ test.describe('A system administrator', () => {
     await open(page, '/msp/billing');
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toHaveCount(0);
   });
+
+  test('reads on each account what that role may do, folded away until asked', async ({ page }) => {
+    const expected: [string, string, string[], string[]][] = [
+      [
+        fixture.technician,
+        'What a Technician can do here',
+        ['Carry requests out', 'Read across every customer'],
+        ['Manage contracts', 'Draw and issue billing runs'],
+      ],
+      [
+        fixture.manager,
+        'What a Customer Manager can do here',
+        ['Raise requests from the portal', 'Read invoices'],
+        ['Carry requests out', 'Read across every customer'],
+      ],
+      [
+        fixture.operator,
+        'What a Customer Operator can do here',
+        ["Read this company's people, machines, services and requests"],
+        ['Read invoices', 'Raise requests from the portal'],
+      ],
+      [
+        fixture.administrator,
+        'What an Administrator can do here',
+        ['Manage contracts', 'Manage pricing', 'Draw and issue billing runs'],
+        [],
+      ],
+    ];
+
+    for (const [email, heading, allowed, refused] of expected) {
+      await open(page, `/msp/accounts/${encodeURIComponent(email)}`);
+
+      const fold = page.getByRole('button', { name: 'Show access and rights' });
+      await expect(fold).toBeVisible();
+      await expect(page.getByText(heading)).toHaveCount(0);
+
+      await fold.click();
+      await expect(page.getByText(heading)).toBeVisible();
+
+      for (const right of allowed) {
+        await expect(page.getByText(right, { exact: true })).toBeVisible();
+      }
+      for (const right of refused) {
+        // shown, and shown as refused: the greyed line is what says so
+        await expect(page.getByText(right, { exact: true })).toHaveClass(/text-slate-400/);
+      }
+
+      await page.getByRole('button', { name: 'Hide access and rights' }).click();
+      await expect(page.getByText(heading)).toHaveCount(0);
+    }
+  });
 });
