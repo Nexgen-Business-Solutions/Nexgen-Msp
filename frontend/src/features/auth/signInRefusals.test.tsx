@@ -63,4 +63,24 @@ describe('what the sign-in screen says it was refused for', () => {
       'Your account is not allowed to sign in.'
     );
   });
+
+  it('repeats the server word for word when it knows what is wrong with itself', () => {
+    const said = errorMessageFor(
+      new FrappeError(
+        'This site is running code newer than its database: frappe 16.18.3 → 16.52.0. ' +
+          'Run `bench --site msp.localhost migrate` before using it again.',
+        500,
+        'SCHEMA_BEHIND'
+      )
+    );
+
+    expect(said).toContain('migrate');
+    expect(said).not.toBe('The server is unavailable. Please try again later.');
+  });
+
+  it('still says the server is unavailable when it says nothing useful', () => {
+    expect(errorMessageFor(new FrappeError('boom', 500))).toBe(
+      'The server is unavailable. Please try again later.'
+    );
+  });
 });

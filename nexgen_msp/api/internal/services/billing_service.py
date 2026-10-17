@@ -11,6 +11,7 @@ from nexgen_msp.api.internal.services.contract_service import ContractService
 from nexgen_msp.api.internal.services.service_definition_service import (
     ServiceDefinitionService,
 )
+from nexgen_msp.utils import erpnext_bridge
 from nexgen_msp.utils.catalogue import BILLING_UOM
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
@@ -141,6 +142,67 @@ class BillingService:
         )
 
         return max(days - paused, 0)
+
+    @staticmethod
+    def _period_end_of(day, frequency):
+        """The last day of the calendar month, quarter or year this day falls in.
+
+        A contract billed in advance is paid for a period that has not happened yet, and the
+        period a customer recognises is the calendar one: a quarter ends on 31 March, not on
+        the day before the anniversary of a contract they never read.
+        """
+        day = getdate(day)
+        span = MONTHS_PER_PERIOD.get(frequency, 1)
+
+        if span >= 12:
+            return datetime.date(day.year, 12, 31)
+
+        last_month = day.month + (span - (day.month - 1) % span) - 1
+
+        return datetime.date(
+            day.year, last_month, calendar.monthrange(day.year, last_month)[1]
+        )
+
+    @staticmethod
+    def checkpoint(customer):
+        """How far this customer is already billed, from whichever source says the latest.
+
+        A run really posted is the first answer. A customer carrying a date from the billing
+        that preceded this application is the second: no run on file is not the same thing
+        as never having been billed, and reading only the runs is what made a customer
+        onboarded with history look brand new.
+        """
+        posted = frappe.db.sql(
+            """
+            select max(br.billing_period_end)
+            from `tabMSP Billing Run` br
+            where br.customer = %s and br.docstatus = 1 and br.status = 'Invoiced'
+              and (br.credit_note_of is null or br.credit_note_of = '')
+            """,
+            customer,
+        )[0][0]
+        stamped = frappe.db.get_value("Customer", customer, "msp_last_billed_on")
+        marks = [getdate(mark) for mark in (posted, stamped) if mark]
+
+        return max(marks) if marks else None
+
+    @staticmethod
+    def covered_through(customer, frequency, timing):
+        """The last day already paid for, which is not always the day of the last billing.
+
+        Billed in arrears, a customer has paid for the days up to that mark. Billed in
+        advance, the same mark paid for the whole period it falls in — so a quarter billed
+        on 24 July is covered to 30 September, and billing it again would charge it twice.
+        """
+        mark = BillingService.checkpoint(customer)
+
+        if not mark:
+            return None
+
+        if timing == "In Advance":
+            return BillingService._period_end_of(mark, frequency)
+
+        return mark
 
     @staticmethod
     def _calendar_months(period_start, period_end):
@@ -586,6 +648,7 @@ class BillingService:
             "currency": doc.currency,
             "price_list": doc.price_list,
             "proration_method": doc.proration_method or "None",
+            "billing_timing": doc.billing_timing or "In Arrears",
             "billing_frequency": doc.billing_frequency or "Monthly",
             "invoice_grouping": doc.invoice_grouping,
             "default_cost_center": doc.default_cost_center,
@@ -780,6 +843,14 @@ class BillingService:
 
         method = terms["proration_method"]
         period_days = BillingService._period_days(period_start, period_end)
+
+        # what the customer has already paid for, and the day that payment was made. A line
+        # that was live when the mark was set was part of that billing; one that started
+        # afterwards was not, and is the whole of what there is left to charge.
+        mark = BillingService.checkpoint(customer)
+        already_paid = BillingService.covered_through(
+            customer, terms["billing_frequency"], terms["billing_timing"]
+        )
         holder_contexts = BillingService._holder_contexts(
             sorted({row.managed_device for row in assignments if row.managed_device}),
             period_start,
@@ -818,13 +889,30 @@ class BillingService:
                 customer, assignment, terms, period_start, period_end
             )
 
+            # a line already covered starts no earlier than the day after that coverage
+            floor = (
+                already_paid
+                if mark
+                and already_paid
+                and getdate(assignment.effective_start_date) <= mark
+                else None
+            )
+
             for begins, ends, rate, source, rate_exception, rate_detail, rate_discount in stretches:
                 exception_code = None
                 exception_detail = None
 
+                if floor and getdate(begins) <= floor:
+                    begins = getdate(add_days(floor, 1))
+
                 if invalid_dates:
                     exception_code = "Invalid Dates"
                     exception_detail = "End date precedes start date."
+                elif floor and getdate(begins) > getdate(ends):
+                    exception_code = "Already Covered"
+                    exception_detail = (
+                        f"Already paid for up to {floor}, which covers the whole period."
+                    )
                 elif quantity <= 0:
                     exception_code = "Negative Quantity"
                     exception_detail = f"Quantity is {quantity}."
@@ -1694,10 +1782,11 @@ class BillingService:
         # a Sales Order is an ERPNext record, and no MSP role holds rights on it. The
         # authorisation happened in `finalise`, at `_guard_admin`: that is this application's
         # boundary, and the generic document API stays shut to everybody either way.
-        order = AccountingDimensionService.stamp(frappe.get_doc(payload), dimensions).insert(
-            ignore_permissions=True
+        order = erpnext_bridge.insert(
+            AccountingDimensionService.stamp(frappe.get_doc(payload), dimensions),
+            ignore_permissions=True,
         )
-        order.submit()
+        erpnext_bridge.submit(order)
 
         return order
 
@@ -1714,7 +1803,9 @@ class BillingService:
         if conversion_rate:
             invoice.conversion_rate = flt(conversion_rate)
 
-        return AccountingDimensionService.stamp(invoice, dimensions).insert(ignore_permissions=True)
+        return erpnext_bridge.insert(
+            AccountingDimensionService.stamp(invoice, dimensions), ignore_permissions=True
+        )
 
     @staticmethod
     def _period_label(doc):
@@ -2445,7 +2536,7 @@ class BillingService:
             invoice.payment_schedule = []
             invoice.due_date = None
 
-        invoice.submit()
+        erpnext_bridge.submit(invoice)
 
         doc.db_set("status", "Invoiced")
         BillingService._recompute_last_billed(doc.customer)
@@ -2859,7 +2950,7 @@ class BillingService:
         ).insert()
 
         note.save()
-        note.submit()
+        erpnext_bridge.submit(note)
 
         BillingService._issue_credit_note(note)
         frappe.db.commit()
@@ -2923,11 +3014,24 @@ class BillingService:
         return note.name
 
     @staticmethod
-    def _next_period(covered_upto, frequency, contract_start):
-        """Where the next invoice picks up, and how far it runs."""
+    def _next_period(covered_upto, frequency, contract_start, timing="In Arrears"):
+        """Where the next invoice picks up, and how far it runs.
+
+        Billed in arrears, a period runs from where the last one stopped for the contract's
+        own length — quarters on the anniversary of the contract, which is what a customer
+        already being billed that way expects to keep seeing.
+
+        Billed in advance, the customer is paying for a calendar period ahead of using it,
+        so the period ends on the calendar boundary. A mark that falls inside one yields a
+        short catch-up first, and whole periods from then on.
+        """
         span = MONTHS_PER_PERIOD.get(frequency, 1)
 
         start = add_days(getdate(covered_upto), 1) if covered_upto else getdate(contract_start)
+
+        if timing == "In Advance":
+            return start, BillingService._period_end_of(start, frequency)
+
         end = add_days(frappe.utils.add_months(start, span), -1)
 
         return start, end
@@ -2948,8 +3052,11 @@ class BillingService:
             """
             select
                 c.name as contract, c.customer, c.title, c.billing_frequency,
-                c.start_date, c.end_date,
-                max(br.billing_period_end) as covered_upto,
+                c.billing_timing, c.start_date, c.end_date,
+                greatest(
+                    coalesce(max(br.billing_period_end), '1900-01-01'),
+                    coalesce(cust.msp_last_billed_on, '1900-01-01')
+                ) as covered_upto,
                 count(br.name) as runs
             from `tabMSP Contract` c
             join `tabCustomer` cust on cust.name = c.customer
@@ -2965,9 +3072,16 @@ class BillingService:
         due = []
 
         for row in rows:
+            # a customer onboarded with history carries its mark even with no run on file,
+            # and the sentinel the query falls back on is not a date anybody was billed on
             covered = getdate(row.covered_upto) if row.covered_upto else None
+
+            if covered and covered.year < 1901:
+                covered = None
+
+            timing = row.billing_timing or "In Arrears"
             start, end = BillingService._next_period(
-                covered, row.billing_frequency, row.start_date
+                covered, row.billing_frequency, row.start_date, timing
             )
 
             if row.end_date:
@@ -2982,7 +3096,9 @@ class BillingService:
                 state = "Never billed"
                 days_left = None
             else:
-                days_left = (covered - today).days
+                # in arrears a period is owed once it has been served; in advance it is owed
+                # as it opens, so the countdown runs to the start and not to the coverage
+                days_left = ((start if timing == "In Advance" else covered) - today).days
                 if days_left < 0:
                     state = "Overdue"
                 elif days_left <= horizon:

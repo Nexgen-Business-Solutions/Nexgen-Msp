@@ -133,7 +133,7 @@
    "fieldname": "exception_code",
    "fieldtype": "Select",
    "label": "Exception",
-   "options": "\nMissing Rate\nInvalid Dates\nUnapproved Override\nNegative Quantity\nMissing Customer Mapping\nOverlapping Assignment\nAlready Invoiced"
+   "options": "\nMissing Rate\nInvalid Dates\nUnapproved Override\nNegative Quantity\nMissing Customer Mapping\nOverlapping Assignment\nAlready Invoiced\nAlready Covered"
   },
   {
    "fieldname": "exception_detail",

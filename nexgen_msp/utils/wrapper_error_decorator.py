@@ -2,7 +2,7 @@ from functools import wraps
 
 import frappe
 
-from nexgen_msp.utils import response
+from nexgen_msp.utils import response, schema_health
 from nexgen_msp.utils.errors import NexgenError
 
 
@@ -41,6 +41,15 @@ def handle_errors(fn):
         except Exception as e:
             frappe.db.rollback()
             frappe.log_error(title="Nexgen MSP API error", message=frappe.get_traceback())
-            return response.error(str(e), code="INTERNAL_ERROR", http_status=500)
+
+            # a site whose code is ahead of its database fails in ways that name a column
+            # rather than the cause; the one thing worth saying is said here instead
+            behind = schema_health.warning()
+
+            return response.error(
+                behind or str(e),
+                code="SCHEMA_BEHIND" if behind else "INTERNAL_ERROR",
+                http_status=500,
+            )
 
     return wrapper

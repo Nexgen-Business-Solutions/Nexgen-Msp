@@ -45,3 +45,4 @@ nexgen_msp.patches.request_v3_snapshot
 nexgen_msp.patches.index_hot_lookups #requested_targets
 nexgen_msp.patches.requested_entities
 nexgen_msp.patches.remove_request_action_catalogue
+nexgen_msp.patches.withdraw_stale_approvers

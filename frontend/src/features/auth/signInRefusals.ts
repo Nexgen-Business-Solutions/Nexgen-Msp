@@ -30,6 +30,10 @@ export const errorMessageFor = (err: unknown) => {
 
     if (named) return named;
 
+    // the server knows exactly what is wrong with itself and says so in one sentence:
+    // repeating it beats "unavailable", which sends somebody looking at the network
+    if (err.code === 'SCHEMA_BEHIND' && err.message) return err.message;
+
     if (err.status === 401) return 'Incorrect username or password.';
     if (err.status === 403) return 'Your account is not allowed to sign in.';
     if (err.status === 417) return err.message || 'Sign-in refused.';

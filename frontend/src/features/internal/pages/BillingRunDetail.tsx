@@ -21,6 +21,7 @@ import StatusBadge from '@/shared/components/StatusBadge';
 import BillingProgressStepper from '../components/BillingProgressStepper';
 import BillingExceptionGroup from '../components/BillingExceptionGroup';
 import { stageOf } from '../lib/billingStage';
+import { isAdvisory, isBlocking } from '../lib/billingExceptions';
 import CreditNoteModal from '../components/CreditNoteModal';
 import InvoiceAccountingModal from '../components/InvoiceAccountingModal';
 import InvoicePanel from '../components/InvoicePanel';
@@ -90,6 +91,8 @@ export default function BillingRunDetail() {
   // machines, for how many months, and what each service weighs in the total
   const stats = useMemo(() => {
     const billed = (data?.lines ?? []).filter((line) => !line.exception_code);
+    const blocked = (data?.lines ?? []).filter((line) => isBlocking(line.exception_code)).length;
+    const covered = (data?.lines ?? []).filter((line) => isAdvisory(line.exception_code)).length;
     const tally = new Map<string, { name: string; count: number; months: number; amount: number }>();
 
     for (const line of billed) {
@@ -108,6 +111,8 @@ export default function BillingRunDetail() {
 
     return {
       billable: billed.length,
+      blocked,
+      covered,
       people: new Set(billed.map((line) => line.client_user).filter(Boolean)).size,
       devices: new Set(billed.map((line) => line.hostname).filter(Boolean)).size,
       months: billed.reduce((sum, line) => sum + line.billable_months, 0),
@@ -257,9 +262,15 @@ export default function BillingRunDetail() {
           <Stat label="Months billed" value={stats.months.toFixed(1)} hint="user-months" />
           <Stat
             label="Blocked"
-            value={data.exception_count}
-            hint={data.exception_count ? 'excluded from the total' : 'nothing held back'}
-            alert={data.exception_count > 0}
+            value={stats.blocked}
+            hint={
+              stats.blocked
+                ? 'to resolve before approving'
+                : stats.covered
+                  ? `nothing held back · ${stats.covered} already covered`
+                  : 'nothing held back'
+            }
+            alert={stats.blocked > 0}
           />
         </div>
 
@@ -479,7 +490,7 @@ export default function BillingRunDetail() {
                 <tr
                   key={`${line.service_assignment}-${line.idx}`}
                   className={`transition-colors hover:bg-slate-50 ${
-                    line.exception_code ? 'bg-amber-50/40' : ''
+                    isBlocking(line.exception_code) ? 'bg-amber-50/40' : ''
                   }`}
                 >
                   <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
@@ -570,11 +581,23 @@ export default function BillingRunDetail() {
                   <td className="px-4 py-3">
                     {line.exception_code ? (
                       <div>
-                        <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700">
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                            isAdvisory(line.exception_code)
+                              ? 'bg-slate-100 text-slate-600'
+                              : 'bg-amber-100 text-amber-700'
+                          }`}
+                        >
                           {line.exception_code}
                         </span>
                         {line.exception_detail && (
-                          <p className="mt-1 max-w-xs text-xs text-amber-700">
+                          <p
+                            className={`mt-1 max-w-xs text-xs ${
+                              isAdvisory(line.exception_code)
+                                ? 'text-slate-500'
+                                : 'text-amber-700'
+                            }`}
+                          >
                             {line.exception_detail}
                           </p>
                         )}

@@ -153,6 +153,20 @@ def contact_profile(user=None, allowed=None):
 
     return frappe._dict(customer=customer)
 
+def user_permission_removed(doc, method=None):
+    """A company taken off an account takes its authority line with it, however it was taken.
+
+    The services that drop a permission already say so on their way out, but a permission can
+    also go from the Frappe desk, from a script, or from an import that rewrites access in
+    bulk. None of those paths knows about the matrix, and the line they leave behind freezes
+    that company's whole matrix for everybody. Hooking the deletion itself covers them all.
+    """
+    if getattr(doc, "allow", None) != "Customer" or not getattr(doc, "user", None):
+        return
+
+    _withdraw_from_authority(doc.user)
+
+
 def _withdraw_from_authority(user):
     """A company taken away from an account takes its authority line with it.
 

@@ -248,7 +248,10 @@ doc_events = {
 	"Contact": {
 		"after_insert": "nexgen_msp.utils.permissions.sync_contact_user_permission",
 		"on_update": "nexgen_msp.utils.permissions.sync_contact_user_permission",
-	}
+	},
+	"User Permission": {
+		"after_delete": "nexgen_msp.utils.permissions.user_permission_removed",
+	},
 }
 
 # Scheduled Tasks

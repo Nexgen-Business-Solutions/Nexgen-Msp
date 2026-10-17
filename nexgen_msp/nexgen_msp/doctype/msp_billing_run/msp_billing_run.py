@@ -8,6 +8,11 @@ from frappe.utils import flt, getdate, now_datetime
 
 
 
+# a line nobody has to act on: it carries nothing because the period was already paid for,
+# which is the ordinary outcome of a catch-up run and not something to resolve
+ADVISORY_EXCEPTIONS = ("Already Covered",)
+
+
 class MSPBillingRun(Document):
 	def validate(self):
 		self.validate_period()
@@ -57,10 +62,16 @@ class MSPBillingRun(Document):
 			self.prepared_by = frappe.session.user
 
 	def validate_no_blocking_exception(self):
-		if self.exception_count:
+		blocking = sum(
+			1
+			for row in self.lines
+			if row.exception_code and row.exception_code not in ADVISORY_EXCEPTIONS
+		)
+
+		if blocking:
 			frappe.throw(
 				_("{0} line(s) carry a blocking exception. Resolve them before approving this run.").format(
-					self.exception_count
+					blocking
 				)
 			)
 

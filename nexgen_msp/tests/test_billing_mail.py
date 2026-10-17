@@ -29,7 +29,9 @@ class TestInvoiceMailNoLongerReachesTheCustomer(MSPTestCase):
     def test_issuing_an_invoice_tells_nobody_at_the_customer(self):
         source = live_source(BillingService.submit_invoice)
 
-        self.assertIn("invoice.submit()", source, "the invoice is still posted")
+        self.assertIn(
+            "erpnext_bridge.submit(invoice)", source, "the invoice is still posted"
+        )
         self.assertNotIn(
             "_notify_customer",
             source,
