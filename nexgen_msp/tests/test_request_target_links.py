@@ -218,14 +218,13 @@ class TestRequestTargetLinks(RequestedCase):
         frappe.db.commit()
 
     def test_the_request_carries_a_requested_date(self):
+        wanted = frappe.utils.add_days(frappe.utils.nowdate(), 3)
         doc = frappe.get_doc("MSP Request", self.request)
-        doc.requested_date = "2026-10-15"
+        doc.requested_date = wanted
         doc.save(ignore_permissions=True)
         frappe.db.commit()
 
-        self.assertEqual(
-            str(frappe.db.get_value("MSP Request", self.request, "requested_date")), "2026-10-15"
-        )
+        self.assertEqual(str(frappe.db.get_value("MSP Request", self.request, "requested_date")), wanted)
 
     def test_the_client_user_target_helper(self):
         existing = request_targets.resolve_client_user_target(client_user=self.person)

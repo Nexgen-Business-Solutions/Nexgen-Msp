@@ -214,8 +214,13 @@ class TestItCannotHappenAgain(StaleMatrixCase):
         self.assertIn(self.stranger, self.named_at_mine())
 
     def test_the_company_it_still_answers_for_keeps_its_line(self):
-        """Only what it left is withdrawn, never what it kept."""
-        AuthorityService.set_account_rights(self.resident, {"can_submit": 1, "can_approve": 1})
+        """Only what it left is withdrawn, never what it kept.
+
+        The resident was named in setUp, before the stale line was planted. Naming them
+        again here would be refused by that very line, which is the blockage under test
+        elsewhere — so the matrix is read as it stands rather than rewritten.
+        """
+        self.assertIn(self.resident, self.named_on(self.theirs))
 
         for name in frappe.get_all(
             "User Permission",

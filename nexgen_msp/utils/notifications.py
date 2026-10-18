@@ -263,9 +263,12 @@ def render(name, context):
     )
 
 
-def send(name, recipients, context, reference_doctype=None, reference_name=None, now=False):
+def send(
+    name, recipients, context, reference_doctype=None, reference_name=None, now=False, cc=None
+):
     """Queue a branded email. Never let a mail failure break the operation that triggered it."""
     recipients = [address for address in (recipients or []) if address]
+    cc = [address for address in (cc or []) if address and address not in recipients]
 
     if not recipients:
         return False
@@ -274,6 +277,7 @@ def send(name, recipients, context, reference_doctype=None, reference_name=None,
         subject, message = render(name, context)
         frappe.sendmail(
             recipients=recipients,
+            cc=cc,
             subject=subject,
             message=message,
             reference_doctype=reference_doctype,

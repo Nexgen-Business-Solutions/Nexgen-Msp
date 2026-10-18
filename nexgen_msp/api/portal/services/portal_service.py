@@ -2692,7 +2692,7 @@ class PortalService:
         # the matrix names accounts now: the address is the account itself
         return [
             row.user
-            for row in authority.approvers
+            for row in approval.deciding(authority)
             if row.can_approve and row.user and row.user != doc.requester
         ]
 

@@ -103,6 +103,38 @@ class TestTheCatchUpQuarter(KakivuCase):
         self.assertEqual(getdate(line["covered_to"]), getdate("2026-08-15"))
         self.assertEqual(line["billable_months"], 0.5)
 
+    def test_new_employees_mid_period_are_charged_and_the_old_ones_are_not(self):
+        """The quantity question of #15, in the shape this product actually takes.
+
+        Three people were served and paid for when the quarter was billed; two more arrive
+        on 15 August. There is no quantity to raise here — a person is an assignment — so
+        what has to be true is that only the two new ones are charged, each from the day
+        they arrived through the end of the quarter, and the three already covered are
+        charged nothing a second time.
+        """
+        served = [self.since("2026-05-01", who=self.make_person(self.customer, f"Old{n}")) for n in range(3)]
+        arrived = [
+            self.since("2026-08-15", who=self.make_person(self.customer, f"New{n}")) for n in range(2)
+        ]
+
+        lines = self.catch_up()
+
+        for assignment in served:
+            self.assertEqual(lines[assignment]["exception_code"], "Already Covered")
+            self.assertEqual(lines[assignment]["amount"], 0.0)
+
+        for assignment in arrived:
+            line = lines[assignment]
+            self.assertIsNone(line["exception_code"])
+            self.assertEqual(getdate(line["covered_from"]), getdate("2026-08-15"))
+            self.assertEqual(getdate(line["covered_to"]), getdate(QUARTER_END))
+            # 17 days of August billed as 20 in blocks of five, then the whole of September
+            self.assertEqual(line["billable_months"], 1.667)
+            self.assertGreater(line["amount"], 0.0)
+
+        billed = sum(line["amount"] for line in lines.values())
+        self.assertEqual(billed, sum(lines[assignment]["amount"] for assignment in arrived))
+
     def test_the_mark_itself_is_the_last_day_already_paid_for(self):
         """A service that started on the mark was part of that billing, not after it."""
         on_the_day = self.since(MARK)

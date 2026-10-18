@@ -27,6 +27,34 @@ def authority_for(customer):
     return frappe.get_cached_doc(AUTHORITY, name) if name else None
 
 
+def is_live(row, on=None):
+    """Whether a line of the matrix decides on a given day.
+
+    A line can be put aside without being taken away: it keeps its history, its rights and
+    its place, and simply stops deciding. Dates say the same thing in advance or for later,
+    which is how somebody hands over on a day everybody agreed on beforehand.
+    """
+    if (row.get("status") or "Active") != "Active":
+        return False
+
+    day = frappe.utils.getdate(on or frappe.utils.nowdate())
+    starts = row.get("effective_from")
+    ends = row.get("effective_to")
+
+    if starts and frappe.utils.getdate(starts) > day:
+        return False
+
+    if ends and frappe.utils.getdate(ends) < day:
+        return False
+
+    return True
+
+
+def deciding(doc, on=None):
+    """The lines of a matrix that decide today — the only ones anything is read from."""
+    return [row for row in (doc.approvers if doc else []) if is_live(row, on)]
+
+
 def has_approvers(customer):
     """Whether anyone at this customer has been given the right to approve.
 
@@ -34,7 +62,7 @@ def has_approvers(customer):
     """
     doc = authority_for(customer)
 
-    return bool(doc and any(row.can_approve for row in doc.approvers))
+    return any(row.can_approve for row in deciding(doc))
 
 
 def withdraw(user, customer):
@@ -98,7 +126,7 @@ def rights_of(customer, user=None):
     if not doc:
         return {}
 
-    row = next((line for line in doc.approvers if line.user == user), None)
+    row = next((line for line in deciding(doc) if line.user == user), None)
 
     if not row:
         return {}
@@ -166,7 +194,7 @@ def company_wide_approver(customer):
     row = next(
         (
             line
-            for line in doc.approvers
+            for line in deciding(doc)
             if line.can_approve and not (line.department or "").strip()
         ),
         None,
@@ -206,7 +234,7 @@ def gaps(customer):
         {"customer": customer},
     )
     doc = authority_for(customer)
-    named = {row.user: row for row in (doc.approvers if doc else [])}
+    named = {row.user: row for row in deciding(doc)}
 
     raisers = [
         user for user, row in named.items() if row.can_submit and user in accounts

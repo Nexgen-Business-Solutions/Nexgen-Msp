@@ -35,6 +35,7 @@ fixtures = [
 				[
 					"Customer-msp_free_of_charge",
 					"Customer-msp_last_billed_on",
+					"Customer-msp_billing_contact",
 					"Item-msp_invoice_label",
 					"Item-msp_service_scope",
 					"Item Price-msp_discount_percent",

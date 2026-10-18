@@ -11,7 +11,7 @@ from nexgen_msp.api.internal.services.contract_service import ContractService
 from nexgen_msp.api.internal.services.service_definition_service import (
     ServiceDefinitionService,
 )
-from nexgen_msp.utils import erpnext_bridge
+from nexgen_msp.utils import erpnext_bridge, permissions
 from nexgen_msp.utils.catalogue import BILLING_UOM
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
@@ -238,6 +238,73 @@ class BillingService:
             return 0
 
         return min(-(-days // DAY_BLOCK) * DAY_BLOCK, days_in_month)
+
+    @staticmethod
+    def _unused_months(method, period_start, period_end):
+        """The share of a billed period that was never consumed.
+
+        A charge rounds a partial month up to the next five-day block, because a service
+        that really ran must never be billed at nothing. A credit cannot do the same: giving
+        back ten days for six unused ones would return more than was charged for those days,
+        and a credit may never exceed the unused invoiced portion. The share given back is
+        therefore exact — six days of a thirty-day month are six thirtieths, not two blocks.
+        """
+        months = 0.0
+
+        for window_start, window_end, days_in_month in BillingService._calendar_months(
+            period_start, period_end
+        ):
+            days = (window_end - window_start).days + 1
+
+            if method == "30-Day Convention":
+                months += min(days, 30) / 30.0
+            elif method == "Daily Actual Days":
+                months += min(days, days_in_month) / float(days_in_month)
+            else:
+                months += 1.0
+
+        return flt(months, 3)
+
+    @staticmethod
+    def _unused_after_termination(line, run_start, run_end, method, remaining):
+        """What a line billed in advance owes back because its service stopped early.
+
+        Read off the assignment as it stands now, never off the line: the run was drawn
+        before the service ended, so its own snapshot still shows it running. That gap
+        between what was billed and what happened is the whole of this.
+        """
+        ended = frappe.db.get_value(
+            "MSP Service Assignment", line["service_assignment"], "effective_end_date"
+        )
+
+        if not ended:
+            return None
+
+        ended = getdate(ended)
+
+        if ended >= getdate(run_end):
+            return None
+
+        unused_from = max(getdate(add_days(ended, 1)), getdate(run_start))
+        unused_to = getdate(run_end)
+
+        if unused_from > unused_to:
+            return None
+
+        months = min(
+            BillingService._unused_months(method, unused_from, unused_to), flt(remaining)
+        )
+
+        if months <= 0:
+            return None
+
+        return {
+            "ended_on": ended,
+            "unused_from": unused_from,
+            "unused_to": unused_to,
+            "unused_days": (unused_to - unused_from).days + 1,
+            "months": flt(months, 3),
+        }
 
     @staticmethod
     def _billable_months(method, assignment, period_start, period_end, suspensions=None):
@@ -771,7 +838,15 @@ class BillingService:
         }
 
     @staticmethod
-    def build_lines(contract, period_start, period_end, exclude_run=None, run_discount=0):
+    def build_lines(
+        contract,
+        period_start,
+        period_end,
+        exclude_run=None,
+        run_discount=0,
+        ignore_coverage=False,
+        as_known_on=None,
+    ):
         """Every assignment the contract covers over the period, priced or flagged with why not."""
         terms = BillingService._terms(contract, period_start, period_end)
         customer = terms["customer"]
@@ -847,9 +922,26 @@ class BillingService:
         # what the customer has already paid for, and the day that payment was made. A line
         # that was live when the mark was set was part of that billing; one that started
         # afterwards was not, and is the whole of what there is left to charge.
-        mark = BillingService.checkpoint(customer)
-        already_paid = BillingService.covered_through(
-            customer, terms["billing_frequency"], terms["billing_timing"]
+        # a charge raised on a given day could not know of an end recorded afterwards: it
+        # charged the whole period, and that is precisely what makes the unused days owed
+        # back once the end is known. Reconstructing it any other way would record a charge
+        # that was never made and leave nothing to credit.
+        if as_known_on:
+            for row in assignments:
+                if row.effective_end_date and getdate(row.effective_end_date) > getdate(
+                    as_known_on
+                ):
+                    row.effective_end_date = None
+
+        # recording a charge that was already raised reads the period as it stood then, so
+        # the coverage the same charge established cannot be used to rule it out
+        mark = None if ignore_coverage else BillingService.checkpoint(customer)
+        already_paid = (
+            None
+            if ignore_coverage
+            else BillingService.covered_through(
+                customer, terms["billing_frequency"], terms["billing_timing"]
+            )
         )
         holder_contexts = BillingService._holder_contexts(
             sorted({row.managed_device for row in assignments if row.managed_device}),
@@ -2406,6 +2498,9 @@ class BillingService:
             if doc.sales_invoice
             else None,
             "invoice_submitted": posted,
+            # a charge this application never raised, written down so it can be credited
+            "reconstructed": bool(doc.reconstructed),
+            "coverage_evidence": doc.coverage_evidence,
             "adjustment_of": doc.adjustment_of,
             "credit_note_of": doc.credit_note_of,
             "credit_note_reason": doc.credit_note_reason,
@@ -2428,11 +2523,16 @@ class BillingService:
             and not doc.credit_note_of,
             # a credit note stands against a posted invoice, so there is nothing to contest
             # while the invoice is still a draft
-            "can_contest": posted and not doc.credit_note_of,
+            # a recorded charge has no invoice here to be posted, and is exactly the thing
+            # that has to be creditable
+            "can_contest": (posted or bool(doc.reconstructed)) and not doc.credit_note_of,
             "can_resolve_dispute": bool(doc.disputed),
             "dispute_request": doc.dispute_request,
             "can_discard_invoice": bool(doc.sales_invoice) and not posted,
-            "can_reopen": doc.docstatus == 1 and not doc.sales_invoice,
+            "can_reopen": doc.docstatus == 1
+            and not doc.sales_invoice
+            # nothing to reopen: it records a charge that already went out
+            and not doc.reconstructed,
             "can_cancel": doc.status not in ("Invoiced", "Cancelled")
             and not doc.sales_invoice,
             "can_submit_invoice": bool(doc.sales_invoice) and not posted,
@@ -2488,7 +2588,7 @@ class BillingService:
         return name
 
     @staticmethod
-    def submit_invoice(name=None, notify=1):
+    def submit_invoice(name=None, notify=1, recipients=None):
         """Post the invoice to the ledger. The run only becomes final once this succeeds."""
         BillingService._guard_admin()
 
@@ -2542,11 +2642,13 @@ class BillingService:
         BillingService._recompute_last_billed(doc.customer)
         frappe.db.commit()
 
-        # Withdrawn on the owner's instruction: a customer is no longer told by email that an
-        # invoice was issued. The template and the sender below are kept, so putting it back is
-        # a matter of restoring this call. Mail towards Nexgen is untouched.
-        # if frappe.utils.cint(notify):
-        #     BillingService._notify_customer(doc, invoice, BillingService._invoice_groups(doc))
+        # whoever was chosen on the way in, checked against this customer's own addresses;
+        # nothing chosen means nothing sent, and there is never a fallback
+        if frappe.utils.cint(notify):
+            chosen = frappe.parse_json(recipients) if isinstance(recipients, str) else recipients
+            BillingService._notify_customer(
+                doc, invoice, BillingService._invoice_groups(doc), chosen=chosen
+            )
 
         return BillingService.get_run(name)
 
@@ -2655,21 +2757,159 @@ class BillingService:
             )
 
     @staticmethod
-    def _notify_customer(doc, invoice, grouped):
-        """Let the customer's portal contacts know an invoice was issued for the period."""
-        from nexgen_msp.utils import notifications
+    def billing_contact_email(customer):
+        """The one address an invoice notice goes to, or nothing at all.
 
-        recipients = frappe.db.sql_list(
+        Holding a permission on a customer answers "who may sign in", never "who does the
+        accounting". Writing to everyone who could sign in is how an invoice reached people
+        it was never meant for. One contact is named on the customer, and only that contact
+        is written to — their own company's contact, checked here and not merely filtered on
+        a screen.
+        """
+        contact = frappe.db.get_value("Customer", customer, "msp_billing_contact")
+
+        if not contact or not frappe.db.exists("Contact", contact):
+            return None, f"{customer} has no billing contact: no invoice notice was sent."
+
+        belongs = frappe.db.exists(
+            "Dynamic Link",
+            {
+                "parenttype": "Contact",
+                "parent": contact,
+                "link_doctype": "Customer",
+                "link_name": customer,
+            },
+        )
+
+        if not belongs:
+            return None, (
+                f"{contact} is not a contact of {customer}: no invoice notice was sent."
+            )
+
+        email = frappe.db.get_value(
+            "Contact Email", {"parent": contact, "is_primary": 1}, "email_id"
+        ) or frappe.db.get_value("Contact Email", {"parent": contact}, "email_id")
+
+        if not email:
+            return None, f"{contact} has no email address: no invoice notice was sent."
+
+        return email, None
+
+    @staticmethod
+    def portal_accounts(customer):
+        """The company's own accounts, who may be copied on an invoice notice.
+
+        Holding a permission on a customer still does not make somebody the accounting
+        contact — it only makes them somebody of that company, which is the whole test an
+        address has to pass before a copy can go to it.
+        """
+        rows = frappe.db.sql(
             """
-            select distinct u.name
+            select distinct up.user, u.full_name
             from `tabUser Permission` up
             join `tabUser` u on u.name = up.user
             where up.allow = 'Customer' and up.for_value = %(customer)s and u.enabled = 1
+            order by u.full_name
             """,
-            {"customer": doc.customer},
+            {"customer": customer},
+            as_dict=True,
         )
 
-        if not recipients:
+        return [
+            {"user": row.user, "email": row.user, "full_name": row.full_name or row.user}
+            for row in rows
+            if set(frappe.get_roles(row.user)).intersection(permissions.CUSTOMER_ROLES)
+        ]
+
+    @staticmethod
+    def invoice_recipients(name=None):
+        """Who this run's notice can go to: the named contact, and the company's accounts.
+
+        The screen shows this list and nothing else, and the submit checks the addresses it
+        is handed against this same list — a chosen address is never taken on trust.
+        """
+        BillingService._guard_admin()
+
+        if not name or not frappe.db.exists("MSP Billing Run", name):
+            raise NotFoundError(f"Billing Run {name} not found.", "NOT_FOUND")
+
+        return BillingService.recipients_of(
+            frappe.db.get_value("MSP Billing Run", name, "customer")
+        )
+
+    @staticmethod
+    def recipients_of(customer):
+        """The named contact and the company's accounts, as one choice to put on a screen."""
+        from nexgen_msp.api.internal.services.customer_service import CustomerService
+
+        named = CustomerService.billing_contact(customer)
+
+        return {
+            "customer": customer,
+            "billing_contact": named,
+            # the contact's own address is the notice itself, never a copy of it
+            "portal_users": [
+                row
+                for row in BillingService.portal_accounts(customer)
+                if row["email"] != named["email"]
+            ],
+        }
+
+    @staticmethod
+    def _chosen_recipients(customer, chosen):
+        """The addresses to write to, kept to the ones this customer actually owns.
+
+        Returns the named contact as the recipient and the rest as copies. Anything the
+        screen did not offer is refused rather than quietly dropped: an invoice reaching an
+        address nobody named is the fault this whole path exists to prevent.
+        """
+        email, _refusal = BillingService.billing_contact_email(customer)
+        allowed = {row["email"] for row in BillingService.portal_accounts(customer)}
+
+        if email:
+            allowed.add(email)
+
+        wanted = [address.strip() for address in (chosen or []) if (address or "").strip()]
+        stranger = next((address for address in wanted if address not in allowed), None)
+
+        if stranger:
+            raise ValidationError(
+                f"{stranger} is not an address of {customer}, so no notice was sent.",
+                "VALIDATION_ERROR",
+            )
+
+        to = [address for address in wanted if address == email]
+        copies = [address for address in wanted if address != email]
+
+        # a copy with nobody to copy is simply the recipient
+        return (to, copies) if to else (copies, [])
+
+    @staticmethod
+    def _notify_customer(doc, invoice, grouped, chosen=None):
+        """Tell the customer that an invoice was issued for the period.
+
+        The named billing contact is who it is addressed to; anyone else chosen is copied.
+        """
+        from nexgen_msp.utils import notifications
+
+        copies = []
+
+        if chosen is None:
+            recipient, refusal = BillingService.billing_contact_email(doc.customer)
+            recipients = [recipient] if recipient else []
+        else:
+            recipients, copies = BillingService._chosen_recipients(doc.customer, chosen)
+            refusal = (
+                None
+                if recipients
+                else f"Nobody was chosen to be told about {invoice.name}: no notice was sent."
+            )
+
+        if refusal:
+            # said out loud rather than swallowed: an invoice nobody was told about is a
+            # thing an administrator has to know, and there is deliberately no fallback
+            frappe.log_error(title="MSP invoice notice skipped", message=refusal)
+            doc.add_comment("Comment", refusal)
             return
 
         period = BillingService._period_label(doc)
@@ -2697,7 +2937,13 @@ class BillingService:
             },
             reference_doctype="MSP Billing Run",
             reference_name=doc.name,
+            cc=copies,
         )
+
+        if copies:
+            doc.add_comment(
+                "Comment", f"Invoice notice sent to {recipients[0]}, copied to {', '.join(copies)}."
+            )
 
     @staticmethod
     def breakdown(name=None, guard=True):
@@ -2792,13 +3038,233 @@ class BillingService:
         }
 
     @staticmethod
+    def coverage_evidence(customer=None, period_start=None, period_end=None):
+        """What this application can find of a charge raised before it existed.
+
+        A customer billed by whatever served them before arrives here with nothing: no run,
+        and often no invoice in this ledger either. Crediting a period back still has to
+        rest on something, so this gathers what evidence there is — runs that overlap, the
+        customer's own posted invoices around those dates — and shows what the period would
+        have held, so the person recording it is deciding from facts rather than memory.
+        """
+        BillingService._guard_admin()
+
+        if not customer or not frappe.db.exists("Customer", customer):
+            raise NotFoundError(f"Customer {customer} not found.", "NOT_FOUND")
+
+        if not period_start or not period_end:
+            raise ValidationError("Give the period that was invoiced.", "VALIDATION_ERROR")
+
+        if getdate(period_start) > getdate(period_end):
+            raise ValidationError(
+                f"{period_start} is after {period_end}: that is not a period.",
+                "VALIDATION_ERROR",
+            )
+
+        runs = frappe.db.sql(
+            """
+            select name, contract, status, billing_period_start, billing_period_end,
+                   total_amount, sales_invoice, reconstructed
+            from `tabMSP Billing Run`
+            where customer = %(customer)s and docstatus != 2
+              and billing_period_start <= %(end)s and billing_period_end >= %(start)s
+            order by billing_period_start
+            """,
+            {"customer": customer, "start": period_start, "end": period_end},
+            as_dict=True,
+        )
+
+        # an invoice is rarely dated inside the period it covers, so the window is widened
+        # rather than missing the one piece of evidence there is
+        invoices = frappe.db.sql(
+            """
+            select name, posting_date, currency, grand_total
+            from `tabSales Invoice`
+            where customer = %(customer)s and docstatus = 1 and ifnull(is_return, 0) = 0
+              and posting_date between %(from)s and %(to)s
+            order by posting_date
+            """,
+            {
+                "customer": customer,
+                "from": add_days(getdate(period_start), -90),
+                "to": add_days(getdate(period_end), 90),
+            },
+            as_dict=True,
+        )
+
+        return {
+            "customer": customer,
+            "period_start": getdate(period_start),
+            "period_end": getdate(period_end),
+            "runs": runs,
+            "invoices": invoices,
+            "contracts": frappe.db.sql(
+                """
+                select name, title, billing_frequency, billing_timing,
+                       proration_method, start_date, end_date
+                from `tabMSP Contract`
+                where customer = %(customer)s and docstatus != 2
+                order by start_date desc
+                """,
+                {"customer": customer},
+                as_dict=True,
+            ),
+        }
+
+    @staticmethod
+    def _charged_on(contract, period_start, period_end):
+        """The day the original charge went out, which is what it could know about.
+
+        Billed in advance, a period is charged at its start; billed in arrears, at its end.
+        """
+        timing = frappe.db.get_value("MSP Contract", contract, "billing_timing")
+
+        return getdate(period_start) if timing == "In Advance" else getdate(period_end)
+
+    @staticmethod
+    def coverage_preview(contract=None, period_start=None, period_end=None):
+        """What that period would have held, line by line, under this contract's terms."""
+        BillingService._guard_admin()
+
+        if not contract or not frappe.db.exists("MSP Contract", contract):
+            raise NotFoundError(f"Contract {contract} not found.", "NOT_FOUND")
+
+        as_known_on = BillingService._charged_on(contract, period_start, period_end)
+        lines, terms = BillingService.build_lines(
+            contract, period_start, period_end, ignore_coverage=True, as_known_on=as_known_on
+        )
+
+        return {
+            "contract": contract,
+            "customer": terms["customer"],
+            "currency": terms["currency"],
+            "period_start": getdate(period_start),
+            "period_end": getdate(period_end),
+            "as_known_on": as_known_on,
+            "lines": lines,
+            "total_amount": flt(
+                sum(flt(line["amount"]) for line in lines if not line["exception_code"]), 2
+            ),
+        }
+
+    @staticmethod
+    def record_past_coverage(
+        contract=None, period_start=None, period_end=None, statement=None, sales_invoice=None
+    ):
+        """Write down a charge this application never raised, so it can be reasoned about.
+
+        The result is an ordinary run marked as a reconstruction: it carries the lines of
+        that period, who recorded it and on what evidence, and it raises no invoice of its
+        own — the charge already happened. From there everything else works unchanged, from
+        the coverage a later run respects to the credit an early termination earns.
+        """
+        BillingService._guard_admin()
+
+        if not contract or not frappe.db.exists("MSP Contract", contract):
+            raise NotFoundError(f"Contract {contract} not found.", "NOT_FOUND")
+
+        if not statement or not str(statement).strip():
+            raise ValidationError(
+                "Say what this records and where the original charge came from — a "
+                "coverage nobody can trace back cannot justify a credit later.",
+                "VALIDATION_ERROR",
+            )
+
+        if not period_start or not period_end or getdate(period_start) > getdate(period_end):
+            raise ValidationError(
+                "Give the period that was invoiced, earliest day first.", "VALIDATION_ERROR"
+            )
+
+        customer = frappe.db.get_value("MSP Contract", contract, "customer")
+        clash = frappe.db.sql_list(
+            """
+            select name from `tabMSP Billing Run`
+            where customer = %(customer)s and docstatus != 2 and ifnull(credit_note_of, '') = ''
+              and billing_period_start <= %(end)s and billing_period_end >= %(start)s
+            """,
+            {"customer": customer, "start": period_start, "end": period_end},
+        )
+
+        if clash:
+            raise ValidationError(
+                f"{', '.join(clash)} already covers part of {period_start} to {period_end}. "
+                "A period cannot be recorded as charged twice.",
+                "VALIDATION_ERROR",
+            )
+
+        if sales_invoice:
+            held = frappe.db.get_value(
+                "Sales Invoice", sales_invoice, ["customer", "docstatus"], as_dict=True
+            )
+
+            if not held or held.customer != customer or held.docstatus != 1:
+                raise ValidationError(
+                    f"{sales_invoice} is not a posted invoice of {customer}.",
+                    "VALIDATION_ERROR",
+                )
+
+        lines, terms = BillingService.build_lines(
+            contract,
+            period_start,
+            period_end,
+            ignore_coverage=True,
+            as_known_on=BillingService._charged_on(contract, period_start, period_end),
+        )
+        charged = [line for line in lines if not line["exception_code"]]
+
+        if not charged:
+            raise ValidationError(
+                f"Nothing was running for {customer} between {period_start} and "
+                f"{period_end}, so there is nothing that charge could have covered.",
+                "VALIDATION_ERROR",
+            )
+
+        doc = frappe.get_doc(
+            {
+                "doctype": "MSP Billing Run",
+                "customer": customer,
+                "contract": contract,
+                "billing_period_start": period_start,
+                "billing_period_end": period_end,
+                "cutoff_datetime": frappe.utils.now(),
+                "currency": terms["currency"],
+                "status": "Validating",
+                "generation_version": "1",
+                "prepared_by": frappe.session.user,
+                "reconstructed": 1,
+                "coverage_evidence": str(statement).strip(),
+                "sales_invoice": sales_invoice or None,
+                **BillingService._billing_identity(customer),
+                "lines": [
+                    {k: v for k, v in line.items() if k not in DISPLAY_ONLY} for line in charged
+                ],
+            }
+        ).insert(ignore_permissions=True)
+
+        doc.save(ignore_permissions=True)
+        erpnext_bridge.submit(doc)
+        # recorded, not raised: submitting stamps it Approved like any run, but this one
+        # stands for a charge that already went out
+        doc.db_set("status", "Invoiced")
+        BillingService._recompute_last_billed(customer)
+        doc.add_comment(
+            "Comment",
+            f"Recorded as already charged for {period_start} to {period_end}"
+            f"{f' against {sales_invoice}' if sales_invoice else ' outside this application'}"
+            f", by {frappe.session.user}. {str(statement).strip()}",
+        )
+        frappe.db.commit()
+
+        return BillingService.get_run(doc.name)
+
+    @staticmethod
     def creditable_lines(name=None):
         """The lines of an issued invoice that could still be credited back."""
         BillingService._guard_admin()
 
         detail = BillingService.get_run(name)
 
-        if not detail["sales_invoice"]:
+        if not detail["sales_invoice"] and not detail["reconstructed"]:
             raise ValidationError(
                 f"Billing Run {name} has no invoice to contest.", "INVALID_TRANSITION"
             )
@@ -2818,6 +3284,15 @@ class BillingService:
         already = {row.service_assignment: flt(row.months) for row in credited}
 
         rows = []
+        # the terms the run was drawn under: a credit is cut the same way the charge was
+        method = (
+            frappe.db.get_value("MSP Contract", detail["contract"], "proration_method")
+            or "None"
+        )
+        advance = (
+            frappe.db.get_value("MSP Contract", detail["contract"], "billing_timing")
+            == "In Advance"
+        )
 
         for line in detail["lines"]:
             if line.get("exception_code"):
@@ -2825,12 +3300,24 @@ class BillingService:
 
             billed = flt(line["billable_months"])
             done = abs(already.get(line["service_assignment"], 0.0))
+            remaining = flt(billed - done, 2)
 
             rows.append(
                 {
                     **line,
                     "credited_months": done,
-                    "remaining_months": flt(billed - done, 2),
+                    "remaining_months": remaining,
+                    # billed ahead of being served, and the service stopped in between:
+                    # what is owed back is proposed, never applied on its own
+                    "owed_back": BillingService._unused_after_termination(
+                        line,
+                        detail["billing_period_start"],
+                        detail["billing_period_end"],
+                        method,
+                        remaining,
+                    )
+                    if advance
+                    else None,
                 }
             )
 
@@ -2839,9 +3326,19 @@ class BillingService:
             "customer": detail["customer"],
             "invoice": detail["sales_invoice"],
             "invoice_submitted": detail["invoice_submitted"],
+            "reconstructed": detail["reconstructed"],
+            "coverage_evidence": detail["coverage_evidence"],
             "period_label": detail["period_label"],
-            "currency": detail["currency"],
+            "period_start": detail["billing_period_start"],
+            "period_end": detail["billing_period_end"],
+            "proration_method": method,
+            "billed_in_advance": advance,
             "lines": rows,
+            "currency": detail["currency"],
+            # how much of this run stopped being served before the period it was paid for
+            "owed_back_months": flt(
+                sum(row["owed_back"]["months"] for row in rows if row.get("owed_back")), 3
+            ),
         }
 
     @staticmethod
@@ -2863,7 +3360,9 @@ class BillingService:
 
         source = BillingService.creditable_lines(name)
 
-        if not source["invoice_submitted"]:
+        # a recorded charge has no invoice here to be a draft of; anything else must be
+        # posted before it can be given back
+        if source["invoice"] and not source["invoice_submitted"]:
             raise ValidationError(
                 f"{source['invoice']} is still a draft. Post it before crediting it back — "
                 "a return can only stand against a posted invoice.",
@@ -2871,7 +3370,70 @@ class BillingService:
             )
 
         lines = frappe.parse_json(lines) if isinstance(lines, str) else lines
-        wanted = {row["service_assignment"]: flt(row.get("months")) for row in (lines or [])}
+        method = source["proration_method"]
+        wanted = {}
+        windows = {}
+        # the stretches already given back on this invoice, so the same days cannot be
+        # returned a second time under a different note
+        given_back = frappe.db.sql(
+            """
+            select brl.service_assignment, brl.covered_from, brl.covered_to
+            from `tabMSP Billing Run Line` brl
+            join `tabMSP Billing Run` br on br.name = brl.parent
+            where br.credit_note_of = %(run)s and br.docstatus != 2
+              and brl.covered_from is not null and brl.covered_to is not null
+            """,
+            {"run": name},
+            as_dict=True,
+        )
+
+        for row in lines or []:
+            # a credit is asked for either as a number of months or as the stretch that was
+            # not served — a date is what an operator actually knows, and the conversion
+            # belongs here rather than in their head
+            if row.get("from") and row.get("to"):
+                if getdate(row["from"]) > getdate(row["to"]):
+                    raise ValidationError(
+                        f"{row['from']} is after {row['to']}: that is not a period.",
+                        "VALIDATION_ERROR",
+                    )
+
+                outside = getdate(row["from"]) < getdate(source["period_start"]) or getdate(
+                    row["to"]
+                ) > getdate(source["period_end"])
+
+                if outside:
+                    raise ValidationError(
+                        f"{row['from']} to {row['to']} falls outside "
+                        f"{source['period_start']} to {source['period_end']}, which is what "
+                        "this invoice covers. A credit cannot give back what was never billed.",
+                        "VALIDATION_ERROR",
+                    )
+
+                clash = next(
+                    (
+                        done
+                        for done in given_back
+                        if done.service_assignment == row["service_assignment"]
+                        and getdate(done.covered_from) <= getdate(row["to"])
+                        and getdate(done.covered_to) >= getdate(row["from"])
+                    ),
+                    None,
+                )
+
+                if clash:
+                    raise ValidationError(
+                        f"{clash.covered_from} to {clash.covered_to} was already credited "
+                        "back on this invoice. The same days cannot be given back twice.",
+                        "VALIDATION_ERROR",
+                    )
+
+                windows[row["service_assignment"]] = (row["from"], row["to"])
+                wanted[row["service_assignment"]] = BillingService._unused_months(
+                    method, row["from"], row["to"]
+                )
+            else:
+                wanted[row["service_assignment"]] = flt(row.get("months"))
 
         if not wanted:
             raise ValidationError("Select at least one line to credit.", "VALIDATION_ERROR")
@@ -2937,6 +3499,10 @@ class BillingService:
                         "quantity": line["quantity"],
                         "billable_days": line["billable_days"],
                         "period_days": line["period_days"],
+                        # the stretch given back, when one was named: what makes a second
+                        # note over the same days refusable rather than merely unlikely
+                        "covered_from": windows.get(line["service_assignment"], (None, None))[0],
+                        "covered_to": windows.get(line["service_assignment"], (None, None))[1],
                         "billable_months": -months,
                         "unit_rate": line["unit_rate"],
                         "price_source": line["price_source"],
@@ -2947,9 +3513,9 @@ class BillingService:
                     for line, months in chosen
                 ],
             }
-        ).insert()
+        ).insert(ignore_permissions=True)
 
-        note.save()
+        note.save(ignore_permissions=True)
         erpnext_bridge.submit(note)
 
         BillingService._issue_credit_note(note)
@@ -2960,9 +3526,15 @@ class BillingService:
     @staticmethod
     def _issue_credit_note(doc):
         """Draft the return document that carries the credited months."""
-        original = frappe.db.get_value("MSP Billing Run", doc.credit_note_of, "sales_invoice")
+        source = frappe.db.get_value(
+            "MSP Billing Run", doc.credit_note_of, ["sales_invoice", "reconstructed"], as_dict=True
+        )
+        original = source.sales_invoice if source else None
 
-        if not original:
+        # a charge raised before this application has nothing here to stand against, so the
+        # credit is a note of its own rather than a return — the money is the same, the
+        # link is what cannot be invented
+        if not original and not (source and source.reconstructed):
             raise ValidationError(
                 f"{doc.credit_note_of} has no invoice to credit against.", "INVALID_TRANSITION"
             )
@@ -2977,8 +3549,26 @@ class BillingService:
             )
             bucket["months"] += months
 
-        company = frappe.db.get_value("Sales Invoice", original, "company")
+        company = (
+            frappe.db.get_value("Sales Invoice", original, "company")
+            if original
+            else frappe.defaults.get_global_default("company")
+        )
         income_account = frappe.db.get_value("Company", company, "default_income_account")
+        # the receivable is named here rather than left to ERPNext. Drawn from an order, an
+        # invoice inherits it; a note that stands alone has nothing to inherit, and ERPNext
+        # would resolve it by asking whether the signed-in role may read the chart of
+        # accounts — which an MSP administrator has no reason to hold.
+        receivable = (
+            frappe.db.get_value("Sales Invoice", original, "debit_to")
+            if original
+            else frappe.db.get_value(
+                "Party Account",
+                {"parenttype": "Customer", "parent": doc.customer, "company": company},
+                "account",
+            )
+            or frappe.db.get_value("Company", company, "default_receivable_account")
+        )
 
         period_label = BillingService._period_label(doc)
 
@@ -2987,9 +3577,10 @@ class BillingService:
                 "doctype": "Sales Invoice",
                 "company": company,
                 "customer": doc.customer,
+                "debit_to": receivable,
                 "posting_date": frappe.utils.today(),
                 "is_return": 1,
-                "return_against": original,
+                "return_against": original or None,
                 "currency": doc.currency,
                 "remarks": doc.credit_note_reason,
                 "items": [
@@ -3006,7 +3597,13 @@ class BillingService:
                     for (service_item, rate, _discount), bucket in grouped.items()
                 ],
             }
-        ).insert()
+        )
+
+        # crediting is authorised above at `_guard_admin`; the return itself is an ERPNext
+        # record no MSP role writes by hand. Resolving the party account needs read on the
+        # chart of accounts, which the role carries since
+        # `patches/administrator_reads_accounts`.
+        note.insert(ignore_permissions=True)
 
         doc.db_set("sales_invoice", note.name)
         doc.db_set("status", "Invoice Drafted")

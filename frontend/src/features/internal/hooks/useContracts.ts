@@ -94,3 +94,4 @@ export const useSaveCustomerAuthority = (customer: string) => {
       queryClient.invalidateQueries({ queryKey: authorityKeys.one(customer) }),
   });
 };
+

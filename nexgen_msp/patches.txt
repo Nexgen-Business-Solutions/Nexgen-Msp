@@ -46,3 +46,5 @@ nexgen_msp.patches.index_hot_lookups #requested_targets
 nexgen_msp.patches.requested_entities
 nexgen_msp.patches.remove_request_action_catalogue
 nexgen_msp.patches.withdraw_stale_approvers
+nexgen_msp.patches.billing_contact_field
+nexgen_msp.patches.administrator_reads_accounts

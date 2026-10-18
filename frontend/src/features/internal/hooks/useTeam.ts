@@ -18,10 +18,10 @@ export const useTeam = (
     keepPreviousData: true,
   });
 
-export const useTeamMember = (email: string) =>
+export const useTeamMember = (email?: string) =>
   useQuery({
-    queryKey: teamKeys.detail(email),
-    queryFn: ({ signal }) => internal.getTeamMember(email, signal),
+    queryKey: teamKeys.detail(email ?? ''),
+    queryFn: ({ signal }) => internal.getTeamMember(email as string, signal),
     enabled: Boolean(email),
   });
 

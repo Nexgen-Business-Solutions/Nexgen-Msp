@@ -8,9 +8,12 @@
   "user",
   "full_name",
   "department",
+  "status",
   "column_break_rights",
   "can_submit",
-  "can_approve"
+  "can_approve",
+  "effective_from",
+  "effective_to"
  ],
  "fields": [
   {
@@ -34,6 +37,15 @@
    "label": "Limited To Department"
   },
   {
+   "default": "Active",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Active\nInactive",
+   "reqd": 1
+  },
+  {
    "fieldname": "column_break_rights",
    "fieldtype": "Column Break"
   },
@@ -50,6 +62,16 @@
    "fieldtype": "Check",
    "in_list_view": 1,
    "label": "May Approve"
+  },
+  {
+   "fieldname": "effective_from",
+   "fieldtype": "Date",
+   "label": "Effective From"
+  },
+  {
+   "fieldname": "effective_to",
+   "fieldtype": "Date",
+   "label": "Effective To"
   }
  ],
  "istable": 1,

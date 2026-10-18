@@ -1,8 +1,11 @@
 """Which way billing mail travels.
 
-A customer is no longer told by email that an invoice was issued: they read it in their portal.
-Mail towards Nexgen is untouched, because a dispute nobody is told about is a dispute nobody
-answers.
+A customer is told that an invoice was issued through **one named billing contact** and
+nobody else — issue #21, after a notice addressed to every portal account reached people it
+was never meant for. Mail towards Nexgen is untouched, because a dispute nobody is told
+about is a dispute nobody answers.
+
+Who that contact is, and what happens when none is named, lives in test_billing_contact.
 """
 
 import inspect
@@ -25,18 +28,15 @@ def live_source(function):
     )
 
 
-class TestInvoiceMailNoLongerReachesTheCustomer(MSPTestCase):
-    def test_issuing_an_invoice_tells_nobody_at_the_customer(self):
+class TestInvoiceMailReachesOneNamedContact(MSPTestCase):
+    def test_issuing_an_invoice_writes_through_the_billing_contact(self):
         source = live_source(BillingService.submit_invoice)
 
         self.assertIn(
             "erpnext_bridge.submit(invoice)", source, "the invoice is still posted"
         )
-        self.assertNotIn(
-            "_notify_customer",
-            source,
-            "issuing an invoice must not mail the customer any more",
-        )
+        self.assertIn("_notify_customer", source, "and the notice goes out again")
+        self.assertIn("cint(notify)", source, "only when the run asked for it")
 
     def test_the_sender_and_its_template_are_kept_so_it_can_be_put_back(self):
         notifications.ensure_templates()
@@ -45,7 +45,7 @@ class TestInvoiceMailNoLongerReachesTheCustomer(MSPTestCase):
         self.assertIn("MSP Invoice Issued", live_source(BillingService._notify_customer))
         self.assertTrue(frappe.db.exists("Email Template", "MSP Invoice Issued"))
 
-    def test_nothing_else_in_billing_still_calls_it(self):
+    def test_only_the_posting_of_an_invoice_writes_to_the_customer(self):
         callers = [
             name
             for name, member in vars(BillingService).items()
@@ -54,7 +54,7 @@ class TestInvoiceMailNoLongerReachesTheCustomer(MSPTestCase):
             and "_notify_customer" in live_source(member.__func__)
         ]
 
-        self.assertEqual(callers, [], "no live path mails the customer about an invoice")
+        self.assertEqual(callers, ["submit_invoice"], "one path, and one only")
 
 
 class TestMailTowardsNexgenIsUntouched(MSPTestCase):
@@ -82,8 +82,9 @@ class TestMailTowardsNexgenIsUntouched(MSPTestCase):
         ):
             self.assertTrue(frappe.db.exists("Email Template", name), name)
 
-    def test_the_withdrawal_is_a_comment_and_not_a_deletion(self):
-        whole = inspect.getsource(billing_service.BillingService.submit_invoice)
+    def test_the_broad_recipient_query_is_gone_for_good(self):
+        """Not commented out — removed: a permission is not a reason to be told about money."""
+        whole = inspect.getsource(billing_service.BillingService._notify_customer)
 
-        self.assertIn("# if frappe.utils.cint(notify):", whole)
-        self.assertIn("#     BillingService._notify_customer(", whole)
+        self.assertNotIn("User Permission", whole)
+        self.assertNotIn("up.for_value", whole)

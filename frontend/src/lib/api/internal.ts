@@ -1367,6 +1367,9 @@ export type BillingRunDetail = {
   sales_invoice: string | null;
   invoice_status: string | null;
   invoice_submitted: boolean;
+  /** a charge raised before this application, written down so it can be reasoned about */
+  reconstructed: boolean;
+  coverage_evidence: string | null;
   adjustment_of: string | null;
   credit_note_of: string | null;
   credit_note_reason: string | null;
@@ -1568,6 +1571,71 @@ export const removeFromBillingRun = (payload: { name: string; service_assignment
 
 export const addToBillingRun = (payload: { name: string; service_assignment: string }) =>
   post<BillingRunDetail>(`${BASE}.add_to_billing_run`, payload);
+
+export type CoverageEvidence = {
+  customer: string;
+  period_start: string;
+  period_end: string;
+  runs: {
+    name: string;
+    contract: string;
+    status: string;
+    billing_period_start: string;
+    billing_period_end: string;
+    total_amount: number;
+    sales_invoice: string | null;
+    reconstructed: number;
+  }[];
+  invoices: { name: string; posting_date: string; currency: string; grand_total: number }[];
+  contracts: {
+    name: string;
+    title: string | null;
+    billing_frequency: string | null;
+    billing_timing: string | null;
+    proration_method: string | null;
+    start_date: string | null;
+    end_date: string | null;
+  }[];
+};
+
+export type CoveragePreview = {
+  contract: string;
+  customer: string;
+  currency: string;
+  period_start: string;
+  period_end: string;
+  /** the day the original charge went out, and so the only end dates it could know */
+  as_known_on: string;
+  lines: BillingRunLine[];
+  total_amount: number;
+};
+
+export const getCoverageEvidence = (
+  payload: { customer: string; period_start: string; period_end: string },
+  signal?: AbortSignal
+) => get<CoverageEvidence>(`${BASE}.get_coverage_evidence`, payload, signal);
+
+export const previewPastCoverage = (
+  payload: { contract: string; period_start: string; period_end: string },
+  signal?: AbortSignal
+) => get<CoveragePreview>(`${BASE}.preview_past_coverage`, payload, signal);
+
+export const recordPastCoverage = (payload: {
+  contract: string;
+  period_start: string;
+  period_end: string;
+  statement: string;
+  sales_invoice?: string | null;
+}) => post<BillingRunDetail>(`${BASE}.record_past_coverage`, payload);
+
+export type InvoiceRecipients = {
+  customer: string;
+  billing_contact: BillingContact;
+  portal_users: { user: string; email: string; full_name: string }[];
+};
+
+export const getInvoiceRecipients = (name: string, signal?: AbortSignal) =>
+  get<InvoiceRecipients>(`${BASE}.get_invoice_recipients`, { name }, signal);
 
 const BILLING_ENDPOINTS: Record<string, string> = {
   finalise: `${BASE}.finalise_billing_run`,
@@ -2304,9 +2372,19 @@ export const exportRequests = (params: RequestListParams = {}, picks?: ExportPic
 export const downloadInvoicePdf = (run: string) =>
   download(`${BASE}.download_billing_invoice`, { name: run }, `${run}.pdf`);
 
+/** What a line billed ahead owes back because its service stopped before the period did. */
+export type OwedBack = {
+  ended_on: string;
+  unused_from: string;
+  unused_to: string;
+  unused_days: number;
+  months: number;
+};
+
 export type CreditableLine = BillingRunLine & {
   credited_months: number;
   remaining_months: number;
+  owed_back: OwedBack | null;
 };
 
 export type CreditableLines = {
@@ -2314,9 +2392,17 @@ export type CreditableLines = {
   customer: string;
   invoice: string;
   invoice_submitted: boolean;
+  /** a charge raised before this application, written down so it can be reasoned about */
+  reconstructed: boolean;
+  coverage_evidence: string | null;
   period_label: string;
+  period_start: string;
+  period_end: string;
+  proration_method: string;
+  billed_in_advance: boolean;
   currency: string | null;
   lines: CreditableLine[];
+  owed_back_months: number;
 };
 
 export const getCreditableLines = (name: string, signal?: AbortSignal) =>
@@ -2324,7 +2410,11 @@ export const getCreditableLines = (name: string, signal?: AbortSignal) =>
 
 export const createCreditNote = (payload: {
   name: string;
-  lines: { service_assignment: string; months: number }[];
+  /** a credit is asked for as a number of months, or as the stretch that was not served */
+  lines: (
+    | { service_assignment: string; months: number }
+    | { service_assignment: string; from: string; to: string }
+  )[];
   reason: string;
 }) =>
   post<BillingRunDetail>(`${BASE}.create_credit_note`, {
@@ -2383,7 +2473,9 @@ export type CustomerDetails = {
   payment_terms: string | null;
   website: string | null;
   msp_free_of_charge: number;
+  disabled: number;
   last_billed_on: string | null;
+  billing_contact: BillingContact;
   address: CustomerAddress | null;
   contact: CustomerContact | null;
   counts: { users: number; devices: number; contracts: number };
@@ -2396,6 +2488,39 @@ export type CustomerDetails = {
   };
   shared: { address: boolean };
 };
+
+/** Who this company's invoices are announced to, and why nothing is sent when nobody is. */
+export type BillingContact = {
+  contact: string | null;
+  full_name: string | null;
+  email: string | null;
+  refusal: string | null;
+};
+
+export type CustomerContactRow = {
+  name: string;
+  first_name: string | null;
+  last_name: string | null;
+  label: string;
+  email: string | null;
+  user: string | null;
+  has_account: boolean;
+};
+
+export const listCustomerContacts = (customer: string, signal?: AbortSignal) =>
+  get<CustomerContactRow[]>(`${BASE}.list_customer_contacts`, { customer }, signal);
+
+export const setCustomerBillingContact = (payload: { customer: string; contact: string | null }) =>
+  post<BillingContact>(`${BASE}.set_customer_billing_contact`, {
+    customer: payload.customer,
+    contact: payload.contact ?? '',
+  });
+
+export const addCustomerBillingContact = (payload: {
+  customer: string;
+  full_name: string;
+  email: string;
+}) => post<BillingContact>(`${BASE}.add_customer_billing_contact`, payload);
 
 export type CustomerContact = {
   name: string;
@@ -2475,6 +2600,9 @@ export const getMyCapabilities = (signal?: AbortSignal) =>
 
 export const salesInvoiceDeskUrl = (invoice: string) =>
   `/app/sales-invoice/${encodeURIComponent(invoice)}`;
+
+export const customerDeskUrl = (customer: string) =>
+  `/app/customer/${encodeURIComponent(customer)}`;
 
 export type ActivityKind =
   | 'invoice'
@@ -2598,13 +2726,34 @@ export type Approver = {
   department: string | null;
   can_submit: boolean;
   can_approve: boolean;
+  /** the relationship's own life, which the account behind it knows nothing about */
+  status?: 'Active' | 'Inactive';
+  effective_from?: string | null;
+  effective_to?: string | null;
+  /** whether this line decides today, dates and state taken together */
+  deciding?: boolean;
+  /** false when the account behind the line has moved to another company */
+  answers_here?: boolean;
+  /** read off the account the line stands for, never stored on the line itself */
+  email?: string;
+  enabled?: boolean;
+  role?: string | null;
+};
+
+export type AuthorityCandidate = {
+  user: string;
+  email: string;
+  full_name: string;
+  enabled: boolean;
+  last_login: string | null;
+  role: string | null;
 };
 
 export type CustomerAuthority = {
   customer: string;
   enabled: boolean;
   approvers: Approver[];
-  candidates: { user: string; full_name: string }[];
+  candidates: AuthorityCandidate[];
   gaps: { accounts: number; nobody_may_raise: boolean; nobody_may_approve: boolean };
 };
 
@@ -2616,6 +2765,11 @@ export type AccountRights = {
   department: string | null;
   can_submit: boolean;
   can_approve: boolean;
+  /** the state of the relationship itself, which the customer screen governs */
+  status: 'Active' | 'Inactive' | null;
+  effective_from: string | null;
+  effective_to: string | null;
+  deciding: boolean;
 };
 
 export const getAccountRights = (user: string, signal?: AbortSignal) =>

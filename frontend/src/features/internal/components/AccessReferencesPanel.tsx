@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
-import { Check, ChevronDown, Minus, Wrench } from 'lucide-react';
+import { Check, ChevronDown, Minus, ShieldCheck, Wrench } from 'lucide-react';
 import ConfirmModal from '@/shared/components/ConfirmModal';
+import SectionIcon from '@/shared/components/SectionIcon';
 import FieldLabel from '@/shared/components/FieldLabel';
 import Select from '@/shared/components/Select';
 import type { AccountAbilities, AccountAccess } from '@/lib/api/internal';
@@ -94,9 +95,10 @@ const AccessReferencesPanel: React.FC<Props> = ({ email, access, abilities }) =>
         onClick={() => setOpen((current) => !current)}
         aria-expanded={open}
         aria-label={open ? 'Hide access and rights' : 'Show access and rights'}
-        className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left transition-colors hover:bg-slate-50"
+        className="flex w-full items-start gap-3 px-5 py-4 text-left transition-colors hover:bg-slate-50"
       >
-        <span className="min-w-0">
+        <SectionIcon icon={ShieldCheck} />
+        <span className="min-w-0 flex-1">
           <span className="flex flex-wrap items-center gap-2">
             <span className="text-base font-semibold text-slate-900">Access and rights</span>
             {review && (

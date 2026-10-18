@@ -1,13 +1,17 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import AppSidebar from './AppSidebar';
 import AppHeader from './AppHeader';
 import Breadcrumb from './Breadcrumb';
+import { PageHeadingContext, type PageHeading } from './pageHeading';
 
 export default function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [heading, setHeading] = useState<PageHeading>(null);
+  const trail = useMemo(() => ({ heading, setHeading }), [heading]);
 
   return (
+    <PageHeadingContext.Provider value={trail}>
     <div className="flex h-full min-h-0 flex-col bg-slate-50">
       <AppHeader onMenuClick={() => setSidebarOpen(true)} />
       <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -18,5 +22,6 @@ export default function AppLayout() {
         </main>
       </div>
     </div>
+    </PageHeadingContext.Provider>
   );
 }

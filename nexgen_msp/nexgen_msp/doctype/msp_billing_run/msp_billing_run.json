@@ -38,6 +38,8 @@
   "section_output",
   "sales_order",
   "sales_invoice",
+  "reconstructed",
+  "coverage_evidence",
   "generation_version",
   "column_break_output",
   "adjustment_of",
@@ -128,6 +130,11 @@
    "label": "Totals"
   },
   {
+   "fieldname": "discount_percent",
+   "fieldtype": "Percent",
+   "label": "Run Discount %"
+  },
+  {
    "fieldname": "currency",
    "fieldtype": "Link",
    "label": "Currency",
@@ -194,102 +201,6 @@
    "read_only": 1
   },
   {
-   "fieldname": "section_output",
-   "fieldtype": "Section Break",
-   "label": "Output"
-  },
-  {
-   "allow_on_submit": 1,
-   "fieldname": "sales_invoice",
-   "fieldtype": "Link",
-   "label": "Sales Invoice",
-   "no_copy": 1,
-   "options": "Sales Invoice",
-   "read_only": 1
-  },
-  {
-   "fieldname": "generation_version",
-   "fieldtype": "Data",
-   "label": "Generation Version",
-   "no_copy": 1,
-   "read_only": 1
-  },
-  {
-   "fieldname": "column_break_output",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "adjustment_of",
-   "fieldtype": "Link",
-   "label": "Adjustment Of",
-   "options": "MSP Billing Run"
-  },
-  {
-   "fieldname": "amended_from",
-   "fieldtype": "Link",
-   "label": "Amended From",
-   "no_copy": 1,
-   "options": "MSP Billing Run",
-   "print_hide": 1,
-   "read_only": 1
-  },
-  {
-   "fieldname": "credit_note_of",
-   "fieldtype": "Link",
-   "label": "Credit Note Of",
-   "options": "MSP Billing Run",
-   "read_only": 1
-  },
-  {
-   "fieldname": "credit_note_reason",
-   "fieldtype": "Small Text",
-   "label": "Credit Note Reason"
-  },
-  {
-   "fieldname": "sales_order",
-   "fieldtype": "Link",
-   "label": "Sales Order",
-   "options": "Sales Order",
-   "read_only": 1
-  },
-  {
-   "fieldname": "disputed",
-   "fieldtype": "Check",
-   "label": "Disputed by the customer",
-   "read_only": 1
-  },
-  {
-   "fieldname": "disputed_on",
-   "fieldtype": "Datetime",
-   "label": "Disputed On",
-   "read_only": 1
-  },
-  {
-   "fieldname": "disputed_by",
-   "fieldtype": "Link",
-   "label": "Disputed By",
-   "options": "User",
-   "read_only": 1
-  },
-  {
-   "fieldname": "dispute_reason",
-   "fieldtype": "Small Text",
-   "label": "Dispute Reason",
-   "read_only": 1
-  },
-  {
-   "fieldname": "dispute_request",
-   "fieldtype": "Link",
-   "label": "Dispute Request",
-   "options": "MSP Request",
-   "read_only": 1
-  },
-  {
-   "fieldname": "discount_percent",
-   "fieldtype": "Percent",
-   "label": "Run Discount %"
-  },
-  {
    "fieldname": "section_billed_to",
    "fieldtype": "Section Break",
    "label": "Billed To"
@@ -324,6 +235,111 @@
    "fieldtype": "Small Text",
    "label": "Billing Contact",
    "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_output",
+   "fieldtype": "Section Break",
+   "label": "Output"
+  },
+  {
+   "fieldname": "sales_order",
+   "fieldtype": "Link",
+   "label": "Sales Order",
+   "options": "Sales Order",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "sales_invoice",
+   "fieldtype": "Link",
+   "label": "Sales Invoice",
+   "no_copy": 1,
+   "options": "Sales Invoice",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "reconstructed",
+   "fieldtype": "Check",
+   "label": "Reconstructed",
+   "read_only": 1
+  },
+  {
+   "depends_on": "reconstructed",
+   "fieldname": "coverage_evidence",
+   "fieldtype": "Small Text",
+   "label": "Coverage Evidence",
+   "read_only": 1
+  },
+  {
+   "fieldname": "generation_version",
+   "fieldtype": "Data",
+   "label": "Generation Version",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_output",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "adjustment_of",
+   "fieldtype": "Link",
+   "label": "Adjustment Of",
+   "options": "MSP Billing Run"
+  },
+  {
+   "fieldname": "credit_note_of",
+   "fieldtype": "Link",
+   "label": "Credit Note Of",
+   "options": "MSP Billing Run",
+   "read_only": 1
+  },
+  {
+   "fieldname": "credit_note_reason",
+   "fieldtype": "Small Text",
+   "label": "Credit Note Reason"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "MSP Billing Run",
+   "print_hide": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "disputed",
+   "fieldtype": "Check",
+   "label": "Disputed by the customer",
+   "read_only": 1
+  },
+  {
+   "fieldname": "disputed_on",
+   "fieldtype": "Datetime",
+   "label": "Disputed On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "disputed_by",
+   "fieldtype": "Link",
+   "label": "Disputed By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "dispute_request",
+   "fieldtype": "Link",
+   "label": "Dispute Request",
+   "options": "MSP Request",
+   "read_only": 1
+  },
+  {
+   "fieldname": "dispute_reason",
+   "fieldtype": "Small Text",
+   "label": "Dispute Reason",
    "read_only": 1
   }
  ],

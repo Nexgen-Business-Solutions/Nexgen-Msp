@@ -27,10 +27,20 @@ def _accounts_of(customer):
         if not set(frappe.get_roles(user)).intersection(permissions.CUSTOMER_ROLES):
             continue
 
+        card = frappe.db.get_value(
+            "User", user, ["full_name", "enabled", "last_login"], as_dict=True
+        )
+        held = set(frappe.get_roles(user)).intersection(permissions.CUSTOMER_ROLES)
+
         rows.append(
             {
                 "user": user,
-                "full_name": frappe.db.get_value("User", user, "full_name") or user,
+                # the account name is the address: one fact, never two that can disagree
+                "email": user,
+                "full_name": card.full_name or user,
+                "enabled": bool(card.enabled),
+                "last_login": card.last_login,
+                "role": permissions.ROLE_LABELS.get(next(iter(sorted(held)), None)),
             }
         )
 
@@ -55,8 +65,33 @@ class AuthorityService:
             "approvers": [
                 {
                     "user": row.user,
+                    "email": row.user,
                     "full_name": row.full_name,
                     "department": row.department,
+                    # a line stands for an account, so its state is the account's own
+                    "enabled": bool(frappe.db.get_value("User", row.user, "enabled")),
+                    "role": permissions.ROLE_LABELS.get(
+                        next(
+                            iter(
+                                sorted(
+                                    set(frappe.get_roles(row.user)).intersection(
+                                        permissions.CUSTOMER_ROLES
+                                    )
+                                )
+                            ),
+                            None,
+                        )
+                    ),
+                    # the relationship has a life of its own: it can be put aside, or
+                    # dated, without the account behind it changing at all
+                    # whether the account still answers for this company: a line left over
+                    # from a move grants nothing, but it must stay visible, because it is
+                    # also what refuses every later save until somebody takes it off
+                    "answers_here": customer in permissions.get_allowed_customers(row.user),
+                    "status": row.status or "Active",
+                    "effective_from": row.effective_from,
+                    "effective_to": row.effective_to,
+                    "deciding": approval.is_live(row),
                     **{right: bool(row.get(right)) for right in RIGHTS},
                 }
                 for row in (doc.approvers if doc else [])
@@ -100,6 +135,11 @@ class AuthorityService:
             "is_customer_account": is_customer,
             "named": bool(row),
             "department": row.department if row else None,
+            "status": (row.status or "Active") if row else None,
+            "effective_from": row.effective_from if row else None,
+            "effective_to": row.effective_to if row else None,
+            # named is not the same as deciding: a line put aside still shows its rights
+            "deciding": approval.is_live(row) if row else False,
             **{right: bool(row.get(right)) if row else False for right in RIGHTS},
         }
 
@@ -182,6 +222,9 @@ class AuthorityService:
                 {
                     "user": account,
                     "department": (row.get("department") or "").strip() or None,
+                    "status": "Inactive" if row.get("status") == "Inactive" else "Active",
+                    "effective_from": row.get("effective_from") or None,
+                    "effective_to": row.get("effective_to") or None,
                     **{right: 1 if row.get(right) else 0 for right in RIGHTS},
                 },
             )

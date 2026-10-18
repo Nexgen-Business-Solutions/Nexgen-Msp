@@ -206,7 +206,9 @@ class CustomerService:
                 else None
             ),
             "contact": CustomerService._primary_contact(customer),
+            "disabled": frappe.utils.cint(doc.disabled),
             "last_billed_on": doc.get("msp_last_billed_on"),
+            "billing_contact": CustomerService.billing_contact(customer),
             "counts": {
                 "users": frappe.db.count("MSP Client User", {"customer": customer}),
                 "devices": frappe.db.count("MSP Managed Device", {"customer": customer}),
@@ -254,6 +256,149 @@ class CustomerService:
             "phone": doc.phone,
             "shared": bool(CustomerService._shared("Contact", doc.name, customer)),
         }
+
+    @staticmethod
+    def billing_contact(customer):
+        """Who receives this company's invoices, and whether an invoice can be announced.
+
+        Nobody is named to begin with, and nothing is sent until somebody is: an invoice
+        notice has no sensible fallback, and guessing one is what sent billing information
+        to people it was never meant for.
+        """
+        from nexgen_msp.api.internal.services.billing_service import BillingService
+
+        chosen = frappe.db.get_value("Customer", customer, "msp_billing_contact")
+        email, refusal = BillingService.billing_contact_email(customer)
+
+        return {
+            "contact": chosen or None,
+            "full_name": CustomerService._contact_name(chosen),
+            "email": email,
+            "refusal": refusal,
+        }
+
+    @staticmethod
+    def _contact_name(contact):
+        """What to call a contact on screen: their own name, not the record's identifier."""
+        if not contact:
+            return None
+
+        card = frappe.db.get_value(
+            "Contact", contact, ["first_name", "last_name"], as_dict=True
+        )
+
+        if not card:
+            return None
+
+        return " ".join(part for part in (card.first_name, card.last_name) if part) or contact
+
+    @staticmethod
+    def contacts_of(customer=None):
+        """Every contact this company has, so one of them can be named for the invoices."""
+        CustomerService._guard_admin()
+
+        if not customer or not frappe.db.exists("Customer", customer):
+            raise NotFoundError(f"Customer {customer} not found.", "NOT_FOUND")
+
+        rows = frappe.db.sql(
+            """
+            select c.name, c.first_name, c.last_name, c.user,
+                   (select email_id from `tabContact Email` ce
+                    where ce.parent = c.name order by ce.is_primary desc limit 1) as email
+            from `tabContact` c
+            join `tabDynamic Link` dl on dl.parent = c.name and dl.parenttype = 'Contact'
+               and dl.link_doctype = 'Customer' and dl.link_name = %(customer)s
+            order by c.first_name
+            """,
+            {"customer": customer},
+            as_dict=True,
+        )
+
+        for row in rows:
+            row["label"] = " ".join(filter(None, [row.first_name, row.last_name])) or row.name
+            row["has_account"] = bool(row.user)
+
+        return rows
+
+    @staticmethod
+    def set_billing_contact(customer=None, contact=None):
+        """Name the contact this company's invoices are announced to, or name nobody."""
+        CustomerService._guard_admin()
+
+        if not customer or not frappe.db.exists("Customer", customer):
+            raise NotFoundError(f"Customer {customer} not found.", "NOT_FOUND")
+
+        if contact:
+            if not frappe.db.exists("Contact", contact):
+                raise NotFoundError(f"Contact {contact} not found.", "NOT_FOUND")
+
+            # checked here and not merely filtered on a screen: a chosen name arrives from
+            # a request, and a request can say anything
+            if not frappe.db.exists(
+                "Dynamic Link",
+                {
+                    "parenttype": "Contact",
+                    "parent": contact,
+                    "link_doctype": "Customer",
+                    "link_name": customer,
+                },
+            ):
+                raise ValidationError(
+                    f"{contact} is not a contact of {customer}.", "VALIDATION_ERROR"
+                )
+
+        frappe.db.set_value("Customer", customer, "msp_billing_contact", contact or None)
+        frappe.db.commit()
+
+        return CustomerService.billing_contact(customer)
+
+    @staticmethod
+    def add_billing_contact(customer=None, full_name=None, email=None):
+        """Name somebody for the invoices, creating their contact only if there is none.
+
+        The accountant is rarely a portal user, and an invoice notice must not depend on
+        them becoming one. Typing an address this company already holds names that very
+        contact: a second record for the same person would split their history and leave
+        two answers to the question of who is told.
+        """
+        CustomerService._guard_admin()
+
+        if not customer or not frappe.db.exists("Customer", customer):
+            raise NotFoundError(f"Customer {customer} not found.", "NOT_FOUND")
+
+        if not full_name or not str(full_name).strip():
+            raise ValidationError("A name is required.", "VALIDATION_ERROR")
+
+        if not email or "@" not in str(email):
+            raise ValidationError("A valid email address is required.", "VALIDATION_ERROR")
+
+        known = frappe.db.sql_list(
+            """
+            select distinct ce.parent
+            from `tabContact Email` ce
+            join `tabDynamic Link` dl
+              on dl.parenttype = 'Contact' and dl.parent = ce.parent
+             and dl.link_doctype = 'Customer' and dl.link_name = %(customer)s
+            where ce.email_id = %(email)s
+            """,
+            {"customer": customer, "email": str(email).strip()},
+        )
+
+        if known:
+            return CustomerService.set_billing_contact(customer=customer, contact=known[0])
+
+        parts = str(full_name).strip().split(" ", 1)
+        doc = frappe.get_doc(
+            {
+                "doctype": "Contact",
+                "first_name": parts[0],
+                "last_name": parts[1] if len(parts) > 1 else None,
+                "email_ids": [{"email_id": str(email).strip(), "is_primary": 1}],
+                "links": [{"link_doctype": "Customer", "link_name": customer}],
+            }
+        ).insert(ignore_permissions=True)
+
+        return CustomerService.set_billing_contact(customer=customer, contact=doc.name)
 
     @staticmethod
     def list_customers(search=None):

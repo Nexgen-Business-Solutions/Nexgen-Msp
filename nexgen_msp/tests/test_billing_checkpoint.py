@@ -132,7 +132,7 @@ class TestWhatTheMarkForbids(CheckpointCase):
 
     def test_a_period_behind_the_mark_yields_nothing_even_with_no_run_against_it(self):
         service = self.offering("PAST1")
-        self.running(service, client_user=self.john, started=-2000)
+        self.running(service, client_user=self.john, started=-1000)
         self.contract_says(billing_frequency="Quarterly", billing_timing="In Arrears")
         self.stamp("2026-07-24")
 
@@ -143,7 +143,7 @@ class TestWhatTheMarkForbids(CheckpointCase):
 
     def test_a_period_straddling_the_mark_is_billed_from_the_day_after_it(self):
         service = self.offering("PAST2")
-        self.running(service, client_user=self.john, started=-2000)
+        self.running(service, client_user=self.john, started=-1000)
         self.contract_says(billing_frequency="Quarterly", billing_timing="In Arrears")
         self.stamp("2026-07-24")
 
@@ -156,7 +156,7 @@ class TestWhatTheMarkForbids(CheckpointCase):
     def test_a_customer_with_no_mark_at_all_can_still_be_billed_for_any_past_period(self):
         """Nothing new is forbidden where nothing says the period was paid for."""
         service = self.offering("PAST3")
-        self.running(service, client_user=self.john, started=-2000)
+        self.running(service, client_user=self.john, started=-1000)
         self.contract_says(billing_frequency="Quarterly", billing_timing="In Arrears")
 
         line = self.line_for("2026-02-01", "2026-02-28")

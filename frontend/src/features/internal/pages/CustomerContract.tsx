@@ -1,26 +1,33 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  ArrowLeft,
+  Building2,
   CircleCheck,
   CircleSlash,
   Coins,
+  ExternalLink,
+  FileText,
   ListChecks,
   Pencil,
   Plus,
   Trash2,
   TriangleAlert,
+  Users,
 } from 'lucide-react';
 import StatusBadge from '@/shared/components/StatusBadge';
+import SectionIcon from '@/shared/components/SectionIcon';
 import ConfirmModal from '@/shared/components/ConfirmModal';
 import Modal from '@/shared/components/Modal';
 import RowActionsMenu, { type RowAction } from '@/shared/components/RowActionsMenu';
 import ContractModal from '../components/ContractModal';
 import CustomerModal from '../components/CustomerModal';
 import AuthorityPanel from '../components/AuthorityPanel';
+import BillingContactPanel from '../components/BillingContactPanel';
 import MspContractModal from '../components/MspContractModal';
 import RateModal from '../components/RateModal';
+import { customerDeskUrl } from '@/lib/api/internal';
 import type { ContractRate, MspContractDetail } from '@/lib/api/internal';
+import { useSetPageHeading } from '@/shared/layout/pageHeading';
 import {
   useContract,
   useContractRates,
@@ -72,6 +79,7 @@ export default function CustomerContract() {
 
   const profileDetails = useCustomerDetails(customer);
   const [editingCustomer, setEditingCustomer] = useState(false);
+  useSetPageHeading(profileDetails.data?.customer_name || customer);
 
   const address = profileDetails.data?.address ?? null;
 
@@ -148,38 +156,57 @@ export default function CustomerContract() {
 
   return (
     <div className="space-y-5 px-6 pb-6 pt-4">
-      <button
-        type="button"
-        onClick={() => navigate('/msp/customers')}
-        className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 transition-colors hover:text-slate-800"
-      >
-        <ArrowLeft size={15} />
-        Back to customers
-      </button>
-
-      <div className="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex min-w-0 items-start gap-4">
+          <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+            <Users size={22} />
+          </span>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2.5">
-              <h1 className="text-lg font-bold text-slate-900">
+              <h1 className="text-2xl font-bold text-slate-900">
                 {profileDetails.data?.customer_name || customer}
               </h1>
+              <StatusBadge
+                value={profileDetails.data?.disabled ? 'Disabled' : 'Active'}
+              />
               {Boolean(profileDetails.data?.msp_free_of_charge) && (
                 <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
                   FREE OF CHARGE
                 </span>
               )}
-              <button
-                type="button"
-                onClick={() => setEditingCustomer(true)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
-              >
-                <Pencil size={13} />
-                Edit details
-              </button>
             </div>
+            <p className="mt-1 text-sm text-slate-500">
+              Customer account, services, pricing and decision-makers.
+            </p>
+          </div>
+        </div>
 
-            <p className="mt-1 flex flex-wrap items-center gap-1.5 text-sm text-slate-500">
+        <div className="flex shrink-0 items-center gap-2">
+          <a
+            href={customerDeskUrl(customer)}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm transition-colors hover:bg-slate-50"
+          >
+            <ExternalLink size={15} />
+            Open account
+          </a>
+          <RowActionsMenu
+            actions={[
+              { label: 'Edit details', icon: Pencil, onClick: () => setEditingCustomer(true) },
+            ]}
+          />
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex min-w-0 items-start gap-3">
+            <SectionIcon icon={Building2} />
+            <div className="min-w-0">
+            <h2 className="text-base font-semibold text-slate-900">Company details</h2>
+
+            <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-sm text-slate-500">
               {/* this page is the commercial side; the people and the machines live on
                   their own screens, and these are the way through to them */}
               <button
@@ -242,8 +269,10 @@ export default function CustomerContract() {
                 No details recorded yet — invoices will show the name alone.
               </p>
             )}
+            </div>
           </div>
-          <div className="text-right">
+
+          <div className="shrink-0 text-right">
             <p className="text-xs font-medium text-slate-400">Billing readiness</p>
             <p
               className={`text-2xl font-bold tabular-nums ${
@@ -290,11 +319,14 @@ export default function CustomerContract() {
 
       <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
-          <div>
-            <h2 className="text-base font-semibold text-slate-900">Contracts</h2>
-            <p className="mt-0.5 text-sm text-slate-400">
-              One contract produces one invoice. A service belongs to a single live contract.
-            </p>
+          <div className="flex min-w-0 items-start gap-3">
+            <SectionIcon icon={FileText} />
+            <div className="min-w-0">
+              <h2 className="text-base font-semibold text-slate-900">Contracts</h2>
+              <p className="mt-0.5 text-sm text-slate-400">
+                One contract produces one invoice. A service belongs to a single live contract.
+              </p>
+            </div>
           </div>
           <button
             type="button"
@@ -412,24 +444,27 @@ export default function CustomerContract() {
 
       <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
-          <div>
-            <h2 className="text-base font-semibold text-slate-900">Pricing</h2>
-            <p className="mt-0.5 text-sm text-slate-400">
-              Each rate is a dated version. Adding one never rewrites the past.
-            </p>
-            {hiddenServices > 0 && (
-              <label className="mt-2 inline-flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={showEveryService}
-                  onChange={(event) => setShowEveryService(event.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300"
-                />
-                <span className="text-xs text-slate-500">
-                  Show the {hiddenServices} service(s) this customer does not use
-                </span>
-              </label>
-            )}
+          <div className="flex min-w-0 items-start gap-3">
+            <SectionIcon icon={Coins} />
+            <div className="min-w-0">
+              <h2 className="text-base font-semibold text-slate-900">Pricing</h2>
+              <p className="mt-0.5 text-sm text-slate-400">
+                Each rate is a dated version. Adding one never rewrites the past.
+              </p>
+              {hiddenServices > 0 && (
+                <label className="mt-2 inline-flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={showEveryService}
+                    onChange={(event) => setShowEveryService(event.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300"
+                  />
+                  <span className="text-xs text-slate-500">
+                    Show the {hiddenServices} service(s) this customer does not use
+                  </span>
+                </label>
+              )}
+            </div>
           </div>
           <button
             type="button"
@@ -648,6 +683,8 @@ export default function CustomerContract() {
         profile={profile}
         onClose={() => setContractOpen(false)}
       />
+
+      <BillingContactPanel customer={customer} />
 
       <AuthorityPanel customer={customer} />
 

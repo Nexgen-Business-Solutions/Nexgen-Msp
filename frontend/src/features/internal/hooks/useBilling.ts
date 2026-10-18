@@ -22,6 +22,40 @@ export const useBillingRun = (name?: string) =>
     enabled: Boolean(name),
   });
 
+export const useInvoiceRecipients = (name?: string) =>
+  useQuery({
+    queryKey: [...billingKeys.detail(name || ''), 'recipients'],
+    queryFn: ({ signal }) => internal.getInvoiceRecipients(name as string, signal),
+    enabled: Boolean(name),
+  });
+
+export const useCoverageEvidence = (
+  payload: { customer: string; period_start: string; period_end: string } | null
+) =>
+  useQuery({
+    queryKey: [...billingKeys.all, 'coverage', payload],
+    queryFn: ({ signal }) => internal.getCoverageEvidence(payload!, signal),
+    enabled: Boolean(payload),
+  });
+
+export const useCoveragePreview = (
+  payload: { contract: string; period_start: string; period_end: string } | null
+) =>
+  useQuery({
+    queryKey: [...billingKeys.all, 'coverage-preview', payload],
+    queryFn: ({ signal }) => internal.previewPastCoverage(payload!, signal),
+    enabled: Boolean(payload),
+  });
+
+export const useRecordPastCoverage = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: internal.recordPastCoverage,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: billingKeys.all }),
+  });
+};
+
 export const usePreviewRun = () =>
   useMutation({ mutationFn: internal.previewBillingRun });
 

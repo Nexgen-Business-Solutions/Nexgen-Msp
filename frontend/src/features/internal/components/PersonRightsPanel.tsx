@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, CircleCheck, ShieldCheck } from 'lucide-react';
+import { AlertCircle, CircleCheck, ShieldCheck, Users } from 'lucide-react';
 import Select from '@/shared/components/Select';
+import SectionIcon from '@/shared/components/SectionIcon';
 import { useAccountRights, useSetAccountRights } from '../hooks/useTeam';
 import { useDepartmentOptions } from '../hooks/useSettings';
 
@@ -73,14 +74,24 @@ const PersonRightsPanel: React.FC<Props> = ({ user }) => {
   return (
     <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
       <div className="px-5 py-4">
-        <h2 className="text-base font-semibold text-slate-900">What they decide for their company</h2>
-        <p className="mt-0.5 text-sm text-slate-400">
-          Given to this account by name, for {data.customer}.
-        </p>
+        <div className="flex items-start gap-3">
+          <SectionIcon icon={Users} />
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold text-slate-900">
+              What they decide for their company
+            </h2>
+            <p className="mt-0.5 text-sm text-slate-400">
+              Given to this account by name, for {data.customer}.
+            </p>
+          </div>
+        </div>
 
-        <div className="mt-4 space-y-3">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
           {RIGHTS.map((right) => (
-            <label key={right.key} className="flex cursor-pointer items-start gap-2.5">
+            <label
+              key={right.key}
+              className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-200 p-3 transition-colors hover:bg-slate-50"
+            >
               <input
                 type="checkbox"
                 checked={form[right.key]}
@@ -151,6 +162,19 @@ const PersonRightsPanel: React.FC<Props> = ({ user }) => {
             </p>
           )}
         </div>
+
+        {/* the rights can be written here, but whether they are in force is the customer
+            screen's business: saying so is better than showing rights that decide nothing */}
+        {data.named && !data.deciding && (
+          <p className="mt-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            <ShieldCheck size={16} className="mt-0.5 shrink-0 text-amber-600" />
+            {data.status === 'Inactive'
+              ? `This relationship is stood down, so they decide nothing for ${data.customer} at the moment. Put it back in force on the customer screen.`
+              : data.effective_to
+                ? `This relationship ended on ${String(data.effective_to).slice(0, 10)}, so they decide nothing for ${data.customer} now.`
+                : `This relationship starts on ${String(data.effective_from).slice(0, 10)}. Until then they decide nothing for ${data.customer}.`}
+          </p>
+        )}
 
         <p className="mt-4 flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
           <ShieldCheck size={16} className="mt-0.5 shrink-0 text-slate-500" />

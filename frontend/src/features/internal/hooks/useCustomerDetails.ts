@@ -21,6 +21,36 @@ export const useCustomerDetails = (customer?: string) =>
     enabled: Boolean(customer),
   });
 
+export const useCustomerContacts = (customer?: string) =>
+  useQuery({
+    queryKey: [...customerKeys.detail(customer || ''), 'contacts'],
+    queryFn: ({ signal }) => internal.listCustomerContacts(customer as string, signal),
+    enabled: Boolean(customer),
+  });
+
+/** Naming who the invoices are announced to, or adding somebody who has no account. */
+export const useSetBillingContact = (customer: string) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: internal.setCustomerBillingContact,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: customerKeys.detail(customer) });
+    },
+  });
+};
+
+export const useAddBillingContact = (customer: string) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: internal.addCustomerBillingContact,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: customerKeys.detail(customer) });
+    },
+  });
+};
+
 export const useSaveCustomerDetails = () => {
   const queryClient = useQueryClient();
 

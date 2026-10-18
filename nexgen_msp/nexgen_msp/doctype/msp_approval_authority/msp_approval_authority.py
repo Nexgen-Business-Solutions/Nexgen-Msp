@@ -11,6 +11,7 @@ class MSPApprovalAuthority(Document):
 		self.validate_accounts_belong_here()
 		self.validate_no_duplicates()
 		self.validate_departments()
+		self.validate_dates()
 
 	def stamp_names(self):
 		for row in self.approvers:
@@ -61,6 +62,19 @@ class MSPApprovalAuthority(Document):
 				)
 
 			seen.add(row.user)
+
+	def validate_dates(self):
+		"""A line cannot end before it starts, and a line put aside keeps its dates."""
+		for row in self.approvers:
+			row.status = row.status or "Active"
+
+			if row.effective_from and row.effective_to:
+				if frappe.utils.getdate(row.effective_to) < frappe.utils.getdate(row.effective_from):
+					frappe.throw(
+						_("{0} would stop deciding before they start. Check the two dates.").format(
+							frappe.bold(row.full_name or row.user)
+						)
+					)
 
 	def validate_departments(self):
 		"""An approver limited to a department must be limited to one that actually exists.

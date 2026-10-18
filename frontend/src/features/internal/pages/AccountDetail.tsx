@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Building2,
   CheckCircle2,
+  ChevronDown,
   KeyRound,
   ShieldCheck,
   UserCheck,
@@ -11,6 +12,7 @@ import {
   Wrench,
   XCircle,
 } from 'lucide-react';
+import Avatar from '@/shared/components/Avatar';
 import ConfirmModal from '@/shared/components/ConfirmModal';
 import PersonRightsPanel from '../components/PersonRightsPanel';
 import AccessReferencesPanel from '../components/AccessReferencesPanel';
@@ -103,6 +105,7 @@ export default function AccountDetail() {
   const resetTotp = useResetTwoFactor();
 
   const [promoting, setPromoting] = useState<string | null>(null);
+  const [roleMenu, setRoleMenu] = useState(false);
   const [switching, setSwitching] = useState(false);
   const [resettingTotp, setResettingTotp] = useState(false);
 
@@ -146,6 +149,7 @@ export default function AccountDetail() {
 
       <div className="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
         <div className="flex flex-wrap items-center gap-2.5">
+          <Avatar name={account.full_name || account.name} size="lg" />
           <span className="min-w-0">
             <h1 className="text-lg font-bold text-slate-900">
               {account.full_name || account.name}
@@ -184,21 +188,53 @@ export default function AccountDetail() {
             </button>
           )}
 
-          {account.role &&
-            !isRoot &&
-            otherRoles.map((role) => (
+          {account.role && !isRoot && otherRoles.length > 0 && (
+            <div className="relative">
               <button
-                key={role}
                 type="button"
-                onClick={() => setPromoting(role)}
+                onClick={() => setRoleMenu((open) => !open)}
                 disabled={setRole.isLoading}
-                title={`Move this account to ${role}`}
+                aria-expanded={roleMenu}
+                title="Move this account to another role"
                 className={ACTION_CLASS}
               >
                 <ShieldCheck size={15} />
-                Make {labels[role] ?? role}
+                Change role
+                <ChevronDown
+                  size={14}
+                  className={`transition-transform ${roleMenu ? 'rotate-180' : ''}`}
+                />
               </button>
-            ))}
+
+              {roleMenu && (
+                <>
+                  <button
+                    type="button"
+                    aria-hidden
+                    tabIndex={-1}
+                    onClick={() => setRoleMenu(false)}
+                    className="fixed inset-0 z-10 cursor-default"
+                  />
+                  <div className="absolute left-0 z-20 mt-1.5 min-w-[16rem] overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl">
+                    {otherRoles.map((role) => (
+                      <button
+                        key={role}
+                        type="button"
+                        onClick={() => {
+                          setRoleMenu(false);
+                          setPromoting(role);
+                        }}
+                        className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                      >
+                        <ShieldCheck size={15} className="text-slate-400" />
+                        Make {labels[role] ?? role}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
           {!isSelf && !isRoot && (
             <button

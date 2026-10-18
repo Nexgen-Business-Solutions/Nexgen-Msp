@@ -132,6 +132,8 @@ class TestThePreview(PresentationCase):
                     "person_is_new": True,
                     "target_label": f"{self.m365_name} · Personal",
                     "target_kind": "requested_client_user",
+                    # a person who does not exist yet has no record to link to
+                    "target_name": None,
                     "target_badge": "NEW",
                     "operation_label": f"Add {self.m365_name}",
                     "state_at_request": "Not assigned",

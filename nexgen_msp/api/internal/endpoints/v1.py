@@ -1344,8 +1344,44 @@ def set_service_eligibility(customer=None, service_item=None, is_eligible=None):
 
 @frappe.whitelist()
 @handle_errors
-def submit_invoice_billing_run(name=None, notify=1):
-    return _billing().submit_invoice(name=name, notify=notify)
+def submit_invoice_billing_run(name=None, notify=1, recipients=None):
+    return _billing().submit_invoice(name=name, notify=notify, recipients=recipients)
+
+
+@frappe.whitelist()
+@handle_errors
+def get_coverage_evidence(customer=None, period_start=None, period_end=None):
+    return _billing().coverage_evidence(
+        customer=customer, period_start=period_start, period_end=period_end
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def preview_past_coverage(contract=None, period_start=None, period_end=None):
+    return _billing().coverage_preview(
+        contract=contract, period_start=period_start, period_end=period_end
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def record_past_coverage(
+    contract=None, period_start=None, period_end=None, statement=None, sales_invoice=None
+):
+    return _billing().record_past_coverage(
+        contract=contract,
+        period_start=period_start,
+        period_end=period_end,
+        statement=statement,
+        sales_invoice=sales_invoice,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def get_invoice_recipients(name=None):
+    return _billing().invoice_recipients(name=name)
 
 
 def _agreements():
@@ -1465,6 +1501,24 @@ def _customers():
 @handle_errors
 def get_customer_options():
     return _customers().options()
+
+
+@frappe.whitelist()
+@handle_errors
+def list_customer_contacts(customer=None):
+    return _customers().contacts_of(customer=customer)
+
+
+@frappe.whitelist(methods=["POST"])
+@handle_errors
+def set_customer_billing_contact(customer=None, contact=None):
+    return _customers().set_billing_contact(customer=customer, contact=contact)
+
+
+@frappe.whitelist(methods=["POST"])
+@handle_errors
+def add_customer_billing_contact(customer=None, full_name=None, email=None):
+    return _customers().add_billing_contact(customer=customer, full_name=full_name, email=email)
 
 
 @frappe.whitelist()

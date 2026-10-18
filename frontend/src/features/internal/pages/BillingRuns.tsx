@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   CalendarClock,
   Eye,
+  FileSearch,
   FileText,
   Layers,
   Play,
@@ -17,6 +18,7 @@ import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import StatusBadge from '@/shared/components/StatusBadge';
 import Select from '@/shared/components/Select';
 import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
+import PastCoverageModal from '../components/PastCoverageModal';
 import Modal from '@/shared/components/Modal';
 import { useBillingDue, useBillingRuns, useDiscardBillingRun } from '../hooks/useBilling';
 import { useMspContracts } from '../hooks/useMspContracts';
@@ -79,6 +81,7 @@ export default function BillingRuns() {
   const { data, isLoading, error, refetch } = useBillingRuns(query);
   // the cards describe every run in the range; a filter narrows the list below, never them
   const everything = useBillingRuns({ customers: [], statuses: [] });
+  const [recording, setRecording] = useState(false);
   const due = useBillingDue();
   const contracts = useMspContracts({});
   const [range, setRange] = useState(RANGES[0].label);
@@ -310,14 +313,26 @@ export default function BillingRuns() {
               Each run freezes the quantities and rates of its period.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => navigate('/msp/billing/new')}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
-          >
-            <Plus size={15} />
-            New run
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {/* a charge raised before this application leaves nothing to credit against,
+                so it can be written down here first */}
+            <button
+              type="button"
+              onClick={() => setRecording(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"
+            >
+              <FileSearch size={15} />
+              Record a past invoice
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/msp/billing/new')}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
+            >
+              <Plus size={15} />
+              New run
+            </button>
+          </div>
         </div>
 
         <div className="max-h-[62vh] overflow-auto px-5 pb-4">
@@ -489,6 +504,17 @@ export default function BillingRuns() {
           </p>
         )}
       </Modal>
+
+      <PastCoverageModal
+        open={recording}
+        customers={customerOptions}
+        defaultCustomer={customerFilter}
+        onClose={() => setRecording(false)}
+        onRecorded={(run) => {
+          setRecording(false);
+          navigate(`/msp/billing/${run}`);
+        }}
+      />
     </div>
   );
 }

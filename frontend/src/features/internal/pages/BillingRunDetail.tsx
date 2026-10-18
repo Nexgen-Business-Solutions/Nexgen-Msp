@@ -4,6 +4,7 @@ import {
   AlertCircle,
   ArrowLeft,
   FileCheck2,
+  FileSearch,
   FileSpreadsheet,
   Printer,
   ReceiptText,
@@ -25,6 +26,7 @@ import { isAdvisory, isBlocking } from '../lib/billingExceptions';
 import CreditNoteModal from '../components/CreditNoteModal';
 import InvoiceAccountingModal from '../components/InvoiceAccountingModal';
 import InvoicePanel from '../components/InvoicePanel';
+import NotifyRecipientsModal from '../components/NotifyRecipientsModal';
 import { downloadBreakdownFile, downloadInvoicePdf, salesInvoiceDeskUrl } from '@/lib/api/internal';
 import {
   useBillingRun,
@@ -78,7 +80,7 @@ export default function BillingRunDetail() {
   const detail = useBillingRun(name);
   const action = useRunAction();
   const [contesting, setContesting] = useState(false);
-  const [notify, setNotify] = useState(true);
+  const [telling, setTelling] = useState(false);
   const [resolving, setResolving] = useState(false);
   const [invoicing, setInvoicing] = useState(false);
   const [outcome, setOutcome] = useState('');
@@ -315,6 +317,19 @@ export default function BillingRunDetail() {
         )}
 
 
+        {/* nothing here was charged by this application: it records what happened before */}
+        {data.reconstructed && (
+          <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-blue-100 bg-blue-50 p-3">
+            <FileSearch size={16} className="mt-0.5 shrink-0 text-blue-600" />
+            <div className="text-sm text-blue-900">
+              <p className="font-semibold">
+                Recorded as already charged — no invoice was raised from this run
+              </p>
+              {data.coverage_evidence && <p className="mt-1">{data.coverage_evidence}</p>}
+            </div>
+          </div>
+        )}
+
         <div className="mt-5 flex flex-wrap items-center gap-2">
           {data.can_revalidate && (
             <button
@@ -342,24 +357,13 @@ export default function BillingRunDetail() {
           {data.can_submit_invoice && (
             <button
               type="button"
-              onClick={() => run('submit_invoice', { notify: notify ? 1 : 0 })}
+              onClick={() => setTelling(true)}
               disabled={action.isLoading}
               className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:opacity-60"
             >
               <FileCheck2 size={15} />
               {data.is_credit_note ? 'Submit credit note' : 'Submit invoice'}
             </button>
-          )}
-          {data.can_submit_invoice && (
-            <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-slate-600">
-              <input
-                type="checkbox"
-                checked={notify}
-                onChange={(event) => setNotify(event.target.checked)}
-                className="h-4 w-4 rounded border-slate-300"
-              />
-              Email the customer
-            </label>
           )}
           {data.can_discard_invoice && (
             <a
@@ -711,6 +715,22 @@ export default function BillingRunDetail() {
           ) {
             setInvoicing(false);
           }
+        }}
+      />
+
+      <NotifyRecipientsModal
+        open={telling}
+        run={name as string}
+        confirmLabel={data.is_credit_note ? 'Submit credit note' : 'Submit invoice'}
+        busy={action.isLoading}
+        onCancel={() => setTelling(false)}
+        onConfirm={async (recipients) => {
+          const done = await run('submit_invoice', {
+            notify: recipients.length ? 1 : 0,
+            recipients: JSON.stringify(recipients),
+          });
+
+          if (done) setTelling(false);
         }}
       />
 
