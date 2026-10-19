@@ -29,6 +29,13 @@ export const useInvoiceRecipients = (name?: string) =>
     enabled: Boolean(name),
   });
 
+export const usePendingAdjustments = (contract?: string) =>
+  useQuery({
+    queryKey: [...billingKeys.all, 'pending', contract],
+    queryFn: ({ signal }) => internal.getPendingAdjustments(contract as string, signal),
+    enabled: Boolean(contract),
+  });
+
 export const useCoverageEvidence = (
   payload: { customer: string; period_start: string; period_end: string } | null
 ) =>

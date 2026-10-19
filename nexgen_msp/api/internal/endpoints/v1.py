@@ -1350,6 +1350,12 @@ def submit_invoice_billing_run(name=None, notify=1, recipients=None):
 
 @frappe.whitelist()
 @handle_errors
+def get_pending_adjustments(contract=None):
+    return _billing().pending_for(contract=contract)
+
+
+@frappe.whitelist()
+@handle_errors
 def get_coverage_evidence(customer=None, period_start=None, period_end=None):
     return _billing().coverage_evidence(
         customer=customer, period_start=period_start, period_end=period_end

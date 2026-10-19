@@ -135,8 +135,7 @@ const openSelection = async (count: number) => {
     </QueryClientProvider>
   );
 
-  fireEvent.click(await screen.findByRole('button', { name: /continue/i }));
-
+  // the contract and the period are in the address, so the selection opens on its own
   await waitFor(() => expect(internal.previewBillingRun).toHaveBeenCalled());
   await screen.findByText('Person 0');
 };
@@ -205,7 +204,7 @@ describe('what was unticked survives the window', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /^clear$/i }));
 
-    expect(summary()).toMatch(/650\s*excluded by hand/);
+    expect(summary()).toMatch(/650\s*left out/);
     expect(rowBoxes().some((box) => (box as HTMLInputElement).checked)).toBe(false);
   });
 });

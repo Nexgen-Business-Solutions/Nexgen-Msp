@@ -686,7 +686,9 @@ export default function CustomerContract() {
 
       <BillingContactPanel customer={customer} />
 
-      <AuthorityPanel customer={customer} />
+      {/* who decides is the administrator's business: a technician is refused the read on
+          the server, so the screen does not offer them a panel that cannot answer */}
+      {profileDetails.data?.can.manage_contracts && <AuthorityPanel customer={customer} />}
 
       <MspContractModal
         open={agreementOpen}

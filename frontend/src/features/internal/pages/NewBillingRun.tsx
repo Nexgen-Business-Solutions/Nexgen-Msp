@@ -7,12 +7,15 @@ import {
   ChevronDown,
   Info,
   Receipt,
+  ReceiptText,
   Search,
   SlidersHorizontal,
   TriangleAlert,
 } from 'lucide-react';
 import FieldLabel from '@/shared/components/FieldLabel';
 import BillingProgressStepper from '../components/BillingProgressStepper';
+import CreditNoteModal from '../components/CreditNoteModal';
+import { subjectOf } from '../lib/billingSubject';
 import WorkflowHeader, { primaryBtn, quietBtn, secondaryBtn } from '@/shared/components/WorkflowHeader';
 import Select from '@/shared/components/Select';
 import MultiSelect from '@/shared/components/MultiSelect';
@@ -22,6 +25,7 @@ import { useMspContracts } from '../hooks/useMspContracts';
 import {
   useBillingFilterOptions,
   useBillingPeriodStatus,
+  usePendingAdjustments,
   useGenerateRun,
   usePreviewRun,
 } from '../hooks/useBilling';
@@ -37,6 +41,8 @@ const iso = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
     date.getDate()
   ).padStart(2, '0')}`;
+
+const fmtDay = (value?: string | null) => (value ? String(value).slice(0, 10) : '—');
 
 const previousMonth = () => {
   const now = new Date();
@@ -118,11 +124,19 @@ export default function NewBillingRun() {
 
   // arriving from "Bill this period" carries the contract and the period to cover
   const defaults = previousQuarter();
-  const [step, setStep] = useState(0);
+  // reached from a proposal in Ready to bill: the contract and the period are settled,
+  // so the scope step has nothing left to ask and the selection opens straight away
+  const proposed = Boolean(
+    searchParams.get('contract') && searchParams.get('start') && searchParams.get('end')
+  );
+  const [step, setStep] = useState(proposed ? 1 : 0);
   const [contract, setContract] = useState(searchParams.get('contract') ?? '');
   const [start, setStart] = useState(searchParams.get('start') ?? defaults.start);
   const [end, setEnd] = useState(searchParams.get('end') ?? defaults.end);
-  const [filters, setFilters] = useState<BillingFilters>({ only_billable: 0 });
+  // from a proposal, only what can be billed is worth reading: the rest is unticked and
+  // hidden, and the amber count above still says how many there are. The checkbox brings
+  // them back for anybody who wants to look.
+  const [filters, setFilters] = useState<BillingFilters>({ only_billable: proposed ? 1 : 0 });
   const [advanced, setAdvanced] = useState(false);
   const [discount, setDiscount] = useState('');
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
@@ -148,6 +162,22 @@ export default function NewBillingRun() {
 
   // asked as soon as a period is set, so an already-covered stretch shows before generating
   const coverage = useBillingPeriodStatus(contract, start, end, step === 0 && !outsideWindow);
+  // what the last charged period of this contract left behind, listed on this screen
+  const pending = usePendingAdjustments(contract || undefined);
+  const pendingCatchUp = pending.data?.catch_up.lines ?? 0;
+  const pendingOwed = pending.data?.owed_lines ?? [];
+  const owedTotal = pendingOwed.reduce((sum, line) => sum + line.amount, 0);
+  const [crediting, setCrediting] = useState(false);
+  // arrived here to give days back: the credit opens on its own, as soon as the run that
+  // charged the period is known. Nobody should have to ask for it twice.
+  const asksForCredit = searchParams.get('credit') === '1';
+  const [creditOffered, setCreditOffered] = useState(false);
+
+  useEffect(() => {
+    if (!asksForCredit || creditOffered || !pending.data?.owed_back.run) return;
+    setCreditOffered(true);
+    setCrediting(true);
+  }, [asksForCredit, creditOffered, pending.data?.owed_back.run]);
 
   // a discount can come from the rate as well as from this run, so the column shows
   // whenever a line actually carries one
@@ -171,13 +201,22 @@ export default function NewBillingRun() {
   const result = preview.data;
   const lines = result?.lines ?? [];
   const billable = lines.filter((line) => !line.exception_code);
-  const candidates = search.trim()
+  const matching = search.trim()
     ? lines.filter((line) =>
         [line.user_name, line.email, line.hostname, line.serial_number, line.service_name, line.department]
           .filter(Boolean)
           .some((value) => String(value).toLowerCase().includes(search.trim().toLowerCase()))
       )
     : lines;
+  // what can be billed is read first; what cannot sinks to the bottom, where it is still
+  // there to be looked at but is out of the way of the decision
+  const candidates = useMemo(
+    () =>
+      [...matching].sort(
+        (a, b) => Number(Boolean(a.exception_code)) - Number(Boolean(b.exception_code))
+      ),
+    [matching]
+  );
   // what somebody chose to bill, blockers included: a blocker is answered for in Validation,
   // not quietly dropped before the run is even drawn
   const kept = lines.filter((line) => !excluded.has(line.service_assignment));
@@ -192,6 +231,9 @@ export default function NewBillingRun() {
     (result?.available ?? 0) - (result?.blocked_count ?? 0) - billable.length,
     0
   );
+  // what was kept out of sight because it cannot be billed: said once, quietly, instead
+  // of a warning about lines this run does not carry
+  const hiddenBlockers = filters.only_billable ? (result?.blocked_count ?? 0) : 0;
   const keptTotal = kept.reduce((sum, line) => sum + line.amount, 0);
   const keptMonths = kept.reduce((sum, line) => sum + line.billable_months, 0);
 
@@ -237,7 +279,7 @@ export default function NewBillingRun() {
   const grouped = useMemo(() => {
     const key = (line: (typeof visible)[number]) => {
       if (groupBy === 'service') return line.service_name || line.service_item;
-      if (groupBy === 'user') return line.user_name || 'Not a person';
+      if (groupBy === 'user') return line.user_name || line.hostname || 'Not a person';
       if (groupBy === 'device') return line.hostname || 'Not a machine';
       if (groupBy === 'department') return line.department || 'No department';
       return '';
@@ -274,6 +316,7 @@ export default function NewBillingRun() {
   // every filter, and only a change of period wipes it, because the lines are then not the same
   const scope = `${contract}|${start}|${end}`;
   const lastScope = useRef(scope);
+  const untickedBlockers = useRef('');
 
   useEffect(() => {
     if (step !== 1) return;
@@ -281,11 +324,33 @@ export default function NewBillingRun() {
     if (lastScope.current !== scope) {
       lastScope.current = scope;
       setExcluded(new Set());
+      // the blockers of the period being left are not the blockers of the next one, and
+      // the preview for it has not arrived yet
+      untickedBlockers.current = '';
     }
 
     preview.mutate({ ...run, filters });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, filters, run]);
+
+  // a line that cannot be billed starts unticked: it would be carried for nothing. The
+  // amber count above keeps saying how many there are and why, so none of it is hidden —
+  // and anybody who wants one on the run ticks it back.
+  useEffect(() => {
+    if (step !== 1 || !result || untickedBlockers.current === scope) return;
+
+    // keyed on the result, not only on the scope: acting on the preview of the period
+    // just left would untick the wrong people and leave the new blockers ticked
+    if (result.period_start && String(result.period_start) !== start) return;
+
+    untickedBlockers.current = scope;
+    const blocked = lines
+      .filter((line) => line.exception_code)
+      .map((line) => line.service_assignment);
+
+    if (blocked.length) setExcluded((current) => new Set([...current, ...blocked]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, result, scope]);
 
   const toggle = (assignment: string) =>
     setExcluded((current) => {
@@ -456,6 +521,67 @@ export default function NewBillingRun() {
                 </p>
               </div>
             )}
+
+          {/* what the period already charged left behind for this contract, said here so
+              the run screen is the one place the work is seen and decided */}
+          {pending.data && (pendingCatchUp > 0 || pendingOwed.length > 0) && (
+            <div className="mx-5 mt-3 overflow-hidden rounded-lg border border-slate-200">
+              <p className="border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                What the charged period left behind
+              </p>
+
+              {pendingCatchUp > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5">
+                  <p className="text-sm text-slate-700">
+                    <span className="font-semibold">{pendingCatchUp} arrival(s)</span> after the
+                    invoice went out, never billed. This run picks them up from{' '}
+                    {fmtDay(pending.data.catch_up.from)}.
+                  </p>
+                  <span className="text-sm font-semibold text-slate-800 tabular-nums">
+                    {pending.data.catch_up.amount.toLocaleString()} {pending.data.currency ?? ''}
+                  </span>
+                </div>
+              )}
+
+              {pendingOwed.length > 0 && (
+                <div className="border-t border-slate-100 px-3 py-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-sm text-slate-700">
+                      <span className="font-semibold">{pendingOwed.length} line(s)</span> stopped
+                      before the end of a period paid in advance.
+                    </p>
+                    <span className="flex items-center gap-3">
+                      <span className="text-sm font-semibold text-rose-600 tabular-nums">
+                        -{owedTotal.toLocaleString()} {pending.data.currency ?? ''}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setCrediting(true)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+                      >
+                        <ReceiptText size={13} />
+                        Create credit note
+                      </button>
+                    </span>
+                  </div>
+
+                  <ul className="mt-2 space-y-1">
+                    {pendingOwed.slice(0, 4).map((line) => (
+                      <li key={line.service_assignment} className="text-xs text-slate-500">
+                        {line.who} · {line.service_name} · ended {fmtDay(line.ended_on)} ·{' '}
+                        {line.unused_days} day(s) unused
+                      </li>
+                    ))}
+                    {pendingOwed.length > 4 && (
+                      <li className="text-xs text-slate-400">
+                        and {pendingOwed.length - 4} more
+                      </li>
+                    )}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
 
           {outsideWindow && (
             <div className="mx-5 mt-3 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
@@ -762,7 +888,7 @@ export default function NewBillingRun() {
                 <strong className="font-semibold text-slate-700 tabular-nums">
                   {excluded.size}
                 </strong>{' '}
-                excluded by hand
+                left out
                 {hiddenExcluded > 0 && (
                   <span className="text-amber-600"> ({hiddenExcluded} out of view)</span>
                 )}
@@ -773,6 +899,20 @@ export default function NewBillingRun() {
                 </strong>{' '}
                 blocked
               </span>
+              {/* set aside before this run was drawn: not its problem, but one click away
+                  for anybody who wants to see why */}
+              {hiddenBlockers > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setFilters({ ...filters, only_billable: 0 })}
+                  className="text-slate-500 underline-offset-2 hover:underline"
+                >
+                  <strong className="font-semibold text-slate-700 tabular-nums">
+                    {hiddenBlockers}
+                  </strong>{' '}
+                  cannot be billed
+                </button>
+              )}
             </div>
 
             <div className="flex flex-wrap items-center gap-2 px-5 py-3">
@@ -868,7 +1008,7 @@ export default function NewBillingRun() {
               </div>
             )}
 
-            {result && result.blocked_count > 0 && (
+            {result && result.blocked_count > 0 && !hiddenBlockers && (
               <div className="mx-5 mb-3 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
                 <TriangleAlert size={16} className="mt-0.5 shrink-0 text-amber-600" />
                 <div className="text-sm text-amber-800">
@@ -975,7 +1115,7 @@ export default function NewBillingRun() {
                       </td>
                       <td className="whitespace-nowrap px-3 py-2.5">
                         <p className="text-sm font-medium text-slate-800">
-                          {line.user_name || 'N/A'}
+                          {subjectOf(line)}
                         </p>
                         {line.department && (
                           <p className="text-xs text-slate-400">{line.department}</p>
@@ -1030,7 +1170,24 @@ export default function NewBillingRun() {
                         colSpan={resultColumns.length}
                         className="px-3 py-10 text-center text-sm text-slate-500"
                       >
-                        Nothing matches these filters.
+                        {/* an empty list with blockers hidden is not an empty period: it
+                            is a period where nothing can be billed, and saying which is
+                            the difference between a dead end and a thing to fix */}
+                        {hiddenBlockers > 0 ? (
+                          <>
+                            Nothing here can be billed.{' '}
+                            <button
+                              type="button"
+                              onClick={() => setFilters({ ...filters, only_billable: 0 })}
+                              className="font-semibold text-blue-600 underline-offset-2 hover:underline"
+                            >
+                              Show the {hiddenBlockers} line(s) that cannot be
+                            </button>{' '}
+                            to see why.
+                          </>
+                        ) : (
+                          'Nothing matches these filters.'
+                        )}
                       </td>
                     </tr>
                   )}
@@ -1057,6 +1214,17 @@ export default function NewBillingRun() {
           </div>
         </div>
       )}
+
+      <CreditNoteModal
+        open={crediting}
+        run={pending.data?.owed_back.run ?? ''}
+        preselectOwed
+        onClose={() => setCrediting(false)}
+        onCreated={(name) => {
+          setCrediting(false);
+          navigate(`/msp/billing/${name}`);
+        }}
+      />
 
       {step === 1 && hiddenByFilter > 0 && (
         <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">

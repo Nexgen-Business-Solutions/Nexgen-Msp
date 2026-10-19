@@ -536,6 +536,105 @@ class TestACustomerBilledBeforeThisApplication(AdvanceCase):
         self.assertEqual(note["lines"][0]["billable_months"], -0.2)
         self.assertEqual(note["lines"][0]["amount"], -self.RATE * 0.2)
 
+    def test_one_stretch_over_several_lines_pays_each_only_what_it_owes(self):
+        """The ordinary case: a handful of people who stopped within days of each other.
+
+        The screen offers the widest window they span, because that is the stretch being
+        talked about. A line that stopped later is still credited only for its own unused
+        days — the long window must never pay back more than was charged for nothing.
+        """
+        early = self.running_since("2023-01-01")
+        late = self.running_since("2023-01-01", who=self.make_person(self.customer, "Late"))
+        run = self.recorded()
+        self.stops(early, "2026-09-20")
+        self.stops(late, "2026-09-28")
+
+        note = BillingService.create_credit_note(
+            name=run["name"],
+            reason="Both stopped in the last fortnight of September.",
+            lines=[
+                {"service_assignment": early, "from": "2026-09-21", "to": "2026-09-30"},
+                {"service_assignment": late, "from": "2026-09-21", "to": "2026-09-30"},
+            ],
+        )
+        months = {
+            line["service_assignment"]: line["billable_months"] for line in note["lines"]
+        }
+
+        # ten days for the one that stopped on the 20th, two for the one that stopped later
+        self.assertAlmostEqual(months[early], -10 / 30, places=2)
+        self.assertAlmostEqual(months[late], -2 / 30, places=2)
+        self.assertGreater(abs(months[early]), abs(months[late]))
+
+    def test_a_credit_with_nothing_said_still_says_what_it_did(self):
+        """The reason is the operator's to give or not; the record is not optional."""
+        assignment = self.running_since("2023-01-01")
+        run = self.recorded()
+        self.stops(assignment, "2026-09-24")
+
+        note = BillingService.create_credit_note(
+            name=run["name"],
+            reason="",
+            lines=[{"service_assignment": assignment, "from": "2026-09-25", "to": "2026-09-30"}],
+        )
+
+        self.assertEqual(
+            note["credit_note_reason"], "Days not served, 2026-09-25 to 2026-09-30."
+        )
+
+    def test_a_period_earlier_than_a_run_already_on_file_can_still_be_recorded(self):
+        """Taking a customer on, their history arrives in whatever order somebody has it.
+
+        Recording the quarter before one already recorded must not be refused because the
+        later quarter exists: the whole point of reconstructing a period is to read it as
+        it stood, not through coverage established after it.
+        """
+        self.running_since("2023-01-01")
+        self.recorded()
+
+        earlier = BillingService.record_past_coverage(
+            contract=self.contract,
+            period_start="2026-04-01",
+            period_end="2026-06-30",
+            statement="The quarter before, also charged by the previous system.",
+        )
+
+        self.assertGreater(len(earlier["lines"]), 0)
+        self.assertEqual(getdate(earlier["billing_period_end"]), getdate("2026-06-30"))
+
+    def test_a_stretch_that_was_served_in_full_is_refused_rather_than_moved(self):
+        """A window outside what a line owes is a question, not a rounding error."""
+        assignment = self.running_since("2023-01-01")
+        run = self.recorded()
+        self.stops(assignment, "2026-09-24")
+
+        with self.assertRaisesRegex(ServiceRefused, "served in full"):
+            BillingService.create_credit_note(
+                name=run["name"],
+                reason="A fortnight nobody mentioned",
+                lines=[
+                    {"service_assignment": assignment, "from": "2026-09-01", "to": "2026-09-10"}
+                ],
+            )
+
+    def test_a_shared_window_credits_the_days_of_it_that_were_not_served(self):
+        """The cap keeps the days asked for, only fewer — never a different stretch."""
+        assignment = self.running_since("2023-01-01")
+        run = self.recorded()
+        self.stops(assignment, "2026-09-24")
+
+        note = BillingService.create_credit_note(
+            name=run["name"],
+            reason="September was poor all round.",
+            lines=[{"service_assignment": assignment, "from": "2026-09-15", "to": "2026-09-30"}],
+        )
+        line = note["lines"][0]
+
+        # the asked window overlaps the unused days on 25–30 September, and only those
+        self.assertEqual(getdate(line["covered_from"]), getdate("2026-09-25"))
+        self.assertEqual(getdate(line["covered_to"]), getdate("2026-09-30"))
+        self.assertEqual(line["billable_months"], -0.2)
+
     def test_the_same_days_cannot_be_given_back_twice(self):
         assignment = self.running_since("2023-01-01")
         run = self.recorded()

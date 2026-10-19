@@ -405,7 +405,11 @@ export default function DeviceDetail({ portal = false }: { portal?: boolean } = 
                   />
                   <Fact
                     label="Last billed on"
-                    value={device.last_billed_on ? fmtDate(device.last_billed_on) : 'Never'}
+                    value={
+                      device.last_billed_on
+                        ? fmtDate(device.last_billed_on)
+                        : 'Never on its own'
+                    }
                   />
                 </>
               )}

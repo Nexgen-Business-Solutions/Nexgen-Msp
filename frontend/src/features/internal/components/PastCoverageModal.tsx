@@ -13,6 +13,8 @@ type Props = {
   customers: { value: string; label: string }[];
   /** the company the screen was already filtered to, if it was */
   defaultCustomer?: string;
+  /** the period the screen already knows was charged, when it comes from a proposal */
+  defaultPeriod?: { from: string; to: string } | null;
   onClose: () => void;
   onRecorded: (run: string) => void;
 };
@@ -38,12 +40,13 @@ const PastCoverageModal: React.FC<Props> = ({
   open,
   customers,
   defaultCustomer,
+  defaultPeriod,
   onClose,
   onRecorded,
 }) => {
   const [customer, setCustomer] = useState(defaultCustomer ?? '');
-  const [from, setFrom] = useState('');
-  const [until, setUntil] = useState('');
+  const [from, setFrom] = useState(defaultPeriod?.from ?? '');
+  const [until, setUntil] = useState(defaultPeriod?.to ?? '');
   const [asked, setAsked] = useState<{ period_start: string; period_end: string } | null>(null);
   const [contract, setContract] = useState('');
   const [invoice, setInvoice] = useState('');

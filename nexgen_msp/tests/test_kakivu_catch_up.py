@@ -248,3 +248,138 @@ class TestAnArrearsContractIsLeftAlone(KakivuCase):
             getdate("2026-10-24"),
             "three months from where it picked up, not the calendar quarter",
         )
+
+
+class TestWhatTheChargedQuarterLeftBehind(KakivuCase):
+    """Who arrived after the invoice went out, and who stopped before it ran out.
+
+    Both are read from the periods actually charged, per assignment. The company-wide mark
+    is no answer for somebody who was never on that invoice: treating it as theirs is how a
+    mid-quarter arrival lost their first weeks without anybody noticing.
+    """
+
+    def charged_quarter(self):
+        """The quarter recorded as charged, the way a customer arriving with history is."""
+        return BillingService.record_past_coverage(
+            contract=self.contract,
+            period_start="2026-07-01",
+            period_end=QUARTER_END,
+            statement="Charged by the previous system.",
+        )
+
+    def pending(self):
+        return BillingService.pending_adjustments(self.contract, self.customer)
+
+    def test_somebody_who_arrived_after_the_invoice_was_not_on_it(self):
+        self.since("2023-01-01")
+        newcomer = self.since("2026-08-15", who=self.make_person(self.customer, "Newcomer"))
+
+        run = self.charged_quarter()
+
+        self.assertNotIn(
+            newcomer, [line["service_assignment"] for line in run["lines"]],
+            "the July invoice could not have charged an August arrival",
+        )
+
+    def test_they_are_proposed_for_catching_up(self):
+        self.since("2023-01-01")
+        self.since("2026-08-15", who=self.make_person(self.customer, "Newcomer"))
+        self.charged_quarter()
+
+        catch_up = self.pending()["catch_up"]
+
+        self.assertEqual(catch_up["lines"], 1)
+        self.assertEqual(getdate(catch_up["from"]), getdate("2026-08-15"))
+        self.assertEqual(getdate(catch_up["to"]), getdate(QUARTER_END))
+        self.assertGreater(catch_up["amount"], 0.0)
+
+    def test_the_catch_up_rides_on_a_run_that_reaches_back_to_them(self):
+        """One invoice: the quarter ahead for everybody, their own days for the newcomer."""
+        old = self.since("2023-01-01")
+        newcomer = self.since("2026-08-15", who=self.make_person(self.customer, "Newcomer"))
+        self.charged_quarter()
+
+        lines, _ = BillingService.build_lines(self.contract, "2026-08-15", NEXT_END)
+        found = {line["service_assignment"]: line for line in lines}
+
+        self.assertEqual(getdate(found[old]["covered_from"]), getdate(NEXT_START),
+                         "already paid through September, so it starts in October")
+        self.assertEqual(getdate(found[newcomer]["covered_from"]), getdate("2026-08-15"),
+                         "never charged, so it starts the day they arrived")
+        self.assertEqual(getdate(found[newcomer]["covered_to"]), getdate(NEXT_END))
+
+    def test_nobody_is_caught_up_twice(self):
+        self.since("2023-01-01")
+        self.since("2026-08-15", who=self.make_person(self.customer, "Newcomer"))
+        self.charged_quarter()
+
+        run = BillingService.record_past_coverage(
+            contract=self.contract, period_start="2026-10-01", period_end=NEXT_END,
+            statement="The quarter ahead, charged.",
+        )
+        self.assertGreater(len(run["lines"]), 0)
+
+        again = self.pending()["catch_up"]
+        self.assertEqual(again["lines"], 0, "their days are now on a run of their own")
+
+    def test_a_line_a_run_could_not_price_was_never_charged_by_it(self):
+        """A run carries the lines it could not price; carrying is not charging.
+
+        Read otherwise, somebody whose rate was missing in July would be treated as paid
+        for through September and could never be billed at all.
+        """
+        assignment = self.since("2023-01-01")
+        run = self.charged_quarter()
+        frappe.db.sql(
+            """
+            insert into `tabMSP Billing Run Line`
+                (name, parent, parenttype, parentfield, service_assignment, service_item,
+                 quantity, billable_months, unit_rate, amount, exception_code, idx,
+                 creation, modified, owner, modified_by)
+            values (%s, %s, 'MSP Billing Run', 'lines', %s, %s, 1, 0, 0, 0, 'Missing Rate',
+                    99, now(), now(), 'Administrator', 'Administrator')
+            """,
+            (f"zzexc-{self.tag}", run["name"], f"NOPE-{self.tag}", self.service),
+        )
+        frappe.db.commit()
+
+        lines, _ = BillingService.build_lines(self.contract, NEXT_START, NEXT_END)
+        carried = next(
+            (line for line in lines if line["service_assignment"] == f"NOPE-{self.tag}"), None
+        )
+
+        self.assertIsNone(carried, "the planted line stands for an assignment of its own")
+        self.assertIsNotNone(
+            next(line for line in lines if line["service_assignment"] == assignment)
+        )
+
+    def test_somebody_who_stopped_early_is_proposed_for_a_credit(self):
+        assignment = self.since("2023-01-01")
+        self.charged_quarter()
+        frappe.db.set_value(
+            "MSP Service Assignment", assignment, "effective_end_date", "2026-09-24"
+        )
+        frappe.db.commit()
+
+        owed = self.pending()["owed_back"]
+
+        self.assertEqual(owed["lines"], 1)
+        self.assertEqual(owed["months"], 0.2)
+        self.assertIsNotNone(owed["run"], "the run to open to give the days back")
+
+    def test_a_quarter_nothing_happened_in_leaves_nothing_behind(self):
+        self.since("2023-01-01")
+        self.charged_quarter()
+
+        pending = self.pending()
+
+        self.assertEqual(pending["catch_up"]["lines"], 0)
+        self.assertEqual(pending["owed_back"]["lines"], 0)
+
+    def test_a_contract_never_charged_proposes_neither(self):
+        self.since("2023-01-01")
+
+        pending = self.pending()
+
+        self.assertEqual(pending["catch_up"]["lines"], 0)
+        self.assertEqual(pending["owed_back"]["lines"], 0)

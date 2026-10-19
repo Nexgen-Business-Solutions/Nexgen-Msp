@@ -874,6 +874,10 @@ class BillingService:
                     from `tabMSP Billing Run Line` brl
                     join `tabMSP Billing Run` br on br.name = brl.parent
                     where brl.service_assignment = sa.name and br.docstatus = 1
+                      -- a line that sat on a run flagged with an exception was carried,
+                      -- not charged, and a credit note is money going the other way
+                      and ifnull(brl.exception_code, '') = ''
+                      and ifnull(br.credit_note_of, '') = ''
                 ) as last_billed_on
             from `tabMSP Service Assignment` sa
             left join `tabItem` item on item.name = sa.service_item
@@ -927,6 +931,14 @@ class BillingService:
         # back once the end is known. Reconstructing it any other way would record a charge
         # that was never made and leave nothing to credit.
         if as_known_on:
+            # somebody who arrived after the charge went out was not on it, and an end
+            # recorded afterwards was not known to it
+            assignments = [
+                row
+                for row in assignments
+                if getdate(row.effective_start_date) <= getdate(as_known_on)
+            ]
+
             for row in assignments:
                 if row.effective_end_date and getdate(row.effective_end_date) > getdate(
                     as_known_on
@@ -948,6 +960,10 @@ class BillingService:
             period_start,
             period_end,
         )
+        # once a run exists, every line has its own answer: no run line for an assignment
+        # means it was never charged, whatever the company-wide mark says. The mark is the
+        # answer only for a customer onboarded with a date and no run behind it.
+        billed_before = any(row.last_billed_on for row in assignments)
         invoiced_by_assignment = BillingService._invoiced_in(
             [row.name for row in assignments], period_start, period_end, exclude_run
         )
@@ -981,13 +997,29 @@ class BillingService:
                 customer, assignment, terms, period_start, period_end
             )
 
-            # a line already covered starts no earlier than the day after that coverage
+            # A line already covered starts no earlier than the day after that coverage.
+            #
+            # What counts is what *this* assignment was billed for, not what the company
+            # was billed for: somebody who arrived in the middle of a quarter paid in
+            # advance was never on that invoice, and treating the company's mark as theirs
+            # is how their first weeks were silently written off. The company-wide mark
+            # remains the answer only where there is nothing per-assignment to read —
+            # a customer onboarded with a date and no run behind it.
+            own_mark = (
+                getdate(assignment.last_billed_on) if assignment.last_billed_on else None
+            )
             floor = (
-                already_paid
-                if mark
-                and already_paid
-                and getdate(assignment.effective_start_date) <= mark
-                else None
+                None
+                if ignore_coverage
+                else own_mark
+                if billed_before
+                else (
+                    already_paid
+                    if mark
+                    and already_paid
+                    and getdate(assignment.effective_start_date) <= mark
+                    else None
+                )
             )
 
             for begins, ends, rate, source, rate_exception, rate_detail, rate_discount in stretches:
@@ -3351,13 +3383,7 @@ class BillingService:
         """
         BillingService._guard_admin()
 
-        if not reason or not str(reason).strip():
-            raise ValidationError(
-                "Say why this invoice is being credited — an unexplained credit note "
-                "cannot be reconciled later.",
-                "VALIDATION_ERROR",
-            )
-
+        reason = str(reason or "").strip()
         source = BillingService.creditable_lines(name)
 
         # a recorded charge has no invoice here to be a draft of; anything else must be
@@ -3432,6 +3458,40 @@ class BillingService:
                 wanted[row["service_assignment"]] = BillingService._unused_months(
                     method, row["from"], row["to"]
                 )
+
+                # one stretch covering several lines is the ordinary case — an outage, or
+                # a handful of people who stopped within days of each other. A line that
+                # stopped inside it is still credited only for the days it was really not
+                # served: the longest window may not pay back more than it owes.
+                owed = next(
+                    (
+                        line["owed_back"]
+                        for line in source["lines"]
+                        if line["service_assignment"] == row["service_assignment"]
+                        and line.get("owed_back")
+                    ),
+                    None,
+                )
+
+                if owed and wanted[row["service_assignment"]] > owed["months"]:
+                    # keep the days asked for that were really not served, rather than
+                    # swapping in a different stretch: the credit must answer the question
+                    # it was asked, only smaller
+                    opens = max(getdate(row["from"]), getdate(owed["unused_from"]))
+                    closes = min(getdate(row["to"]), getdate(owed["unused_to"]))
+
+                    if closes < opens:
+                        raise ValidationError(
+                            f"{row['from']} to {row['to']} was served in full: that line "
+                            f"was only not served from {owed['unused_from']} to "
+                            f"{owed['unused_to']}.",
+                            "VALIDATION_ERROR",
+                        )
+
+                    windows[row["service_assignment"]] = (str(opens), str(closes))
+                    wanted[row["service_assignment"]] = BillingService._unused_months(
+                        method, opens, closes
+                    )
             else:
                 wanted[row["service_assignment"]] = flt(row.get("months"))
 
@@ -3461,6 +3521,19 @@ class BillingService:
 
         if not chosen:
             raise ValidationError("Nothing left to credit on these lines.", "VALIDATION_ERROR")
+
+        # a credit note still has to read as something a year from now. Said nothing, it
+        # says what it did: the days nobody was served, which is what it is made of.
+        if not reason:
+            stretches = [
+                (str(start), str(stop)) for start, stop in windows.values() if start and stop
+            ]
+            reason = (
+                f"Days not served, {min(start for start, _ in stretches)} to "
+                f"{max(stop for _, stop in stretches)}."
+                if stretches
+                else f"Credit against {source['period_label']}."
+            )
 
         run = frappe.get_doc("MSP Billing Run", name)
 
@@ -3634,6 +3707,331 @@ class BillingService:
         return start, end
 
     @staticmethod
+    def pending_for(contract=None):
+        """What the last charged period of one contract left behind, people named.
+
+        The run screen reads this: it is where somebody decides, so it needs the lines
+        themselves and not only how many there are.
+        """
+        BillingService._guard_admin()
+
+        if not contract or not frappe.db.exists("MSP Contract", contract):
+            raise NotFoundError(f"Contract {contract} not found.", "NOT_FOUND")
+
+        customer = frappe.db.get_value("MSP Contract", contract, "customer")
+        answer = BillingService.pending_adjustments(contract, customer)
+        owed = []
+
+        if answer["owed_back"]["run"]:
+            source = BillingService.creditable_lines(answer["owed_back"]["run"])
+            owed = [
+                {
+                    "service_assignment": line["service_assignment"],
+                    "who": line["user_name"] or line["hostname"] or line["service_name"],
+                    "service_name": line["service_name"],
+                    "unit_rate": line["unit_rate"],
+                    "quantity": line["quantity"],
+                    "months": line["owed_back"]["months"],
+                    "amount": flt(
+                        line["owed_back"]["months"]
+                        * flt(line["unit_rate"])
+                        * flt(line["quantity"]),
+                        2,
+                    ),
+                    **line["owed_back"],
+                }
+                for line in source["lines"]
+                if line.get("owed_back")
+            ]
+
+        return {
+            "contract": contract,
+            "customer": customer,
+            "currency": frappe.db.get_value("MSP Contract", contract, "currency"),
+            **answer,
+            "owed_lines": owed,
+        }
+
+    @staticmethod
+    def _billable_over(contract, customer, period_start, period_end):
+        """How many of this contract's services are live over the period it is offered for.
+
+        Counting every billable assignment of the customer answers a different question:
+        it ignores whether the contract covers that service at all, and whether anything
+        was running in those months. A proposal built on that count sends somebody to a
+        run screen with an empty list.
+        """
+        return frappe.db.sql(
+            """
+            select count(*)
+            from `tabMSP Service Assignment` sa
+            join `tabMSP Contract Service` cs
+              on cs.parent = %(contract)s and cs.service_item = sa.service_item
+            where sa.customer = %(customer)s
+              and sa.billing_status = 'Billable'
+              and sa.operational_status in %(ops)s
+              and sa.effective_start_date <= %(end)s
+              and (sa.effective_end_date is null or sa.effective_end_date >= %(start)s)
+            """,
+            {
+                "contract": contract,
+                "customer": customer,
+                "ops": tuple(BILLABLE_OPERATIONAL),
+                "start": period_start,
+                "end": period_end,
+            },
+        )[0][0]
+
+    @staticmethod
+    def _actions_from(due):
+        """One entry per thing somebody has to do, rather than per contract.
+
+        A customer can owe several at once — days to give back, people who arrived after
+        the invoice, a period coming due — and each is decided on its own. The screen says
+        them one per line and sends each straight to where it is confirmed.
+        """
+        actions = []
+
+        for row in due:
+            owed = row["owed_back"]
+            catch_up = row["catch_up"]
+            # the run to open covers the arrivals as well as the period: one invoice
+            opens_on = catch_up["from"] or row["next_period_start"]
+            common = {
+                "contract": row["contract"],
+                "customer": row["customer"],
+                "title": row["title"],
+                "currency": row.get("currency"),
+                "run_start": opens_on,
+                "run_end": row["next_period_end"],
+            }
+
+            if owed["lines"] and owed["proven"]:
+                actions.append({
+                    **common,
+                    "kind": "credit_note",
+                    "period_start": owed["period_start"],
+                    "period_end": owed["period_end"],
+                    "lines": owed["lines"],
+                    "amount": -flt(owed["amount"], 2),
+                    "run": owed["run"],
+                    "state": None,
+                })
+
+            # a coverage nobody has recorded is not a thing to do from here: recording it
+            # is a one-off of taking a customer on, and lives in its own screen
+
+            if catch_up["lines"]:
+                actions.append({
+                    **common,
+                    "kind": "additions",
+                    "period_start": catch_up["from"],
+                    "period_end": catch_up["to"],
+                    "lines": catch_up["lines"],
+                    "amount": flt(catch_up["amount"], 2),
+                    "run": None,
+                    "state": None,
+                })
+
+            # a contract with nothing billable behind it is not work waiting to be done:
+            # proposing it only leads to a run screen with an empty list
+            if row["billable_assignments"]:
+                actions.append({
+                    **common,
+                    "kind": "period",
+                    "period_start": row["next_period_start"],
+                    "period_end": row["next_period_end"],
+                    "lines": row["billable_assignments"],
+                    "amount": None,
+                    "run": None,
+                    "state": row["state"],
+                    "days_left": row["days_left"],
+                })
+
+        weight = {"credit_note": 0, "past_invoice": 1, "additions": 2, "period": 3}
+        actions.sort(key=lambda entry: (entry["customer"], weight.get(entry["kind"], 9)))
+
+        return actions
+
+    @staticmethod
+    def _latest_charge(contract):
+        """The last period actually charged under this contract, credit notes aside."""
+        rows = frappe.db.sql(
+            """
+            select name, billing_period_start, billing_period_end
+            from `tabMSP Billing Run`
+            where contract = %(contract)s and status = 'Invoiced'
+              and docstatus != 2 and ifnull(credit_note_of, '') = ''
+            order by billing_period_end desc
+            limit 1
+            """,
+            {"contract": contract},
+            as_dict=True,
+        )
+
+        return rows[0] if rows else None
+
+    @staticmethod
+    def _nothing_pending():
+        return {
+            "catch_up": {"lines": 0, "amount": 0.0, "from": None, "to": None},
+            "owed_back": {
+                "lines": 0,
+                "months": 0.0,
+                "amount": 0.0,
+                "run": None,
+                "proven": True,
+                "period_start": None,
+                "period_end": None,
+            },
+        }
+
+    @staticmethod
+    def pending_adjustments(contract, customer):
+        """What the last charged period left behind: people to catch up, days to give back.
+
+        Both are read from the periods actually invoiced, never from a schedule. Somebody
+        who arrived inside a period already charged was not on that invoice and owes their
+        first days; somebody whose service stopped inside a period paid in advance was
+        charged for days nobody served.
+        """
+        charged = BillingService._latest_charge(contract)
+        # `proven` says whether the coverage it rests on is a run of ours or a date the
+        # customer arrived with, which has to be recorded before anything is given back
+        nothing = BillingService._nothing_pending()
+
+        if not charged:
+            return BillingService._pending_before_any_run(contract, customer, nothing)
+
+        answer = {"catch_up": dict(nothing["catch_up"]), "owed_back": dict(nothing["owed_back"])}
+
+        # the floor is read per assignment, so a line that was never charged for this
+        # window comes back priced and a line that was comes back as Already Invoiced
+        try:
+            lines, _terms = BillingService.build_lines(
+                contract, charged.billing_period_start, charged.billing_period_end
+            )
+        except Exception:
+            frappe.log_error(title="MSP catch-up scan failed", message=frappe.get_traceback())
+
+            return nothing
+
+        missed = [line for line in lines if not line["exception_code"] and flt(line["amount"])]
+
+        if missed:
+            answer["catch_up"] = {
+                "lines": len(missed),
+                "amount": flt(sum(flt(line["amount"]) for line in missed), 2),
+                "from": min(getdate(line["covered_from"]) for line in missed),
+                "to": charged.billing_period_end,
+            }
+
+        owed = BillingService._owed_back_on(charged.name)
+
+        if owed["lines"]:
+            answer["owed_back"] = {
+                **answer["owed_back"],
+                **owed,
+                "run": charged.name,
+                "period_start": charged.billing_period_start,
+                "period_end": charged.billing_period_end,
+            }
+
+        return answer
+
+    @staticmethod
+    def _pending_before_any_run(contract, customer, nothing):
+        """What a customer who arrived with a date and no run of ours already shows.
+
+        Only the people who arrived after that payment went out: they were certainly not
+        on it, so their first days are owed and can be billed. What such a payment covered
+        is not said anywhere, so nothing is credited back from a date alone — that needs
+        the coverage recorded first, which is its own screen.
+        """
+        mark = BillingService.checkpoint(customer)
+
+        if not mark:
+            return nothing
+
+        terms = frappe.db.get_value(
+            "MSP Contract", contract,
+            ["billing_frequency", "billing_timing", "proration_method"], as_dict=True,
+        )
+        paid_through = BillingService.covered_through(
+            customer, terms.billing_frequency, terms.billing_timing
+        )
+
+        if not paid_through or getdate(paid_through) <= getdate(mark):
+            return nothing
+
+        answer = {"catch_up": dict(nothing["catch_up"]), "owed_back": dict(nothing["owed_back"])}
+
+        # arrived after the day that payment was made: certainly not on it
+        try:
+            lines, _terms = BillingService.build_lines(
+                contract, add_days(getdate(mark), 1), paid_through
+            )
+            missed = [line for line in lines if not line["exception_code"] and flt(line["amount"])]
+        except Exception:
+            frappe.log_error(title="MSP catch-up scan failed", message=frappe.get_traceback())
+            missed = []
+
+        if missed:
+            answer["catch_up"] = {
+                "lines": len(missed),
+                "amount": flt(sum(flt(line["amount"]) for line in missed), 2),
+                "from": min(getdate(line["covered_from"]) for line in missed),
+                "to": getdate(paid_through),
+            }
+
+        return answer
+
+    @staticmethod
+    def _period_start_of(day, frequency):
+        """The first day of the period the given day closes."""
+        end = getdate(day)
+
+        if frequency == "Monthly":
+            return end.replace(day=1)
+
+        if frequency == "Annually":
+            return end.replace(month=1, day=1)
+
+        quarter_start_month = ((end.month - 1) // 3) * 3 + 1
+
+        return end.replace(month=quarter_start_month, day=1)
+
+    @staticmethod
+    def _owed_back_on(run):
+        """How much of one charged run stopped being served before the period it paid for."""
+        empty = {"lines": 0, "months": 0.0, "amount": 0.0}
+
+        try:
+            source = BillingService.creditable_lines(run)
+        except Exception:
+            return empty
+
+        if not source["billed_in_advance"]:
+            return empty
+
+        owed = [line for line in source["lines"] if line.get("owed_back")]
+
+        if not owed:
+            return empty
+
+        return {
+            "lines": len(owed),
+            "months": flt(sum(line["owed_back"]["months"] for line in owed), 3),
+            "amount": flt(
+                sum(
+                    line["owed_back"]["months"] * flt(line["unit_rate"]) * flt(line["quantity"])
+                    for line in owed
+                ),
+                2,
+            ),
+        }
+
+    @staticmethod
     def due(horizon_days=30):
         """Which contracts are running out of billed coverage, and what to bill next.
 
@@ -3649,7 +4047,7 @@ class BillingService:
             """
             select
                 c.name as contract, c.customer, c.title, c.billing_frequency,
-                c.billing_timing, c.start_date, c.end_date,
+                c.billing_timing, c.currency, c.start_date, c.end_date,
                 greatest(
                     coalesce(max(br.billing_period_end), '1900-01-01'),
                     coalesce(cust.msp_last_billed_on, '1900-01-01')
@@ -3710,13 +4108,14 @@ class BillingService:
                     "next_period_end": end,
                     "days_left": days_left,
                     "state": state,
-                    "billable_assignments": frappe.db.count(
-                        "MSP Service Assignment",
-                        {
-                            "customer": row.customer,
-                            "billing_status": "Billable",
-                            "operational_status": ["in", BILLABLE_OPERATIONAL],
-                        },
+                    # scanning is expensive and only the rows somebody acts on are shown
+                    **(
+                        BillingService.pending_adjustments(row.contract, row.customer)
+                        if state != "Scheduled"
+                        else BillingService._nothing_pending()
+                    ),
+                    "billable_assignments": BillingService._billable_over(
+                        row.contract, row.customer, start, end
                     ),
                 }
             )
@@ -3729,5 +4128,10 @@ class BillingService:
             "as_of": today,
             "horizon_days": horizon,
             "rows": due,
+            # one line per thing to do, which is how the screen reads it
+            "actions": BillingService._actions_from(due),
             "action_needed": len([e for e in due if e["state"] != "Scheduled"]),
+            # what the last charged period left behind, across every contract
+            "catch_up_lines": sum(e["catch_up"]["lines"] for e in due),
+            "owed_back_lines": sum(e["owed_back"]["lines"] for e in due),
         }

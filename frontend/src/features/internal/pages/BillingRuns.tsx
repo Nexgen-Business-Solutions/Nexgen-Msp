@@ -11,6 +11,8 @@ import {
   Receipt,
   Trash2,
   TriangleAlert,
+  Undo2,
+  UserPlus,
   Wallet,
 } from 'lucide-react';
 import KpiCard from '@/shared/components/KpiCard';
@@ -20,6 +22,8 @@ import Select from '@/shared/components/Select';
 import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
 import PastCoverageModal from '../components/PastCoverageModal';
 import Modal from '@/shared/components/Modal';
+import SectionIcon from '@/shared/components/SectionIcon';
+import type { BillingAction } from '@/lib/api/internal';
 import { useBillingDue, useBillingRuns, useDiscardBillingRun } from '../hooks/useBilling';
 import { useMspContracts } from '../hooks/useMspContracts';
 
@@ -55,6 +59,26 @@ const RANGES: Range[] = [
 const unsettled = (row: { status: string; sales_invoice?: string | null }) =>
   !row.sales_invoice && ['Draft', 'Validating', 'Exception', 'Ready for Approval'].includes(row.status);
 
+/** What each kind of work looks like, and what the button says to do about it. */
+const ACTION_LOOK: Record<
+  BillingAction['kind'],
+  { label: string; cta: string; icon: typeof Undo2; badge: string }
+> = {
+  credit_note: {
+    label: 'Credit note',
+    cta: 'Create credit note',
+    icon: Undo2,
+    badge: 'bg-rose-50 text-rose-700',
+  },
+  additions: {
+    label: 'Additions',
+    cta: 'Bill with the period',
+    icon: UserPlus,
+    badge: 'bg-sky-50 text-sky-700',
+  },
+  period: { label: 'Period', cta: 'Bill period', icon: Play, badge: 'bg-slate-100 text-slate-700' },
+};
+
 export default function BillingRuns() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -81,7 +105,11 @@ export default function BillingRuns() {
   const { data, isLoading, error, refetch } = useBillingRuns(query);
   // the cards describe every run in the range; a filter narrows the list below, never them
   const everything = useBillingRuns({ customers: [], statuses: [] });
-  const [recording, setRecording] = useState(false);
+  // the past-invoice screen, opened bare from the header or already filled in from a
+  // proposal that cannot be acted on until the coverage is written down
+  const [recording, setRecording] = useState<
+    boolean | { customer: string; from: string; to: string }
+  >(false);
   const due = useBillingDue();
   const contracts = useMspContracts({});
   const [range, setRange] = useState(RANGES[0].label);
@@ -91,7 +119,20 @@ export default function BillingRuns() {
     .map((value) => ({ value, label: value }));
 
   // a contract already covered well into the future needs no attention today
-  const dueRows = (due.data?.rows ?? []).filter((row) => row.state !== 'Scheduled');
+  // one line per thing to do: the screen reads as a list of decisions, not of contracts
+  const actions = (due.data?.actions ?? []).filter(
+    (action) => action.kind !== 'period' || action.state !== 'Scheduled'
+  );
+
+  const startAction = (action: BillingAction) => {
+    // the run screen is where all of it lives; each action lands on its own thing rather
+    // than on the screen that holds it
+    navigate(
+      `/msp/billing/new?contract=${encodeURIComponent(action.contract)}` +
+        `&start=${action.run_start}&end=${action.run_end}` +
+        (action.kind === 'credit_note' ? '&credit=1' : '')
+    );
+  };
 
   const rows = data?.rows ?? [];
   const window = RANGES.find((entry) => entry.label === range) ?? RANGES[0];
@@ -212,96 +253,144 @@ export default function BillingRuns() {
         />
       </div>
 
-      {dueRows.length > 0 && (
-        <div className="overflow-hidden rounded-xl border border-amber-200 bg-amber-50/40 shadow-sm">
+      {/* the card is there from the first paint: the work to do is the first thing anybody
+          reads on this screen, and it appearing late reads as there being none */}
+      {(due.isLoading || actions.length > 0) && (
+        <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
-            <div>
-              <h2 className="inline-flex items-center gap-2 text-base font-semibold text-slate-900">
-                <CalendarClock size={16} className="text-amber-600" />
-                Ready to bill
-              </h2>
-              <p className="mt-0.5 text-sm text-slate-500">
-                Coverage read from the periods already invoiced.
-              </p>
+            <div className="flex min-w-0 items-start gap-3">
+              <SectionIcon icon={CalendarClock} />
+              <div className="min-w-0">
+                <h2 className="text-base font-semibold text-slate-900">Ready to bill</h2>
+                <p className="mt-0.5 text-sm text-slate-400">
+                  Coverage read from the periods already invoiced.
+                </p>
+              </div>
             </div>
-            <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800">
-              {dueRows.length} contract{dueRows.length > 1 ? 's' : ''}
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+              {due.isLoading ? (
+                <span className="inline-block h-3 w-16 animate-pulse rounded bg-slate-200 align-middle" />
+              ) : (
+                `${actions.length} action${actions.length > 1 ? 's' : ''}`
+              )}
             </span>
           </div>
 
+          {due.isLoading ? (
+            <div className="space-y-2 px-5 pb-5">
+              {[0, 1, 2].map((row) => (
+                <div
+                  key={row}
+                  className="h-11 animate-pulse rounded-lg bg-slate-100"
+                  style={{ animationDelay: `${row * 120}ms` }}
+                />
+              ))}
+            </div>
+          ) : (
           <div className="max-h-[62vh] overflow-auto px-5 pb-4">
             <table className="w-full">
-              <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-white">
+              <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
                 <tr>
-                  {['Customer', 'Covered until', 'Next period', 'Frequency', 'Billable', 'State', ''].map(
-                    (column, index) => (
-                      <th
-                        key={column || index}
-                        className="whitespace-nowrap px-4 py-2 text-left text-xs font-semibold uppercase tracking-wider text-slate-500"
-                      >
-                        {column}
-                      </th>
-                    )
-                  )}
+                  {['What', 'Customer', 'Period', 'Lines', 'Amount', ''].map((column, index) => (
+                    <th
+                      key={column || index}
+                      className={`whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500 ${
+                        index === 0 ? 'rounded-l-lg' : ''
+                      } ${index === 5 ? 'rounded-r-lg' : ''} ${
+                        index === 3 || index === 4 ? 'text-right' : 'text-left'
+                      }`}
+                    >
+                      {column}
+                    </th>
+                  ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-amber-100">
-                {dueRows.map((row) => (
-                  <tr key={row.contract}>
-                    <td className="whitespace-nowrap px-4 py-3">
-                      <p className="text-sm font-semibold text-slate-900">{row.customer}</p>
-                      {row.title && <p className="text-xs text-slate-400">{row.title}</p>}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                      {row.covered_upto ? fmtDate(row.covered_upto) : 'Never billed'}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-700">
-                      {fmtDate(row.next_period_start)} → {fmtDate(row.next_period_end)}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                      {row.billing_frequency}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600 tabular-nums">
-                      {row.billable_assignments}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3">
-                      <span
-                        className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-                          row.state === 'Overdue'
-                            ? 'bg-red-100 text-red-700'
-                            : row.state === 'Never billed'
-                              ? 'bg-slate-100 text-slate-600'
-                              : 'bg-amber-100 text-amber-800'
-                        }`}
-                      >
-                        {row.state.toUpperCase()}
-                        {row.days_left !== null && row.days_left < 0
-                          ? ` · ${Math.abs(row.days_left)}d`
-                          : ''}
-                      </span>
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3">
-                      <div className="flex justify-end">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            navigate(
-                              `/msp/billing/new?contract=${encodeURIComponent(row.contract)}` +
-                                `&start=${row.next_period_start}&end=${row.next_period_end}`
-                            )
-                          }
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
+              <tbody className="divide-y divide-slate-100">
+                {actions.map((action) => {
+                  const look = ACTION_LOOK[action.kind];
+                  // the arrivals ride with the period only when a period is due as well;
+                  // alone, they are the invoice
+                  const cta =
+                    action.kind === 'additions' &&
+                    !actions.some(
+                      (other) => other.kind === 'period' && other.contract === action.contract
+                    )
+                      ? 'Bill additions'
+                      : look.cta;
+
+                  return (
+                    <tr key={`${action.contract}-${action.kind}`} className="hover:bg-slate-50">
+                      <td className="whitespace-nowrap px-4 py-3">
+                        <span
+                          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${look.badge}`}
                         >
-                          <Play size={13} />
-                          Bill this period
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                          <look.icon size={12} />
+                          {look.label}
+                        </span>
+                      </td>
+                      <td className="max-w-[18rem] px-4 py-3">
+                        <p className="truncate text-sm font-semibold text-slate-900">
+                          {action.customer}
+                        </p>
+                        {action.title && (
+                          <p className="truncate text-xs text-slate-400">{action.title}</p>
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600 tabular-nums">
+                        {fmtDate(action.period_start)} → {fmtDate(action.period_end)}
+                        {action.state && action.state !== 'Scheduled' && (
+                          <span
+                            className={`ml-2 text-xs font-semibold ${
+                              action.state === 'Overdue' ? 'text-red-600' : 'text-amber-600'
+                            }`}
+                          >
+                            {action.state}
+                            {action.days_left != null && action.days_left < 0
+                              ? ` · ${Math.abs(action.days_left)}d`
+                              : ''}
+                          </span>
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right text-sm text-slate-600 tabular-nums">
+                        {action.lines}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums">
+                        {action.amount === null ? (
+                          <span className="text-slate-300">—</span>
+                        ) : (
+                          <span
+                            className={
+                              action.amount < 0
+                                ? 'font-semibold text-rose-600'
+                                : 'font-semibold text-slate-800'
+                            }
+                          >
+                            {action.amount.toLocaleString()} {action.currency ?? ''}
+                          </span>
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3">
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => startAction(action)}
+                            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2.5 text-xs font-semibold transition-colors ${
+                              action.kind === 'period'
+                                ? 'bg-blue-600 text-white shadow-sm hover:bg-blue-700'
+                                : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                            }`}
+                          >
+                            {cta}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
+          )}
         </div>
       )}
 
@@ -506,9 +595,13 @@ export default function BillingRuns() {
       </Modal>
 
       <PastCoverageModal
-        open={recording}
+        key={typeof recording === 'object' ? recording.customer : 'bare'}
+        open={Boolean(recording)}
         customers={customerOptions}
-        defaultCustomer={customerFilter}
+        defaultCustomer={
+          typeof recording === 'object' ? recording.customer : customerFilter
+        }
+        defaultPeriod={typeof recording === 'object' ? recording : null}
         onClose={() => setRecording(false)}
         onRecorded={(run) => {
           setRecording(false);

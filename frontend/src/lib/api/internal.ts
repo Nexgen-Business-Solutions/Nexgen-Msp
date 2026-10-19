@@ -2437,13 +2437,81 @@ export type BillingDueRow = {
   state: 'Overdue' | 'Never billed' | 'Due soon' | 'Scheduled';
   billable_assignments: number;
   runs: number;
+  /** people who arrived inside a period already charged and were never billed for it */
+  catch_up: { lines: number; amount: number; from: string | null; to: string | null };
+  /** days charged in advance that nobody was served, on the last charged run */
+  owed_back: {
+    lines: number;
+    months: number;
+    amount: number;
+    /** the run to open, or null when the coverage is only a date the customer arrived with */
+    run: string | null;
+    proven: boolean;
+    period_start: string | null;
+    period_end: string | null;
+  };
+};
+
+/** What the last charged period of one contract left behind, people named. */
+export type PendingAdjustments = {
+  contract: string;
+  customer: string;
+  currency: string | null;
+  catch_up: { lines: number; amount: number; from: string | null; to: string | null };
+  owed_back: {
+    lines: number;
+    months: number;
+    amount: number;
+    run: string | null;
+    proven: boolean;
+    period_start: string | null;
+    period_end: string | null;
+  };
+  owed_lines: {
+    service_assignment: string;
+    who: string | null;
+    service_name: string | null;
+    unit_rate: number;
+    quantity: number;
+    months: number;
+    amount: number;
+    ended_on: string;
+    unused_from: string;
+    unused_to: string;
+    unused_days: number;
+  }[];
+};
+
+export const getPendingAdjustments = (contract: string, signal?: AbortSignal) =>
+  get<PendingAdjustments>(`${BASE}.get_pending_adjustments`, { contract }, signal);
+
+/** One thing somebody has to do about a contract, said on its own line. */
+export type BillingAction = {
+  kind: 'credit_note' | 'additions' | 'period';
+  contract: string;
+  customer: string;
+  title: string | null;
+  currency: string | null;
+  period_start: string | null;
+  period_end: string | null;
+  /** the window the run opens on, arrivals included */
+  run_start: string;
+  run_end: string;
+  lines: number;
+  amount: number | null;
+  run: string | null;
+  state: 'Overdue' | 'Never billed' | 'Due soon' | 'Scheduled' | null;
+  days_left?: number | null;
 };
 
 export type BillingDue = {
   as_of: string;
   horizon_days: number;
   rows: BillingDueRow[];
+  actions: BillingAction[];
   action_needed: number;
+  catch_up_lines: number;
+  owed_back_lines: number;
 };
 
 export const getBillingDue = (horizonDays = 30, signal?: AbortSignal) =>

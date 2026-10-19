@@ -91,7 +91,7 @@ describe('what the invoice owes back', () => {
     expect(screen.getByText(/ended 2026-09-24 · 6 day\(s\) unused/)).toBeInTheDocument();
   });
 
-  it('takes the proposal as it stands and credits exactly what is owed', async () => {
+  it('credits exactly what a line that stopped early owes', async () => {
     show(
       payload({
         owed_back_months: 0.2,
@@ -109,11 +109,12 @@ describe('what the invoice owes back', () => {
       })
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: /Give those days back/ }));
+    // the line arrives ticked for what it owes; nothing else has to be clicked
+    fireEvent.click((await screen.findAllByRole('checkbox'))[0]);
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: 'Ended on 24 September.' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Prepare credit note' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create credit note' }));
 
     await waitFor(() =>
       expect(vi.mocked(internal.createCreditNote).mock.calls[0][0]).toEqual({
@@ -139,7 +140,7 @@ describe('crediting a stretch that was not served', () => {
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: 'Their server was down.' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Prepare credit note' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create credit note' }));
 
     await waitFor(() =>
       expect(vi.mocked(internal.createCreditNote).mock.calls[0][0]).toEqual({
@@ -161,7 +162,7 @@ describe('crediting a stretch that was not served', () => {
     fireEvent.change(dates[0], { target: { value: '2026-09-05' } });
     fireEvent.change(dates[1], { target: { value: '2026-09-13' } });
 
-    expect(screen.getByText('9 day(s)')).toBeInTheDocument();
+    expect(screen.getByText(/9 day\(s\)/)).toBeInTheDocument();
   });
 
   it('refuses to send until both dates are given', async () => {
@@ -172,6 +173,6 @@ describe('crediting a stretch that was not served', () => {
     fireEvent.click(screen.getByRole('button', { name: 'By period' }));
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Because.' } });
 
-    expect(screen.getByRole('button', { name: 'Prepare credit note' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Create credit note' })).toBeDisabled();
   });
 });

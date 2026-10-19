@@ -1,17 +1,26 @@
-import React, { useEffect, useState } from 'react';
-import { AlertCircle, CalendarRange, ReceiptText, Undo2 } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { AlertCircle, CalendarRange, ReceiptText } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
 import FieldLabel from '@/shared/components/FieldLabel';
 import { useCreateCreditNote, useCreditableLines } from '../hooks/useBilling';
+import { subjectOf } from '../lib/billingSubject';
 
 type Props = {
   open: boolean;
   run: string;
+  preselectOwed?: boolean;
   onClose: () => void;
   onCreated: (name: string) => void;
 };
 
-const CreditNoteModal: React.FC<Props> = ({ open, run, onClose, onCreated }) => {
+const CreditNoteModal: React.FC<Props> = ({
+  open,
+  run,
+  /** opened from Ready to bill: the lines that owe days back are already ticked */
+  preselectOwed,
+  onClose,
+  onCreated,
+}) => {
   const creditable = useCreditableLines(open ? run : undefined);
   const create = useCreateCreditNote();
 
@@ -56,15 +65,60 @@ const CreditNoteModal: React.FC<Props> = ({ open, run, onClose, onCreated }) => 
   }, 0);
 
   const owed = lines.filter((line) => line.owed_back);
+  // the lines the work is about are read first; the order does not move as they are
+  // ticked, so nothing jumps under the pointer
+  // the whole stretch the ticked lines were not served over, earliest day to latest
+  const unusedWindow = useMemo(() => {
+    if (owed.length === 0) return null;
+
+    return {
+      from: owed.map((line) => line.owed_back!.unused_from).sort()[0],
+      to: owed.map((line) => line.owed_back!.unused_to).sort().slice(-1)[0],
+    };
+  }, [owed]);
+
+  // only what can actually be given back is listed. A line with nothing left to credit
+  // is noise; and when the work is the days nobody was served, the lines that served the
+  // whole period have no part in it.
+  const ordered = useMemo(() => {
+    const left = lines.filter((line) => line.remaining_months > 0);
+    const useful = preselectOwed && left.some((line) => line.owed_back)
+      ? left.filter((line) => line.owed_back)
+      : left;
+
+    return [...useful].sort(
+      (a, b) => Number(Boolean(b.owed_back)) - Number(Boolean(a.owed_back))
+    );
+  }, [lines, preselectOwed]);
   const owedMonths = creditable.data?.owed_back_months ?? 0;
 
-  /** Take the proposal as it stands: every line that stopped early, for what it owes. */
-  const takeTheProposal = () => {
-    setMode('months');
-    setPicked(
-      Object.fromEntries(owed.map((line) => [line.service_assignment, line.owed_back!.months]))
+  // reached from the list of what the last charged period left behind: the work is
+  // already decided, so the lines arrive ticked rather than waiting for a second click
+  useEffect(() => {
+    if (!open || !preselectOwed || owed.length === 0) return;
+
+    setPicked((current) =>
+      Object.keys(current).length
+        ? current
+        : Object.fromEntries(owed.map((line) => [line.service_assignment, line.owed_back!.months]))
     );
-  };
+
+    // the stretch nobody was served is what this is about, so it is shown and filled in:
+    // the widest window the ticked lines span. No line is ever credited beyond its own
+    // unused days — the server caps each one at what it really owes.
+    setMode('period');
+    setFrom((current) => current || unusedWindow!.from);
+    setTo((current) => current || unusedWindow!.to);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, preselectOwed, owed.length]);
+
+  // every line ticked owes days back, so what the server will cut from the dates is what
+  // each of them owes, which is exactly the figure below
+  const pickedAllOwed =
+    Object.keys(picked).length > 0 &&
+    Object.keys(picked).every((assignment) =>
+      owed.some((line) => line.service_assignment === assignment)
+    );
 
   const days =
     from && to
@@ -98,19 +152,24 @@ const CreditNoteModal: React.FC<Props> = ({ open, run, onClose, onCreated }) => 
       onClose={onClose}
       icon={ReceiptText}
       tone="blue"
-      title="Contest this invoice"
+      title={preselectOwed ? 'Create credit note' : 'Contest this invoice'}
       subtitle={`${creditable.data?.customer ?? ''} — credit back what should not have been billed.`}
       widthClass="max-w-4xl"
       footer={
         <div className="flex items-center justify-between gap-3">
           <p className="text-sm text-slate-500">
             {chosen} line(s) ·{' '}
-            {mode === 'period' ? (
+            {mode === 'period' && (
               <span className="font-semibold text-slate-800">
                 {days > 0 ? `${days} day(s)` : 'no period yet'}
               </span>
-            ) : (
+            )}
+            {/* the amount is only shown when the ticked lines carry their own count: in
+                period mode the server cuts the months from the dates, and a figure the
+                dates do not drive would be a guess beside the button that sends it */}
+            {(mode === 'months' || pickedAllOwed) && (
               <span className="font-semibold text-slate-800">
+                {mode === 'period' ? ' · ' : ''}
                 {Math.round(total).toLocaleString()} {currency}
               </span>
             )}{' '}
@@ -129,7 +188,6 @@ const CreditNoteModal: React.FC<Props> = ({ open, run, onClose, onCreated }) => 
               onClick={submit}
               disabled={
                 !chosen ||
-                !reason.trim() ||
                 create.isLoading ||
                 (mode === 'period' && (!from || !to || days <= 0))
               }
@@ -138,7 +196,7 @@ const CreditNoteModal: React.FC<Props> = ({ open, run, onClose, onCreated }) => 
               {create.isLoading ? (
                 <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
               ) : (
-                'Prepare credit note'
+                'Create credit note'
               )}
             </button>
           </div>
@@ -147,21 +205,14 @@ const CreditNoteModal: React.FC<Props> = ({ open, run, onClose, onCreated }) => 
     >
       <div className="space-y-5">
         {owed.length > 0 && (
-          <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50 p-3">
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
             <p className="text-sm text-blue-900">
               <span className="font-semibold">
                 {owed.length} line(s) stopped before the period they were paid for.
               </span>{' '}
-              {owedMonths} month(s) were charged for days nobody was served.
+              {owedMonths} month(s) were charged for days nobody was served. They are the
+              lines below, already ticked for what they owe.
             </p>
-            <button
-              type="button"
-              onClick={takeTheProposal}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-blue-300 bg-white px-3 py-1.5 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-100"
-            >
-              <Undo2 size={13} />
-              Give those days back
-            </button>
           </div>
         )}
 
@@ -176,8 +227,16 @@ const CreditNoteModal: React.FC<Props> = ({ open, run, onClose, onCreated }) => 
               <button
                 key={value}
                 type="button"
-                onClick={() => setMode(value)}
-                className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                onClick={() => {
+                  setMode(value);
+
+                  // the period is already known when they all stopped together
+                  if (value === 'period' && unusedWindow && !from && !to) {
+                    setFrom(unusedWindow.from);
+                    setTo(unusedWindow.to);
+                  }
+                }}
+                className={`rounded-md px-3 py-2.5 text-xs font-semibold transition-colors ${
                   mode === value
                     ? 'bg-blue-600 text-white'
                     : 'text-slate-600 hover:bg-slate-50'
@@ -214,14 +273,15 @@ const CreditNoteModal: React.FC<Props> = ({ open, run, onClose, onCreated }) => 
               </label>
               <p className="pb-2 text-xs text-slate-400">
                 <CalendarRange size={12} className="mr-1 inline" />
-                Applied to every line ticked below, cut the way this contract prorates.
+                Cut the way this contract prorates. No line is credited beyond the days it
+                was really not served.
               </p>
             </>
           )}
         </div>
 
         <div>
-          <FieldLabel required>Reason</FieldLabel>
+          <FieldLabel>Reason</FieldLabel>
           <textarea
             rows={3}
             value={reason}
@@ -250,7 +310,7 @@ const CreditNoteModal: React.FC<Props> = ({ open, run, onClose, onCreated }) => 
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {lines.map((line) => (
+                {ordered.map((line) => (
                   <tr key={line.service_assignment} className="hover:bg-slate-50">
                     <td className="px-3 py-2.5">
                       <input
@@ -261,7 +321,7 @@ const CreditNoteModal: React.FC<Props> = ({ open, run, onClose, onCreated }) => 
                       />
                     </td>
                     <td className="whitespace-nowrap px-3 py-2.5 text-sm text-slate-800">
-                      {line.user_name || 'N/A'}
+                      {subjectOf(line)}
                       {line.owed_back && (
                         <span className="mt-0.5 block text-[11px] font-normal text-blue-700">
                           ended {line.owed_back.ended_on} · {line.owed_back.unused_days} day(s)

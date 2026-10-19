@@ -27,6 +27,7 @@ import CreditNoteModal from '../components/CreditNoteModal';
 import InvoiceAccountingModal from '../components/InvoiceAccountingModal';
 import InvoicePanel from '../components/InvoicePanel';
 import NotifyRecipientsModal from '../components/NotifyRecipientsModal';
+import { subjectOf } from '../lib/billingSubject';
 import { downloadBreakdownFile, downloadInvoicePdf, salesInvoiceDeskUrl } from '@/lib/api/internal';
 import {
   useBillingRun,
@@ -501,7 +502,7 @@ export default function BillingRunDetail() {
                     {line.service_name}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-700">
-                    {line.user_name || 'N/A'}
+                    {subjectOf(line)}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
                     {line.hostname || 'N/A'}
