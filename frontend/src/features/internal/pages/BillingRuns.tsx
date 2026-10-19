@@ -24,7 +24,12 @@ import PastCoverageModal from '../components/PastCoverageModal';
 import Modal from '@/shared/components/Modal';
 import SectionIcon from '@/shared/components/SectionIcon';
 import type { BillingAction } from '@/lib/api/internal';
-import { useBillingDue, useBillingRuns, useDiscardBillingRun } from '../hooks/useBilling';
+import {
+  useBillingDue,
+  useBillingRuns,
+  useDiscardBillingRun,
+  usePrepareCredit,
+} from '../hooks/useBilling';
 import { useMspContracts } from '../hooks/useMspContracts';
 
 const COLUMNS = ['Run', 'Customer', 'Period', 'Lines', 'Exceptions', 'Total', 'Invoice', 'Status', ''];
@@ -107,6 +112,7 @@ export default function BillingRuns() {
   const everything = useBillingRuns({ customers: [], statuses: [] });
   // the past-invoice screen, opened bare from the header or already filled in from a
   // proposal that cannot be acted on until the coverage is written down
+  const prepare = usePrepareCredit();
   const [recording, setRecording] = useState<
     boolean | { customer: string; from: string; to: string }
   >(false);
@@ -124,7 +130,18 @@ export default function BillingRuns() {
     (action) => action.kind !== 'period' || action.state !== 'Scheduled'
   );
 
-  const startAction = (action: BillingAction) => {
+  const startAction = async (action: BillingAction) => {
+    // nothing of ours charged that period: the coverage the customer's own date stands
+    // for is written down on the way, so the credit has a record to stand against
+    if (action.kind === 'credit_note' && !action.run) {
+      try {
+        await prepare.mutateAsync(action.contract);
+      } catch {
+        // said under the table rather than swallowed
+        return;
+      }
+    }
+
     // the run screen is where all of it lives; each action lands on its own thing rather
     // than on the screen that holds it
     navigate(
@@ -267,6 +284,11 @@ export default function BillingRuns() {
                 </p>
               </div>
             </div>
+            {prepare.error instanceof Error && (
+              <p role="alert" className="w-full rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
+                {prepare.error.message}
+              </p>
+            )}
             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
               {due.isLoading ? (
                 <span className="inline-block h-3 w-16 animate-pulse rounded bg-slate-200 align-middle" />
@@ -373,7 +395,8 @@ export default function BillingRuns() {
                         <div className="flex justify-end">
                           <button
                             type="button"
-                            onClick={() => startAction(action)}
+                            onClick={() => void startAction(action)}
+                            disabled={prepare.isLoading}
                             className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2.5 text-xs font-semibold transition-colors ${
                               action.kind === 'period'
                                 ? 'bg-blue-600 text-white shadow-sm hover:bg-blue-700'

@@ -29,6 +29,15 @@ export const useInvoiceRecipients = (name?: string) =>
     enabled: Boolean(name),
   });
 
+export const usePrepareCredit = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: internal.prepareCredit,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: billingKeys.all }),
+  });
+};
+
 export const usePendingAdjustments = (contract?: string) =>
   useQuery({
     queryKey: [...billingKeys.all, 'pending', contract],

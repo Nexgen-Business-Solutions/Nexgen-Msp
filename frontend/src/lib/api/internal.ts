@@ -2482,6 +2482,9 @@ export type PendingAdjustments = {
   }[];
 };
 
+export const prepareCredit = (contract: string) =>
+  post<{ run: string; recorded: boolean }>(`${BASE}.prepare_credit`, { contract });
+
 export const getPendingAdjustments = (contract: string, signal?: AbortSignal) =>
   get<PendingAdjustments>(`${BASE}.get_pending_adjustments`, { contract }, signal);
 
@@ -2500,6 +2503,8 @@ export type BillingAction = {
   lines: number;
   amount: number | null;
   run: string | null;
+  /** false when the only proof the period was charged is the customer's own last-billed date */
+  proven?: boolean;
   state: 'Overdue' | 'Never billed' | 'Due soon' | 'Scheduled' | null;
   days_left?: number | null;
 };

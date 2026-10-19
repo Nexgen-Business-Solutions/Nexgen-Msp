@@ -1350,6 +1350,12 @@ def submit_invoice_billing_run(name=None, notify=1, recipients=None):
 
 @frappe.whitelist()
 @handle_errors
+def prepare_credit(contract=None):
+    return _billing().prepare_credit(contract=contract)
+
+
+@frappe.whitelist()
+@handle_errors
 def get_pending_adjustments(contract=None):
     return _billing().pending_for(contract=contract)
 

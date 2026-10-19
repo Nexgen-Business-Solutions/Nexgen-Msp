@@ -3707,6 +3707,47 @@ class BillingService:
         return start, end
 
     @staticmethod
+    def prepare_credit(contract=None):
+        """The run to credit against, writing down the coverage first if nobody has.
+
+        Crediting needs something to credit against. When the only proof the period was
+        charged is the date the customer arrived with, that is written down here — as a
+        run marked reconstructed, carrying what the charge would have held and who
+        confirmed it — rather than asked of somebody in a second screen. The credit then
+        stands against a record like any other.
+        """
+        BillingService._guard_admin()
+
+        if not contract or not frappe.db.exists("MSP Contract", contract):
+            raise NotFoundError(f"Contract {contract} not found.", "NOT_FOUND")
+
+        customer = frappe.db.get_value("MSP Contract", contract, "customer")
+        pending = BillingService.pending_adjustments(contract, customer)
+        owed = pending["owed_back"]
+
+        if owed["run"]:
+            return {"run": owed["run"], "recorded": False}
+
+        if not owed["lines"]:
+            raise ValidationError(
+                f"{customer} owes nothing back for that period.", "INVALID_TRANSITION"
+            )
+
+        mark = BillingService.checkpoint(customer)
+        run = BillingService.record_past_coverage(
+            contract=contract,
+            period_start=owed["period_start"],
+            period_end=owed["period_end"],
+            statement=(
+                f"Coverage taken from the last billed date carried by {customer} "
+                f"({mark}), confirmed by {frappe.session.user} when crediting back days "
+                "nobody was served."
+            ),
+        )
+
+        return {"run": run["name"], "recorded": True}
+
+    @staticmethod
     def pending_for(contract=None):
         """What the last charged period of one contract left behind, people named.
 
@@ -3806,15 +3847,20 @@ class BillingService:
                 "run_end": row["next_period_end"],
             }
 
-            if owed["lines"] and owed["proven"]:
+            if owed["lines"]:
                 actions.append({
                     **common,
                     "kind": "credit_note",
+                    # an avoir is about the period that was charged, not about the window
+                    # the next run opens on
+                    "run_start": owed["period_start"],
+                    "run_end": owed["period_end"],
                     "period_start": owed["period_start"],
                     "period_end": owed["period_end"],
                     "lines": owed["lines"],
                     "amount": -flt(owed["amount"], 2),
                     "run": owed["run"],
+                    "proven": owed["proven"],
                     "state": None,
                 })
 
@@ -3982,6 +4028,54 @@ class BillingService:
                 "amount": flt(sum(flt(line["amount"]) for line in missed), 2),
                 "from": min(getdate(line["covered_from"]) for line in missed),
                 "to": getdate(paid_through),
+            }
+
+        if terms.billing_timing != "In Advance":
+            return answer
+
+        # paid ahead and stopped inside what was paid for: the days owed are read from the
+        # period that payment covered, priced as it stood the day it went out. The coverage
+        # it rests on is the customer's own mark rather than a run of ours, which is what
+        # `proven` says — and what gets written down the moment anything is given back.
+        opens = BillingService._period_start_of(paid_through, terms.billing_frequency)
+        method = terms.proration_method or "None"
+
+        try:
+            covered, _ = BillingService.build_lines(
+                contract, opens, paid_through, ignore_coverage=True, as_known_on=mark
+            )
+        except Exception:
+            frappe.log_error(title="MSP owed-back scan failed", message=frappe.get_traceback())
+
+            return answer
+
+        owed = [
+            (line, back)
+            for line in covered
+            if not line["exception_code"]
+            for back in [
+                BillingService._unused_after_termination(
+                    line, opens, paid_through, method, flt(line["billable_months"])
+                )
+            ]
+            if back
+        ]
+
+        if owed:
+            answer["owed_back"] = {
+                "lines": len(owed),
+                "months": flt(sum(back["months"] for _line, back in owed), 3),
+                "amount": flt(
+                    sum(
+                        back["months"] * flt(line["unit_rate"]) * flt(line["quantity"])
+                        for line, back in owed
+                    ),
+                    2,
+                ),
+                "run": None,
+                "proven": False,
+                "period_start": opens,
+                "period_end": getdate(paid_through),
             }
 
         return answer
