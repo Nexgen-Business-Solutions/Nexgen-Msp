@@ -363,6 +363,82 @@ def services(
     }
 
 
+def _credit_rows(run, include):
+    """The stretches a credit is asked for: the operator's own, or the detected ones."""
+    chosen = list(include or [])
+    rows = []
+
+    # an operator settling a dispute cuts the stretch themselves; the engine still checks
+    # every one of them against what was charged and what was already given back
+    if chosen and isinstance(chosen[0], dict):
+        for row in chosen:
+            assignment = row.get("service_assignment") or row.get("id")
+
+            if not assignment:
+                raise ValidationError(
+                    "Each credited line names its service assignment.", "VALIDATION_ERROR"
+                )
+
+            asked = {"service_assignment": assignment}
+
+            if row.get("from") and row.get("to"):
+                asked["from"], asked["to"] = row["from"], row["to"]
+            elif row.get("months"):
+                asked["months"] = row["months"]
+            else:
+                raise ValidationError(
+                    f"{assignment}: give the stretch to credit, or the months.",
+                    "VALIDATION_ERROR",
+                )
+
+            rows.append(asked)
+
+        return rows
+
+    # the proposal as it was detected: the stretch is read off the charge itself, so no
+    # window arrives from a browser
+    source = BillingService.creditable_lines(run)
+    wanted = set(chosen)
+
+    for line in source["lines"]:
+        owed = line.get("owed_back") or {}
+
+        if not owed or (wanted and line["service_assignment"] not in wanted):
+            continue
+
+        rows.append(
+            {
+                "service_assignment": line["service_assignment"],
+                "from": owed["unused_from"],
+                "to": owed["unused_to"],
+            }
+        )
+
+    return rows
+
+
+def credit_preview(contract=None, against=None, include=None):
+    """What the chosen days come to, priced by the engine that would write them.
+
+    The Confirm step asks for this rather than adding up what the Services step showed:
+    an operator who shortened a stretch must see the amount that stretch is worth, not the
+    one the whole line was worth.
+    """
+    BillingService._guard_admin()
+
+    run = _source_run(contract, against)
+
+    if not run:
+        raise ValidationError(
+            "Record the coverage this credit stands against before crediting it.",
+            "VALIDATION_ERROR",
+        )
+
+    return BillingService.create_credit_note(
+        name=run, lines=frappe.as_json(_credit_rows(run, include)), dry_run=True
+    )
+
+
 def accounting(contract=None):
     """Step 3 — what ERPNext asks for, and who hears about the document."""
     BillingService._guard_admin()
@@ -415,52 +491,7 @@ def create(
                 "VALIDATION_ERROR",
             )
 
-        chosen = list(include or [])
-        rows = []
-
-        # an operator settling a dispute cuts the stretch themselves; the engine still
-        # checks every one of them against what was charged and what was already given back
-        if chosen and isinstance(chosen[0], dict):
-            for row in chosen:
-                assignment = row.get("service_assignment") or row.get("id")
-
-                if not assignment:
-                    raise ValidationError(
-                        "Each credited line names its service assignment.", "VALIDATION_ERROR"
-                    )
-
-                asked = {"service_assignment": assignment}
-
-                if row.get("from") and row.get("to"):
-                    asked["from"], asked["to"] = row["from"], row["to"]
-                elif row.get("months"):
-                    asked["months"] = row["months"]
-                else:
-                    raise ValidationError(
-                        f"{assignment}: give the stretch to credit, or the months.",
-                        "VALIDATION_ERROR",
-                    )
-
-                rows.append(asked)
-        else:
-            # the proposal as it was detected: the stretch is read off the charge itself,
-            # so no window arrives from a browser
-            source = BillingService.creditable_lines(run)
-            wanted = set(chosen)
-
-            for line in source["lines"]:
-                owed = line.get("owed_back") or {}
-
-                if not owed or (wanted and line["service_assignment"] not in wanted):
-                    continue
-
-                rows.append(
-                    {
-                        "service_assignment": line["service_assignment"],
-                        "from": owed["unused_from"],
-                        "to": owed["unused_to"],
-                    }
-                )
+        rows = _credit_rows(run, include)
 
         if not rows:
             raise ValidationError(

@@ -18,6 +18,7 @@ vi.mock('@/lib/api/internal', async (importOriginal) => {
     getBillingOperationContext: vi.fn(),
     getBillingOperationServices: vi.fn(),
     getBillingOperationAccounting: vi.fn(),
+    getBillingCreditPreview: vi.fn(),
     createBillingOperation: vi.fn(),
     listMspContracts: vi.fn(),
   };
@@ -314,6 +315,24 @@ describe('one path prepares the three operations', () => {
       run: 'BR-2026-10-900',
       kind: 'credit_note',
     });
+    vi.mocked(internal.getBillingCreditPreview).mockResolvedValue({
+      run: 'BR-2026-10-165',
+      currency: 'XAF',
+      lines: [
+        {
+          service_assignment: 'SA-1',
+          service_name: 'Mailbox',
+          user_name: 'John Doe',
+          covered_from: '2026-09-05',
+          covered_to: '2026-09-13',
+          months: -0.3,
+          unit_rate: 200,
+          discount_percent: 0,
+          amount: -60,
+        },
+      ],
+      total: -60,
+    });
     draw('?kind=credit_note&contract=CON-0001&against=BR-2026-10-165&scope=all&start=2026-09-01&end=2026-09-30');
 
     await screen.findByText('Contract & period');
@@ -334,10 +353,13 @@ describe('one path prepares the three operations', () => {
     fireEvent.change(to, { target: { value: '2026-09-13' } });
 
     await forward();
-    await screen.findByText('Accounting & notifications');
-    await screen.findByText('Main - NX');
+    await screen.findByText(/A credit follows the document it stands against/);
     await forward();
+    await waitFor(() => expect(internal.getBillingCreditPreview).toHaveBeenCalled());
     await screen.findByText('Step 4 of 4');
+
+    // the amount shown is the one the engine priced for the days actually chosen
+    expect(await screen.findByText(/60\.00 XAF/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByLabelText(/I have reviewed/));
     fireEvent.click(screen.getByRole('button', { name: /Prepare credit note/ }));

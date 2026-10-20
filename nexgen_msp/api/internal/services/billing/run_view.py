@@ -108,7 +108,9 @@ def _credit_detected(run):
     Said on the page the way `Ready to bill` says it: a proposal somebody opens, never a
     document raised behind their back.
     """
-    if not run["can_contest"]:
+    # a charge billed in arrears pays for days already served: nothing of it was paid for
+    # ahead and left unserved, so there is nothing to detect and nothing to scan for
+    if not run["can_contest"] or run.get("billing_timing") != "In Advance":
         return None
 
     try:

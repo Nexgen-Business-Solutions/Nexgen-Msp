@@ -1318,6 +1318,12 @@ def billing_operation_services(
 
 @frappe.whitelist()
 @handle_errors
+def billing_credit_preview(contract=None, against=None, include=None):
+    return _wizard().credit_preview(contract=contract, against=against, include=include)
+
+
+@frappe.whitelist()
+@handle_errors
 def billing_operation_accounting(contract=None):
     return _wizard().accounting(contract=contract)
 

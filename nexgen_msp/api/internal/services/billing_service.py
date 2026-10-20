@@ -277,15 +277,40 @@ class BillingService:
         return flt(months, 3)
 
     @staticmethod
-    def _unused_after_termination(line, run_start, run_end, method, remaining):
+    def _billed_stretches(line):
+        """The days this line was actually charged for, pauses already taken out."""
+        stored = line.get("segments") or line.get("billable_segments_json")
+
+        if isinstance(stored, str):
+            try:
+                stored = frappe.parse_json(stored)
+            except Exception:
+                stored = None
+
+        if stored:
+            return coverage_intervals.merge(
+                [(row["from"], row["to"]) for row in stored if row.get("from") and row.get("to")]
+            )
+
+        if line.get("covered_from") and line.get("covered_to"):
+            return coverage_intervals.span(line["covered_from"], line["covered_to"])
+
+        return []
+
+    @staticmethod
+    def _unused_after_termination(line, run_start, run_end, method, remaining, ends=None):
         """What a line billed in advance owes back because its service stopped early.
 
         Read off the assignment as it stands now, never off the line: the run was drawn
         before the service ended, so its own snapshot still shows it running. That gap
         between what was billed and what happened is the whole of this.
         """
-        ended = frappe.db.get_value(
-            "MSP Service Assignment", line["service_assignment"], "effective_end_date"
+        ended = (
+            ends.get(line["service_assignment"])
+            if ends is not None
+            else frappe.db.get_value(
+                "MSP Service Assignment", line["service_assignment"], "effective_end_date"
+            )
         )
 
         if not ended:
@@ -3353,10 +3378,28 @@ class BillingService:
 
         already = {row.service_assignment: flt(row.months) for row in credited}
 
+        # a run of several hundred lines used to ask for each end date on its own
+        ends = {
+            row.name: row.effective_end_date
+            for row in frappe.get_all(
+                "MSP Service Assignment",
+                filters={
+                    "name": ("in", [line["service_assignment"] for line in detail["lines"]] or [""])
+                },
+                fields=["name", "effective_end_date"],
+            )
+        }
+
         rows = []
-        # the terms the run was drawn under: a credit is cut the same way the charge was
+        # the terms the run was drawn under: a credit is cut the same way the charge was,
+        # and each line carries the convention it was actually priced with — a contract
+        # changed since must not reshape a credit on days already invoiced
         method = (
-            frappe.db.get_value("MSP Contract", detail["contract"], "proration_method")
+            next(
+                (line["proration_method"] for line in detail["lines"] if line.get("proration_method")),
+                None,
+            )
+            or frappe.db.get_value("MSP Contract", detail["contract"], "proration_method")
             or "None"
         )
         advance = (
@@ -3385,6 +3428,7 @@ class BillingService:
                         detail["billing_period_end"],
                         method,
                         remaining,
+                        ends,
                     )
                     if advance
                     else None,
@@ -3412,7 +3456,7 @@ class BillingService:
         }
 
     @staticmethod
-    def create_credit_note(name=None, lines=None, reason=None):
+    def create_credit_note(name=None, lines=None, reason=None, dry_run=False):
         """Credit part of an issued invoice back, as a return against the original.
 
         Contesting a line does not rewrite history: the original invoice stands and a
@@ -3422,6 +3466,16 @@ class BillingService:
         BillingService._guard_admin()
 
         reason = str(reason or "").strip()
+
+        # two people crediting the same charge at the same moment would each read the
+        # entitlement as it stood before the other wrote: the charge is held first, so
+        # everything below — months left, days already given back — is read under the lock
+        if name and frappe.db.exists("MSP Billing Run", name):
+            frappe.db.sql(
+                "select name from `tabMSP Billing Run` where name = %(run)s for update",
+                {"run": name},
+            )
+
         source = BillingService.creditable_lines(name)
 
         # a recorded charge has no invoice here to be a draft of; anything else must be
@@ -3437,14 +3491,6 @@ class BillingService:
         method = source["proration_method"]
         wanted = {}
         windows = {}
-
-        # two people crediting the same charge at the same moment would each read the
-        # credits as they stood before the other wrote: the source run is held until this
-        # note is written, so the second request reads the first one's days as given back
-        frappe.db.sql(
-            "select name from `tabMSP Billing Run` where name = %(run)s for update",
-            {"run": name},
-        )
 
         # the stretches already given back on this invoice, so the same days cannot be
         # returned a second time under a different note
@@ -3501,9 +3547,46 @@ class BillingService:
                         "VALIDATION_ERROR",
                     )
 
-                windows[row["service_assignment"]] = (row["from"], row["to"])
-                wanted[row["service_assignment"]] = BillingService._unused_months(
-                    method, row["from"], row["to"]
+                billed = next(
+                    (
+                        line
+                        for line in source["lines"]
+                        if line["service_assignment"] == row["service_assignment"]
+                    ),
+                    None,
+                )
+
+                if not billed:
+                    raise ValidationError(
+                        f"{row['service_assignment']} is not on {name}: it cannot be "
+                        "credited against a charge it was never part of.",
+                        "VALIDATION_ERROR",
+                    )
+
+                # the run's own period is wider than what a line was billed over: a line
+                # that started mid-period was never charged for the days before it, and
+                # days nobody was charged for cannot be given back
+                served = BillingService._billed_stretches(billed)
+                asked_for = coverage_intervals.intersect(
+                    coverage_intervals.span(row["from"], row["to"]), served
+                )
+
+                if not asked_for:
+                    raise ValidationError(
+                        f"{row['from']} to {row['to']} was not billed on this line: it "
+                        f"covers {billed.get('covered_from')} to {billed.get('covered_to')}.",
+                        "VALIDATION_ERROR",
+                    )
+
+                opens = min(first for first, _last in asked_for)
+                closes = max(last for _first, last in asked_for)
+                windows[row["service_assignment"]] = (str(opens), str(closes))
+                wanted[row["service_assignment"]] = flt(
+                    sum(
+                        BillingService._unused_months(method, first, last)
+                        for first, last in asked_for
+                    ),
+                    3,
                 )
 
                 # one stretch covering several lines is the ordinary case — an outage, or
@@ -3569,6 +3652,38 @@ class BillingService:
         if not chosen:
             raise ValidationError("Nothing left to credit on these lines.", "VALIDATION_ERROR")
 
+        def amount_of(line, months):
+            return flt(
+                -months
+                * flt(line["unit_rate"])
+                * flt(line["quantity"])
+                * (1 - flt(line.get("discount_percent")) / 100.0),
+                2,
+            )
+
+        # what the credit comes to, read the same way whether it is shown or written: a
+        # preview that computes it differently is a preview of something else
+        if frappe.utils.cint(dry_run):
+            return {
+                "run": name,
+                "currency": source["currency"],
+                "lines": [
+                    {
+                        "service_assignment": line["service_assignment"],
+                        "service_name": line["service_name"],
+                        "user_name": line.get("user_name"),
+                        "covered_from": windows.get(line["service_assignment"], (None, None))[0],
+                        "covered_to": windows.get(line["service_assignment"], (None, None))[1],
+                        "months": flt(-months, 3),
+                        "unit_rate": line["unit_rate"],
+                        "discount_percent": flt(line.get("discount_percent")),
+                        "amount": amount_of(line, months),
+                    }
+                    for line, months in chosen
+                ],
+                "total": flt(sum(amount_of(line, months) for line, months in chosen), 2),
+            }
+
         # a credit note still has to read as something a year from now. Said nothing, it
         # says what it did: the days nobody was served, which is what it is made of.
         if not reason:
@@ -3627,7 +3742,15 @@ class BillingService:
                         "unit_rate": line["unit_rate"],
                         "price_source": line["price_source"],
                         "proration_method": line["proration_method"],
-                        "amount": flt(-months * flt(line["unit_rate"]) * flt(line["quantity"]), 2),
+                        # a credit gives back what was taken: the discount the original
+                        # line carried goes back with it, or the return pays more than the
+                        # invoice ever charged
+                        "gross_amount": flt(
+                            -months * flt(line["unit_rate"]) * flt(line["quantity"]), 2
+                        ),
+                        "discount_percent": flt(line.get("discount_percent")),
+                        "discount_source": line.get("discount_source"),
+                        "amount": amount_of(line, months),
                         "line_comment": reason,
                     }
                     for line, months in chosen

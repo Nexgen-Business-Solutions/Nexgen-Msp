@@ -5,7 +5,7 @@ where it posts, and then the one call that prepares it. Nothing here submits a d
 """
 
 import frappe
-from frappe.utils import add_days, getdate
+from frappe.utils import add_days, flt, getdate
 
 from nexgen_msp.api.internal.services.billing import run_view, wizard, workspace
 from nexgen_msp.api.internal.services.billing_service import BillingService
@@ -528,3 +528,95 @@ class TestWhatTheRunPageSaysAboutCrediting(CreditCase):
         run = self.charge()
 
         self.assertIsNone(run_view.run_view(run)["credit_detected"])
+
+
+class TestACreditGivesBackWhatWasTaken(CreditCase):
+    """A credit answers the invoice, not the price list."""
+
+    def discounted(self, assignment, percent):
+        frappe.db.set_value(
+            "MSP Service Assignment", assignment, "msp_discount_percent", percent
+        )
+        frappe.db.commit()
+
+    def test_the_credit_carries_the_discount_the_charge_was_given(self):
+        first = self.billed_ahead()
+        run = self.charge()
+        frappe.db.set_value("MSP Billing Run Line", {"parent": run}, "discount_percent", 20)
+        frappe.db.set_value(
+            "MSP Billing Run Line",
+            {"parent": run},
+            "amount",
+            flt(
+                frappe.db.get_value("MSP Billing Run Line", {"parent": run}, "gross_amount") * 0.8,
+                2,
+            ),
+        )
+        frappe.db.commit()
+
+        made = wizard.create(
+            kind="credit_note",
+            contract=self.contract,
+            against=run,
+            include=[{"service_assignment": first, "from": "2026-09-01", "to": "2026-09-30"}],
+        )
+        self.track("MSP Billing Run", made["run"])
+
+        line = frappe.get_doc("MSP Billing Run", made["run"]).lines[0]
+
+        self.assertEqual(line.discount_percent, 20)
+        # the net the invoice took, not the gross the price list says
+        self.assertEqual(line.amount, flt(line.gross_amount * 0.8, 2))
+
+    def test_days_the_line_was_never_billed_for_are_refused(self):
+        """A run wider than its line: the days before the service started are not owed."""
+        late = self.running(self.service, client_user=self.mary)
+        frappe.db.set_value(
+            "MSP Service Assignment", late, "effective_start_date", "2026-09-16"
+        )
+        frappe.db.commit()
+        run = self.charge()
+
+        with self.assertRaises(ServiceRefused):
+            wizard.create(
+                kind="credit_note",
+                contract=self.contract,
+                against=run,
+                include=[{"service_assignment": late, "from": "2026-07-01", "to": "2026-07-31"}],
+            )
+
+    def test_a_window_overlapping_what_was_billed_is_cut_to_it(self):
+        late = self.running(self.service, client_user=self.mary)
+        frappe.db.set_value(
+            "MSP Service Assignment", late, "effective_start_date", "2026-09-16"
+        )
+        frappe.db.commit()
+        run = self.charge()
+
+        made = wizard.create(
+            kind="credit_note",
+            contract=self.contract,
+            against=run,
+            include=[{"service_assignment": late, "from": "2026-09-01", "to": "2026-09-30"}],
+        )
+        self.track("MSP Billing Run", made["run"])
+
+        line = frappe.get_doc("MSP Billing Run", made["run"]).lines[0]
+
+        self.assertEqual(getdate(line.covered_from), getdate("2026-09-16"))
+        self.assertEqual(getdate(line.covered_to), getdate("2026-09-30"))
+
+    def test_a_line_of_another_charge_is_refused(self):
+        self.billed_ahead()
+        run = self.charge()
+        stranger = self.running(self.service, client_user=self.mary)
+
+        with self.assertRaises(ServiceRefused):
+            wizard.create(
+                kind="credit_note",
+                contract=self.contract,
+                against=run,
+                include=[
+                    {"service_assignment": stranger, "from": "2026-09-01", "to": "2026-09-30"}
+                ],
+            )

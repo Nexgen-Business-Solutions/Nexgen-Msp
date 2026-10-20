@@ -53,6 +53,9 @@ export const useOperationAccounting = (contract?: string, enabled = true) =>
     enabled: Boolean(contract) && enabled,
   });
 
+export const useCreditPreview = () =>
+  useMutation({ mutationFn: internal.getBillingCreditPreview });
+
 export const useCreateOperation = () => {
   const queryClient = useQueryClient();
 

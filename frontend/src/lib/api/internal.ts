@@ -1516,6 +1516,34 @@ export const getBillingOperationContext = (query: BillingOperationQuery, signal?
 export const getBillingOperationServices = (query: BillingOperationQuery, signal?: AbortSignal) =>
   get<BillingOperationServices>(`${BASE}.billing_operation_services`, query, signal);
 
+export type BillingCreditPreview = {
+  run: string;
+  currency: string | null;
+  lines: {
+    service_assignment: string;
+    service_name: string;
+    user_name: string | null;
+    covered_from: string | null;
+    covered_to: string | null;
+    months: number;
+    unit_rate: number | null;
+    discount_percent: number;
+    amount: number;
+  }[];
+  total: number;
+};
+
+/** What the chosen days come to, priced by the engine that would write them. */
+export const getBillingCreditPreview = (payload: {
+  contract: string;
+  against: string;
+  include: { service_assignment: string; from?: string; to?: string; months?: number }[];
+}) =>
+  post<BillingCreditPreview>(`${BASE}.billing_credit_preview`, {
+    ...payload,
+    include: JSON.stringify(payload.include),
+  });
+
 export const getBillingOperationAccounting = (contract: string, signal?: AbortSignal) =>
   get<BillingOperationAccounting>(`${BASE}.billing_operation_accounting`, { contract }, signal);
 

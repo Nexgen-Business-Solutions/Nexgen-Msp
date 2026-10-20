@@ -4,6 +4,7 @@ import { ArrowLeft, Search } from 'lucide-react';
 import type { BillingCandidate } from '@/lib/api/internal';
 import {
   useCreateOperation,
+  useCreditPreview,
   useOperationAccounting,
   useOperationContext,
   useOperationServices,
@@ -99,6 +100,7 @@ export default function NewBillingRun() {
   const services = useOperationServices(step >= 1 && query ? query : null);
   const accounting = useOperationAccounting(contract, step >= 2);
   const create = useCreateOperation();
+  const priced = useCreditPreview();
 
   const terms = context.data;
 
@@ -196,8 +198,28 @@ export default function NewBillingRun() {
       if (blank) return setRefused(`Give the days to credit on ${blank.service}.`);
     }
 
-    if (step === 2 && draftInvoice && missingDimension) {
+    // a credit posts where its original charge posted: there is no dimension to ask for
+    if (step === 2 && kind !== 'credit_note' && draftInvoice && missingDimension) {
       return setRefused(`${missingDimension.label} is required before a document can be drafted.`);
+    }
+
+    if (step === 2 && kind === 'credit_note' && against) {
+      // what the operator cut is worth what the engine says it is worth, not what the
+      // whole line was worth before they shortened it
+      try {
+        await priced.mutateAsync({
+          contract,
+          against,
+          include: chosen.map((line) => ({
+            service_assignment: line.id,
+            ...(line.editable
+              ? { from: windows[line.id]?.from, to: windows[line.id]?.to }
+              : {}),
+          })),
+        });
+      } catch (error) {
+        return setRefused((error as Error).message);
+      }
     }
 
     if (step === 3) {
@@ -602,7 +624,31 @@ export default function NewBillingRun() {
             </div>
           )}
 
-          {step === 2 && (
+          {step === 2 && kind === 'credit_note' && (
+            <div className="space-y-5">
+              <Banner tone="blue" title="A credit follows the document it stands against.">
+                Cost centre, accounting dimensions, exchange rate and payment terms are taken
+                from {services.data?.source_run ?? 'the original charge'} and its invoice, so
+                the return posts exactly where the charge did. There is nothing to choose here.
+              </Banner>
+              <Summary
+                rows={[
+                  { label: 'Currency', value: accounting.data?.currency ?? '—' },
+                  { label: 'Posting date', value: 'Set by ERPNext when the return is drafted' },
+                  {
+                    label: 'Payment terms',
+                    value: accounting.data?.payment_terms ?? 'As contracted',
+                  },
+                  {
+                    label: 'Notification',
+                    value: accounting.data?.billing_contact ?? 'No billing contact',
+                  },
+                ]}
+              />
+            </div>
+          )}
+
+          {step === 2 && kind !== 'credit_note' && (
             <div className="space-y-5">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {(accounting.data?.dimensions ?? []).map((dimension) => (
@@ -658,7 +704,7 @@ export default function NewBillingRun() {
                     />
                   </div>
                 )}
-                {kind !== 'credit_note' && (
+                {(
                   <div>
                     <Label htmlFor="run-discount">Run discount (%)</Label>
                     <input
@@ -734,7 +780,10 @@ export default function NewBillingRun() {
                   },
                   {
                     label: 'Estimated total (before taxes)',
-                    value: `${total < 0 ? '−' : ''}${money(total, currency)}`,
+                    value: `${(priced.data?.total ?? total) < 0 ? '−' : ''}${money(
+                      priced.data?.total ?? total,
+                      currency
+                    )}`,
                   },
                 ]}
               />
