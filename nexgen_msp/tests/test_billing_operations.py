@@ -1034,3 +1034,115 @@ class TestACreditThatStraddlesTwoRates(CreditCase):
 
         self.assertEqual(len(owing), 1)
         self.assertEqual(getdate(owing[0]["owed_back"]["unused_from"]), getdate("2026-09-25"))
+
+
+class TestWhatIsLeftToGiveBack(CreditCase):
+    """A proposal answers what is still owed, never what was once owed."""
+
+    def test_a_partial_credit_shrinks_the_proposal(self):
+        first = self.billed_ahead()
+        run = self.charge()
+        self.stops(first, "2026-09-24")
+
+        made = wizard.create(
+            kind="credit_note",
+            contract=self.contract,
+            against=run,
+            include=[{"service_assignment": first, "from": "2026-09-25", "to": "2026-09-27"}],
+        )
+        self.track("MSP Billing Run", made["run"])
+
+        left = next(
+            line["owed_back"]
+            for line in BillingService.creditable_lines(run)["lines"]
+            if line["service_assignment"] == first
+        )
+
+        self.assertEqual(getdate(left["unused_from"]), getdate("2026-09-28"))
+        self.assertEqual(getdate(left["unused_to"]), getdate("2026-09-30"))
+
+    def test_a_full_credit_leaves_nothing_to_propose(self):
+        first = self.billed_ahead()
+        run = self.charge()
+        self.stops(first, "2026-09-24")
+
+        made = wizard.create(
+            kind="credit_note", contract=self.contract, against=run, include=[first]
+        )
+        self.track("MSP Billing Run", made["run"])
+
+        line = next(
+            entry
+            for entry in BillingService.creditable_lines(run)["lines"]
+            if entry["service_assignment"] == first
+        )
+
+        self.assertIsNone(line["owed_back"])
+
+    def test_the_detected_step_offers_nothing_once_it_is_all_back(self):
+        first = self.billed_ahead()
+        run = self.charge()
+        self.stops(first, "2026-09-24")
+
+        made = wizard.create(
+            kind="credit_note", contract=self.contract, against=run, include=[first]
+        )
+        self.track("MSP Billing Run", made["run"])
+
+        answer = wizard.services(kind="credit_note", contract=self.contract, against=run)
+
+        self.assertEqual(answer["lines"], [])
+
+
+class TestADisputeIsNotATermination(CreditCase):
+    """Days that were served can still be given back, when somebody decides to."""
+
+    def test_served_days_can_be_credited_when_the_operator_settles_a_dispute(self):
+        first = self.billed_ahead()
+        run = self.charge()
+        self.stops(first, "2026-09-24")
+
+        made = wizard.create(
+            kind="credit_note",
+            contract=self.contract,
+            against=run,
+            scope="all",
+            include=[{"service_assignment": first, "from": "2026-09-01", "to": "2026-09-15"}],
+            reason="Settled: the service was unusable in the first half of September.",
+        )
+        self.track("MSP Billing Run", made["run"])
+
+        line = frappe.get_doc("MSP Billing Run", made["run"]).lines[0]
+
+        self.assertEqual(getdate(line.covered_from), getdate("2026-09-01"))
+        self.assertEqual(getdate(line.covered_to), getdate("2026-09-15"))
+
+    def test_the_detected_path_still_only_gives_back_unserved_days(self):
+        first = self.billed_ahead()
+        run = self.charge()
+        self.stops(first, "2026-09-24")
+
+        with self.assertRaises(ServiceRefused):
+            wizard.create(
+                kind="credit_note",
+                contract=self.contract,
+                against=run,
+                include=[
+                    {"service_assignment": first, "from": "2026-09-01", "to": "2026-09-15"}
+                ],
+            )
+
+    def test_a_settled_dispute_still_cannot_exceed_what_was_billed(self):
+        first = self.billed_ahead()
+        run = self.charge()
+
+        with self.assertRaises(ServiceRefused):
+            wizard.create(
+                kind="credit_note",
+                contract=self.contract,
+                against=run,
+                scope="all",
+                include=[
+                    {"service_assignment": first, "from": "2026-10-01", "to": "2026-10-15"}
+                ],
+            )

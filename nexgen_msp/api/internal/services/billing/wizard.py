@@ -427,7 +427,7 @@ def _credit_rows(run, include):
     return rows
 
 
-def credit_preview(contract=None, against=None, include=None):
+def credit_preview(contract=None, against=None, include=None, scope="detected"):
     """What the chosen days come to, priced by the engine that would write them.
 
     The Confirm step asks for this rather than adding up what the Services step showed:
@@ -445,7 +445,10 @@ def credit_preview(contract=None, against=None, include=None):
         )
 
     return BillingService.create_credit_note(
-        name=run, lines=frappe.as_json(_credit_rows(run, include)), dry_run=True
+        name=run,
+        lines=frappe.as_json(_credit_rows(run, include)),
+        dry_run=True,
+        only_unserved=scope != "all",
     )
 
 
@@ -481,6 +484,7 @@ def create(
     against=None,
     draft_invoice=0,
     expected_total=None,
+    scope="detected",
 ):
     """Step 4 — prepare the operation. Nothing is posted; a person submits it after."""
     BillingService._guard_admin()
@@ -514,7 +518,10 @@ def create(
         # than quietly returning a different amount
         if expected_total not in (None, ""):
             priced = BillingService.create_credit_note(
-                name=run, lines=frappe.as_json(rows), dry_run=True
+                name=run,
+                lines=frappe.as_json(rows),
+                dry_run=True,
+                only_unserved=scope != "all",
             )
 
             if abs(flt(priced["total"], 2) - flt(expected_total, 2)) > 0.01:
@@ -526,7 +533,12 @@ def create(
                 )
 
         created = BillingService.create_credit_note(
-            name=run, lines=frappe.as_json(rows), reason=reason
+            name=run,
+            lines=frappe.as_json(rows),
+            reason=reason,
+            # a dispute is settled on the days somebody decided to give back, which are
+            # not always the days nobody was served
+            only_unserved=scope != "all",
         )
 
         return {"run": created["name"], "kind": kind}

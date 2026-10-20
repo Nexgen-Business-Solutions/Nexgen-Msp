@@ -1539,6 +1539,7 @@ export type BillingCreditPreview = {
 export const getBillingCreditPreview = (payload: {
   contract: string;
   against: string;
+  scope?: string;
   include: (
     | string
     | { service_assignment: string; line?: string | null; from?: string; to?: string; months?: number }
@@ -1570,6 +1571,8 @@ export const createBillingOperation = (payload: {
   draft_invoice?: number;
   /** the figure that was reviewed: the server refuses to write a different one */
   expected_total?: number;
+  /** `all` settles a dispute on billed days; `detected` answers days nobody served */
+  scope?: string;
 }) =>
   post<{ run: string; kind: string }>(`${BASE}.create_billing_operation`, {
     ...payload,

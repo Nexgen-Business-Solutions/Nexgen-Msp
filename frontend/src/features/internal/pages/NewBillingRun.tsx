@@ -220,7 +220,7 @@ export default function NewBillingRun() {
       // what the operator cut is worth what the engine says it is worth, not what the
       // whole line was worth before they shortened it
       try {
-        await priced.mutateAsync({ contract, against, include: creditLines() });
+        await priced.mutateAsync({ contract, against, scope, include: creditLines() });
       } catch (error) {
         return setRefused((error as Error).message);
       }
@@ -241,7 +241,9 @@ export default function NewBillingRun() {
           discount_percent: kind === 'credit_note' ? 0 : Number(discount || 0),
           against,
           draft_invoice: draftInvoice ? 1 : 0,
-          ...(kind === 'credit_note' && priced.data ? { expected_total: priced.data.total } : {}),
+          ...(kind === 'credit_note'
+            ? { scope, ...(priced.data ? { expected_total: priced.data.total } : {}) }
+            : {}),
         });
 
         navigate(`/msp/billing/${made.run}`);

@@ -1318,8 +1318,10 @@ def billing_operation_services(
 
 @frappe.whitelist()
 @handle_errors
-def billing_credit_preview(contract=None, against=None, include=None):
-    return _wizard().credit_preview(contract=contract, against=against, include=include)
+def billing_credit_preview(contract=None, against=None, include=None, scope="detected"):
+    return _wizard().credit_preview(
+        contract=contract, against=against, include=include, scope=scope
+    )
 
 
 @frappe.whitelist()
@@ -1343,6 +1345,7 @@ def create_billing_operation(
     against=None,
     draft_invoice=0,
     expected_total=None,
+    scope="detected",
 ):
     return _wizard().create(
         kind=kind,
@@ -1357,6 +1360,7 @@ def create_billing_operation(
         against=against,
         draft_invoice=draft_invoice,
         expected_total=expected_total,
+        scope=scope,
     )
 
 

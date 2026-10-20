@@ -298,7 +298,9 @@ class BillingService:
         return []
 
     @staticmethod
-    def _unused_after_termination(line, run_start, run_end, method, remaining, ends=None):
+    def _unused_after_termination(
+        line, run_start, run_end, method, remaining, ends=None, credited=None
+    ):
         """What a line billed in advance owes back because its service stopped early.
 
         Read off the assignment as it stands now, never off the line: the run was drawn
@@ -328,6 +330,9 @@ class BillingService:
         )
         after = coverage_intervals.span(add_days(ended, 1), getdate(run_end))
         unused = coverage_intervals.intersect(served, after)
+        # what has already been given back is not owed a second time: the proposal is what
+        # is left, not what was once due
+        unused = coverage_intervals.subtract(unused, credited or [])
 
         if not unused:
             return None
@@ -3441,13 +3446,20 @@ class BillingService:
             billed = flt(line["billable_months"])
             # the credits that fall inside the days this very line was billed over
             mine = BillingService._billed_stretches(line)
-            done = abs(
-                sum(
-                    entry["months"]
-                    for entry in given.get(line["service_assignment"], [])
-                    if not entry["stretches"]
-                    or coverage_intervals.intersect(entry["stretches"], mine)
-                )
+            touching = [
+                entry
+                for entry in given.get(line["service_assignment"], [])
+                if not entry["stretches"]
+                or coverage_intervals.intersect(entry["stretches"], mine)
+            ]
+            done = abs(sum(entry["months"] for entry in touching))
+            # the days of this line that have already gone back, so nothing proposes them
+            mine_credited = coverage_intervals.merge(
+                [
+                    stretch
+                    for entry in touching
+                    for stretch in coverage_intervals.intersect(entry["stretches"], mine)
+                ]
             )
             remaining = flt(billed - done, 2)
 
@@ -3465,6 +3477,7 @@ class BillingService:
                         method,
                         remaining,
                         ends,
+                        mine_credited,
                     )
                     if advance
                     else None,
@@ -3492,7 +3505,9 @@ class BillingService:
         }
 
     @staticmethod
-    def create_credit_note(name=None, lines=None, reason=None, dry_run=False):
+    def create_credit_note(
+        name=None, lines=None, reason=None, dry_run=False, only_unserved=True
+    ):
         """Credit part of an issued invoice back, as a return against the original.
 
         Contesting a line does not rewrite history: the original invoice stands and a
@@ -3633,9 +3648,11 @@ class BillingService:
                     )
 
                 for billed, asked_for in shared:
-                    # a line that stopped inside the days asked for is still credited only
-                    # for what it did not serve: the question is answered, only smaller
-                    owed = billed.get("owed_back")
+                    # a termination credit answers days nobody was served, and is cut to
+                    # them. A dispute settled by hand answers days that were served — a
+                    # correction somebody decided — and is held to the entitlement of the
+                    # line instead: billed days, not already credited, within its months.
+                    owed = billed.get("owed_back") if only_unserved else None
 
                     if owed:
                         unserved = [
@@ -3887,8 +3904,15 @@ class BillingService:
                 if row.get(field)
             }
 
-            if carried:
-                per_item.setdefault(row.item_code, carried)
+            if not carried:
+                continue
+
+            # one invoice can carry the same service twice, at two rates or on two cost
+            # centres: the credit answers the line it came from, so the analytics are
+            # keyed the way the charge grouped them
+            key = (row.item_code, flt(row.rate, 2), flt(row.discount_percentage, 2))
+            per_item.setdefault(key, carried)
+            per_item.setdefault(row.item_code, carried)
 
         return {
             "document": document,
@@ -4000,7 +4024,16 @@ class BillingService:
                         **BillingService._credited_item(
                             service_item, rate, discount, bucket, period_label, income_account
                         ),
-                        **inherited["item"].get(service_item, {}),
+                        **(
+                            inherited["item"].get(
+                                (
+                                    service_item,
+                                    flt(flt(rate, 2) * (1 - flt(discount) / 100.0), 2),
+                                    flt(discount, 2),
+                                )
+                            )
+                            or inherited["item"].get(service_item, {})
+                        ),
                     }
                     for (service_item, rate, discount), bucket in grouped.items()
                 ],
