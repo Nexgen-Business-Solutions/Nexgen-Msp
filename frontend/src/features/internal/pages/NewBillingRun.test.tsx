@@ -50,6 +50,7 @@ const context = (overrides: Partial<BillingOperationContext> = {}): BillingOpera
 
 const services = (overrides: Partial<BillingOperationServices> = {}): BillingOperationServices => ({
   kind: 'period',
+  scope: 'detected',
   currency: 'XAF',
   source_run: null,
   lines: [
@@ -178,6 +179,7 @@ describe('one path prepares the three operations', () => {
     await screen.findByText('1 selected');
     await forward();
     expect(await screen.findByText('Accounting & notifications')).toBeInTheDocument();
+    await screen.findByText('Main - NX');
     await forward();
     expect(await screen.findByText('Step 4 of 4')).toBeInTheDocument();
     expect(screen.getAllByText('Confirm').length).toBeGreaterThan(0);
@@ -201,6 +203,7 @@ describe('one path prepares the three operations', () => {
     await screen.findByText('Contract & period');
     await forward();
     await screen.findByText('Review services');
+    await screen.findByText('1 selected');
 
     fireEvent.click(screen.getByRole('button', { name: 'Deselect all' }));
     await forward();
@@ -233,6 +236,7 @@ describe('one path prepares the three operations', () => {
     await forward();
     await throughServices();
     await screen.findByText('Accounting & notifications');
+    await screen.findByText('Main - NX');
     await forward();
     await screen.findByText('Step 4 of 4');
 
@@ -278,7 +282,98 @@ describe('one path prepares the three operations', () => {
     await screen.findByText('Contract & period');
     await forward();
 
-    expect(await screen.findByText(/Credit against coverage already billed/)).toBeInTheDocument();
+    expect(await screen.findByText(/Credit detected on this charge/)).toBeInTheDocument();
     expect(screen.queryByText(/Original billed coverage/)).not.toBeInTheDocument();
+  });
+
+  it('opens the whole charge for the operator to cut when asked to', async () => {
+    vi.mocked(internal.getBillingOperationContext).mockResolvedValue(
+      context({ kind: 'credit_note', label: 'Credit note' })
+    );
+    vi.mocked(internal.getBillingOperationServices).mockResolvedValue(
+      services({
+        kind: 'credit_note',
+        scope: 'all',
+        source_run: 'BR-2026-10-165',
+        lines: [
+          {
+            ...services().lines[0],
+            amount: -200,
+            covered: 'On this charge',
+            proof: true,
+            editable: true,
+            reason: 'Billed 1 months over 2026-09-01 – 2026-09-30. Choose the stretch to give back.',
+          },
+        ],
+        blocked: [],
+      })
+    );
+    vi.mocked(internal.getBillingOperationAccounting).mockResolvedValue(accounting());
+    vi.mocked(internal.listMspContracts).mockResolvedValue([]);
+    vi.mocked(internal.createBillingOperation).mockResolvedValue({
+      run: 'BR-2026-10-900',
+      kind: 'credit_note',
+    });
+    draw('?kind=credit_note&contract=CON-0001&against=BR-2026-10-165&scope=all&start=2026-09-01&end=2026-09-30');
+
+    await screen.findByText('Contract & period');
+    await forward();
+
+    expect(await screen.findByText(/Every line of this charge/)).toBeInTheDocument();
+    // nothing is given back until somebody says so
+    expect(screen.getByText('0 selected')).toBeInTheDocument();
+
+    const from = screen.getByLabelText('Credit Mailbox from') as HTMLInputElement;
+    const to = screen.getByLabelText('Credit Mailbox to') as HTMLInputElement;
+
+    expect(from.value).toBe('2026-09-01');
+    expect(to.value).toBe('2026-09-30');
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /Include Mailbox/ }));
+    fireEvent.change(from, { target: { value: '2026-09-05' } });
+    fireEvent.change(to, { target: { value: '2026-09-13' } });
+
+    await forward();
+    await screen.findByText('Accounting & notifications');
+    await screen.findByText('Main - NX');
+    await forward();
+    await screen.findByText('Step 4 of 4');
+
+    fireEvent.click(screen.getByLabelText(/I have reviewed/));
+    fireEvent.click(screen.getByRole('button', { name: /Prepare credit note/ }));
+
+    await waitFor(() => expect(internal.createBillingOperation).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(internal.createBillingOperation).mock.calls[0][0]).toMatchObject({
+      kind: 'credit_note',
+      against: 'BR-2026-10-165',
+      include: [{ service_assignment: 'SA-1', from: '2026-09-05', to: '2026-09-13' }],
+    });
+  });
+
+  it('refuses to go on with a line ticked and no days given', async () => {
+    vi.mocked(internal.getBillingOperationContext).mockResolvedValue(
+      context({ kind: 'credit_note', label: 'Credit note' })
+    );
+    vi.mocked(internal.getBillingOperationServices).mockResolvedValue(
+      services({
+        kind: 'credit_note',
+        scope: 'all',
+        source_run: 'BR-1',
+        lines: [{ ...services().lines[0], covered_from: null, covered_to: null, editable: true }],
+        blocked: [],
+      })
+    );
+    vi.mocked(internal.getBillingOperationAccounting).mockResolvedValue(accounting());
+    vi.mocked(internal.listMspContracts).mockResolvedValue([]);
+    draw('?kind=credit_note&contract=CON-0001&against=BR-1&scope=all&start=2026-09-01&end=2026-09-30');
+
+    await screen.findByText('Contract & period');
+    await forward();
+    await screen.findByText(/Every line of this charge/);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /Include Mailbox/ }));
+    await forward();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Give the days to credit');
   });
 });

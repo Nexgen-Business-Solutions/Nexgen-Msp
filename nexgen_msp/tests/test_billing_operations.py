@@ -5,9 +5,10 @@ where it posts, and then the one call that prepares it. Nothing here submits a d
 """
 
 import frappe
-from frappe.utils import getdate
+from frappe.utils import add_days, getdate
 
-from nexgen_msp.api.internal.services.billing import wizard
+from nexgen_msp.api.internal.services.billing import run_view, wizard, workspace
+from nexgen_msp.api.internal.services.billing_service import BillingService
 from nexgen_msp.utils.errors import ValidationError as ServiceRefused
 
 from .test_billing_history import BillingHistoryCase
@@ -153,3 +154,377 @@ class TestWhatTheThirdStepAsksFor(OperationCase):
 
         self.assertIn("billing_contact", answer)
         self.assertNotIn("recipients", answer)
+
+
+class CreditCase(BillingHistoryCase):
+    """A quarter paid ahead, served short: the shape issue #19 asks the wizard to carry."""
+
+    RATE = 3000.0
+    START = "2026-07-01"
+    END = "2026-09-30"
+
+    def setUp(self):
+        super().setUp()
+        self.service = self.offering("WCRD")
+        frappe.db.set_value(
+            "MSP Contract",
+            self.contract,
+            {
+                "billing_frequency": "Quarterly",
+                "billing_timing": "In Advance",
+                "proration_method": "30-Day Convention",
+                "start_date": "2023-01-01",
+            },
+        )
+        frappe.db.commit()
+        self.mary = self.make_person(self.customer, "Mary", department="Accounting")
+
+    def tearDown(self):
+        for doctype in ("Sales Invoice", "Sales Order"):
+            for name in frappe.get_all(doctype, filters={"customer": self.customer}, pluck="name"):
+                try:
+                    for run in frappe.get_all(
+                        "MSP Billing Run", filters={"sales_invoice": name}, pluck="name"
+                    ):
+                        frappe.db.set_value("MSP Billing Run", run, "sales_invoice", None)
+                    frappe.db.commit()
+                    doc = frappe.get_doc(doctype, name)
+                    doc.flags.ignore_links = True
+                    if doc.docstatus == 1:
+                        doc.cancel()
+                        frappe.db.commit()
+                    frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+                    frappe.db.commit()
+                except Exception:
+                    frappe.db.rollback()
+
+        super().tearDown()
+
+    def billed_ahead(self, who=None):
+        assignment = self.running(self.service, client_user=who or self.john, started=0)
+        frappe.db.set_value(
+            "MSP Service Assignment", assignment, "effective_start_date", "2023-01-01"
+        )
+        frappe.db.commit()
+
+        return assignment
+
+    def charge(self):
+        run = self.drawn(start=self.START, end=self.END)
+        BillingService.finalise(run)
+        BillingService.submit_invoice(name=run, notify=0)
+
+        return run
+
+    def stops(self, assignment, on):
+        frappe.db.set_value(
+            "MSP Service Assignment",
+            assignment,
+            {"effective_end_date": on, "billing_status": "Ended", "operational_status": "Ended"},
+        )
+        frappe.db.commit()
+
+
+class TestTheCreditTheWizardPrepares(CreditCase):
+    def test_it_offers_the_days_paid_for_and_not_served(self):
+        first = self.billed_ahead()
+        run = self.charge()
+        self.stops(first, "2026-09-24")
+
+        answer = wizard.services(kind="credit_note", contract=self.contract, against=run)
+
+        self.assertEqual(answer["source_run"], run)
+        self.assertEqual(len(answer["lines"]), 1)
+        line = answer["lines"][0]
+        self.assertEqual(getdate(line["covered_from"]), getdate("2026-09-25"))
+        self.assertEqual(getdate(line["covered_to"]), getdate("2026-09-30"))
+        self.assertLess(line["amount"], 0)
+        self.assertTrue(line["proof"])
+
+    def test_it_creates_the_credit_note_from_the_lines_chosen(self):
+        first = self.billed_ahead()
+        run = self.charge()
+        self.stops(first, "2026-09-24")
+
+        made = wizard.create(
+            kind="credit_note",
+            contract=self.contract,
+            include=[first],
+            against=run,
+            reason="Service ended on 24 September.",
+        )
+        self.track("MSP Billing Run", made["run"])
+
+        note = frappe.get_doc("MSP Billing Run", made["run"])
+
+        self.assertEqual(note.credit_note_of, run)
+        self.assertEqual(len(note.lines), 1)
+        self.assertEqual(note.lines[0].service_assignment, first)
+        self.assertLess(note.lines[0].billable_months, 0)
+
+    def test_two_lines_of_the_same_charge_are_credited_together(self):
+        first = self.billed_ahead()
+        second = self.billed_ahead(who=self.mary)
+        run = self.charge()
+        self.stops(first, "2026-09-24")
+        self.stops(second, "2026-09-24")
+
+        made = wizard.create(
+            kind="credit_note",
+            contract=self.contract,
+            include=[first, second],
+            against=run,
+            reason="Both services ended on 24 September.",
+        )
+        self.track("MSP Billing Run", made["run"])
+
+        note = frappe.get_doc("MSP Billing Run", made["run"])
+
+        self.assertEqual(
+            sorted(line.service_assignment for line in note.lines), sorted([first, second])
+        )
+
+    def test_a_line_nobody_chose_is_left_out_of_the_credit(self):
+        first = self.billed_ahead()
+        second = self.billed_ahead(who=self.mary)
+        run = self.charge()
+        self.stops(first, "2026-09-24")
+        self.stops(second, "2026-09-24")
+
+        made = wizard.create(
+            kind="credit_note", contract=self.contract, include=[second], against=run
+        )
+        self.track("MSP Billing Run", made["run"])
+
+        note = frappe.get_doc("MSP Billing Run", made["run"])
+
+        self.assertEqual([line.service_assignment for line in note.lines], [second])
+
+    def test_a_charge_of_another_contract_is_refused_as_a_source(self):
+        self.billed_ahead()
+        run = self.charge()
+        other = self.make_customer(f"{self.tag}B")
+
+        with self.assertRaises(ServiceRefused):
+            wizard.create(
+                kind="credit_note",
+                contract=other,
+                include=[],
+                against=run,
+            )
+
+    def test_nothing_owed_back_is_refused_rather_than_credited_at_zero(self):
+        self.billed_ahead()
+        run = self.charge()
+
+        with self.assertRaises(ServiceRefused):
+            wizard.create(kind="credit_note", contract=self.contract, against=run)
+
+
+class TestNothingChosenIsNotEverything(CreditCase):
+    def test_an_empty_selection_is_refused_on_a_charge(self):
+        assignment = self.billed_ahead()
+
+        with self.assertRaises(ServiceRefused):
+            wizard.create(
+                kind="period",
+                contract=self.contract,
+                period_start="2026-10-01",
+                period_end="2026-12-31",
+                include=[],
+            )
+
+        self.assertTrue(assignment)
+
+
+class TestTheAdditionsRunStaysItsOwn(CreditCase):
+    """A catch-up completes a charge: its window is the gap, never the next cycle."""
+
+    def test_it_is_drawn_on_the_window_it_was_given_and_says_what_it_completes(self):
+        self.billed_ahead()
+        run = self.charge()
+        late = self.running(self.service, client_user=self.mary)
+        frappe.db.set_value(
+            "MSP Service Assignment", late, "effective_start_date", "2026-08-04"
+        )
+        frappe.db.commit()
+
+        made = wizard.create(
+            kind="additions",
+            contract=self.contract,
+            period_start="2026-08-04",
+            period_end=self.END,
+            include=[late],
+            against=run,
+        )
+        self.track("MSP Billing Run", made["run"])
+
+        doc = frappe.get_doc("MSP Billing Run", made["run"])
+
+        self.assertEqual(doc.adjustment_of, run)
+        self.assertEqual(getdate(doc.billing_period_start), getdate("2026-08-04"))
+        self.assertEqual(getdate(doc.billing_period_end), getdate(self.END))
+        self.assertEqual([line.service_assignment for line in doc.lines], [late])
+
+    def test_the_listing_calls_it_additions_and_not_regular_billing(self):
+        self.billed_ahead()
+        run = self.charge()
+        late = self.running(self.service, client_user=self.mary)
+        frappe.db.set_value(
+            "MSP Service Assignment", late, "effective_start_date", "2026-08-04"
+        )
+        frappe.db.commit()
+
+        made = wizard.create(
+            kind="additions",
+            contract=self.contract,
+            period_start="2026-08-04",
+            period_end=self.END,
+            include=[late],
+            against=run,
+        )
+        self.track("MSP Billing Run", made["run"])
+
+        row = workspace._runs(made["run"], None, 1, 20)[0][0]
+
+        self.assertEqual(row["kind"], "Additions")
+
+
+class TestWhatTheServicesStepShowsOfAPause(OperationCase):
+    def test_a_service_paused_mid_period_comes_back_as_two_stretches(self):
+        start, end = self.month()
+        self.paused(self.assignment, add_days(start, 9), add_days(start, 14))
+
+        answer = wizard.services(
+            kind="period", contract=self.contract, period_start=start, period_end=end
+        )
+        line = next(row for row in answer["lines"] if row["id"] == self.assignment)
+
+        self.assertEqual(len(line["segments"]), 2)
+        self.assertIn("suspend", line["reason"].lower())
+
+    def test_a_service_paused_throughout_is_not_offered_as_due(self):
+        start, end = self.month()
+        self.paused(self.assignment, start, add_days(end, 1))
+
+        self.assertEqual(
+            BillingService._billable_over(self.contract, self.customer, start, end), 0
+        )
+
+
+class TestTheChargeOpenedForSomebodyToCut(CreditCase):
+    """A dispute is settled on the lines of the charge, not only on what was detected."""
+
+    def test_every_line_still_creditable_is_offered(self):
+        first = self.billed_ahead()
+        second = self.billed_ahead(who=self.mary)
+        run = self.charge()
+
+        answer = wizard.services(
+            kind="credit_note", contract=self.contract, against=run, scope="all"
+        )
+
+        self.assertEqual(answer["scope"], "all")
+        self.assertEqual(
+            sorted(line["id"] for line in answer["lines"]), sorted([first, second])
+        )
+        for line in answer["lines"]:
+            self.assertTrue(line["editable"])
+
+    def test_a_charge_in_arrears_has_nothing_detected_but_is_still_creditable(self):
+        """What the operator hit on BR-…-165: nothing owed back, everything creditable."""
+        self.billed_ahead()
+        frappe.db.set_value("MSP Contract", self.contract, "billing_timing", "In Arrears")
+        frappe.db.commit()
+        run = self.charge()
+
+        detected = wizard.services(kind="credit_note", contract=self.contract, against=run)
+        whole = wizard.services(
+            kind="credit_note", contract=self.contract, against=run, scope="all"
+        )
+
+        self.assertEqual(detected["lines"], [])
+        self.assertIn("stopped being served", detected["note"])
+        self.assertEqual(len(whole["lines"]), 1)
+
+    def test_the_operator_cuts_the_days_themselves(self):
+        first = self.billed_ahead()
+        run = self.charge()
+
+        made = wizard.create(
+            kind="credit_note",
+            contract=self.contract,
+            against=run,
+            include=[{"service_assignment": first, "from": "2026-09-05", "to": "2026-09-13"}],
+            reason="Their server was down from the 5th to the 13th.",
+        )
+        self.track("MSP Billing Run", made["run"])
+
+        note = frappe.get_doc("MSP Billing Run", made["run"])
+
+        self.assertEqual(note.credit_note_of, run)
+        # nine days of a thirty-day month, given back exactly
+        self.assertEqual(note.lines[0].billable_months, -0.3)
+
+    def test_days_outside_what_was_charged_are_refused(self):
+        first = self.billed_ahead()
+        run = self.charge()
+
+        with self.assertRaises(ServiceRefused):
+            wizard.create(
+                kind="credit_note",
+                contract=self.contract,
+                against=run,
+                include=[{"service_assignment": first, "from": "2026-10-01", "to": "2026-10-05"}],
+            )
+
+    def test_the_same_days_cannot_be_given_back_twice(self):
+        first = self.billed_ahead()
+        run = self.charge()
+
+        made = wizard.create(
+            kind="credit_note",
+            contract=self.contract,
+            against=run,
+            include=[{"service_assignment": first, "from": "2026-09-05", "to": "2026-09-13"}],
+        )
+        self.track("MSP Billing Run", made["run"])
+
+        with self.assertRaises(ServiceRefused):
+            wizard.create(
+                kind="credit_note",
+                contract=self.contract,
+                against=run,
+                include=[{"service_assignment": first, "from": "2026-09-10", "to": "2026-09-20"}],
+            )
+
+    def test_a_line_without_days_or_months_is_refused(self):
+        first = self.billed_ahead()
+        run = self.charge()
+
+        with self.assertRaises(ServiceRefused):
+            wizard.create(
+                kind="credit_note",
+                contract=self.contract,
+                against=run,
+                include=[{"service_assignment": first}],
+            )
+
+
+class TestWhatTheRunPageSaysAboutCrediting(CreditCase):
+    def test_it_reports_the_credit_it_detects(self):
+        first = self.billed_ahead()
+        run = self.charge()
+        self.stops(first, "2026-09-24")
+
+        view = run_view.run_view(run)
+
+        self.assertIsNotNone(view["credit_detected"])
+        self.assertEqual(view["credit_detected"]["lines"], 1)
+        self.assertLess(view["credit_detected"]["amount"], 0)
+
+    def test_it_reports_nothing_when_nothing_stopped_early(self):
+        self.billed_ahead()
+        run = self.charge()
+
+        self.assertIsNone(run_view.run_view(run)["credit_detected"])

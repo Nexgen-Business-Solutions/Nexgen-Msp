@@ -73,9 +73,23 @@ def _proposal(contract, kind):
 
 
 def _source_run(contract, against=None):
-    """The charge a credit stands against: the one named, or the last one issued."""
+    """The charge a credit stands against: the one named, or the last one issued.
+
+    A run named by the caller is checked against the contract it is claimed to belong to.
+    Crediting one customer's invoice from another customer's screen is not a mistake the
+    server lets a payload make.
+    """
     if against:
-        return against
+        row = frappe.db.get_value(
+            "MSP Billing Run", against, ["name", "contract", "customer", "docstatus"], as_dict=True
+        )
+
+        if not row or row.contract != contract:
+            raise ValidationError(
+                f"{against} is not a billing run of {contract}.", "VALIDATION_ERROR"
+            )
+
+        return row.name
 
     charged = BillingService._latest_charge(contract)
 
@@ -136,6 +150,28 @@ def context(kind="period", contract=None, period_start=None, period_end=None, ag
     }
 
 
+def _segments_of(line):
+    """The stretches a line was live over, as the engine wrote them down.
+
+    A line paused in the middle is two stretches; showing one unbroken period would ask
+    somebody to approve days nobody served.
+    """
+    segments = line.get("segments")
+
+    if segments:
+        return segments
+
+    stored = line.get("billable_segments_json")
+
+    if stored:
+        try:
+            return frappe.parse_json(stored) or []
+        except Exception:
+            return []
+
+    return []
+
+
 def _candidate(line, reason, covered, proof=False):
     """One line as the Services step reads it, whatever operation it belongs to."""
     return {
@@ -147,7 +183,7 @@ def _candidate(line, reason, covered, proof=False):
         "device": line.get("hostname"),
         "covered_from": line.get("covered_from"),
         "covered_to": line.get("covered_to"),
-        "segments": line.get("segments") or [],
+        "segments": _segments_of(line),
         "months": flt(line.get("billable_months"), 3),
         "days": line.get("billable_days"),
         "quantity": flt(line.get("quantity") or 1),
@@ -173,7 +209,7 @@ def _why(line, kind, timing):
             "Effective inside a period already charged, and no run covers these days yet."
         )
 
-    if line.get("segments") and len(line["segments"]) > 1:
+    if len(_segments_of(line)) > 1:
         return "Suspended days are excluded; only the stretches actually served are billed."
 
     if timing == "In Advance":
@@ -182,7 +218,79 @@ def _why(line, kind, timing):
     return "Delivered over the period being billed."
 
 
-def services(kind="period", contract=None, period_start=None, period_end=None, against=None):
+def _credit_candidates(source, scope):
+    """The lines of a charge a credit can be built from.
+
+    Two different questions are asked of the same charge. `detected` answers "what stopped
+    being served after it was paid for", which is the proposal the Billing page raises on
+    its own. `all` answers "what of this charge is still creditable", which is what an
+    operator settling a dispute needs: every line that has months left, with the window it
+    was billed over, for them to cut as the case requires.
+    """
+    lines = []
+
+    for line in source["lines"]:
+        owed = line.get("owed_back") or {}
+        remaining = flt(line.get("remaining_months") or 0, 3)
+        rate = flt(line.get("unit_rate") or 0) * flt(line.get("quantity") or 1)
+
+        if scope == "detected":
+            months = flt(owed.get("months") or 0, 3)
+
+            if not months:
+                continue
+
+            lines.append(
+                {
+                    **_candidate(
+                        {**line, "billable_months": months, "amount": -flt(months * rate, 2)},
+                        "Service ended on "
+                        f"{owed.get('ended_on')}, inside a period charged in advance; "
+                        f"{owed.get('unused_days')} days were paid for and not served. "
+                        "Confirm the original quantity, rate and any credit already given.",
+                        "History to verify",
+                        proof=True,
+                    ),
+                    "covered_from": owed.get("unused_from"),
+                    "covered_to": owed.get("unused_to"),
+                    "days": owed.get("unused_days"),
+                    "editable": False,
+                }
+            )
+            continue
+
+        if remaining <= 0:
+            continue
+
+        given = flt(line.get("credited_months") or 0, 3)
+        lines.append(
+            {
+                **_candidate(
+                    {**line, "billable_months": remaining, "amount": -flt(remaining * rate, 2)},
+                    f"Billed {flt(line.get('billable_months') or 0, 3)} months over "
+                    f"{line.get('covered_from')} – {line.get('covered_to')}"
+                    + (f", {given} already credited" if given else "")
+                    + ". Choose the stretch to give back.",
+                    "Already credited" if given else "On this charge",
+                    proof=True,
+                ),
+                "covered_from": line.get("covered_from"),
+                "covered_to": line.get("covered_to"),
+                "editable": True,
+            }
+        )
+
+    return lines
+
+
+def services(
+    kind="period",
+    contract=None,
+    period_start=None,
+    period_end=None,
+    against=None,
+    scope="detected",
+):
     """Step 2 — the candidates, each with the reason it is there."""
     BillingService._guard_admin()
 
@@ -194,6 +302,7 @@ def services(kind="period", contract=None, period_start=None, period_end=None, a
         if not run:
             return {
                 "kind": kind,
+                "scope": scope,
                 "currency": terms.currency,
                 "source_run": None,
                 "lines": [],
@@ -205,42 +314,28 @@ def services(kind="period", contract=None, period_start=None, period_end=None, a
             }
 
         source = BillingService.creditable_lines(run)
-        lines = []
-
-        for line in source["lines"]:
-            owed = line.get("owed_back") or {}
-            months = flt(owed.get("months") or 0, 3)
-
-            if not months:
-                continue
-
-            amount = flt(months * flt(line.get("unit_rate") or 0) * flt(line.get("quantity") or 1), 2)
-            lines.append(
-                {
-                    **_candidate(
-                        {**line, "billable_months": months, "amount": -amount},
-                        "Service ended on "
-                        f"{owed.get('ended_on')}, inside a period charged in advance; "
-                        f"{owed.get('unused_days')} days were paid for and not served. "
-                        "Confirm the original quantity, rate and any credit already given.",
-                        "History to verify",
-                        proof=True,
-                    ),
-                    "covered_from": owed.get("unused_from"),
-                    "covered_to": owed.get("unused_to"),
-                    "days": owed.get("unused_days"),
-                }
-            )
+        lines = _credit_candidates(source, "all" if scope == "all" else "detected")
 
         return {
             "kind": kind,
+            "scope": scope,
             "currency": terms.currency,
             "source_run": run,
-            "source_invoice": source.get("sales_invoice"),
+            "source_invoice": source.get("invoice"),
+            "source_period": {
+                "from": source.get("period_start"),
+                "to": source.get("period_end"),
+            },
             "billed_in_advance": source.get("billed_in_advance"),
             "lines": lines,
             "blocked": [],
-            "note": None,
+            "note": None
+            if lines
+            else (
+                "Nothing of this charge is left to credit."
+                if scope == "all"
+                else "Nothing on this charge stopped being served after it was paid for."
+            ),
         }
 
     preview = BillingService.preview(
@@ -258,8 +353,10 @@ def services(kind="period", contract=None, period_start=None, period_end=None, a
 
     return {
         "kind": kind,
+        "scope": scope,
         "currency": preview["currency"],
         "source_run": None,
+        "source_period": None,
         "lines": eligible,
         "blocked": blocked,
         "note": None,
@@ -304,6 +401,11 @@ def create(
     include = frappe.parse_json(include) if isinstance(include, str) else include
     dimensions = frappe.parse_json(dimensions) if isinstance(dimensions, str) else dimensions
 
+    # nothing chosen is not everything: a payload that says "none" is refused rather than
+    # read as "all", which is how a whole contract gets billed by an empty selection
+    if include is not None and not include:
+        raise ValidationError("Select at least one service line.", "VALIDATION_ERROR")
+
     if kind == "credit_note":
         run = _source_run(contract, against)
 
@@ -313,7 +415,61 @@ def create(
                 "VALIDATION_ERROR",
             )
 
-        created = BillingService.create_credit_note(name=run, lines=include, reason=reason)
+        chosen = list(include or [])
+        rows = []
+
+        # an operator settling a dispute cuts the stretch themselves; the engine still
+        # checks every one of them against what was charged and what was already given back
+        if chosen and isinstance(chosen[0], dict):
+            for row in chosen:
+                assignment = row.get("service_assignment") or row.get("id")
+
+                if not assignment:
+                    raise ValidationError(
+                        "Each credited line names its service assignment.", "VALIDATION_ERROR"
+                    )
+
+                asked = {"service_assignment": assignment}
+
+                if row.get("from") and row.get("to"):
+                    asked["from"], asked["to"] = row["from"], row["to"]
+                elif row.get("months"):
+                    asked["months"] = row["months"]
+                else:
+                    raise ValidationError(
+                        f"{assignment}: give the stretch to credit, or the months.",
+                        "VALIDATION_ERROR",
+                    )
+
+                rows.append(asked)
+        else:
+            # the proposal as it was detected: the stretch is read off the charge itself,
+            # so no window arrives from a browser
+            source = BillingService.creditable_lines(run)
+            wanted = set(chosen)
+
+            for line in source["lines"]:
+                owed = line.get("owed_back") or {}
+
+                if not owed or (wanted and line["service_assignment"] not in wanted):
+                    continue
+
+                rows.append(
+                    {
+                        "service_assignment": line["service_assignment"],
+                        "from": owed["unused_from"],
+                        "to": owed["unused_to"],
+                    }
+                )
+
+        if not rows:
+            raise ValidationError(
+                "Nothing on the chosen lines is owed back on this charge.", "VALIDATION_ERROR"
+            )
+
+        created = BillingService.create_credit_note(
+            name=run, lines=frappe.as_json(rows), reason=reason
+        )
 
         return {"run": created["name"], "kind": kind}
 
@@ -323,6 +479,8 @@ def create(
         period_end=period_end,
         include=include,
         discount_percent=discount_percent,
+        # a catch-up is a run of its own kind, and says which charge it completes
+        adjustment_of=_source_run(contract, against) if kind == "additions" else None,
     )
 
     # the accounting answers are used where they were asked for: at drafting time

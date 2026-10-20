@@ -62,7 +62,9 @@ def _moves(run):
         ("invoice_pdf", "Invoice PDF", "quiet", run["invoice_submitted"]),
         ("breakdown", "Breakdown file", "quiet", True),
         ("resolve_dispute", "Settle the dispute", "warn", run["can_resolve_dispute"]),
-        ("contest", "Contest invoice", "quiet", run["can_contest"]),
+        # a customer contests their invoice from their own portal; what this side offers
+        # against a posted charge is a credit note, prepared like any other operation
+        ("credit", "Create credit note", "quiet", run["can_contest"]),
         ("cancel", "Cancel run", "danger", run["can_cancel"]),
     ]
 
@@ -100,6 +102,40 @@ def _activity(run):
     return events
 
 
+def _credit_detected(run):
+    """What this charge owes back on its own reading, when it can be credited at all.
+
+    Said on the page the way `Ready to bill` says it: a proposal somebody opens, never a
+    document raised behind their back.
+    """
+    if not run["can_contest"]:
+        return None
+
+    try:
+        source = BillingService.creditable_lines(run["name"])
+    except Exception:
+        return None
+
+    owed = [line for line in source["lines"] if line.get("owed_back")]
+
+    if not owed:
+        return None
+
+    amount = sum(
+        flt(line["owed_back"]["months"])
+        * flt(line.get("unit_rate") or 0)
+        * flt(line.get("quantity") or 1)
+        for line in owed
+    )
+
+    return {
+        "lines": len(owed),
+        "months": flt(source.get("owed_back_months"), 3),
+        "amount": -flt(amount, 2),
+        "currency": source.get("currency"),
+    }
+
+
 def run_view(name=None):
     """The whole page in one read."""
     run = BillingService.get_run(name=name)
@@ -112,6 +148,7 @@ def run_view(name=None):
         "stages": list(STAGES),
         "settled": run["status"] in SETTLED,
         "moves": _moves(run),
+        "credit_detected": _credit_detected(run),
         "activity": _activity(run),
         "figures": {
             "amount": flt(run["total_amount"], 2),

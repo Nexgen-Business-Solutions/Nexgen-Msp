@@ -110,6 +110,12 @@ export default function BillingRunDetail() {
   const currency = data.currency ?? '';
   const blocked = data.lines.filter((line) => line.exception_code);
 
+  /** Crediting this charge: the proposal as detected, or its lines for somebody to cut. */
+  const creditPath = (scope: 'detected' | 'all') =>
+    `/msp/billing/new?kind=credit_note&contract=${encodeURIComponent(data.contract ?? '')}` +
+    `&start=${data.billing_period_start}&end=${data.billing_period_end}` +
+    `&against=${data.name}&scope=${scope}`;
+
   // every move the run allows, drawn where the decision is taken
   const run = (what: string) => {
     if (what === 'invoice') return setInvoicing(true);
@@ -119,12 +125,8 @@ export default function BillingRunDetail() {
     if (what === 'breakdown') return downloadBreakdownFile(data.name);
     if (what === 'edit_invoice')
       return window.open(salesInvoiceDeskUrl(data.sales_invoice as string), '_blank');
-    if (what === 'credit')
-      return navigate(
-        `/msp/billing/new?kind=credit_note&contract=${encodeURIComponent(
-          data.contract ?? ''
-        )}&start=${data.billing_period_start}&end=${data.billing_period_end}&against=${data.name}`
-      );
+    // a credit stands against this very run, never against whatever was charged last
+    if (what === 'credit') return navigate(creditPath('all'));
 
     return void move(what);
   };
@@ -168,11 +170,7 @@ export default function BillingRunDetail() {
                 {entry.label}
               </button>
             ))}
-            {data.can_contest && (
-              <button type="button" onClick={() => run('credit')} className={btn}>
-                Create credit note
-              </button>
-            )}
+
           </div>
         </div>
 
@@ -234,6 +232,24 @@ export default function BillingRunDetail() {
               Open request {data.dispute_request}
             </button>
           )}
+        </Banner>
+      )}
+
+      {/* what this charge owes back on its own reading, offered the way Ready to bill
+          offers it: a proposal somebody opens, never a document raised on its own */}
+      {data.credit_detected && (
+        <Banner tone="amber" title="A credit note is detected on this run.">
+          {data.credit_detected.lines} line
+          {data.credit_detected.lines > 1 ? 's' : ''} ·{' '}
+          {money(data.credit_detected.amount, data.credit_detected.currency)} paid for and not
+          served.
+          <button
+            type="button"
+            onClick={() => navigate(creditPath('detected'))}
+            className="ml-1 font-bold underline underline-offset-2"
+          >
+            Review credit →
+          </button>
         </Banner>
       )}
 

@@ -39,7 +39,7 @@ const STATUS_FILTERS = [
   { value: 'open', label: 'Open / Draft', tabs: ['runs', 'invoices'] },
   { value: 'awaiting', label: 'Awaiting approval', tabs: ['runs'] },
   { value: 'posted', label: 'Posted / Paid', tabs: ['runs', 'invoices'] },
-  { value: 'issue', label: 'Exceptions / Disputed', tabs: ['runs', 'invoices'] },
+  { value: 'issue', label: 'Exceptions / Disputed', tabs: ['runs'] },
 ];
 
 const RUN_COLUMNS = [
@@ -152,10 +152,13 @@ export default function Billing() {
       return;
     }
 
+    // the window of the operation itself: a catch-up must never open on the next cycle
     navigate(
       `/msp/billing/new?kind=${operation.kind}` +
         `&contract=${encodeURIComponent(operation.contract)}` +
-        `&start=${operation.run_start}&end=${operation.run_end}`
+        `&start=${operation.period_start ?? operation.run_start}` +
+        `&end=${operation.period_end ?? operation.run_end}` +
+        (operation.run ? `&against=${encodeURIComponent(operation.run)}` : '')
     );
   };
 

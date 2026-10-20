@@ -1303,7 +1303,8 @@ def billing_operation_context(
 @frappe.whitelist()
 @handle_errors
 def billing_operation_services(
-    kind="period", contract=None, period_start=None, period_end=None, against=None
+    kind="period", contract=None, period_start=None, period_end=None, against=None,
+    scope="detected",
 ):
     return _wizard().services(
         kind=kind,
@@ -1311,6 +1312,7 @@ def billing_operation_services(
         period_start=period_start,
         period_end=period_end,
         against=against,
+        scope=scope,
     )
 
 

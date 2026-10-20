@@ -1400,6 +1400,12 @@ export type BillingRunDetail = {
 /** A billing run as its own page reads it: the record, plus what the screen decides. */
 export type BillingRunView = BillingRunDetail & {
   kind: string;
+  credit_detected: {
+    lines: number;
+    months: number;
+    amount: number;
+    currency: string | null;
+  } | null;
   stage: number;
   stages: string[];
   settled: boolean;
@@ -1467,13 +1473,18 @@ export type BillingCandidate = {
   covered: string;
   proof: boolean;
   eligible: boolean;
+  /** a credit the operator cuts themselves, rather than one the engine proposed */
+  editable?: boolean;
 };
 
 export type BillingOperationServices = {
   kind: string;
+  /** `detected` is the proposal the engine raised; `all` is the charge, cut by the operator */
+  scope: string;
   currency: string | null;
   source_run: string | null;
   source_invoice?: string | null;
+  source_period?: { from: string; to: string } | null;
   billed_in_advance?: boolean;
   lines: BillingCandidate[];
   blocked: BillingCandidate[];
@@ -1496,6 +1507,7 @@ export type BillingOperationQuery = {
   period_start?: string;
   period_end?: string;
   against?: string;
+  scope?: string;
 };
 
 export const getBillingOperationContext = (query: BillingOperationQuery, signal?: AbortSignal) =>
@@ -1513,7 +1525,7 @@ export const createBillingOperation = (payload: {
   contract: string;
   period_start?: string;
   period_end?: string;
-  include?: string[];
+  include?: (string | { service_assignment: string; from?: string; to?: string; months?: number })[];
   dimensions?: Record<string, string>;
   exchange_rate?: number;
   discount_percent?: number;

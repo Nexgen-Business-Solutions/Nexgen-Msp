@@ -26,7 +26,7 @@ RUN_BUCKETS = {
 }
 
 INVOICE_BUCKETS = {
-    "open": ["Draft", "Unpaid", "Overdue"],
+    "open": ["Draft", "Unpaid", "Overdue", "Partly Paid"],
     "posted": ["Paid", "Return", "Credit Note Issued"],
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Search } from 'lucide-react';
 import type { BillingCandidate } from '@/lib/api/internal';
 import {
   useCreateOperation,
@@ -77,6 +77,8 @@ export default function NewBillingRun() {
   const [start, setStart] = useState(params.get('start') ?? '');
   const [end, setEnd] = useState(params.get('end') ?? '');
   const against = params.get('against') ?? undefined;
+  // the proposal as it was detected, or the whole charge for the operator to cut
+  const scope = params.get('scope') === 'all' ? 'all' : 'detected';
 
   const [step, setStep] = useState(0);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
@@ -84,11 +86,15 @@ export default function NewBillingRun() {
   const [exchange, setExchange] = useState('');
   const [discount, setDiscount] = useState('0');
   const [draftInvoice, setDraftInvoice] = useState(true);
+  const [hunt, setHunt] = useState('');
+  const [windows, setWindows] = useState<Record<string, { from: string; to: string }>>({});
   const [accepted, setAccepted] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
 
   const contracts = useMspContracts({ status: 'Active' });
-  const query = contract ? { kind, contract, period_start: start, period_end: end, against } : null;
+  const query = contract
+    ? { kind, contract, period_start: start, period_end: end, against, scope }
+    : null;
   const context = useOperationContext(query);
   const services = useOperationServices(step >= 1 && query ? query : null);
   const accounting = useOperationAccounting(contract, step >= 2);
@@ -107,8 +113,22 @@ export default function NewBillingRun() {
   useEffect(() => {
     if (!services.data) return;
 
+    const editable = services.data.lines.some((line) => line.editable);
+
+    // a charge opened to be cut starts with nothing ticked: the operator says what goes
     setSelected(
-      Object.fromEntries(services.data.lines.map((line) => [line.id, true] as const))
+      Object.fromEntries(services.data.lines.map((line) => [line.id, !editable] as const))
+    );
+    setWindows(
+      Object.fromEntries(
+        services.data.lines.map((line) => [
+          line.id,
+          {
+            from: String(line.covered_from ?? '').slice(0, 10),
+            to: String(line.covered_to ?? '').slice(0, 10),
+          },
+        ])
+      )
     );
   }, [services.data]);
 
@@ -126,9 +146,21 @@ export default function NewBillingRun() {
     });
   }, [accounting.data]);
 
-  const lines = useMemo(() => services.data?.lines ?? [], [services.data]);
+  const all = useMemo(() => services.data?.lines ?? [], [services.data]);
   const blocked = services.data?.blocked ?? [];
-  const chosen = lines.filter((line) => selected[line.id]);
+  const needle = hunt.trim().toLowerCase();
+  const lines = useMemo(
+    () =>
+      needle
+        ? all.filter((line) =>
+            `${line.service} ${line.person} ${line.device ?? ''} ${line.assignment}`
+              .toLowerCase()
+              .includes(needle)
+          )
+        : all,
+    [all, needle]
+  );
+  const chosen = all.filter((line) => selected[line.id]);
   const total = chosen.reduce((sum, line) => sum + line.amount, 0);
   const currency = terms?.currency ?? services.data?.currency ?? '';
 
@@ -156,6 +188,12 @@ export default function NewBillingRun() {
 
     if (step === 1) {
       if (!chosen.length) return setRefused('Select at least one service.');
+
+      const blank = chosen.find(
+        (line) => line.editable && !(windows[line.id]?.from && windows[line.id]?.to)
+      );
+
+      if (blank) return setRefused(`Give the days to credit on ${blank.service}.`);
     }
 
     if (step === 2 && draftInvoice && missingDimension) {
@@ -171,7 +209,15 @@ export default function NewBillingRun() {
           contract,
           period_start: start,
           period_end: end,
-          include: chosen.map((line) => line.id),
+          include: chosen.map((line) =>
+            line.editable
+              ? {
+                  service_assignment: line.id,
+                  from: windows[line.id]?.from,
+                  to: windows[line.id]?.to,
+                }
+              : line.id
+          ),
           dimensions: draftInvoice ? dimensions : undefined,
           exchange_rate: exchange ? Number(exchange) : undefined,
           discount_percent: kind === 'credit_note' ? 0 : Number(discount || 0),
@@ -367,32 +413,59 @@ export default function NewBillingRun() {
               {services.data?.note && <Banner tone="amber">{services.data.note}</Banner>}
 
               {kind === 'credit_note' && lines.length > 0 && (
-                <Banner tone="amber" title="Credit against coverage already billed.">
-                  Keeping a line selected confirms its original coverage, quantity, rate and any
-                  credit already given have been checked. Hover a line to read why it is proposed.
+                <Banner
+                  tone="amber"
+                  title={
+                    scope === 'all'
+                      ? 'Every line of this charge that can still be credited.'
+                      : 'Credit detected on this charge.'
+                  }
+                >
+                  {scope === 'all'
+                    ? 'Tick what is being given back and set the days for each line. Nothing outside what was charged, and nothing already credited, will be accepted.'
+                    : 'These are the days paid for and not served. Keeping a line selected confirms its original coverage, quantity, rate and any credit already given have been checked.'}{' '}
+                  {services.data?.source_run && `Against ${services.data.source_run}.`}
                 </Banner>
               )}
 
-              {lines.length > 0 && (
+              {all.length > 0 && (
                 <div className="flex flex-wrap items-center gap-2 text-xs">
                   <strong className="font-bold text-slate-800">{chosen.length} selected</strong>
-                  <span className="text-slate-400">of {lines.length} shown</span>
+                  <span className="text-slate-400">
+                    of {all.length}
+                    {needle ? ` · ${lines.length} shown` : ''}
+                  </span>
+                  <div className="relative ml-auto min-w-[14rem]">
+                    <Search
+                      size={14}
+                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                    />
+                    <input
+                      value={hunt}
+                      onChange={(event) => setHunt(event.target.value)}
+                      placeholder="Search a service, a person or a machine…"
+                      className="h-9 w-full rounded-lg border border-slate-200 pl-9 pr-3 text-xs outline-none transition-colors focus:border-blue-400"
+                    />
+                  </div>
                   <button
                     type="button"
                     onClick={() => {
-                      const all = chosen.length === lines.length;
-                      setSelected(
-                        Object.fromEntries(lines.map((line) => [line.id, !all] as const))
-                      );
+                      // what the search shows is what the button acts on
+                      const every = lines.every((line) => selected[line.id]);
+
+                      setSelected((current) => ({
+                        ...current,
+                        ...Object.fromEntries(lines.map((line) => [line.id, !every] as const)),
+                      }));
                     }}
-                    className={`${btn} ml-auto`}
+                    className={btn}
                   >
-                    {chosen.length === lines.length ? 'Deselect all' : 'Select all'}
+                    {lines.every((line) => selected[line.id]) ? 'Deselect all' : 'Select all'}
                   </button>
                 </div>
               )}
 
-              <div className="divide-y divide-slate-100 rounded-xl border border-slate-200">
+              <div className="max-h-[52vh] divide-y divide-slate-100 overflow-auto rounded-xl border border-slate-200">
                 {grouped.map(([person, rows]) => (
                   <div key={person}>
                     <div className="flex items-center justify-between gap-2 bg-slate-50/70 px-4 py-1.5">
@@ -429,9 +502,48 @@ export default function NewBillingRun() {
                             {line.device ? ` · ${line.device}` : ''}
                           </span>
                         </span>
-                        <span className="hidden whitespace-nowrap text-[11px] text-slate-500 sm:block">
-                          {day(line.covered_from)} – {day(line.covered_to)}
-                        </span>
+                        {line.editable ? (
+                          <span
+                            className="flex shrink-0 items-center gap-1"
+                            onClick={(event) => event.preventDefault()}
+                          >
+                            <input
+                              type="date"
+                              aria-label={`Credit ${line.service} from`}
+                              value={windows[line.id]?.from ?? ''}
+                              onChange={(event) =>
+                                setWindows((current) => ({
+                                  ...current,
+                                  [line.id]: {
+                                    from: event.target.value,
+                                    to: current[line.id]?.to ?? '',
+                                  },
+                                }))
+                              }
+                              className="h-8 rounded-lg border border-slate-200 px-2 text-[11px] outline-none focus:border-blue-400"
+                            />
+                            <span className="text-slate-300">–</span>
+                            <input
+                              type="date"
+                              aria-label={`Credit ${line.service} to`}
+                              value={windows[line.id]?.to ?? ''}
+                              onChange={(event) =>
+                                setWindows((current) => ({
+                                  ...current,
+                                  [line.id]: {
+                                    from: current[line.id]?.from ?? '',
+                                    to: event.target.value,
+                                  },
+                                }))
+                              }
+                              className="h-8 rounded-lg border border-slate-200 px-2 text-[11px] outline-none focus:border-blue-400"
+                            />
+                          </span>
+                        ) : (
+                          <span className="hidden whitespace-nowrap text-[11px] text-slate-500 sm:block">
+                            {day(line.covered_from)} – {day(line.covered_to)}
+                          </span>
+                        )}
                         <span className="w-20 shrink-0 text-right text-[11px] text-slate-400">
                           {line.months} mo
                         </span>
@@ -449,7 +561,12 @@ export default function NewBillingRun() {
 
                 {!services.isLoading && lines.length === 0 && (
                   <p className="p-6 text-center text-xs text-slate-400">
-                    Nothing is billable on this window.
+                    {needle
+                      ? 'Nothing matches that search.'
+                      : (services.data?.note ??
+                        (kind === 'credit_note'
+                          ? 'Nothing of this charge is left to credit.'
+                          : 'Nothing is billable on this window.'))}
                   </p>
                 )}
               </div>
@@ -509,7 +626,7 @@ export default function NewBillingRun() {
                 ))}
 
                 <div>
-                  <Label htmlFor="posting-date">Posting date</Label>
+                  <Label htmlFor="posting-date">Posting date (set by ERPNext)</Label>
                   <input
                     id="posting-date"
                     readOnly
@@ -518,7 +635,7 @@ export default function NewBillingRun() {
                   />
                 </div>
                 <div>
-                  <Label htmlFor="payment-terms">Payment terms</Label>
+                  <Label htmlFor="payment-terms">Payment terms (from the customer)</Label>
                   <input
                     id="payment-terms"
                     readOnly

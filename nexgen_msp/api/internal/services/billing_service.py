@@ -3437,6 +3437,15 @@ class BillingService:
         method = source["proration_method"]
         wanted = {}
         windows = {}
+
+        # two people crediting the same charge at the same moment would each read the
+        # credits as they stood before the other wrote: the source run is held until this
+        # note is written, so the second request reads the first one's days as given back
+        frappe.db.sql(
+            "select name from `tabMSP Billing Run` where name = %(run)s for update",
+            {"run": name},
+        )
+
         # the stretches already given back on this invoice, so the same days cannot be
         # returned a second time under a different note
         given_back = frappe.db.sql(
@@ -3866,6 +3875,21 @@ class BillingService:
         if not rows:
             return 0
 
+        # the pauses come off before anything is counted, exactly as a run would cut them:
+        # a service suspended throughout owes nothing, and offering it reads as work
+        paused = {}
+
+        for pause in frappe.get_all(
+            "MSP Service Suspension",
+            filters={
+                "parenttype": "MSP Service Assignment",
+                "parent": ("in", [row.name for row in rows]),
+            },
+            fields=["parent", "suspended_on", "resumed_on"],
+            order_by="parent asc, suspended_on asc",
+        ):
+            paused.setdefault(pause.parent, []).append(pause)
+
         window = coverage_intervals.span(period_start, period_end)
         covered = coverage_resolver.coverage_of(rows)
         owed = 0
@@ -3876,6 +3900,15 @@ class BillingService:
                     row.effective_start_date, row.effective_end_date or period_end
                 ),
                 window,
+            )
+            live = coverage_intervals.subtract(
+                live,
+                [
+                    (first, last)
+                    for first, last in BillingService._suspended_intervals(
+                        row, paused.get(row.name, []), period_start, period_end
+                    )
+                ],
             )
 
             if coverage_resolver.due_over(live, covered[row.name]):
