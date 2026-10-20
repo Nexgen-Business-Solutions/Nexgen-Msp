@@ -661,86 +661,6 @@ def _billing():
 
 @frappe.whitelist()
 @handle_errors
-def preview_billing_run(
-    contract=None,
-    period_start=None,
-    period_end=None,
-    adjustment_of=None,
-    filters=None,
-    discount_percent=0,
-):
-    return _billing().preview(
-        contract=contract,
-        period_start=period_start,
-        period_end=period_end,
-        adjustment_of=adjustment_of,
-        filters=filters,
-        discount_percent=discount_percent,
-    )
-
-
-@frappe.whitelist()
-@handle_errors
-def get_billing_filter_options(customer=None):
-    return _billing().filter_options(customer=customer)
-
-
-@frappe.whitelist()
-@handle_errors
-def generate_billing_run(
-    contract=None,
-    period_start=None,
-    period_end=None,
-    adjustment_of=None,
-    include=None,
-    discount_percent=0,
-):
-    return _billing().generate(
-        contract=contract,
-        period_start=period_start,
-        period_end=period_end,
-        adjustment_of=adjustment_of,
-        include=include,
-        discount_percent=discount_percent,
-    )
-
-
-@frappe.whitelist()
-@handle_errors
-def list_billing_runs(
-    customer=None,
-    customers=None,
-    status=None,
-    statuses=None,
-    contract=None,
-    period_from=None,
-    period_to=None,
-    search=None,
-    start=0,
-    page_length=20,
-):
-    return _billing().list_runs(
-        customer=customer,
-        customers=customers,
-        status=status,
-        statuses=statuses,
-        contract=contract,
-        period_from=period_from,
-        period_to=period_to,
-        search=search,
-        start=start,
-        page_length=page_length,
-    )
-
-
-@frappe.whitelist()
-@handle_errors
-def get_billing_run(name=None):
-    return _billing().get_run(name=name)
-
-
-@frappe.whitelist()
-@handle_errors
 def revalidate_billing_run(name=None):
     return _billing().revalidate(name=name)
 
@@ -753,12 +673,6 @@ def remove_from_billing_run(name=None, service_assignment=None):
 
 @frappe.whitelist()
 @handle_errors
-def add_to_billing_run(name=None, service_assignment=None):
-    return _billing().add_to_run(name=name, service_assignment=service_assignment)
-
-
-@frappe.whitelist()
-@handle_errors
 def approve_billing_run(name=None):
     return _billing().approve(name=name)
 
@@ -767,12 +681,6 @@ def approve_billing_run(name=None):
 @handle_errors
 def cancel_billing_run(name=None):
     return _billing().cancel(name=name)
-
-
-@frappe.whitelist()
-@handle_errors
-def discard_billing_run(name=None):
-    return _billing().discard(name=name)
 
 
 @frappe.whitelist()
@@ -1348,16 +1256,106 @@ def submit_invoice_billing_run(name=None, notify=1, recipients=None):
     return _billing().submit_invoice(name=name, notify=notify, recipients=recipients)
 
 
-@frappe.whitelist()
-@handle_errors
-def prepare_credit(contract=None):
-    return _billing().prepare_credit(contract=contract)
+def _invoices():
+    from nexgen_msp.api.internal.services import sales_invoice_service
+
+    return sales_invoice_service
 
 
 @frappe.whitelist()
 @handle_errors
-def get_pending_adjustments(contract=None):
-    return _billing().pending_for(contract=contract)
+def billing_workspace(tab="runs", search=None, status=None, page=1, page_length=20):
+    from nexgen_msp.api.internal.services.billing import workspace
+
+    return workspace.workspace(
+        tab=tab, search=search, status=status, page=page, page_length=page_length
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def billing_run_view(name=None):
+    from nexgen_msp.api.internal.services.billing import run_view
+
+    return run_view.run_view(name=name)
+
+
+def _wizard():
+    from nexgen_msp.api.internal.services.billing import wizard
+
+    return wizard
+
+
+@frappe.whitelist()
+@handle_errors
+def billing_operation_context(
+    kind="period", contract=None, period_start=None, period_end=None, against=None
+):
+    return _wizard().context(
+        kind=kind,
+        contract=contract,
+        period_start=period_start,
+        period_end=period_end,
+        against=against,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def billing_operation_services(
+    kind="period", contract=None, period_start=None, period_end=None, against=None
+):
+    return _wizard().services(
+        kind=kind,
+        contract=contract,
+        period_start=period_start,
+        period_end=period_end,
+        against=against,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def billing_operation_accounting(contract=None):
+    return _wizard().accounting(contract=contract)
+
+
+@frappe.whitelist()
+@handle_errors
+def create_billing_operation(
+    kind="period",
+    contract=None,
+    period_start=None,
+    period_end=None,
+    include=None,
+    dimensions=None,
+    exchange_rate=None,
+    discount_percent=0,
+    reason=None,
+    against=None,
+    draft_invoice=0,
+):
+    return _wizard().create(
+        kind=kind,
+        contract=contract,
+        period_start=period_start,
+        period_end=period_end,
+        include=include,
+        dimensions=dimensions,
+        exchange_rate=exchange_rate,
+        discount_percent=discount_percent,
+        reason=reason,
+        against=against,
+        draft_invoice=draft_invoice,
+    )
+
+
+
+
+@frappe.whitelist()
+@handle_errors
+def get_sales_invoice_detail(name=None):
+    return _invoices().invoice_detail(name=name)
 
 
 @frappe.whitelist()
@@ -1436,34 +1434,6 @@ def set_msp_contract_status(name=None, status=None):
 
 @frappe.whitelist()
 @handle_errors
-def get_billing_breakdown(name=None):
-    return _billing().breakdown(name=name)
-
-
-@frappe.whitelist()
-@handle_errors
-def build_billing_breakdown_file(name=None):
-    from nexgen_msp.utils.billing_export import attach_breakdown
-
-    _billing()._guard_admin()
-
-    return attach_breakdown(name)
-
-
-@frappe.whitelist()
-@handle_errors
-def get_creditable_lines(name=None):
-    return _billing().creditable_lines(name=name)
-
-
-@frappe.whitelist()
-@handle_errors
-def create_credit_note(name=None, lines=None, reason=None):
-    return _billing().create_credit_note(name=name, lines=lines, reason=reason)
-
-
-@frappe.whitelist()
-@handle_errors
 def download_billing_invoice(name=None):
     from nexgen_msp.utils import invoice_pdf
 
@@ -1489,12 +1459,6 @@ def download_billing_breakdown(name=None):
     )
     frappe.local.response.filecontent = breakdown_workbook(data)
     frappe.local.response.type = "download"
-
-
-@frappe.whitelist()
-@handle_errors
-def get_billing_due(horizon_days=30):
-    return _billing().due(horizon_days=horizon_days)
 
 
 @frappe.whitelist()

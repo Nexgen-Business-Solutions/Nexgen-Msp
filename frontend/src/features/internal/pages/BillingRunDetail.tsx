@@ -1,130 +1,95 @@
-import React, { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import {
-  AlertCircle,
-  ArrowLeft,
-  FileCheck2,
-  FileSearch,
-  FileSpreadsheet,
-  Printer,
-  ReceiptText,
-  PencilLine,
-  RefreshCw,
-  RotateCcw,
-  Undo2,
-  ShieldCheck,
-  TriangleAlert,
-  X,
-} from 'lucide-react';
+import { AlertCircle, ArrowLeft, ShieldCheck } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
-import FieldLabel from '@/shared/components/FieldLabel';
-import StatusBadge from '@/shared/components/StatusBadge';
-import BillingProgressStepper from '../components/BillingProgressStepper';
 import BillingExceptionGroup from '../components/BillingExceptionGroup';
-import { stageOf } from '../lib/billingStage';
-import { isAdvisory, isBlocking } from '../lib/billingExceptions';
-import CreditNoteModal from '../components/CreditNoteModal';
 import InvoiceAccountingModal from '../components/InvoiceAccountingModal';
 import InvoicePanel from '../components/InvoicePanel';
 import NotifyRecipientsModal from '../components/NotifyRecipientsModal';
 import { subjectOf } from '../lib/billingSubject';
 import { downloadBreakdownFile, downloadInvoicePdf, salesInvoiceDeskUrl } from '@/lib/api/internal';
+import type { BillingRunLine } from '@/lib/api/internal';
 import {
-  useBillingRun,
+  useBillingRunView,
   useRemoveFromBillingRun,
   useRunAction,
   useSetLineDiscount,
 } from '../hooks/useBilling';
+import {
+  Banner,
+  Card,
+  CardHead,
+  ContextBar,
+  Divider,
+  Empty,
+  Foot,
+  InfoPanel,
+  Metric,
+  PanelTitle,
+  Pill,
+  Stepper,
+  Summary,
+  Td,
+  Th,
+  btn,
+  btnPrimary,
+  btnWarn,
+} from '../components/billing/ui';
+import { day, money } from '../components/billing/format';
 
-const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
+const COLUMNS = ['Service / assignment', 'User / device', 'Coverage', 'Months', 'Rate', 'Discount', 'Amount', 'Note', ''];
 
-const Stat = ({
-  label,
-  value,
-  hint,
-  alert,
-}: {
-  label: string;
-  value: React.ReactNode;
-  hint?: string;
-  alert?: boolean;
-}) => (
-  <div>
-    <p className="text-xs font-medium text-slate-400">{label}</p>
-    <p
-      className={`mt-0.5 text-xl font-bold tabular-nums ${
-        alert ? 'text-amber-600' : 'text-slate-900'
-      }`}
-    >
-      {value}
-    </p>
-    {hint && <p className="mt-0.5 text-xs text-slate-400">{hint}</p>}
-  </div>
-);
+const KIND_TONE: Record<string, 'blue' | 'amber' | 'purple' | 'gray'> = {
+  'Regular billing': 'blue',
+  Additions: 'amber',
+  'Credit note': 'purple',
+  'Historical coverage': 'gray',
+};
 
-const COLUMNS = [
-  'Service',
-  'User',
-  'Device',
-  'Covered',
-  'Months',
-  'Rate',
-  'Discount',
-  'Amount',
-  'Note',
-  '',
-];
+const statusTone = (status: string) =>
+  status === 'Invoiced'
+    ? ('green' as const)
+    : // a run somebody stopped: said in the one colour nobody reads as progress
+      status === 'Cancelled'
+      ? ('red' as const)
+      : status === 'Exception' || status === 'Ready for Approval'
+        ? ('amber' as const)
+        : ('blue' as const);
 
+/**
+ * One billing run, read as the record of a decision rather than as a form.
+ *
+ * The head says what it is and what it still allows; the four figures say what it holds;
+ * the lines say how each amount was reached. A run nobody can move any further carries no
+ * progress bar at all — it is history by then.
+ */
 export default function BillingRunDetail() {
   const { name = '' } = useParams();
   const navigate = useNavigate();
-  const detail = useBillingRun(name);
+  const view = useBillingRunView(name);
   const action = useRunAction();
-  const [contesting, setContesting] = useState(false);
-  const [telling, setTelling] = useState(false);
-  const [resolving, setResolving] = useState(false);
-  const [invoicing, setInvoicing] = useState(false);
-  const [outcome, setOutcome] = useState('');
-  const setDiscount = useSetLineDiscount();
   const drop = useRemoveFromBillingRun();
+  const setDiscount = useSetLineDiscount();
+  const [settling, setSettling] = useState(false);
+  const [outcome, setOutcome] = useState('');
+  const [invoicing, setInvoicing] = useState(false);
+  const [telling, setTelling] = useState(false);
 
-  const data = detail.data;
+  const data = view.data;
 
-  // what an administrator counts before approving: how many lines, on how many people and
-  // machines, for how many months, and what each service weighs in the total
-  const stats = useMemo(() => {
-    const billed = (data?.lines ?? []).filter((line) => !line.exception_code);
-    const blocked = (data?.lines ?? []).filter((line) => isBlocking(line.exception_code)).length;
-    const covered = (data?.lines ?? []).filter((line) => isAdvisory(line.exception_code)).length;
-    const tally = new Map<string, { name: string; count: number; months: number; amount: number }>();
+  const move = async (what: string, extra?: Record<string, unknown>) => {
+    try {
+      const result = await action.mutateAsync({ action: what, name, extra });
+      // reopening produces an amendment under a new name, so follow it
+      if (result.name !== name) navigate(`/msp/billing/${result.name}`);
 
-    for (const line of billed) {
-      const key = line.service_item;
-      const row = tally.get(key) ?? {
-        name: line.service_name || key,
-        count: 0,
-        months: 0,
-        amount: 0,
-      };
-      row.count += 1;
-      row.months += line.billable_months;
-      row.amount += line.amount;
-      tally.set(key, row);
+      return true;
+    } catch {
+      return false;
     }
+  };
 
-    return {
-      billable: billed.length,
-      blocked,
-      covered,
-      people: new Set(billed.map((line) => line.client_user).filter(Boolean)).size,
-      devices: new Set(billed.map((line) => line.hostname).filter(Boolean)).size,
-      months: billed.reduce((sum, line) => sum + line.billable_months, 0),
-      perService: [...tally.values()].sort((a, b) => b.amount - a.amount),
-    };
-  }, [data?.lines]);
-
-
-  if (detail.isLoading) {
+  if (view.isLoading) {
     return (
       <div className="flex items-center justify-center p-16">
         <span className="h-8 w-8 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />
@@ -132,331 +97,152 @@ export default function BillingRunDetail() {
     );
   }
 
-  if (detail.error || !data) {
+  if (view.error || !data) {
     return (
       <div className="px-6 pb-6 pt-4">
         <div className="rounded-xl border border-red-100 bg-red-50 p-6 text-sm text-red-700">
-          {(detail.error as Error)?.message || 'Billing run not found.'}
+          {(view.error as Error)?.message || 'Billing run not found.'}
         </div>
       </div>
     );
   }
 
   const currency = data.currency ?? '';
-  const run = async (verb: string, extra?: Record<string, unknown>) => {
-    try {
-      const result = await action.mutateAsync({ action: verb, name: name as string, extra });
+  const blocked = data.lines.filter((line) => line.exception_code);
 
-      // reopening produces an amendment under a new name, so follow it
-      if (result.name !== name) navigate(`/msp/billing/${result.name}`);
+  // every move the run allows, drawn where the decision is taken
+  const run = (what: string) => {
+    if (what === 'invoice') return setInvoicing(true);
+    if (what === 'submit_invoice') return setTelling(true);
+    if (what === 'resolve_dispute') return setSettling(true);
+    if (what === 'invoice_pdf') return downloadInvoicePdf(data.name);
+    if (what === 'breakdown') return downloadBreakdownFile(data.name);
+    if (what === 'edit_invoice')
+      return window.open(salesInvoiceDeskUrl(data.sales_invoice as string), '_blank');
+    if (what === 'credit')
+      return navigate(
+        `/msp/billing/new?kind=credit_note&contract=${encodeURIComponent(
+          data.contract ?? ''
+        )}&start=${data.billing_period_start}&end=${data.billing_period_end}&against=${data.name}`
+      );
 
-      return true;
-    } catch {
-      // shown by the error banner below
-      return false;
-    }
+    return void move(what);
   };
+
+  const look = (style: string) =>
+    style === 'primary' ? btnPrimary : style === 'warn' ? btnWarn : btn;
 
   return (
     <div className="space-y-5 px-6 pb-6 pt-4">
       <button
         type="button"
         onClick={() => navigate('/msp/billing')}
-        className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 transition-colors hover:text-slate-800"
+        className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 transition-colors hover:text-slate-800"
       >
-        <ArrowLeft size={15} />
-        Back to billing runs
+        <ArrowLeft size={14} />
+        Back to billing
       </button>
 
-      <div className="rounded-xl border border-slate-200 bg-white px-6 py-3 shadow-sm">
-        <BillingProgressStepper
-          current={stageOf(data.status, Boolean(data.sales_invoice))}
-          attention={data.exception_count > 0 ? 'validation' : null}
+      <Card>
+        <div className="flex flex-wrap items-start justify-between gap-3 px-5 py-4">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="text-lg font-bold tracking-tight text-slate-900">{data.name}</h1>
+              <Pill tone={KIND_TONE[data.kind] ?? 'gray'}>{data.kind}</Pill>
+              <Pill tone={statusTone(data.status)}>{data.status}</Pill>
+              {data.disputed && <Pill tone="red">Disputed</Pill>}
+            </div>
+            <p className="mt-1 text-xs text-slate-400">
+              {data.customer} · {day(data.billing_period_start)} – {day(data.billing_period_end)}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {data.moves.map((entry) => (
+              <button
+                key={entry.action}
+                type="button"
+                onClick={() => run(entry.action)}
+                disabled={action.isLoading}
+                className={look(entry.look)}
+              >
+                {entry.label}
+              </button>
+            ))}
+            {data.can_contest && (
+              <button type="button" onClick={() => run('credit')} className={btn}>
+                Create credit note
+              </button>
+            )}
+          </div>
+        </div>
+
+        <ContextBar
+          facts={[
+            { label: 'Customer', value: data.customer },
+            { label: 'Contract', value: data.contract_title || data.contract || '—' },
+            {
+              label: 'Terms',
+              value: [data.billing_frequency, data.billing_timing].filter(Boolean).join(' / ') || '—',
+            },
+            { label: 'Proration', value: data.proration_method || '—' },
+            { label: 'Prepared by', value: data.prepared_by || '—' },
+          ]}
+        />
+
+        {!data.settled && <Stepper steps={data.stages} current={data.stage} />}
+      </Card>
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Metric
+          label="Amount"
+          value={money(data.figures.amount, currency)}
+          hint={data.is_credit_note ? 'credited back' : 'before taxes'}
+        />
+        <Metric
+          label="Billing lines"
+          value={data.figures.billed_lines}
+          hint={`of ${data.figures.lines} · ${data.figures.months.toFixed(1)} months`}
+        />
+        <Metric
+          label="Exceptions"
+          value={data.figures.exceptions}
+          hint={data.figures.exceptions ? 'to resolve before posting' : 'nothing held back'}
+        />
+        <Metric
+          label="Sales invoice"
+          value={data.sales_invoice ?? 'Not created'}
+          hint={
+            data.sales_invoice
+              ? data.invoice_submitted
+                ? 'posted in ERPNext'
+                : 'draft — not posted yet'
+              : undefined
+          }
         />
       </div>
 
-      <div className="rounded-xl border border-slate-100 bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <div className="flex flex-wrap items-center gap-2.5">
-              <h1 className="text-lg font-bold text-slate-900">{data.name}</h1>
-              <StatusBadge value={data.status} />
-              {data.disputed && (
-                <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
-                  DISPUTED
-                </span>
-              )}
-              {data.credit_note_of && (
-                <span className="rounded-full bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
-                  CREDIT NOTE OF {data.credit_note_of}
-                </span>
-              )}
-              {data.adjustment_of && (
-                <span className="rounded-full bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
-                  ADJUSTMENT OF {data.adjustment_of}
-                </span>
-              )}
-            </div>
-            <p className="mt-2 text-sm text-slate-500">
-              {data.customer} · {data.period_label} · {fmtDate(data.billing_period_start)} →{' '}
-              {fmtDate(data.billing_period_end)}
-            </p>
-            {data.contract_title && (
-              <p className="mt-1 text-xs text-slate-400">Contract: {data.contract_title}</p>
-            )}
-            {data.approved_by && (
-              <p className="mt-1 text-xs text-slate-400">
-                Approved by {data.approved_by} on {fmtDate(data.approved_at)}
-              </p>
-            )}
-            {data.sales_order && (
-              <p className="mt-1 text-xs text-slate-400">Order {data.sales_order}</p>
-            )}
-            {data.sales_invoice && (
-              <p className="mt-1 text-sm font-medium text-emerald-600">
-                Invoiced as {data.sales_invoice}
-                <span className="ml-1.5 text-xs font-normal text-slate-500">
-                  ({data.invoice_submitted ? 'posted' : 'draft — not posted yet'})
-                </span>
-              </p>
-            )}
-          </div>
-
-          <div className="text-right">
-            <p className="text-xs font-medium text-slate-400">Total</p>
-            <p className="text-2xl font-bold text-slate-900 tabular-nums">
-              {(data.total_amount || 0).toLocaleString()} {currency}
-            </p>
-            <p className="text-xs text-slate-400">
-              {data.lines.length - data.exception_count} of {data.lines.length} lines billable
-            </p>
-          </div>
-        </div>
-
-        {/* who the run was billed to on the day it was drawn: a company that moves office
-            later does not rewrite what was invoiced */}
-        <div className="mt-5 border-t border-slate-100 pt-4">
-          <p className="text-xs font-medium text-slate-400">Billed to</p>
-          <p className="mt-1 text-sm font-medium text-slate-800">
-            {data.billing_identity?.customer_name_snapshot || data.customer}
-            {data.billing_identity?.tax_id_snapshot && (
-              <span className="ml-2 font-normal text-slate-500">
-                {data.billing_identity.tax_id_snapshot}
-              </span>
-            )}
-          </p>
-          {data.billing_identity?.billing_address_snapshot && (
-            <p className="mt-0.5 whitespace-pre-line text-xs text-slate-500">
-              {data.billing_identity.billing_address_snapshot}
-            </p>
-          )}
-          {data.billing_identity?.billing_contact_snapshot && (
-            <p className="mt-0.5 whitespace-pre-line text-xs text-slate-400">
-              {data.billing_identity.billing_contact_snapshot}
-            </p>
-          )}
-        </div>
-
-        <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-4 border-t border-slate-100 pt-4 sm:grid-cols-3 lg:grid-cols-6">
-          <Stat label="Billed lines" value={stats.billable} hint={`of ${data.lines.length}`} />
-          <Stat label="People" value={stats.people} hint="distinct users" />
-          <Stat label="Devices" value={stats.devices} hint="distinct machines" />
-          <Stat label="Services" value={stats.perService.length} hint="on this run" />
-          <Stat label="Months billed" value={stats.months.toFixed(1)} hint="user-months" />
-          <Stat
-            label="Blocked"
-            value={stats.blocked}
-            hint={
-              stats.blocked
-                ? 'to resolve before approving'
-                : stats.covered
-                  ? `nothing held back · ${stats.covered} already covered`
-                  : 'nothing held back'
-            }
-            alert={stats.blocked > 0}
-          />
-        </div>
-
-        {stats.perService.length > 0 && (
-          <div className="mt-4 flex flex-wrap gap-2">
-            {stats.perService.map((row) => (
-              <div
-                key={row.name}
-                className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
-              >
-                <p className="text-sm font-semibold text-slate-900">
-                  {row.count}
-                  <span className="ml-1.5 font-medium text-slate-500">{row.name}</span>
-                </p>
-                <p className="mt-0.5 text-xs text-slate-400 tabular-nums">
-                  {row.months.toFixed(1)} months · {row.amount.toLocaleString()} {currency}
-                </p>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {data.disputed && (
-          <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
-            <TriangleAlert size={16} className="mt-0.5 shrink-0 text-amber-600" />
-            <div className="text-sm text-amber-800">
-              <p className="font-semibold">
-                The customer disputed this invoice on {fmtDate(data.disputed_on)}
-              </p>
-              <p className="mt-1">{data.dispute_reason}</p>
-              {data.dispute_request && (
-                <button
-                  type="button"
-                  onClick={() => navigate(`/msp/requests/${data.dispute_request}`)}
-                  className="mt-1.5 text-xs font-semibold underline underline-offset-2"
-                >
-                  Open request {data.dispute_request}
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-
-
-        {/* nothing here was charged by this application: it records what happened before */}
-        {data.reconstructed && (
-          <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-blue-100 bg-blue-50 p-3">
-            <FileSearch size={16} className="mt-0.5 shrink-0 text-blue-600" />
-            <div className="text-sm text-blue-900">
-              <p className="font-semibold">
-                Recorded as already charged — no invoice was raised from this run
-              </p>
-              {data.coverage_evidence && <p className="mt-1">{data.coverage_evidence}</p>}
-            </div>
-          </div>
-        )}
-
-        <div className="mt-5 flex flex-wrap items-center gap-2">
-          {data.can_revalidate && (
+      {data.disputed && (
+        <Banner title="Invoice disputed.">
+          {data.dispute_reason} Settling a dispute does not alter the invoice; a credit note, if
+          justified, is a separate operation.
+          {data.dispute_request && (
             <button
               type="button"
-              onClick={() => run('revalidate')}
-              disabled={action.isLoading}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60"
+              onClick={() => navigate(`/msp/requests/${data.dispute_request}`)}
+              className="ml-1 font-bold underline underline-offset-2"
             >
-              <RefreshCw size={15} />
-              Revalidate
+              Open request {data.dispute_request}
             </button>
           )}
-          {(data.can_approve || data.can_invoice) && (
-            <button
-              type="button"
-              onClick={() => setInvoicing(true)}
-              disabled={action.isLoading}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:opacity-60"
-            >
-              <ShieldCheck size={15} />
-              {data.can_approve ? 'Approve and invoice' : 'Create invoice'}
-            </button>
-          )}
+        </Banner>
+      )}
 
-          {data.can_submit_invoice && (
-            <button
-              type="button"
-              onClick={() => setTelling(true)}
-              disabled={action.isLoading}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:opacity-60"
-            >
-              <FileCheck2 size={15} />
-              {data.is_credit_note ? 'Submit credit note' : 'Submit invoice'}
-            </button>
-          )}
-          {data.can_discard_invoice && (
-            <a
-              href={salesInvoiceDeskUrl(data.sales_invoice as string)}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
-            >
-              <PencilLine size={15} />
-              Edit invoice
-            </a>
-          )}
-          {data.can_reopen && (
-            <button
-              type="button"
-              onClick={() => run('reopen')}
-              disabled={action.isLoading}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60"
-            >
-              <RotateCcw size={15} />
-              Reopen run
-            </button>
-          )}
-          {data.can_discard_invoice && (
-            <button
-              type="button"
-              onClick={() => run('discard_invoice')}
-              disabled={action.isLoading}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60"
-            >
-              <Undo2 size={15} />
-              Discard invoice
-            </button>
-          )}
-          {data.invoice_submitted && (
-            <button
-              type="button"
-              onClick={() => downloadInvoicePdf(data.name)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
-            >
-              <Printer size={15} />
-              Invoice PDF
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => downloadBreakdownFile(data.name)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
-          >
-            <FileSpreadsheet size={15} />
-            Breakdown file
-          </button>
-          {data.can_resolve_dispute && (
-            <button
-              type="button"
-              onClick={() => setResolving(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-amber-700"
-            >
-              <ShieldCheck size={15} />
-              Settle the dispute
-            </button>
-          )}
-          {data.can_contest && (
-            <button
-              type="button"
-              onClick={() => setContesting(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
-            >
-              <ReceiptText size={15} />
-              Contest invoice
-            </button>
-          )}
-          {data.can_cancel && (
-            <button
-              type="button"
-              onClick={() => run('cancel')}
-              disabled={action.isLoading}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:opacity-60"
-            >
-              <X size={15} />
-              Cancel run
-            </button>
-          )}
-        </div>
-
-        {action.error instanceof Error && (
-          <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
-            <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
-            <span className="text-sm font-medium text-red-700">{action.error.message}</span>
-          </div>
-        )}
-      </div>
+      {data.reconstructed && (
+        <Banner tone="blue" title="Historical coverage recorded.">
+          {data.coverage_evidence ||
+            'This run records a charge raised before this application. No invoice was ever drawn from it here.'}
+        </Banner>
+      )}
 
       <BillingExceptionGroup
         run={data.name}
@@ -464,184 +250,137 @@ export default function BillingRunDetail() {
         canEdit={Boolean(data.can_revalidate)}
       />
 
-      {data.sales_invoice && <InvoicePanel run={data.name} isAdmin />}
-
-      <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
-        <div className="px-5 py-4">
-          <h2 className="text-base font-semibold text-slate-900">Lines</h2>
-          <p className="mt-0.5 text-sm text-slate-400">
-            Blocked lines first. Each line keeps the formula used to compute it.
-          </p>
-        </div>
-
-        <div className="max-h-[62vh] overflow-auto px-5 pb-4">
-          <table className="w-full">
-            <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
-              <tr>
-                {COLUMNS.map((column, index) => (
-                  <th
-                    key={column}
-                    className={`whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 ${
-                      index === 0 ? 'rounded-l-lg' : ''
-                    } ${index === COLUMNS.length - 1 ? 'rounded-r-lg' : ''}`}
-                  >
-                    {column}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {data.lines.map((line) => (
-                <tr
-                  key={`${line.service_assignment}-${line.idx}`}
-                  className={`transition-colors hover:bg-slate-50 ${
-                    isBlocking(line.exception_code) ? 'bg-amber-50/40' : ''
-                  }`}
-                >
-                  <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
-                    {line.service_name}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-700">
-                    {subjectOf(line)}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                    {line.hostname || 'N/A'}
-                    {line.serial_number && (
-                      <p className="text-xs text-slate-400">{line.serial_number}</p>
-                    )}
-                    {line.holder_context && (
-                      <p
-                        className="text-xs text-slate-400"
-                        title={`Held during the period by ${line.holder_context}`}
-                      >
-                        held by {line.holder_context.split(':')[0]}
-                      </p>
-                    )}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm font-medium text-slate-700 tabular-nums">
-                    {line.billable_months}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-500">
-                    {line.segments && line.segments.length > 1 ? (
-                      <div className="space-y-0.5">
-                        {line.segments.map((segment) => (
-                          <p key={segment.from}>
-                            {segment.from}
-                            <span className="text-slate-300"> → </span>
-                            {segment.to}
-                          </p>
-                        ))}
-                        <p className="text-amber-600">paused in between</p>
-                      </div>
-                    ) : line.covered_from ? (
-                      <>
-                        {line.covered_from.slice(0, 10)}
-                        <span className="text-slate-300"> → </span>
-                        {line.covered_to?.slice(0, 10)}
-                      </>
-                    ) : (
-                      '—'
-                    )}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600 tabular-nums">
-                    {line.exception_code || line.unit_rate === null
-                      ? '—'
-                      : line.unit_rate.toLocaleString()}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3">
-                    {data.can_discount_lines ? (
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        step="1"
-                        defaultValue={line.discount_percent || ''}
-                        onBlur={(event) => {
-                          const next = Number(event.target.value || 0);
-                          if (next !== line.discount_percent) {
-                            setDiscount.mutate({
-                              name: data.name,
-                              service_assignment: line.service_assignment,
-                              discount_percent: next,
-                            });
-                          }
-                        }}
-                        placeholder="0"
-                        className="h-8 w-16 rounded-md border border-slate-200 px-2 text-right text-sm tabular-nums outline-none focus:border-blue-500"
-                      />
-                    ) : (
-                      <span className="text-sm text-slate-600 tabular-nums">
-                        {line.discount_percent ? `${line.discount_percent}%` : '—'}
-                      </span>
-                    )}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900 tabular-nums">
-                    {line.amount.toLocaleString()}
-                    {line.discount_percent > 0 && (
-                      <span className="ml-1.5 text-xs font-normal text-slate-400 line-through">
-                        {line.gross_amount.toLocaleString()}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    {line.exception_code ? (
-                      <div>
-                        <span
-                          className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                            isAdvisory(line.exception_code)
-                              ? 'bg-slate-100 text-slate-600'
-                              : 'bg-amber-100 text-amber-700'
-                          }`}
-                        >
-                          {line.exception_code}
-                        </span>
-                        {line.exception_detail && (
-                          <p
-                            className={`mt-1 max-w-xs text-xs ${
-                              isAdvisory(line.exception_code)
-                                ? 'text-slate-500'
-                                : 'text-amber-700'
-                            }`}
-                          >
-                            {line.exception_detail}
-                          </p>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-xs text-slate-400">{line.proration_method}</span>
-                    )}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3">
-                    <div className="flex justify-end">
-                      {data.can_revalidate && (
-                        <button
-                          type="button"
-                          disabled={drop.isLoading}
-                          onClick={() =>
-                            drop.mutate({
-                              name: data.name,
-                              service_assignment: line.service_assignment,
-                            })
-                          }
-                          title="Take this off the run. The service itself is untouched."
-                          aria-label={`Remove ${line.service_name} from this run`}
-                          className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
-                        >
-                          <X size={14} />
-                        </button>
-                      )}
-                    </div>
-                  </td>
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <Card>
+          <CardHead
+            title="Billing lines"
+            hint="Quantities, coverage periods and service changes, as they were drawn."
+            right={
+              <button type="button" onClick={() => downloadBreakdownFile(data.name)} className={btn}>
+                Breakdown file
+              </button>
+            }
+          />
+          <div className="max-h-[62vh] overflow-auto">
+            <table className="w-full">
+              <thead>
+                <tr>
+                  {COLUMNS.map((column, index) => (
+                    <Th key={column || index} align={index >= 3 && index <= 6 ? 'right' : 'left'}>
+                      {column}
+                    </Th>
+                  ))}
                 </tr>
+              </thead>
+              <tbody>
+                {data.lines.length === 0 && <Empty span={COLUMNS.length}>Nothing on this run.</Empty>}
+                {[...data.lines]
+                  .sort((left, right) => Number(Boolean(right.exception_code)) - Number(Boolean(left.exception_code)))
+                  .map((line) => (
+                    <LineRow
+                      key={line.service_assignment}
+                      line={line}
+                      currency={currency}
+                      canDiscount={Boolean(data.can_discount_lines)}
+                      canRemove={Boolean(data.can_revalidate)}
+                      onDiscount={(percent) =>
+                        setDiscount.mutate({
+                          name: data.name,
+                          service_assignment: line.service_assignment,
+                          discount_percent: percent,
+                        })
+                      }
+                      onRemove={() =>
+                        drop.mutate({ name: data.name, service_assignment: line.service_assignment })
+                      }
+                    />
+                  ))}
+              </tbody>
+            </table>
+          </div>
+          <Foot
+            left={`${data.figures.billed_lines} billed · ${blocked.length} held back`}
+            right={
+              <strong className="text-sm font-bold text-slate-800">
+                {money(data.figures.amount, currency)}
+              </strong>
+            }
+          />
+        </Card>
+
+        <div className="space-y-4">
+          <InfoPanel>
+            <PanelTitle>Run details</PanelTitle>
+            <Summary
+              rows={[
+                { label: 'Billing timing', value: data.billing_timing || '—' },
+                { label: 'Frequency', value: data.billing_frequency || '—' },
+                { label: 'Proration', value: data.proration_method || '—' },
+                { label: 'People', value: data.figures.people },
+                { label: 'Devices', value: data.figures.devices },
+                { label: 'Prepared by', value: data.prepared_by || '—' },
+                {
+                  label: 'Approved by',
+                  value: data.approved_by ? `${data.approved_by} · ${day(data.approved_at)}` : '—',
+                },
+              ]}
+            />
+
+            <Divider />
+            <PanelTitle>Documents</PanelTitle>
+            <Summary
+              rows={[
+                {
+                  label: 'Sales invoice',
+                  value: data.sales_invoice ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        navigate(`/msp/billing/invoices/${encodeURIComponent(data.sales_invoice as string)}`)
+                      }
+                      className="font-bold text-blue-600 hover:underline"
+                    >
+                      {data.sales_invoice}
+                    </button>
+                  ) : (
+                    'Not created'
+                  ),
+                },
+                { label: 'Sales order', value: data.sales_order || '—' },
+                { label: 'Billed to', value: data.billing_identity?.customer_name_snapshot || data.customer },
+              ]}
+            />
+
+            <Divider />
+            <PanelTitle>Activity</PanelTitle>
+            <ul className="space-y-2.5">
+              {data.activity.map((event, index) => (
+                <li key={`${event.label}-${index}`} className="flex gap-2.5 text-[11px] text-slate-500">
+                  <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-blue-300" />
+                  <span>
+                    {event.label}
+                    {event.by && <span className="text-slate-400"> · {event.by}</span>}
+                    {event.on && <span className="text-slate-400"> · {day(event.on)}</span>}
+                  </span>
+                </li>
               ))}
-            </tbody>
-          </table>
+            </ul>
+          </InfoPanel>
+
+          {data.sales_invoice && <InvoicePanel run={data.name} isAdmin />}
         </div>
       </div>
 
+      {action.error instanceof Error && (
+        <div className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
+          <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
+          <span className="text-sm font-medium text-red-700">{action.error.message}</span>
+        </div>
+      )}
+
       <Modal
-        open={resolving}
-        onClose={() => setResolving(false)}
+        open={settling}
+        onClose={() => setSettling(false)}
         icon={ShieldCheck}
         tone="amber"
         title="Settle this dispute"
@@ -649,54 +388,33 @@ export default function BillingRunDetail() {
         widthClass="max-w-2xl"
         footer={
           <div className="flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setResolving(false)}
-              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-            >
+            <button type="button" onClick={() => setSettling(false)} className={btn}>
               Cancel
             </button>
             <button
               type="button"
               disabled={action.isLoading}
               onClick={async () => {
-                await run('resolve_dispute', { note: outcome || undefined });
-                setResolving(false);
-                setOutcome('');
+                if (await move('resolve_dispute', { note: outcome || undefined })) {
+                  setSettling(false);
+                  setOutcome('');
+                }
               }}
-              className="flex min-w-[8rem] items-center justify-center rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-amber-700 disabled:opacity-60"
+              className={btnPrimary}
             >
-              {action.isLoading ? (
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-              ) : (
-                'Settle'
-              )}
+              Settle the dispute
             </button>
           </div>
         }
       >
-        <div className="space-y-4">
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-            <p className="font-semibold">What they told us</p>
-            <p className="mt-1">{data.dispute_reason}</p>
-          </div>
-
-          <div>
-            <FieldLabel>Outcome</FieldLabel>
-            <textarea
-              rows={4}
-              value={outcome}
-              onChange={(event) => setOutcome(event.target.value)}
-              placeholder="A credit note has been issued for the two people who left in May."
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-            />
-          </div>
-
-          <p className="text-sm text-slate-500">
-            If money is owed back, raise a credit note — settling the dispute does not move
-            any figures on its own.
-          </p>
-        </div>
+        <p className="text-xs text-slate-500">{data.dispute_reason}</p>
+        <textarea
+          value={outcome}
+          onChange={(event) => setOutcome(event.target.value)}
+          rows={4}
+          placeholder="Describe the investigation and its outcome."
+          className="mt-3 w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-blue-400"
+        />
       </Modal>
 
       <InvoiceAccountingModal
@@ -706,10 +424,10 @@ export default function BillingRunDetail() {
         error={action.error as Error | undefined}
         onClose={() => setInvoicing(false)}
         onConfirm={async (dimensions, exchangeRate) => {
-          // a refusal keeps the dialog up with the values typed, so nothing is retyped
           const step = data.can_approve ? 'finalise' : 'invoice';
+
           if (
-            await run(step, {
+            await move(step, {
               dimensions: JSON.stringify(dimensions),
               ...(exchangeRate ? { exchange_rate: exchangeRate } : {}),
             })
@@ -721,29 +439,126 @@ export default function BillingRunDetail() {
 
       <NotifyRecipientsModal
         open={telling}
-        run={name as string}
+        run={name}
         confirmLabel={data.is_credit_note ? 'Submit credit note' : 'Submit invoice'}
         busy={action.isLoading}
         onCancel={() => setTelling(false)}
         onConfirm={async (recipients) => {
-          const done = await run('submit_invoice', {
-            notify: recipients.length ? 1 : 0,
-            recipients: JSON.stringify(recipients),
-          });
-
-          if (done) setTelling(false);
-        }}
-      />
-
-      <CreditNoteModal
-        open={contesting}
-        run={data.name}
-        onClose={() => setContesting(false)}
-        onCreated={(created) => {
-          setContesting(false);
-          navigate(`/msp/billing/${created}`);
+          if (
+            await move('submit_invoice', {
+              notify: recipients.length ? 1 : 0,
+              recipients: JSON.stringify(recipients),
+            })
+          ) {
+            setTelling(false);
+          }
         }}
       />
     </div>
   );
 }
+
+const LineRow = ({
+  line,
+  currency,
+  canDiscount,
+  canRemove,
+  onDiscount,
+  onRemove,
+}: {
+  line: BillingRunLine;
+  currency: string;
+  canDiscount: boolean;
+  canRemove: boolean;
+  onDiscount: (percent: number) => void;
+  onRemove: () => void;
+}) => {
+  // who the line is about, and the machine it sits on when that is not the same thing
+  const subject = subjectOf(line);
+  const under = line.hostname && line.hostname !== subject ? line.hostname : line.department;
+
+  return (
+    <tr className="border-b border-slate-100 last:border-0 hover:bg-slate-50/60">
+      <Td className="max-w-[16rem] whitespace-normal">
+        <p className="truncate text-xs font-bold text-slate-800">{line.service_name}</p>
+        <p className="truncate text-[11px] text-slate-400">{line.service_assignment}</p>
+      </Td>
+      <Td className="max-w-[14rem] whitespace-normal">
+        <p className="truncate text-xs text-slate-700">{subject}</p>
+        {under && <p className="truncate text-[11px] text-slate-400">{under}</p>}
+      </Td>
+      <Td className="whitespace-normal tabular-nums">
+        {line.segments && line.segments.length > 1 ? (
+          <div className="space-y-0.5">
+            {line.segments.map((segment) => (
+              <p key={segment.from}>
+                {segment.from} <span className="text-slate-300">→</span> {segment.to}
+              </p>
+            ))}
+            <Pill tone="amber">Suspended days excluded</Pill>
+          </div>
+        ) : line.covered_from ? (
+          <>
+            {String(line.covered_from).slice(0, 10)} <span className="text-slate-300">→</span>{' '}
+            {String(line.covered_to).slice(0, 10)}
+          </>
+        ) : (
+          '—'
+        )}
+      </Td>
+      <Td align="right" className="tabular-nums">
+        {line.billable_months}
+      </Td>
+      <Td align="right" className="tabular-nums">
+        {line.exception_code || line.unit_rate === null ? '—' : line.unit_rate.toLocaleString()}
+      </Td>
+      <Td align="right">
+        {canDiscount ? (
+          <input
+            type="number"
+            min="0"
+            max="100"
+            step="1"
+            defaultValue={line.discount_percent || ''}
+            onBlur={(event) => {
+              const next = Number(event.target.value || 0);
+              if (next !== line.discount_percent) onDiscount(next);
+            }}
+            placeholder="0"
+            className="h-8 w-16 rounded-md border border-slate-200 px-2 text-right text-xs tabular-nums outline-none focus:border-blue-400"
+          />
+        ) : line.discount_percent ? (
+          `${line.discount_percent}%`
+        ) : (
+          '—'
+        )}
+      </Td>
+      <Td align="right" className="font-bold tabular-nums text-slate-800">
+        {money(line.amount, currency)}
+      </Td>
+      <Td className="max-w-[14rem] whitespace-normal">
+        {line.exception_code ? (
+          <div>
+            <Pill tone="amber">{line.exception_code}</Pill>
+            <p className="mt-1 text-[11px] text-slate-400">{line.exception_detail}</p>
+          </div>
+        ) : (
+          <span className="text-[11px] text-slate-400">{line.proration_method}</span>
+        )}
+      </Td>
+      <Td align="right">
+        {canRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            title="Take this off the run. The service itself is untouched."
+            aria-label={`Remove ${line.service_name} from this run`}
+            className="rounded-lg px-2 py-1 text-[11px] font-bold text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
+          >
+            Remove
+          </button>
+        )}
+      </Td>
+    </tr>
+  );
+};

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { as, dayOfThisMonth, go, ground, land, openJourneyRun, openOwnInvoice } from './ground';
 import {
   DIRECT,
@@ -33,30 +33,44 @@ const lastDay = () => {
   return dayOfThisMonth(new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate());
 };
 
+const openWizard = async (page: Page) => {
+  await go(page, 'Billing');
+  await page.getByRole('button', { name: 'New billing run' }).click();
+  await page.waitForLoadState('networkidle');
+
+  await page.getByRole('button', { name: 'Select a contract' }).click();
+  await page.getByRole('option', { name: new RegExp(ground.customer) }).first().click();
+
+  const dates = page.locator('input[type="date"]');
+
+  await dates.nth(0).fill(dayOfThisMonth(1));
+  await dates.nth(1).fill(lastDay());
+};
+
+/** The four steps, as an operator walks them: scope, services, accounting, confirm. */
+const prepareRun = async (page: Page) => {
+  await openWizard(page);
+
+  await page.getByRole('button', { name: 'Continue →' }).click();
+  await page.waitForLoadState('networkidle');
+  await page.getByRole('button', { name: 'Continue →' }).click();
+  await page.waitForLoadState('networkidle');
+  await page.getByRole('button', { name: 'Continue →' }).click();
+  await page.waitForLoadState('networkidle');
+
+  await page.getByLabel(/I have reviewed/).check();
+  await page.getByRole('button', { name: /^(Create billing run|Prepare invoice draft)$/ }).click();
+  await page.waitForLoadState('networkidle');
+};
+
 test.describe('The run is drawn', () => {
   test.use(as('admin'));
 
   test('a period is billed for the company, and the run opens on its own page', async ({ page }) => {
     await land(page);
-    await go(page, 'Billing');
-    await page.getByRole('button', { name: 'New run' }).click();
-    await page.waitForLoadState('networkidle');
+    await prepareRun(page);
 
-    await page.getByRole('button', { name: 'Select a contract' }).click();
-    await page.getByRole('option', { name: new RegExp(ground.customer) }).first().click();
-
-    const dates = page.locator('input[type="date"]');
-
-    await dates.nth(0).fill(dayOfThisMonth(1));
-    await dates.nth(1).fill(lastDay());
-
-    await page.getByRole('button', { name: 'Continue', exact: true }).click();
-    await page.waitForLoadState('networkidle');
-
-    await page.getByRole('button', { name: /Generate the run/ }).click();
-    await page.waitForLoadState('networkidle');
-
-    await expect(page.getByRole('heading', { name: /ZZE2E Journey|Billing run|BR-/ }).first()).toBeVisible({
+    await expect(page.getByRole('heading', { name: /BR-/ }).first()).toBeVisible({
       timeout: 40_000,
     });
   });
@@ -98,9 +112,9 @@ test.describe('The run is drawn', () => {
     await land(page);
     await openJourneyRun(page);
 
-    // Service | User | Device | Months | Covered | Rate | Discount | Amount | Note
+    // Service | User / device | Coverage | Months | Rate | Discount | Amount | Note
+    const COVERED = 2;
     const MONTHS = 3;
-    const COVERED = 4;
 
     const lineOf = async (person: string) => {
       const row = page
@@ -162,21 +176,15 @@ test.describe('The run is drawn', () => {
 
   test('drawing the same period twice is not silently done again', async ({ page }) => {
     await land(page);
-    await go(page, 'Billing');
-    await page.getByRole('button', { name: 'New run' }).click();
+    await openWizard(page);
+    await page.getByRole('button', { name: 'Continue →' }).click();
     await page.waitForLoadState('networkidle');
 
-    await page.getByRole('button', { name: 'Select a contract' }).click();
-    await page.getByRole('option', { name: new RegExp(ground.customer) }).first().click();
-
-    const dates = page.locator('input[type="date"]');
-
-    await dates.nth(0).fill(dayOfThisMonth(1));
-    await dates.nth(1).fill(lastDay());
-    await page.waitForLoadState('networkidle');
-
-    // the screen says the period is already covered rather than quietly billing it twice
-    await expect(page.getByText(/already|billed|covered/i).first()).toBeVisible({ timeout: 25_000 });
+    // the same period drawn twice comes back with nothing left to bill, rather than
+    // quietly charging it again
+    await expect(
+      page.getByText(/Already Invoiced|Already Covered|cannot be billed|nothing is billable/i).first()
+    ).toBeVisible({ timeout: 25_000 });
   });
 });
 

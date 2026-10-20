@@ -7,11 +7,13 @@ from frappe.utils import add_days, flt, getdate
 from nexgen_msp.api.internal.services.accounting_dimension_service import (
     AccountingDimensionService,
 )
+from nexgen_msp.api.internal.services import coverage_resolver
 from nexgen_msp.api.internal.services.contract_service import ContractService
 from nexgen_msp.api.internal.services.service_definition_service import (
     ServiceDefinitionService,
 )
 from nexgen_msp.utils import erpnext_bridge, permissions
+from nexgen_msp.utils import intervals as coverage_intervals
 from nexgen_msp.utils.catalogue import BILLING_UOM
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
@@ -71,7 +73,7 @@ class BillingService:
         return (getdate(period_end) - getdate(period_start)).days + 1
 
     @staticmethod
-    def _suspended_intervals(assignment, suspensions, window_start, window_end):
+    def _suspended_intervals(assignment, suspensions, window_start, window_end, blocked=None):
         """The stretches of the window the service was paused over, both ends included.
 
         A pause runs from the day it started to the day before it was resumed: the day of
@@ -85,8 +87,17 @@ class BillingService:
         window_start = getdate(window_start)
         window_end = getdate(window_end)
 
-        if not suspensions or window_end < window_start:
+        if window_end < window_start:
             return []
+
+        # days already charged for are cut out exactly like a pause: nobody owes them
+        # twice, and every count below is built on these stretches
+        held = coverage_intervals.intersect(
+            blocked or [], coverage_intervals.span(window_start, window_end)
+        )
+
+        if not suspensions:
+            return held
 
         ended_on = getdate(assignment.effective_end_date) if assignment.effective_end_date else None
         intervals = []
@@ -108,15 +119,15 @@ class BillingService:
             if last >= first:
                 intervals.append((first, last))
 
-        return sorted(intervals)
+        return coverage_intervals.merge(intervals + held)
 
     @staticmethod
-    def _suspended_days(assignment, suspensions, window_start, window_end):
+    def _suspended_days(assignment, suspensions, window_start, window_end, blocked=None):
         """How many days of the window the service was paused over, both ends included."""
         return sum(
             (last - first).days + 1
             for first, last in BillingService._suspended_intervals(
-                assignment, suspensions, window_start, window_end
+                assignment, suspensions, window_start, window_end, blocked
             )
         )
 
@@ -307,7 +318,7 @@ class BillingService:
         }
 
     @staticmethod
-    def _billable_months(method, assignment, period_start, period_end, suspensions=None):
+    def _billable_months(method, assignment, period_start, period_end, suspensions=None, blocked=None):
         """How many monthly instalments the assignment earns inside the period.
 
         This is the quantity that reaches the invoice: a monthly rate multiplied by a
@@ -334,7 +345,7 @@ class BillingService:
 
             days = (live_end - live_start).days + 1
             days -= BillingService._suspended_days(
-                assignment, suspensions, live_start, live_end
+                assignment, suspensions, live_start, live_end, blocked
             )
 
             if days <= 0:
@@ -354,7 +365,7 @@ class BillingService:
         return flt(months, 3), live_days
 
     @staticmethod
-    def _covered_window(assignment, period_start, period_end, suspensions=None):
+    def _covered_window(assignment, period_start, period_end, suspensions=None, blocked=None):
         """The stretch of the period the line was actually live for.
 
         Two dates cannot describe a stretch with a hole in the middle, and they are not
@@ -374,7 +385,7 @@ class BillingService:
             return None, None
 
         intervals = BillingService._suspended_intervals(
-            assignment, suspensions, covered_from, covered_to
+            assignment, suspensions, covered_from, covered_to, blocked
         )
 
         for first, last in intervals:
@@ -391,7 +402,7 @@ class BillingService:
         return covered_from, covered_to
 
     @staticmethod
-    def _billable_segments(assignment, period_start, period_end, suspensions=None):
+    def _billable_segments(assignment, period_start, period_end, suspensions=None, blocked=None):
         """The stretches the line was live over, with the pauses cut out of them.
 
         Two dates cannot describe a month with a hole in the middle. A service paused from
@@ -407,7 +418,9 @@ class BillingService:
         if last < first:
             return []
 
-        paused = BillingService._suspended_intervals(assignment, suspensions, first, last)
+        paused = BillingService._suspended_intervals(
+            assignment, suspensions, first, last, blocked
+        )
         segments = []
         cursor = first
 
@@ -859,6 +872,7 @@ class BillingService:
                 sa.quantity, sa.operational_status, sa.billing_status,
                 sa.effective_start_date, sa.effective_end_date,
                 sa.price_source, sa.agreed_rate, sa.rate_override_reason,
+                sa.baseline_covered_from, sa.baseline_covered_to, sa.baseline_state,
                 sa.internal_notes as line_comment,
                 cu.name as holder,
                 cu.full_name as user_name,
@@ -964,6 +978,14 @@ class BillingService:
         # means it was never charged, whatever the company-wide mark says. The mark is the
         # answer only for a customer onboarded with a date and no run behind it.
         billed_before = any(row.last_billed_on for row in assignments)
+        # what has really been charged for each of them, day by day: the stretches their
+        # own submitted lines carry, plus the coverage they were taken on with. Never the
+        # period of a run, never a line carried as an exception.
+        coverage = (
+            {}
+            if ignore_coverage
+            else coverage_resolver.coverage_of(assignments, exclude_run=exclude_run)
+        )
         invoiced_by_assignment = BillingService._invoiced_in(
             [row.name for row in assignments], period_start, period_end, exclude_run
         )
@@ -997,67 +1019,61 @@ class BillingService:
                 customer, assignment, terms, period_start, period_end
             )
 
-            # A line already covered starts no earlier than the day after that coverage.
+            # The days this assignment is already covered for, cut out of everything below
+            # exactly as a pause is. A fortnight billed inside a quarter leaves the rest of
+            # the quarter billable, which is what two dates could never say.
             #
-            # What counts is what *this* assignment was billed for, not what the company
-            # was billed for: somebody who arrived in the middle of a quarter paid in
-            # advance was never on that invoice, and treating the company's mark as theirs
-            # is how their first weeks were silently written off. The company-wide mark
-            # remains the answer only where there is nothing per-assignment to read —
-            # a customer onboarded with a date and no run behind it.
-            own_mark = (
-                getdate(assignment.last_billed_on) if assignment.last_billed_on else None
+            # The company-wide mark remains the answer only where there is nothing
+            # per-assignment to read — a customer taken on with a date and no run behind
+            # it, and no baseline frozen on the line yet.
+            held = coverage.get(assignment.name, {})
+            blocked = coverage_intervals.merge(
+                held.get("charged", []) + held.get("reserved", [])
             )
-            floor = (
-                None
-                if ignore_coverage
-                else own_mark
-                if billed_before
-                else (
-                    already_paid
-                    if mark
-                    and already_paid
-                    and getdate(assignment.effective_start_date) <= mark
-                    else None
-                )
-            )
+
+            if not blocked and not ignore_coverage and not billed_before:
+                if mark and already_paid and getdate(assignment.effective_start_date) <= mark:
+                    blocked = coverage_intervals.span("1900-01-01", already_paid)
 
             for begins, ends, rate, source, rate_exception, rate_detail, rate_discount in stretches:
                 exception_code = None
                 exception_detail = None
 
-                if floor and getdate(begins) <= floor:
-                    begins = getdate(add_days(floor, 1))
+                months, billable_days = BillingService._billable_months(
+                    method, assignment, begins, ends, suspensions, blocked
+                )
+                covered_from, covered_to = BillingService._covered_window(
+                    assignment, begins, ends, suspensions, blocked
+                )
+                segments = BillingService._billable_segments(
+                    assignment, begins, ends, suspensions, blocked
+                )
+                # what the line was owed before anything was taken off it, so a stretch
+                # fully held by an earlier charge can be told apart from one nobody owed
+                owed_at_all = BillingService._billable_segments(
+                    assignment, begins, ends, suspensions
+                )
 
                 if invalid_dates:
                     exception_code = "Invalid Dates"
                     exception_detail = "End date precedes start date."
-                elif floor and getdate(begins) > getdate(ends):
-                    exception_code = "Already Covered"
-                    exception_detail = (
-                        f"Already paid for up to {floor}, which covers the whole period."
-                    )
                 elif quantity <= 0:
                     exception_code = "Negative Quantity"
                     exception_detail = f"Quantity is {quantity}."
-                elif invoiced_in:
-                    exception_code = "Already Invoiced"
+                elif owed_at_all and not segments:
+                    covered_to_day = max(
+                        (last for _first, last in blocked), default=None
+                    )
+                    exception_code = "Already Covered"
                     exception_detail = (
-                        f"Already billed on {invoiced_in} for an overlapping period."
+                        f"Already paid for up to {covered_to_day}, which covers the whole"
+                        " period."
+                        if covered_to_day
+                        else "Already paid for over the whole period."
                     )
                 elif rate_exception:
                     exception_code = rate_exception
                     exception_detail = rate_detail
-
-                months, billable_days = BillingService._billable_months(
-                    method, assignment, begins, ends, suspensions
-                )
-                covered_from, covered_to = BillingService._covered_window(
-                    assignment, begins, ends, suspensions
-                )
-                segments = BillingService._billable_segments(
-                    assignment, begins, ends, suspensions
-                )
 
                 # a stretch the service was never live over is not a line of its own: it
                 # would print a zero on the invoice for days nobody was served. A line that
@@ -2341,8 +2357,10 @@ class BillingService:
         period_from=None,
         period_to=None,
         search=None,
+        focus=None,
         start=0,
         page_length=20,
+        count_only=False,
     ):
         """The runs, narrowed on any axis the listing offers."""
         BillingService._guard_admin()
@@ -2399,9 +2417,17 @@ class BillingService:
             )
             params["search"] = f"%{search}%"
 
+        # what somebody has to look at before anything else moves
+        if focus == "issue":
+            conditions.append("(br.exception_count > 0 or ifnull(br.disputed, 0) = 1)")
+
         where = (" where " + " and ".join(conditions)) if conditions else ""
 
         total = frappe.db.sql(f"select count(*) from `tabMSP Billing Run` br {where}", params)[0][0]
+
+        # a tab chip only needs how many there are, never the page behind it
+        if count_only:
+            return {"total": total, "rows": []}
 
         rows = frappe.db.sql(
             f"""
@@ -2409,7 +2435,7 @@ class BillingService:
                 br.name, br.customer, br.contract, br.status, br.credit_note_of, br.disputed,
                 br.billing_period_start, br.billing_period_end,
                 br.currency, br.total_amount, br.exception_count,
-                br.sales_invoice, br.adjustment_of, br.creation,
+                br.sales_invoice, br.adjustment_of, br.reconstructed, br.creation,
                 (select count(*) from `tabMSP Billing Run Line` brl where brl.parent = br.name)
                     as line_count
             from `tabMSP Billing Run` br
@@ -2500,14 +2526,26 @@ class BillingService:
         if not any(identity.values()):
             identity = BillingService._billing_identity(doc.customer)
 
+        # the terms the run was drawn under, read once and said next to it
+        terms = (
+            frappe.db.get_value(
+                "MSP Contract",
+                doc.contract,
+                ["title", "billing_frequency", "billing_timing", "proration_method"],
+                as_dict=True,
+            )
+            or {}
+        ) if doc.contract else {}
+
         return {
             "name": doc.name,
             "customer": doc.customer,
             "billing_identity": identity,
             "contract": doc.contract,
-            "contract_title": frappe.db.get_value("MSP Contract", doc.contract, "title")
-            if doc.contract
-            else None,
+            "contract_title": terms.get("title"),
+            "billing_frequency": terms.get("billing_frequency"),
+            "billing_timing": terms.get("billing_timing"),
+            "proration_method": terms.get("proration_method"),
             "period_label": BillingService._period_label(doc),
             "status": doc.status,
             "docstatus": doc.docstatus,
@@ -3795,16 +3833,17 @@ class BillingService:
 
     @staticmethod
     def _billable_over(contract, customer, period_start, period_end):
-        """How many of this contract's services are live over the period it is offered for.
+        """How many of this contract's services still owe days over the period offered.
 
-        Counting every billable assignment of the customer answers a different question:
-        it ignores whether the contract covers that service at all, and whether anything
-        was running in those months. A proposal built on that count sends somebody to a
-        run screen with an empty list.
+        Counting what is live over the window answers a different question from what is
+        owed for it. A service whose days are already charged, or held by a run being
+        prepared, is covered; proposing it again is how a period gets billed twice, and a
+        proposal that counts it reads as work that is not there.
         """
-        return frappe.db.sql(
+        rows = frappe.db.sql(
             """
-            select count(*)
+            select sa.name, sa.effective_start_date, sa.effective_end_date,
+                   sa.baseline_covered_from, sa.baseline_covered_to, sa.baseline_state
             from `tabMSP Service Assignment` sa
             join `tabMSP Contract Service` cs
               on cs.parent = %(contract)s and cs.service_item = sa.service_item
@@ -3821,7 +3860,28 @@ class BillingService:
                 "start": period_start,
                 "end": period_end,
             },
-        )[0][0]
+            as_dict=True,
+        )
+
+        if not rows:
+            return 0
+
+        window = coverage_intervals.span(period_start, period_end)
+        covered = coverage_resolver.coverage_of(rows)
+        owed = 0
+
+        for row in rows:
+            live = coverage_intervals.intersect(
+                coverage_intervals.span(
+                    row.effective_start_date, row.effective_end_date or period_end
+                ),
+                window,
+            )
+
+            if coverage_resolver.due_over(live, covered[row.name]):
+                owed += 1
+
+        return owed
 
     @staticmethod
     def _actions_from(due):
@@ -3832,6 +3892,8 @@ class BillingService:
         them one per line and sends each straight to where it is confirmed.
         """
         actions = []
+        # a run somebody already started on this contract is continued, not drawn twice
+        started = BillingService._runs_in_progress([row["contract"] for row in due])
 
         for row in due:
             owed = row["owed_back"]
@@ -3843,9 +3905,12 @@ class BillingService:
                 "customer": row["customer"],
                 "title": row["title"],
                 "currency": row.get("currency"),
+                "frequency": row.get("billing_frequency"),
+                "timing": row.get("billing_timing"),
                 "run_start": opens_on,
                 "run_end": row["next_period_end"],
             }
+            open_runs = started.get(row["contract"], [])
 
             if owed["lines"]:
                 actions.append({
@@ -3862,6 +3927,9 @@ class BillingService:
                     "run": owed["run"],
                     "proven": owed["proven"],
                     "state": None,
+                    "open_run": BillingService._run_over(
+                        open_runs, owed["period_start"], owed["period_end"]
+                    ),
                 })
 
             # a coverage nobody has recorded is not a thing to do from here: recording it
@@ -3877,11 +3945,37 @@ class BillingService:
                     "amount": flt(catch_up["amount"], 2),
                     "run": None,
                     "state": None,
+                    "open_run": BillingService._run_over(
+                        open_runs, catch_up["from"], catch_up["to"]
+                    ),
                 })
 
+            # a run somebody started covers its period as far as this reading goes, so the
+            # next window has moved past it: the thing to do is to finish that run, not to
+            # draw the one after it
+            started_run = open_runs[0] if open_runs else None
+
+            if started_run:
+                actions.append({
+                    **common,
+                    "kind": "period",
+                    "period_start": started_run.billing_period_start,
+                    "period_end": started_run.billing_period_end,
+                    "run_start": started_run.billing_period_start,
+                    "run_end": started_run.billing_period_end,
+                    "lines": frappe.db.count(
+                        "MSP Billing Run Line", {"parent": started_run.name}
+                    ),
+                    "amount": flt(started_run.total_amount, 2),
+                    "currency": started_run.currency or common["currency"],
+                    "run": None,
+                    "state": row["state"],
+                    "days_left": row["days_left"],
+                    "open_run": started_run.name,
+                })
             # a contract with nothing billable behind it is not work waiting to be done:
             # proposing it only leads to a run screen with an empty list
-            if row["billable_assignments"]:
+            elif row["billable_assignments"]:
                 actions.append({
                     **common,
                     "kind": "period",
@@ -3892,12 +3986,73 @@ class BillingService:
                     "run": None,
                     "state": row["state"],
                     "days_left": row["days_left"],
+                    "open_run": None,
                 })
 
         weight = {"credit_note": 0, "past_invoice": 1, "additions": 2, "period": 3}
         actions.sort(key=lambda entry: (entry["customer"], weight.get(entry["kind"], 9)))
 
         return actions
+
+    # a run still being worked on: nothing has been posted, so it is the one to go back to
+    IN_PROGRESS = (
+        "Draft",
+        "Validating",
+        "Exception",
+        "Ready for Approval",
+        "Approved",
+        "Invoice Drafted",
+    )
+
+    @staticmethod
+    def _runs_in_progress(contracts):
+        """Runs already started on these contracts, read in one pass rather than per row."""
+        names = [name for name in set(contracts or []) if name]
+
+        if not names:
+            return {}
+
+        rows = frappe.get_all(
+            "MSP Billing Run",
+            filters={
+                "contract": ["in", names],
+                "status": ["in", list(BillingService.IN_PROGRESS)],
+                "docstatus": ["!=", 2],
+            },
+            fields=[
+                "name",
+                "contract",
+                "billing_period_start",
+                "billing_period_end",
+                "total_amount",
+                "currency",
+            ],
+            order_by="billing_period_end desc",
+        )
+
+        started = {}
+
+        for row in rows:
+            started.setdefault(row.contract, []).append(row)
+
+        return started
+
+    @staticmethod
+    def _run_over(runs, start, end):
+        """The run already open on this window, when there is one."""
+        if not start or not end:
+            return None
+
+        window_start, window_end = getdate(start), getdate(end)
+
+        for run in runs or []:
+            if (
+                getdate(run.billing_period_start) <= window_end
+                and getdate(run.billing_period_end) >= window_start
+            ):
+                return run.name
+
+        return None
 
     @staticmethod
     def _latest_charge(contract):

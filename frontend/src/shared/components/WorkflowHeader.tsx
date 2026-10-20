@@ -36,7 +36,7 @@ const WorkflowHeader: React.FC<Props> = ({
   <div className="overflow-hidden rounded-xl border border-slate-200 shadow-sm">
     <section className="bg-white">
       <div className="flex flex-col items-start justify-between gap-4 px-6 py-3 md:flex-row">
-        <div className="flex shrink-0 items-center gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           {onBack && (
             <button
               type="button"
@@ -53,7 +53,9 @@ const WorkflowHeader: React.FC<Props> = ({
           </div>
         </div>
 
-        {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+        {actions && (
+          <div className="flex flex-wrap items-center justify-end gap-2 md:shrink-0">{actions}</div>
+        )}
       </div>
 
       {context && <div className="border-t border-slate-100 px-6 py-3">{context}</div>}

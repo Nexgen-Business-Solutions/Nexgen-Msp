@@ -1292,6 +1292,8 @@ export type BillingRunRow = {
   sales_invoice: string | null;
   adjustment_of: string | null;
   credit_note_of: string | null;
+  /** coverage written down after the fact: no invoice was ever drawn from it here */
+  reconstructed: number;
   disputed: number;
   creation: string;
   line_count: number;
@@ -1351,6 +1353,9 @@ export type BillingRunDetail = {
   billing_identity: BillingIdentity;
   contract: string | null;
   contract_title: string | null;
+  billing_frequency: string | null;
+  billing_timing: string | null;
+  proration_method: string | null;
   period_label: string;
   status: string;
   docstatus: number;
@@ -1391,6 +1396,136 @@ export type BillingRunDetail = {
   can_discard_invoice: boolean;
   can_reopen: boolean;
 };
+
+/** A billing run as its own page reads it: the record, plus what the screen decides. */
+export type BillingRunView = BillingRunDetail & {
+  kind: string;
+  stage: number;
+  stages: string[];
+  settled: boolean;
+  moves: { action: string; label: string; look: 'primary' | 'quiet' | 'warn' | 'danger' }[];
+  activity: { label: string; by: string | null; on: string | null }[];
+  figures: {
+    amount: number;
+    currency: string | null;
+    lines: number;
+    billed_lines: number;
+    exceptions: number;
+    months: number;
+    people: number;
+    devices: number;
+  };
+  as_of: string;
+};
+
+export const getBillingRunView = (name: string, signal?: AbortSignal) =>
+  get<BillingRunView>(`${BASE}.billing_run_view`, { name }, signal);
+
+/** Step 1 of the one preparation path: what this operation is about. */
+export type BillingOperationContext = {
+  kind: 'period' | 'additions' | 'credit_note';
+  label: string;
+  contract: string;
+  contract_title: string | null;
+  customer: string;
+  currency: string | null;
+  billing_frequency: string | null;
+  billing_timing: string | null;
+  proration_method: string | null;
+  invoice_grouping: string | null;
+  contract_start: string | null;
+  contract_end: string | null;
+  period_start: string;
+  period_end: string;
+  period_locked: boolean;
+  note: string | null;
+  note_tone: 'blue' | 'amber' | null;
+  proposed_lines: number | null;
+  proposed_amount: number | null;
+  source_run: string | null;
+  open_run?: string | null;
+};
+
+export type BillingCandidate = {
+  id: string;
+  service: string;
+  service_item: string;
+  assignment: string;
+  person: string;
+  device: string | null;
+  covered_from: string | null;
+  covered_to: string | null;
+  segments: { from: string; to: string }[];
+  months: number;
+  days: number | null;
+  quantity: number;
+  rate: number | null;
+  amount: number;
+  exception_code: string | null;
+  exception_detail: string | null;
+  reason: string;
+  covered: string;
+  proof: boolean;
+  eligible: boolean;
+};
+
+export type BillingOperationServices = {
+  kind: string;
+  currency: string | null;
+  source_run: string | null;
+  source_invoice?: string | null;
+  billed_in_advance?: boolean;
+  lines: BillingCandidate[];
+  blocked: BillingCandidate[];
+  note: string | null;
+};
+
+export type BillingOperationAccounting = {
+  dimensions: InvoiceDimension[];
+  currency: string | null;
+  company_currency: string | null;
+  posting_date: string;
+  payment_terms: string | null;
+  billing_contact: string | null;
+  billing_contact_note: string | null;
+};
+
+export type BillingOperationQuery = {
+  kind: string;
+  contract: string;
+  period_start?: string;
+  period_end?: string;
+  against?: string;
+};
+
+export const getBillingOperationContext = (query: BillingOperationQuery, signal?: AbortSignal) =>
+  get<BillingOperationContext>(`${BASE}.billing_operation_context`, query, signal);
+
+export const getBillingOperationServices = (query: BillingOperationQuery, signal?: AbortSignal) =>
+  get<BillingOperationServices>(`${BASE}.billing_operation_services`, query, signal);
+
+export const getBillingOperationAccounting = (contract: string, signal?: AbortSignal) =>
+  get<BillingOperationAccounting>(`${BASE}.billing_operation_accounting`, { contract }, signal);
+
+/** The last step: prepare the run, and the ERPNext draft when that was asked for. */
+export const createBillingOperation = (payload: {
+  kind: string;
+  contract: string;
+  period_start?: string;
+  period_end?: string;
+  include?: string[];
+  dimensions?: Record<string, string>;
+  exchange_rate?: number;
+  discount_percent?: number;
+  reason?: string;
+  against?: string;
+  draft_invoice?: number;
+}) =>
+  post<{ run: string; kind: string }>(`${BASE}.create_billing_operation`, {
+    ...payload,
+    include: payload.include ? JSON.stringify(payload.include) : undefined,
+    dimensions: payload.dimensions ? JSON.stringify(payload.dimensions) : undefined,
+  });
 
 export type BillingFilters = {
   statuses?: string[];
@@ -1438,35 +1573,6 @@ export type BillingPreview = {
   total_months: number;
 };
 
-export const previewBillingRun = (payload: {
-  contract: string;
-  period_start: string;
-  period_end: string;
-  adjustment_of?: string;
-  filters?: BillingFilters;
-  discount_percent?: number;
-}) =>
-  post<BillingPreview>(`${BASE}.preview_billing_run`, {
-    ...payload,
-    filters: payload.filters ? JSON.stringify(payload.filters) : undefined,
-  });
-
-export const getBillingFilterOptions = (customer: string, signal?: AbortSignal) =>
-  get<BillingFilterOptions>(`${BASE}.get_billing_filter_options`, { customer }, signal);
-
-export const generateBillingRun = (payload: {
-  contract: string;
-  period_start: string;
-  period_end: string;
-  adjustment_of?: string;
-  include?: string[];
-  discount_percent?: number;
-}) =>
-  post<BillingRunDetail>(`${BASE}.generate_billing_run`, {
-    ...payload,
-    include: payload.include ? JSON.stringify(payload.include) : undefined,
-  });
-
 export type BillingRunQuery = {
   customers?: string[];
   statuses?: string[];
@@ -1477,17 +1583,6 @@ export type BillingRunQuery = {
   start?: number;
   page_length?: number;
 };
-
-export const listBillingRuns = (params: BillingRunQuery = {}, signal?: AbortSignal) =>
-  get<{ rows: BillingRunRow[]; total: number }>(
-    `${BASE}.list_billing_runs`,
-    {
-      ...params,
-      customers: params.customers?.length ? JSON.stringify(params.customers) : undefined,
-      statuses: params.statuses?.length ? JSON.stringify(params.statuses) : undefined,
-    },
-    signal
-  );
 
 export type BillingPeriodStatus = {
   customer: string;
@@ -1563,14 +1658,8 @@ export const getBillingPeriodStatus = (
   signal?: AbortSignal
 ) => get<BillingPeriodStatus>(`${BASE}.billing_period_status`, params, signal);
 
-export const getBillingRun = (name: string, signal?: AbortSignal) =>
-  get<BillingRunDetail>(`${BASE}.get_billing_run`, { name }, signal);
-
 export const removeFromBillingRun = (payload: { name: string; service_assignment: string }) =>
   post<BillingRunDetail>(`${BASE}.remove_from_billing_run`, payload);
-
-export const addToBillingRun = (payload: { name: string; service_assignment: string }) =>
-  post<BillingRunDetail>(`${BASE}.add_to_billing_run`, payload);
 
 export type CoverageEvidence = {
   customer: string;
@@ -1678,12 +1767,6 @@ export const runBillingAction = (action: string, name: string, extra?: Record<st
     name,
     ...extra,
   });
-
-export const discardBillingRun = (name: string) =>
-  post<{ name: string; customer: string; billing_period_end: string }>(
-    `${BASE}.discard_billing_run`,
-    { name }
-  );
 
 export const addUserDevice = (payload: {
   client_user: string;
@@ -2342,9 +2425,6 @@ export type BillingBreakdown = {
   total_amount: number;
 };
 
-export const getBillingBreakdown = (name: string, signal?: AbortSignal) =>
-  get<BillingBreakdown>(`${BASE}.get_billing_breakdown`, { name }, signal);
-
 export const downloadBreakdownFile = (run: string) =>
   download(`${BASE}.download_billing_breakdown`, { name: run }, `${run}-breakdown.xlsx`);
 
@@ -2405,24 +2485,6 @@ export type CreditableLines = {
   owed_back_months: number;
 };
 
-export const getCreditableLines = (name: string, signal?: AbortSignal) =>
-  get<CreditableLines>(`${BASE}.get_creditable_lines`, { name }, signal);
-
-export const createCreditNote = (payload: {
-  name: string;
-  /** a credit is asked for as a number of months, or as the stretch that was not served */
-  lines: (
-    | { service_assignment: string; months: number }
-    | { service_assignment: string; from: string; to: string }
-  )[];
-  reason: string;
-}) =>
-  post<BillingRunDetail>(`${BASE}.create_credit_note`, {
-    name: payload.name,
-    lines: JSON.stringify(payload.lines),
-    reason: payload.reason,
-  });
-
 export type BillingDueRow = {
   contract: string;
   customer: string;
@@ -2451,6 +2513,67 @@ export type BillingDueRow = {
     period_end: string | null;
   };
 };
+
+/** An invoice as ERPNext holds it, whether this application drew it or not. */
+export type SalesInvoiceRow = {
+  name: string;
+  customer: string;
+  customer_name: string | null;
+  company: string;
+  posting_date: string;
+  due_date: string | null;
+  currency: string;
+  grand_total: number;
+  outstanding_amount: number;
+  status: string;
+  docstatus: number;
+  is_return: number;
+  return_against: string | null;
+  billing_run: string | null;
+  origin: 'MSP' | 'ERPNext';
+};
+
+export type SalesInvoiceDetail = SalesInvoiceRow & {
+  conversion_rate: number;
+  payment_terms_template: string | null;
+  cost_center: string | null;
+  remarks: string | null;
+  net_total: number;
+  total_taxes_and_charges: number;
+  items: {
+    item_code: string;
+    description: string | null;
+    qty: number;
+    uom: string | null;
+    rate: number;
+    amount: number;
+    cost_center: string | null;
+  }[];
+  taxes: { description: string; rate: number; total: number }[];
+  payment_schedule: { due_date: string; payment_amount: number }[];
+  returns: {
+    name: string;
+    posting_date: string;
+    grand_total: number;
+    status: string;
+    docstatus: number;
+  }[];
+  returned_against: { name: string; posting_date: string; grand_total: number } | null;
+};
+
+export type SalesInvoiceFilters = {
+  customer?: string;
+  status?: string;
+  posting_from?: string;
+  posting_to?: string;
+  search?: string;
+  kind?: 'invoices' | 'returns';
+  page?: number;
+  page_length?: number;
+};
+
+export const getSalesInvoiceDetail = (name: string, signal?: AbortSignal) =>
+  get<SalesInvoiceDetail>(`${BASE}.get_sales_invoice_detail`, { name }, signal);
 
 /** What the last charged period of one contract left behind, people named. */
 export type PendingAdjustments = {
@@ -2482,13 +2605,61 @@ export type PendingAdjustments = {
   }[];
 };
 
-export const prepareCredit = (contract: string) =>
-  post<{ run: string; recorded: boolean }>(`${BASE}.prepare_credit`, { contract });
-
-export const getPendingAdjustments = (contract: string, signal?: AbortSignal) =>
-  get<PendingAdjustments>(`${BASE}.get_pending_adjustments`, { contract }, signal);
-
 /** One thing somebody has to do about a contract, said on its own line. */
+export type BillingWorkspaceRow = {
+  name: string;
+  customer: string;
+  status: string;
+  /** runs only */
+  kind?: string;
+  period_start?: string;
+  period_end?: string;
+  lines?: number;
+  exceptions?: number;
+  amount: number;
+  currency: string | null;
+  sales_invoice?: string | null;
+  disputed?: boolean;
+  /** invoices only */
+  posting_date?: string;
+  due_date?: string;
+  outstanding?: number;
+  is_return?: boolean;
+  origin?: string;
+  billing_run?: string | null;
+};
+
+export type BillingWorkspace = {
+  as_of: string;
+  figures: {
+    runs: number;
+    settled: number;
+    awaiting: number;
+    blocked: number;
+    blocked_lines: number;
+    invoiced_totals: { currency: string; amount: number }[];
+  };
+  actions: BillingAction[];
+  tab: 'runs' | 'invoices';
+  rows: BillingWorkspaceRow[];
+  total: number;
+  page: number;
+  page_length: number;
+  counts: { runs: number; invoices: number };
+};
+
+export type BillingWorkspaceQuery = {
+  tab?: 'runs' | 'invoices';
+  search?: string;
+  status?: string;
+  page?: number;
+  page_length?: number;
+};
+
+/** One read for the whole Billing page: figures, what is waiting, and one list. */
+export const getBillingWorkspace = (query: BillingWorkspaceQuery = {}, signal?: AbortSignal) =>
+  get<BillingWorkspace>(`${BASE}.billing_workspace`, query, signal);
+
 export type BillingAction = {
   kind: 'credit_note' | 'additions' | 'period';
   contract: string;
@@ -2500,9 +2671,13 @@ export type BillingAction = {
   /** the window the run opens on, arrivals included */
   run_start: string;
   run_end: string;
+  frequency: string | null;
+  timing: string | null;
   lines: number;
   amount: number | null;
   run: string | null;
+  /** a run already started on this window, which is continued rather than drawn again */
+  open_run?: string | null;
   /** false when the only proof the period was charged is the customer's own last-billed date */
   proven?: boolean;
   state: 'Overdue' | 'Never billed' | 'Due soon' | 'Scheduled' | null;
@@ -2518,9 +2693,6 @@ export type BillingDue = {
   catch_up_lines: number;
   owed_back_lines: number;
 };
-
-export const getBillingDue = (horizonDays = 30, signal?: AbortSignal) =>
-  get<BillingDue>(`${BASE}.get_billing_due`, { horizon_days: horizonDays }, signal);
 
 export type CustomerAddress = {
   name?: string;

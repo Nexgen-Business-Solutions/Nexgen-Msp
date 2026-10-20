@@ -34,9 +34,10 @@ import AdminGuard from './guards/AdminGuard';
 import CustomersList from '@/features/internal/pages/CustomersList';
 import ServicesList from '@/features/internal/pages/ServicesList';
 import CustomerContract from '@/features/internal/pages/CustomerContract';
-import BillingRuns from '@/features/internal/pages/BillingRuns';
+import Billing from '@/features/internal/pages/Billing';
 import NewBillingRun from '@/features/internal/pages/NewBillingRun';
 import BillingRunDetail from '@/features/internal/pages/BillingRunDetail';
+import SalesInvoiceDetail from '@/features/internal/pages/SalesInvoiceDetail';
 
 export const router = createBrowserRouter([
   {
@@ -197,7 +198,7 @@ export const router = createBrowserRouter([
         path: 'billing',
         element: (
           <AdminGuard>
-            <BillingRuns />
+            <Billing />
           </AdminGuard>
         ),
       },
@@ -206,6 +207,14 @@ export const router = createBrowserRouter([
         element: (
           <AdminGuard>
             <NewBillingRun />
+          </AdminGuard>
+        ),
+      },
+      {
+        path: 'billing/invoices/:name',
+        element: (
+          <AdminGuard>
+            <SalesInvoiceDetail />
           </AdminGuard>
         ),
       },

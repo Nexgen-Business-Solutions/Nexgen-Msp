@@ -3,48 +3,99 @@ import * as internal from '@/lib/api/internal';
 
 export const billingKeys = {
   all: ['internal', 'billing'] as const,
-  list: (params: Record<string, unknown>) => [...billingKeys.all, 'list', params] as const,
   detail: (name: string) => [...billingKeys.all, 'detail', name] as const,
 };
 
-export const useBillingRuns = (query: internal.BillingRunQuery = {}) =>
+/** One read for the Billing page: figures, the work waiting, and the open tab's list. */
+export const useBillingWorkspace = (query: internal.BillingWorkspaceQuery = {}) =>
   useQuery({
-    queryKey: billingKeys.list(query as Record<string, unknown>),
-    queryFn: ({ signal }) => internal.listBillingRuns({ ...query, page_length: 100 }, signal),
+    queryKey: [...billingKeys.all, 'workspace', query] as const,
+    queryFn: ({ signal }) => internal.getBillingWorkspace(query, signal),
     keepPreviousData: true,
     staleTime: 30 * 1000,
   });
 
-export const useBillingRun = (name?: string) =>
+/** One read for a run's page: the record, its stage, its moves and its history. */
+export const useBillingRunView = (name?: string) =>
   useQuery({
-    queryKey: billingKeys.detail(name || ''),
-    queryFn: ({ signal }) => internal.getBillingRun(name as string, signal),
+    queryKey: [...billingKeys.detail(name || ''), 'view'] as const,
+    queryFn: ({ signal }) => internal.getBillingRunView(name as string, signal),
     enabled: Boolean(name),
   });
 
-export const useInvoiceRecipients = (name?: string) =>
+export const useSalesInvoice = (name?: string) =>
   useQuery({
-    queryKey: [...billingKeys.detail(name || ''), 'recipients'],
-    queryFn: ({ signal }) => internal.getInvoiceRecipients(name as string, signal),
+    queryKey: [...billingKeys.all, 'invoice', name],
+    queryFn: ({ signal }) => internal.getSalesInvoiceDetail(name as string, signal),
     enabled: Boolean(name),
   });
 
-export const usePrepareCredit = () => {
+/** The one preparation path, one read per step. */
+export const useOperationContext = (query: internal.BillingOperationQuery | null) =>
+  useQuery({
+    queryKey: [...billingKeys.all, 'operation', 'context', query] as const,
+    queryFn: ({ signal }) => internal.getBillingOperationContext(query!, signal),
+    enabled: Boolean(query?.contract),
+  });
+
+export const useOperationServices = (query: internal.BillingOperationQuery | null) =>
+  useQuery({
+    queryKey: [...billingKeys.all, 'operation', 'services', query] as const,
+    queryFn: ({ signal }) => internal.getBillingOperationServices(query!, signal),
+    enabled: Boolean(query?.contract),
+    keepPreviousData: true,
+  });
+
+export const useOperationAccounting = (contract?: string, enabled = true) =>
+  useQuery({
+    queryKey: [...billingKeys.all, 'operation', 'accounting', contract] as const,
+    queryFn: ({ signal }) => internal.getBillingOperationAccounting(contract as string, signal),
+    enabled: Boolean(contract) && enabled,
+  });
+
+export const useCreateOperation = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: internal.prepareCredit,
+    mutationFn: internal.createBillingOperation,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: billingKeys.all }),
   });
 };
 
-export const usePendingAdjustments = (contract?: string) =>
-  useQuery({
-    queryKey: [...billingKeys.all, 'pending', contract],
-    queryFn: ({ signal }) => internal.getPendingAdjustments(contract as string, signal),
-    enabled: Boolean(contract),
-  });
+/** Every move a run allows, taken on the run's own page. */
+export const useRunAction = () => {
+  const queryClient = useQueryClient();
 
+  return useMutation({
+    mutationFn: (variables: { action: string; name: string; extra?: Record<string, unknown> }) =>
+      internal.runBillingAction(variables.action, variables.name, variables.extra),
+    onSuccess: (detail) => {
+      queryClient.invalidateQueries({ queryKey: billingKeys.detail(detail.name) });
+      queryClient.invalidateQueries({ queryKey: [...billingKeys.all, 'workspace'] });
+    },
+  });
+};
+
+/** Changing what a run is billing: its scope, never the services themselves. */
+const useScopeChange = <TVariables>(
+  mutationFn: (variables: TVariables) => Promise<internal.BillingRunDetail>
+) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn,
+    onSuccess: (detail) => {
+      queryClient.invalidateQueries({ queryKey: billingKeys.detail(detail.name) });
+      queryClient.invalidateQueries({ queryKey: [...billingKeys.all, 'workspace'] });
+    },
+  });
+};
+
+export const useRemoveFromBillingRun = () => useScopeChange(internal.removeFromBillingRun);
+
+export const useSetLineDiscount = () => useScopeChange(internal.setBillingLineDiscount);
+
+/** The reconciliation of a charge raised before this application. */
 export const useCoverageEvidence = (
   payload: { customer: string; period_start: string; period_end: string } | null
 ) =>
@@ -72,116 +123,7 @@ export const useRecordPastCoverage = () => {
   });
 };
 
-export const usePreviewRun = () =>
-  useMutation({ mutationFn: internal.previewBillingRun });
-
-export const useGenerateRun = () => {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: internal.generateBillingRun,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: billingKeys.all }),
-  });
-};
-
-export const useRunAction = () => {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (variables: {
-      action: string;
-      name: string;
-      extra?: Record<string, unknown>;
-    }) => internal.runBillingAction(variables.action, variables.name, variables.extra),
-    onSuccess: (detail) => {
-      queryClient.setQueryData(billingKeys.detail(detail.name), detail);
-      queryClient.invalidateQueries({ queryKey: [...billingKeys.all, 'list'] });
-    },
-  });
-};
-
-/** A draft run thrown away: it leaves no row behind, so the whole listing is read again. */
-export const useDiscardBillingRun = () => {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (name: string) => internal.discardBillingRun(name),
-    onSuccess: (_outcome, name) => {
-      queryClient.removeQueries({ queryKey: billingKeys.detail(name) });
-      queryClient.invalidateQueries({ queryKey: billingKeys.all });
-    },
-  });
-};
-
-export const useBillingFilterOptions = (customer?: string) =>
-  useQuery({
-    queryKey: [...billingKeys.all, 'filterOptions', customer] as const,
-    queryFn: ({ signal }) => internal.getBillingFilterOptions(customer as string, signal),
-    enabled: Boolean(customer),
-    staleTime: 5 * 60 * 1000,
-  });
-
-export const useBillingBreakdown = (name?: string) =>
-  useQuery({
-    queryKey: [...billingKeys.detail(name || ''), 'breakdown'] as const,
-    queryFn: ({ signal }) => internal.getBillingBreakdown(name as string, signal),
-    enabled: Boolean(name),
-  });
-
-export const useCreditableLines = (name?: string) =>
-  useQuery({
-    queryKey: [...billingKeys.detail(name || ''), 'creditable'] as const,
-    queryFn: ({ signal }) => internal.getCreditableLines(name as string, signal),
-    enabled: Boolean(name),
-  });
-
-export const useCreateCreditNote = () => {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: internal.createCreditNote,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: billingKeys.all }),
-  });
-};
-
-export const useBillingDue = (horizonDays = 30) =>
-  useQuery({
-    queryKey: [...billingKeys.all, 'due', horizonDays] as const,
-    queryFn: ({ signal }) => internal.getBillingDue(horizonDays, signal),
-    staleTime: 60 * 1000,
-  });
-
-/** Changing what a draft run is billing: its scope, not the services themselves. */
-const useScopeChange = <TVariables>(
-  mutationFn: (variables: TVariables) => Promise<internal.BillingRunDetail>
-) => {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn,
-    onSuccess: (detail) => {
-      queryClient.setQueryData(billingKeys.detail(detail.name), detail);
-      queryClient.invalidateQueries({ queryKey: [...billingKeys.all, 'list'] });
-    },
-  });
-};
-
-export const useRemoveFromBillingRun = () => useScopeChange(internal.removeFromBillingRun);
-
-export const useAddToBillingRun = () => useScopeChange(internal.addToBillingRun);
-
-export const useSetLineDiscount = () => {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: internal.setBillingLineDiscount,
-    onSuccess: (detail) => {
-      queryClient.setQueryData(billingKeys.detail(detail.name), detail);
-      queryClient.invalidateQueries({ queryKey: [...billingKeys.all, 'list'] });
-    },
-  });
-};
-
+/** What ERPNext asks of a document, and who is told once it is posted. */
 export const useInvoiceDimensions = (enabled = true) =>
   useQuery({
     queryKey: [...billingKeys.all, 'dimensions'] as const,
@@ -200,23 +142,11 @@ export const useCreateCostCenter = () => {
   });
 };
 
-export const useBillingPeriodStatus = (
-  contract: string,
-  periodStart: string,
-  periodEnd: string,
-  enabled = true
-) =>
+export const useInvoiceRecipients = (name?: string) =>
   useQuery({
-    queryKey: [...billingKeys.all, 'period', contract, periodStart, periodEnd] as const,
-    queryFn: ({ signal }) =>
-      internal.getBillingPeriodStatus(
-        { contract, period_start: periodStart, period_end: periodEnd },
-        signal
-      ),
-    enabled: enabled && Boolean(contract && periodStart && periodEnd),
-    // an already-covered period is a warning, not a blocker: a failure stays silent
-    retry: false,
-    staleTime: 30 * 1000,
+    queryKey: [...billingKeys.detail(name || ''), 'recipients'],
+    queryFn: ({ signal }) => internal.getInvoiceRecipients(name as string, signal),
+    enabled: Boolean(name),
   });
 
 export const useBillingInvoice = (run?: string, enabled = true) =>
@@ -228,7 +158,7 @@ export const useBillingInvoice = (run?: string, enabled = true) =>
 
 export const useExchangePreview = (run: string | undefined, enabled: boolean) =>
   useQuery({
-    queryKey: ['internal', 'billing', 'exchange', run] as const,
+    queryKey: [...billingKeys.all, 'exchange', run] as const,
     queryFn: ({ signal }) => internal.getExchangePreview(run as string, signal),
     enabled: Boolean(run) && enabled,
     staleTime: 60 * 1000,

@@ -1,1250 +1,683 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { ArrowLeft } from 'lucide-react';
+import type { BillingCandidate } from '@/lib/api/internal';
 import {
-  AlertCircle,
-  ArrowLeft,
-  ArrowRight,
-  ChevronDown,
-  Info,
-  Receipt,
-  ReceiptText,
-  Search,
-  SlidersHorizontal,
-  TriangleAlert,
-} from 'lucide-react';
-import FieldLabel from '@/shared/components/FieldLabel';
-import BillingProgressStepper from '../components/BillingProgressStepper';
-import CreditNoteModal from '../components/CreditNoteModal';
-import { subjectOf } from '../lib/billingSubject';
-import WorkflowHeader, { primaryBtn, quietBtn, secondaryBtn } from '@/shared/components/WorkflowHeader';
-import Select from '@/shared/components/Select';
-import MultiSelect from '@/shared/components/MultiSelect';
-import StatusBadge from '@/shared/components/StatusBadge';
-import type { BillingFilters } from '@/lib/api/internal';
-import { useMspContracts } from '../hooks/useMspContracts';
-import {
-  useBillingFilterOptions,
-  useBillingPeriodStatus,
-  usePendingAdjustments,
-  useGenerateRun,
-  usePreviewRun,
+  useCreateOperation,
+  useOperationAccounting,
+  useOperationContext,
+  useOperationServices,
 } from '../hooks/useBilling';
+import { useMspContracts } from '../hooks/useMspContracts';
+import Select from '@/shared/components/Select';
+import {
+  Banner,
+  Card,
+  CardHead,
+  ContextBar,
+  Divider,
+  InfoPanel,
+  PanelTitle,
+  Pill,
+  Stepper,
+  Summary,
+  btn,
+  btnPrimary,
+} from '../components/billing/ui';
+import { day, money } from '../components/billing/format';
 
-const inputClass =
-  'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
+const STEPS = ['Context', 'Services', 'Accounting', 'Confirm'];
 
-const ROWS_AT_ONCE = 200;
-
-
-
-const iso = (date: Date) =>
-  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
-    date.getDate()
-  ).padStart(2, '0')}`;
-
-const fmtDay = (value?: string | null) => (value ? String(value).slice(0, 10) : '—');
-
-const previousMonth = () => {
-  const now = new Date();
-  return {
-    start: iso(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
-    end: iso(new Date(now.getFullYear(), now.getMonth(), 0)),
-  };
-};
-
-const previousQuarter = () => {
-  const now = new Date();
-  const quarter = Math.floor(now.getMonth() / 3) - 1;
-  const year = quarter < 0 ? now.getFullYear() - 1 : now.getFullYear();
-  const month = ((quarter % 4) + 4) % 4 * 3;
-  return {
-    start: iso(new Date(year, month, 1)),
-    end: iso(new Date(year, month + 3, 0)),
-  };
-};
-
-const currentQuarter = () => {
-  const now = new Date();
-  const month = Math.floor(now.getMonth() / 3) * 3;
-  return {
-    start: iso(new Date(now.getFullYear(), month, 1)),
-    end: iso(new Date(now.getFullYear(), month + 3, 0)),
-  };
-};
-
-const restOfThisMonth = () => {
-  const now = new Date();
-  return {
-    start: iso(now),
-    end: iso(new Date(now.getFullYear(), now.getMonth() + 1, 0)),
-  };
-};
-
-const nextMonth = () => {
-  const now = new Date();
-  return {
-    start: iso(new Date(now.getFullYear(), now.getMonth() + 1, 1)),
-    end: iso(new Date(now.getFullYear(), now.getMonth() + 2, 0)),
-  };
-};
-
-const thisYear = () => {
-  const now = new Date();
-  return {
-    start: iso(new Date(now.getFullYear(), 0, 1)),
-    end: iso(new Date(now.getFullYear(), 11, 31)),
-  };
-};
-
-const nextTwelveMonths = () => {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), 1);
-  return {
-    start: iso(start),
-    end: iso(new Date(start.getFullYear() + 1, start.getMonth(), 0)),
-  };
-};
-
-const PRESETS = [
-  { label: 'Rest of this month', build: restOfThisMonth },
-  { label: 'Next month', build: nextMonth },
-  { label: 'Last month', build: previousMonth },
-  { label: 'Last quarter', build: previousQuarter },
-  { label: 'This quarter', build: currentQuarter },
-  { label: 'This year', build: thisYear },
-  { label: 'One year ahead', build: nextTwelveMonths },
+const TITLES = [
+  { title: 'Contract & period', hint: 'Review the suggested scope.' },
+  { title: 'Review services', hint: 'Only the selected eligible lines will be included.' },
+  {
+    title: 'Accounting & notifications',
+    hint: 'Keep the accounting and notification details for this document.',
+  },
+  { title: 'Confirm', hint: 'Verify the operation before preparing it.' },
 ];
 
+const KINDS = [
+  { value: 'period', label: 'Regular billing' },
+  { value: 'additions', label: 'Additions' },
+  { value: 'credit_note', label: 'Credit note' },
+] as const;
+
+const field =
+  'h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-700 outline-none transition-colors focus:border-blue-400 disabled:bg-slate-50 disabled:text-slate-500';
+
+const Label: React.FC<{ htmlFor: string; children: React.ReactNode; required?: boolean }> = ({
+  htmlFor,
+  children,
+  required,
+}) => (
+  <label htmlFor={htmlFor} className="mb-1.5 block text-[11px] font-bold text-slate-500">
+    {children}
+    {required && <span className="ml-0.5 text-rose-500">*</span>}
+  </label>
+);
+
+/**
+ * The one path that prepares all three operations.
+ *
+ * Regular billing, additions and credits are four steps each — what is being billed, which
+ * services, how it posts, and a last look — and each still ends in its own run and its own
+ * document. Nothing is sent to ERPNext without the operator asking for it on the last step,
+ * and submitting the document stays a separate decision on the run's own page.
+ */
 export default function NewBillingRun() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const contracts = useMspContracts({ billable_only: 1 });
-  const preview = usePreviewRun();
-  const generate = useGenerateRun();
+  const [params] = useSearchParams();
 
-  // arriving from "Bill this period" carries the contract and the period to cover
-  const defaults = previousQuarter();
-  // reached from a proposal in Ready to bill: the contract and the period are settled,
-  // so the scope step has nothing left to ask and the selection opens straight away
-  const proposed = Boolean(
-    searchParams.get('contract') && searchParams.get('start') && searchParams.get('end')
+  const [kind, setKind] = useState<'period' | 'additions' | 'credit_note'>(
+    (params.get('kind') as 'period' | 'additions' | 'credit_note') || 'period'
   );
-  const [step, setStep] = useState(proposed ? 1 : 0);
-  const [contract, setContract] = useState(searchParams.get('contract') ?? '');
-  const [start, setStart] = useState(searchParams.get('start') ?? defaults.start);
-  const [end, setEnd] = useState(searchParams.get('end') ?? defaults.end);
-  // from a proposal, only what can be billed is worth reading: the rest is unticked and
-  // hidden, and the amber count above still says how many there are. The checkbox brings
-  // them back for anybody who wants to look.
-  const [filters, setFilters] = useState<BillingFilters>({ only_billable: proposed ? 1 : 0 });
-  const [advanced, setAdvanced] = useState(false);
-  const [discount, setDiscount] = useState('');
-  const [excluded, setExcluded] = useState<Set<string>>(new Set());
-  const [search, setSearch] = useState('');
-  const [shown, setShown] = useState(ROWS_AT_ONCE);
-  const [groupBy, setGroupBy] = useState<'none' | 'service' | 'user' | 'device' | 'department'>(
-    'none'
-  );
+  const [contract, setContract] = useState(params.get('contract') ?? '');
+  const [start, setStart] = useState(params.get('start') ?? '');
+  const [end, setEnd] = useState(params.get('end') ?? '');
+  const against = params.get('against') ?? undefined;
 
-  const chosen = (contracts.data ?? []).find((row) => row.name === contract);
-  const options = useBillingFilterOptions(chosen?.customer);
+  const [step, setStep] = useState(0);
+  const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [dimensions, setDimensions] = useState<Record<string, string>>({});
+  const [exchange, setExchange] = useState('');
+  const [discount, setDiscount] = useState('0');
+  const [draftInvoice, setDraftInvoice] = useState(true);
+  const [accepted, setAccepted] = useState(false);
+  const [refused, setRefused] = useState<string | null>(null);
 
-  // nothing to choose between when every service here is billed the same way
-  const scopes = options.data?.billed_to ?? [];
+  const contracts = useMspContracts({ status: 'Active' });
+  const query = contract ? { kind, contract, period_start: start, period_end: end, against } : null;
+  const context = useOperationContext(query);
+  const services = useOperationServices(step >= 1 && query ? query : null);
+  const accounting = useOperationAccounting(contract, step >= 2);
+  const create = useCreateOperation();
 
-  // a run can only cover what the contract itself covers
-  const windowStart = chosen?.start_date?.slice(0, 10);
-  const windowEnd = chosen?.end_date?.slice(0, 10);
-  const outsideWindow = Boolean(
-    chosen &&
-      ((windowStart && start && start < windowStart) || (windowEnd && end && end > windowEnd))
-  );
+  const terms = context.data;
 
-  // asked as soon as a period is set, so an already-covered stretch shows before generating
-  const coverage = useBillingPeriodStatus(contract, start, end, step === 0 && !outsideWindow);
-  // what the last charged period of this contract left behind, listed on this screen
-  const pending = usePendingAdjustments(contract || undefined);
-  const pendingCatchUp = pending.data?.catch_up.lines ?? 0;
-  const pendingOwed = pending.data?.owed_lines ?? [];
-  const owedTotal = pendingOwed.reduce((sum, line) => sum + line.amount, 0);
-  const [crediting, setCrediting] = useState(false);
-  // arrived here to give days back: the credit opens on its own, as soon as the run that
-  // charged the period is known. Nobody should have to ask for it twice.
-  const asksForCredit = searchParams.get('credit') === '1';
-  const [creditOffered, setCreditOffered] = useState(false);
+  // the engine's own window, taken as soon as it is known and nobody has typed another
+  useEffect(() => {
+    if (!terms) return;
+    if (!start) setStart(String(terms.period_start).slice(0, 10));
+    if (!end) setEnd(String(terms.period_end).slice(0, 10));
+  }, [terms, start, end]);
+
+  // every eligible line starts selected, which is what the proposal is
+  useEffect(() => {
+    if (!services.data) return;
+
+    setSelected(
+      Object.fromEntries(services.data.lines.map((line) => [line.id, true] as const))
+    );
+  }, [services.data]);
 
   useEffect(() => {
-    if (!asksForCredit || creditOffered || !pending.data?.owed_back.run) return;
-    setCreditOffered(true);
-    setCrediting(true);
-  }, [asksForCredit, creditOffered, pending.data?.owed_back.run]);
+    if (!accounting.data) return;
 
-  // a discount can come from the rate as well as from this run, so the column shows
-  // whenever a line actually carries one
-  const hasDiscount =
-    Number(discount || 0) > 0 ||
-    (preview.data?.lines ?? []).some((line) => Number(line.discount_percent || 0) > 0);
+    setDimensions((current) => {
+      const next = { ...current };
 
-  const resultColumns = [
-    '',
-    'User',
-    'Service',
-    ...(scopes.length > 1 ? ['Billed to'] : []),
-    'Device',
-    'Last billed',
-    'Months',
-    'Rate',
-    ...(hasDiscount ? ['Discount'] : []),
-    'Amount',
-  ];
+      for (const dimension of accounting.data.dimensions) {
+        if (!next[dimension.fieldname] && dimension.default) next[dimension.fieldname] = dimension.default;
+      }
 
-  const result = preview.data;
-  const lines = result?.lines ?? [];
-  const billable = lines.filter((line) => !line.exception_code);
-  const matching = search.trim()
-    ? lines.filter((line) =>
-        [line.user_name, line.email, line.hostname, line.serial_number, line.service_name, line.department]
-          .filter(Boolean)
-          .some((value) => String(value).toLowerCase().includes(search.trim().toLowerCase()))
-      )
-    : lines;
-  // what can be billed is read first; what cannot sinks to the bottom, where it is still
-  // there to be looked at but is out of the way of the decision
-  const candidates = useMemo(
-    () =>
-      [...matching].sort(
-        (a, b) => Number(Boolean(a.exception_code)) - Number(Boolean(b.exception_code))
-      ),
-    [matching]
-  );
-  // what somebody chose to bill, blockers included: a blocker is answered for in Validation,
-  // not quietly dropped before the run is even drawn
-  const kept = lines.filter((line) => !excluded.has(line.service_assignment));
-  const keptBillable = kept.filter((line) => !line.exception_code);
-  const keptBlocked = kept.filter((line) => line.exception_code);
-  // an untick made under one filter still holds under the next, so some of them are
-  // out of sight; saying how many keeps the count below honest
-  const hiddenExcluded =
-    excluded.size - billable.filter((line) => excluded.has(line.service_assignment)).length;
-  // a line a filter hides is not billed either, though nobody unticked it
-  const hiddenByFilter = Math.max(
-    (result?.available ?? 0) - (result?.blocked_count ?? 0) - billable.length,
-    0
-  );
-  // what was kept out of sight because it cannot be billed: said once, quietly, instead
-  // of a warning about lines this run does not carry
-  const hiddenBlockers = filters.only_billable ? (result?.blocked_count ?? 0) : 0;
-  const keptTotal = kept.reduce((sum, line) => sum + line.amount, 0);
-  const keptMonths = kept.reduce((sum, line) => sum + line.billable_months, 0);
-
-  // the invoice is read service by service before it is read person by person, so the run
-  // says how many of each it carries before listing who they belong to
-  const perService = useMemo(() => {
-    const tally = new Map<
-      string,
-      { name: string; count: number; months: number; amount: number; partial: number }
-    >();
-
-    for (const line of keptBillable) {
-      const key = line.service_item;
-      const row = tally.get(key) ?? {
-        name: line.service_name || key,
-        count: 0,
-        months: 0,
-        amount: 0,
-        partial: 0,
-      };
-      row.count += 1;
-      row.months += line.billable_months;
-      row.amount += line.amount;
-      // why the months never quite match the line count: some ran only part of the period
-      if (line.billable_months < 1) row.partial += 1;
-      tally.set(key, row);
-    }
-
-    return [...tally.values()].sort((a, b) => b.amount - a.amount);
-  }, [keptBillable]);
-
-  // a company of any size produces thousands of candidates, and drawing them all at once
-  // is what makes the page crawl. Only a window of them is rendered; ticks are held by
-  // assignment name, so the ones out of sight keep whatever was decided about them
-  const visible = candidates.slice(0, shown);
-  const searched = search.trim();
-
-  useEffect(() => {
-    setShown(ROWS_AT_ONCE);
-  }, [searched, groupBy, result]);
-
-  // grouping never changes what is billed: it is a way of finding what to untick
-  const grouped = useMemo(() => {
-    const key = (line: (typeof visible)[number]) => {
-      if (groupBy === 'service') return line.service_name || line.service_item;
-      if (groupBy === 'user') return line.user_name || line.hostname || 'Not a person';
-      if (groupBy === 'device') return line.hostname || 'Not a machine';
-      if (groupBy === 'department') return line.department || 'No department';
-      return '';
-    };
-
-    if (groupBy === 'none') return [{ label: '', lines: visible }];
-
-    const buckets = new Map<string, typeof visible>();
-
-    for (const line of visible) {
-      const label = key(line);
-      buckets.set(label, [...(buckets.get(label) ?? []), line]);
-    }
-
-    return [...buckets.entries()]
-      .map(([label, rows]) => ({ label, lines: rows }))
-      .sort((a, b) => a.label.localeCompare(b.label));
-  }, [visible, groupBy]);
-
-  const set = (patch: Partial<BillingFilters>) =>
-    setFilters((current) => ({ ...current, ...patch }));
-
-  const run = useMemo(
-    () => ({
-      contract,
-      period_start: start,
-      period_end: end,
-      discount_percent: Number(discount || 0),
-    }),
-    [contract, start, end, discount]
-  );
-
-  // what was unticked is a decision about people, not about the current view: it survives
-  // every filter, and only a change of period wipes it, because the lines are then not the same
-  const scope = `${contract}|${start}|${end}`;
-  const lastScope = useRef(scope);
-  const untickedBlockers = useRef('');
-
-  useEffect(() => {
-    if (step !== 1) return;
-
-    if (lastScope.current !== scope) {
-      lastScope.current = scope;
-      setExcluded(new Set());
-      // the blockers of the period being left are not the blockers of the next one, and
-      // the preview for it has not arrived yet
-      untickedBlockers.current = '';
-    }
-
-    preview.mutate({ ...run, filters });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, filters, run]);
-
-  // a line that cannot be billed starts unticked: it would be carried for nothing. The
-  // amber count above keeps saying how many there are and why, so none of it is hidden —
-  // and anybody who wants one on the run ticks it back.
-  useEffect(() => {
-    if (step !== 1 || !result || untickedBlockers.current === scope) return;
-
-    // keyed on the result, not only on the scope: acting on the preview of the period
-    // just left would untick the wrong people and leave the new blockers ticked
-    if (result.period_start && String(result.period_start) !== start) return;
-
-    untickedBlockers.current = scope;
-    const blocked = lines
-      .filter((line) => line.exception_code)
-      .map((line) => line.service_assignment);
-
-    if (blocked.length) setExcluded((current) => new Set([...current, ...blocked]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, result, scope]);
-
-  const toggle = (assignment: string) =>
-    setExcluded((current) => {
-      const next = new Set(current);
-      if (next.has(assignment)) next.delete(assignment);
-      else next.add(assignment);
       return next;
     });
+  }, [accounting.data]);
 
-  const submit = async () => {
-    try {
-      const created = await generate.mutateAsync({
-        ...run,
-        include: kept.map((line) => line.service_assignment),
-      });
-      navigate(`/msp/billing/${created.name}`);
-    } catch {
-      // surfaced below
+  const lines = useMemo(() => services.data?.lines ?? [], [services.data]);
+  const blocked = services.data?.blocked ?? [];
+  const chosen = lines.filter((line) => selected[line.id]);
+  const total = chosen.reduce((sum, line) => sum + line.amount, 0);
+  const currency = terms?.currency ?? services.data?.currency ?? '';
+
+  const grouped = useMemo(() => {
+    const groups = new Map<string, BillingCandidate[]>();
+
+    for (const line of lines) {
+      groups.set(line.person, [...(groups.get(line.person) ?? []), line]);
     }
+
+    return [...groups.entries()];
+  }, [lines]);
+
+  const missingDimension = (accounting.data?.dimensions ?? []).find(
+    (dimension) => dimension.mandatory && !dimensions[dimension.fieldname]
+  );
+
+  const forward = async () => {
+    setRefused(null);
+
+    if (step === 0) {
+      if (!contract) return setRefused('Choose the contract this operation is for.');
+      if (!start || !end) return setRefused('Give the period this operation covers.');
+    }
+
+    if (step === 1) {
+      if (!chosen.length) return setRefused('Select at least one service.');
+    }
+
+    if (step === 2 && draftInvoice && missingDimension) {
+      return setRefused(`${missingDimension.label} is required before a document can be drafted.`);
+    }
+
+    if (step === 3) {
+      if (!accepted) return setRefused('Confirm your review before preparing the operation.');
+
+      try {
+        const made = await create.mutateAsync({
+          kind,
+          contract,
+          period_start: start,
+          period_end: end,
+          include: chosen.map((line) => line.id),
+          dimensions: draftInvoice ? dimensions : undefined,
+          exchange_rate: exchange ? Number(exchange) : undefined,
+          discount_percent: kind === 'credit_note' ? 0 : Number(discount || 0),
+          against,
+          draft_invoice: draftInvoice ? 1 : 0,
+        });
+
+        navigate(`/msp/billing/${made.run}`);
+      } catch (error) {
+        setRefused((error as Error).message);
+      }
+
+      return;
+    }
+
+    setStep((current) => current + 1);
+    window.scrollTo(0, 0);
   };
 
-  const error = (preview.error || generate.error) as Error | undefined;
-  const canContinue = Boolean(contract && start && end) && !outsideWindow;
+  const back = () => {
+    setRefused(null);
+    if (step === 0) return navigate('/msp/billing');
+    setStep((current) => current - 1);
+  };
 
-  const advancedCount = [
-    filters.device_types?.length,
-    filters.departments?.length,
-    filters.user_statuses?.length,
-    filters.started_after || filters.started_before ? 1 : 0,
-    filters.last_billed_after || filters.last_billed_before ? 1 : 0,
-  ].reduce<number>((sum, value) => sum + (value ? 1 : 0), 0);
+  const label = terms?.label ?? KINDS.find((entry) => entry.value === kind)?.label ?? 'Billing';
+  const primary =
+    step < 3
+      ? 'Continue →'
+      : kind === 'credit_note'
+        ? 'Prepare credit note'
+        : draftInvoice
+          ? 'Prepare invoice draft'
+          : 'Create billing run';
 
   return (
-    <div className="space-y-5 px-6 pb-6 pt-4">
-      <WorkflowHeader
-        title="New billing run"
-        subtitle="Choose what to bill, then decide who is on the run."
-        onBack={() => navigate('/msp/billing')}
-        backLabel="Back to billing runs"
-        actions={
-          <>
-            <button type="button" onClick={() => navigate('/msp/billing')} className={quietBtn}>
+    <div className="space-y-4 px-6 pb-6 pt-4">
+      <button
+        type="button"
+        onClick={() => navigate('/msp/billing')}
+        className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 transition-colors hover:text-slate-800"
+      >
+        <ArrowLeft size={14} />
+        Back to billing
+      </button>
+
+      <Card>
+        <div className="flex flex-wrap items-start justify-between gap-3 px-5 py-4">
+          <div className="min-w-0">
+            <h1 className="text-lg font-bold tracking-tight text-slate-900">{label}</h1>
+            <p className="mt-0.5 text-xs text-slate-400">
+              {terms ? `${terms.customer} · ${terms.contract}` : 'Choose what to bill.'}
+            </p>
+          </div>
+          <button type="button" onClick={() => navigate('/msp/billing')} className={btn}>
+            Cancel
+          </button>
+        </div>
+
+        {terms && (
+          <ContextBar
+            facts={[
+              {
+                label: 'Billing',
+                value: [terms.billing_frequency, terms.billing_timing].filter(Boolean).join(' / '),
+              },
+              { label: 'Period', value: `${day(start)} – ${day(end)}` },
+              { label: 'Currency', value: terms.currency ?? '—' },
+            ]}
+          />
+        )}
+
+        <Stepper steps={STEPS} current={step} />
+      </Card>
+
+      <Card>
+        <CardHead
+          title={TITLES[step].title}
+          hint={TITLES[step].hint}
+          right={<Pill tone="blue">{`Step ${step + 1} of 4`}</Pill>}
+        />
+
+        <div className="p-5">
+          {step === 0 && (
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  <div>
+                    <Label htmlFor="billing-action" required>Billing action</Label>
+                    <Select
+                      className="w-full"
+                      value={kind}
+                      onChange={(value) => {
+                        setKind(value as typeof kind);
+                        setStart('');
+                        setEnd('');
+                      }}
+                      options={KINDS.map((entry) => ({ value: entry.value, label: entry.label }))}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Label htmlFor="contract" required>Contract</Label>
+                    <Select
+                      className="w-full"
+                      searchable
+                      placeholder="Select a contract"
+                      value={contract}
+                      onChange={(value) => {
+                        setContract(value);
+                        setStart('');
+                        setEnd('');
+                      }}
+                      options={(contracts.data ?? []).map((row) => ({
+                        value: row.name,
+                        label: `${row.customer} · ${row.name}`,
+                        description: [row.billing_frequency, row.billing_timing]
+                          .filter(Boolean)
+                          .join(' / '),
+                      }))}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="customer">Customer</Label>
+                    <input id="customer" readOnly value={terms?.customer ?? ''} className={field} />
+                  </div>
+                  <div>
+                    <Label htmlFor="period-start" required>Period start</Label>
+                    <input
+                      id="period-start"
+                      type="date"
+                      value={start}
+                      disabled={Boolean(terms?.period_locked)}
+                      onChange={(event) => setStart(event.target.value)}
+                      className={field}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="period-end" required>Period end</Label>
+                    <input
+                      id="period-end"
+                      type="date"
+                      value={end}
+                      disabled={Boolean(terms?.period_locked)}
+                      onChange={(event) => setEnd(event.target.value)}
+                      className={field}
+                    />
+                  </div>
+                </div>
+
+                {terms?.note && (
+                  <Banner tone={terms.note_tone ?? 'blue'}>{terms.note}</Banner>
+                )}
+
+                {terms?.open_run && (
+                  <Banner tone="amber" title="A run is already open on this window.">
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/msp/billing/${terms.open_run}`)}
+                      className="font-bold underline underline-offset-2"
+                    >
+                      Continue {terms.open_run} →
+                    </button>{' '}
+                    rather than drawing a second one.
+                  </Banner>
+                )}
+              </div>
+
+              <InfoPanel>
+                <PanelTitle>Contract terms</PanelTitle>
+                <Summary
+                  rows={[
+                    { label: 'Frequency', value: terms?.billing_frequency ?? '—' },
+                    { label: 'Timing', value: terms?.billing_timing ?? '—' },
+                    { label: 'Proration', value: terms?.proration_method ?? '—' },
+                    { label: 'Invoice grouping', value: terms?.invoice_grouping ?? '—' },
+                    { label: 'Proposed lines', value: terms?.proposed_lines ?? '—' },
+                    {
+                      label: 'Estimated amount',
+                      value:
+                        terms?.proposed_amount === null || terms?.proposed_amount === undefined
+                          ? '—'
+                          : `${terms.proposed_amount < 0 ? '−' : ''}${money(terms.proposed_amount, currency)}`,
+                    },
+                  ]}
+                />
+              </InfoPanel>
+            </div>
+          )}
+
+          {step === 1 && (
+            <div className="space-y-4">
+              {services.isLoading && <p className="text-xs text-slate-400">Reading the services…</p>}
+              {services.data?.note && <Banner tone="amber">{services.data.note}</Banner>}
+
+              {kind === 'credit_note' && lines.length > 0 && (
+                <Banner tone="amber" title="Credit against coverage already billed.">
+                  Keeping a line selected confirms its original coverage, quantity, rate and any
+                  credit already given have been checked. Hover a line to read why it is proposed.
+                </Banner>
+              )}
+
+              {lines.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <strong className="font-bold text-slate-800">{chosen.length} selected</strong>
+                  <span className="text-slate-400">of {lines.length} shown</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const all = chosen.length === lines.length;
+                      setSelected(
+                        Object.fromEntries(lines.map((line) => [line.id, !all] as const))
+                      );
+                    }}
+                    className={`${btn} ml-auto`}
+                  >
+                    {chosen.length === lines.length ? 'Deselect all' : 'Select all'}
+                  </button>
+                </div>
+              )}
+
+              <div className="divide-y divide-slate-100 rounded-xl border border-slate-200">
+                {grouped.map(([person, rows]) => (
+                  <div key={person}>
+                    <div className="flex items-center justify-between gap-2 bg-slate-50/70 px-4 py-1.5">
+                      <h3 className="truncate text-[11px] font-bold text-slate-600">{person}</h3>
+                      <span className="text-[11px] text-slate-400">
+                        {rows.length} service{rows.length > 1 ? 's' : ''}
+                      </span>
+                    </div>
+
+                    {rows.map((line) => (
+                      <label
+                        key={line.id}
+                        title={line.reason}
+                        className="flex cursor-pointer items-center gap-3 border-t border-slate-100 px-4 py-2 hover:bg-slate-50/60"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={Boolean(selected[line.id])}
+                          onChange={(event) =>
+                            setSelected((current) => ({
+                              ...current,
+                              [line.id]: event.target.checked,
+                            }))
+                          }
+                          aria-label={`Include ${line.service} for ${person}`}
+                          className="h-4 w-4 shrink-0 accent-blue-600"
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-xs font-bold text-slate-800">
+                            {line.service}
+                          </span>
+                          <span className="block truncate text-[11px] text-slate-400">
+                            {line.assignment}
+                            {line.device ? ` · ${line.device}` : ''}
+                          </span>
+                        </span>
+                        <span className="hidden whitespace-nowrap text-[11px] text-slate-500 sm:block">
+                          {day(line.covered_from)} – {day(line.covered_to)}
+                        </span>
+                        <span className="w-20 shrink-0 text-right text-[11px] text-slate-400">
+                          {line.months} mo
+                        </span>
+                        <span className="hidden shrink-0 lg:block">
+                          <Pill tone="gray">{line.covered}</Pill>
+                        </span>
+                        <strong className="w-28 shrink-0 text-right text-xs font-bold tabular-nums text-slate-800">
+                          {line.amount < 0 ? '−' : ''}
+                          {money(line.amount, currency)}
+                        </strong>
+                      </label>
+                    ))}
+                  </div>
+                ))}
+
+                {!services.isLoading && lines.length === 0 && (
+                  <p className="p-6 text-center text-xs text-slate-400">
+                    Nothing is billable on this window.
+                  </p>
+                )}
+              </div>
+
+              {blocked.length > 0 && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+                  <h3 className="text-xs font-bold text-amber-900">
+                    {blocked.length} line{blocked.length > 1 ? 's' : ''} cannot be billed
+                  </h3>
+                  <p className="mt-0.5 text-[11px] text-amber-800">
+                    They are left out of this operation until they are fixed where they live.
+                  </p>
+                  <ul className="mt-2 space-y-1.5">
+                    {blocked.map((line) => (
+                      <li key={line.id} className="flex flex-wrap items-center gap-2 text-[11px]">
+                        <Pill tone="amber">{line.exception_code}</Pill>
+                        <span className="font-semibold text-slate-700">{line.service}</span>
+                        <span className="text-slate-500">{line.person}</span>
+                        <span className="text-slate-400">{line.exception_detail}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <div className="ml-auto flex max-w-xs items-baseline justify-between gap-3 text-xs">
+                <span className="text-slate-400">Selected total</span>
+                <strong className="text-xl font-bold tabular-nums text-slate-900">
+                  {total < 0 ? '−' : ''}
+                  {money(total, currency)}
+                </strong>
+              </div>
+            </div>
+          )}
+
+          {step === 2 && (
+            <div className="space-y-5">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {(accounting.data?.dimensions ?? []).map((dimension) => (
+                  <div key={dimension.fieldname}>
+                    <Label htmlFor={dimension.fieldname} required={dimension.mandatory}>
+                      {dimension.label}
+                    </Label>
+                    <Select
+                      className="w-full"
+                      placeholder="Not set"
+                      value={dimensions[dimension.fieldname] ?? ''}
+                      onChange={(value) =>
+                        setDimensions((current) => ({ ...current, [dimension.fieldname]: value }))
+                      }
+                      options={dimension.options.map((option) => ({
+                        value: option,
+                        label: option,
+                      }))}
+                    />
+                  </div>
+                ))}
+
+                <div>
+                  <Label htmlFor="posting-date">Posting date</Label>
+                  <input
+                    id="posting-date"
+                    readOnly
+                    value={String(accounting.data?.posting_date ?? '').slice(0, 10)}
+                    className={field}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="payment-terms">Payment terms</Label>
+                  <input
+                    id="payment-terms"
+                    readOnly
+                    value={accounting.data?.payment_terms ?? 'As contracted'}
+                    className={field}
+                  />
+                </div>
+                {accounting.data?.currency !== accounting.data?.company_currency && (
+                  <div>
+                    <Label htmlFor="exchange-rate">Exchange rate</Label>
+                    <input
+                      id="exchange-rate"
+                      type="number"
+                      min="0.0001"
+                      step="0.01"
+                      value={exchange}
+                      onChange={(event) => setExchange(event.target.value)}
+                      placeholder="From ERPNext"
+                      className={field}
+                    />
+                  </div>
+                )}
+                {kind !== 'credit_note' && (
+                  <div>
+                    <Label htmlFor="run-discount">Run discount (%)</Label>
+                    <input
+                      id="run-discount"
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={discount}
+                      onChange={(event) => setDiscount(event.target.value)}
+                      className={field}
+                    />
+                  </div>
+                )}
+              </div>
+
+              <Divider />
+
+              <div>
+                <p className="text-xs font-bold text-slate-800">Invoice notifications</p>
+                <p className="text-[11px] text-slate-400">
+                  Sent when the document is submitted, from its own page.
+                </p>
+                <div className="mt-2 flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-50 text-[10px] font-bold text-blue-700">
+                    BC
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[11px] font-bold text-slate-800">
+                      {accounting.data?.billing_contact ?? 'No billing contact'}
+                    </p>
+                    <p className="truncate text-[11px] text-slate-400">
+                      {accounting.data?.billing_contact_note ?? 'The customer’s billing contact'}
+                    </p>
+                  </div>
+                  <Pill tone={accounting.data?.billing_contact ? 'green' : 'gray'}>To</Pill>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-[11px] text-slate-500">
+                ERPNext validates accounting dimensions, exchange rates and posting rules. The
+                document is drafted first; submitting it is a separate decision.
+              </div>
+            </div>
+          )}
+
+          {step === 3 && (
+            <div className="space-y-5">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                {[
+                  { label: 'Action', value: label },
+                  { label: 'Customer', value: terms?.customer ?? '—' },
+                  { label: 'Period', value: `${day(start)} – ${day(end)}` },
+                ].map((box) => (
+                  <div key={box.label} className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+                    <p className="text-[11px] text-slate-400">{box.label}</p>
+                    <p className="mt-0.5 text-xs font-bold text-slate-800">{box.value}</p>
+                  </div>
+                ))}
+              </div>
+
+              <Summary
+                rows={[
+                  { label: 'Selected service lines', value: chosen.length },
+                  { label: 'Left out', value: lines.length - chosen.length },
+                  { label: 'Cannot be billed', value: blocked.length },
+                  ...(accounting.data?.dimensions ?? []).map((dimension) => ({
+                    label: dimension.label,
+                    value: dimensions[dimension.fieldname] || 'Not set',
+                  })),
+                  {
+                    label: 'Notification',
+                    value: accounting.data?.billing_contact ?? 'No billing contact',
+                  },
+                  {
+                    label: 'Estimated total (before taxes)',
+                    value: `${total < 0 ? '−' : ''}${money(total, currency)}`,
+                  },
+                ]}
+              />
+
+              {kind !== 'credit_note' && (
+                <label className="flex items-center gap-2.5 text-xs text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={draftInvoice}
+                    onChange={(event) => setDraftInvoice(event.target.checked)}
+                    className="h-4 w-4 accent-blue-600"
+                  />
+                  Draft the Sales Invoice in ERPNext now. Submitting it stays a separate decision.
+                </label>
+              )}
+
+              <label className="flex items-start gap-2.5 text-xs text-slate-600">
+                <input
+                  type="checkbox"
+                  checked={accepted}
+                  onChange={(event) => setAccepted(event.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-blue-600"
+                />
+                I have reviewed the services, amounts and accounting details.
+              </label>
+
+              {kind === 'credit_note' && (
+                <p className="text-[11px] text-slate-400">
+                  The credit note stays separate from regular billing and from additions.
+                </p>
+              )}
+            </div>
+          )}
+
+          {refused && (
+            <p role="alert" className="mt-4 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+              {refused}
+            </p>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 px-5 py-3.5">
+          <button type="button" onClick={back} className={btn}>
+            {step === 0 ? '← Billing' : '← Back'}
+          </button>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => navigate('/msp/billing')} className={btn}>
               Cancel
             </button>
             <button
               type="button"
-              disabled={step === 0}
-              onClick={() => setStep((current) => Math.max(current - 1, 0))}
-              className={secondaryBtn}
+              onClick={() => void forward()}
+              disabled={create.isLoading}
+              className={btnPrimary}
             >
-              <ArrowLeft size={15} />
-              Previous
+              {create.isLoading ? 'Preparing…' : primary}
             </button>
-            {step === 0 ? (
-              <button
-                type="button"
-                disabled={!canContinue}
-                onClick={() => setStep(1)}
-                className={primaryBtn}
-              >
-                Continue
-                <ArrowRight size={15} />
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={submit}
-                disabled={keptBillable.length === 0 || generate.isLoading}
-                className={`${primaryBtn} min-w-[11rem]`}
-              >
-                {generate.isLoading ? (
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                ) : (
-                  <>
-                    <Receipt size={15} />
-                    Generate the run
-                  </>
-                )}
-              </button>
-            )}
-          </>
-        }
-        stepper={
-          <BillingProgressStepper
-            current={step === 0 ? 'scope' : 'selection'}
-            reachable={canContinue ? ['scope', 'selection'] : ['scope']}
-            onGo={(stage) => setStep(stage === 'scope' ? 0 : 1)}
-          />
-        }
-      />
-
-      {step === 0 && (
-        <div className="rounded-xl border border-slate-100 bg-white shadow-sm">
-          <div className="px-5 py-4">
-            <h2 className="text-base font-semibold text-slate-900">What are we billing?</h2>
-            <p className="mt-0.5 text-sm text-slate-400">
-              One contract, one invoice. Only the services the contract covers are picked up.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 px-5 sm:grid-cols-3">
-            <div>
-              <FieldLabel required>Contract</FieldLabel>
-              <Select
-                className="w-full"
-                searchable
-                value={contract}
-                onChange={setContract}
-                placeholder="Select a contract"
-                options={(contracts.data ?? []).map((row) => ({
-                  value: row.name,
-                  label: row.title || row.customer,
-                  description: `${row.customer} · ${row.billing_frequency} · ${row.service_count ?? 0} service(s)`,
-                }))}
-              />
-              {(contracts.data ?? []).length === 0 && !contracts.isLoading && (
-                <p className="mt-1.5 text-xs text-amber-600">No active contract yet.</p>
-              )}
-            </div>
-            <div>
-              <FieldLabel required>Period start</FieldLabel>
-              <input
-                type="date"
-                value={start}
-                min={windowStart}
-                max={end || windowEnd}
-                onChange={(event) => setStart(event.target.value)}
-                className={inputClass}
-              />
-            </div>
-            <div>
-              <FieldLabel required>Period end</FieldLabel>
-              <input
-                type="date"
-                value={end}
-                min={start || windowStart}
-                max={windowEnd}
-                onChange={(event) => setEnd(event.target.value)}
-                className={inputClass}
-              />
-            </div>
-          </div>
-
-          {!outsideWindow && coverage.data?.fully_billed && (
-            <div className="mx-5 mt-3 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
-              <TriangleAlert size={16} className="mt-0.5 shrink-0 text-amber-600" />
-              <p className="text-sm text-amber-800">
-                <span className="font-semibold">
-                  {coverage.data.customer} is already billed for this whole period.
-                </span>{' '}
-                All {coverage.data.eligible} eligible line(s) sit on{' '}
-                {coverage.data.runs.join(', ')}. Generating again would produce a run with
-                nothing on it.
-              </p>
-            </div>
-          )}
-
-          {!outsideWindow &&
-            coverage.data &&
-            !coverage.data.fully_billed &&
-            coverage.data.already_billed > 0 && (
-              <div className="mx-5 mt-3 flex items-start gap-2.5 rounded-lg border border-blue-100 bg-blue-50/70 p-3">
-                <Info size={16} className="mt-0.5 shrink-0 text-blue-600" />
-                <p className="text-sm text-blue-800">
-                  {coverage.data.already_billed} of {coverage.data.eligible} line(s) are already
-                  billed for this period on {coverage.data.runs.join(', ')}.{' '}
-                  <span className="font-semibold">{coverage.data.remaining} remain</span> to bill.
-                </p>
-              </div>
-            )}
-
-          {/* what the period already charged left behind for this contract, said here so
-              the run screen is the one place the work is seen and decided */}
-          {pending.data && (pendingCatchUp > 0 || pendingOwed.length > 0) && (
-            <div className="mx-5 mt-3 overflow-hidden rounded-lg border border-slate-200">
-              <p className="border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
-                What the charged period left behind
-              </p>
-
-              {pendingCatchUp > 0 && (
-                <div className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5">
-                  <p className="text-sm text-slate-700">
-                    <span className="font-semibold">{pendingCatchUp} arrival(s)</span> after the
-                    invoice went out, never billed. This run picks them up from{' '}
-                    {fmtDay(pending.data.catch_up.from)}.
-                  </p>
-                  <span className="text-sm font-semibold text-slate-800 tabular-nums">
-                    {pending.data.catch_up.amount.toLocaleString()} {pending.data.currency ?? ''}
-                  </span>
-                </div>
-              )}
-
-              {pendingOwed.length > 0 && (
-                <div className="border-t border-slate-100 px-3 py-2.5">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <p className="text-sm text-slate-700">
-                      <span className="font-semibold">{pendingOwed.length} line(s)</span> stopped
-                      before the end of a period paid in advance.
-                    </p>
-                    <span className="flex items-center gap-3">
-                      <span className="text-sm font-semibold text-rose-600 tabular-nums">
-                        -{owedTotal.toLocaleString()} {pending.data.currency ?? ''}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setCrediting(true)}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
-                      >
-                        <ReceiptText size={13} />
-                        Create credit note
-                      </button>
-                    </span>
-                  </div>
-
-                  <ul className="mt-2 space-y-1">
-                    {pendingOwed.slice(0, 4).map((line) => (
-                      <li key={line.service_assignment} className="text-xs text-slate-500">
-                        {line.who} · {line.service_name} · ended {fmtDay(line.ended_on)} ·{' '}
-                        {line.unused_days} day(s) unused
-                      </li>
-                    ))}
-                    {pendingOwed.length > 4 && (
-                      <li className="text-xs text-slate-400">
-                        and {pendingOwed.length - 4} more
-                      </li>
-                    )}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
-
-          {outsideWindow && (
-            <div className="mx-5 mt-3 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
-              <TriangleAlert size={16} className="mt-0.5 shrink-0 text-amber-600" />
-              <p className="text-sm text-amber-800">
-                This contract only covers {windowStart} to {windowEnd ?? 'an open end'}. A period
-                outside that window cannot be billed under it.
-              </p>
-            </div>
-          )}
-
-          <div className="flex flex-wrap items-center gap-2 px-5 pb-5 pt-3">
-            {PRESETS.map((preset) => (
-              <button
-                key={preset.label}
-                type="button"
-                onClick={() => {
-                  const range = preset.build();
-                  setStart(range.start);
-                  setEnd(range.end);
-                }}
-                className="rounded-lg border border-slate-200 px-3 py-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
-              >
-                {preset.label}
-              </button>
-            ))}
-          </div>
-
-          {chosen && (
-            <div className="border-t border-slate-100 px-5 py-4">
-              <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-4">
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-slate-400">Customer</dt>
-                  <dd className="mt-0.5 font-semibold text-slate-900">{chosen.customer}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-slate-400">Frequency</dt>
-                  <dd className="mt-0.5 text-slate-700">{chosen.billing_frequency}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-slate-400">Proration</dt>
-                  <dd className="mt-0.5 text-slate-700">{chosen.proration_method}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs uppercase tracking-wide text-slate-400">Currency</dt>
-                  <dd className="mt-0.5 text-slate-700">{chosen.currency}</dd>
-                </div>
-                <div className="col-span-2 sm:col-span-4">
-                  <dt className="text-xs uppercase tracking-wide text-slate-400">Services covered</dt>
-                  <dd className="mt-1 flex flex-wrap gap-1.5">
-                    {chosen.services.map((service) => (
-                      <span
-                        key={service.service_item}
-                        className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700"
-                      >
-                        {service.service_name}
-                      </span>
-                    ))}
-                  </dd>
-                </div>
-              </dl>
-            </div>
-          )}
-        </div>
-      )}
-
-      {step === 1 && (
-        <div className="space-y-5">
-          <div className="rounded-xl border border-slate-100 bg-white shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
-              <h2 className="inline-flex items-center gap-2 text-base font-semibold text-slate-900">
-                <SlidersHorizontal size={16} className="text-slate-400" />
-                Narrow the run
-              </h2>
-              <div className="text-right">
-                <p className="text-2xl font-bold text-slate-900 tabular-nums">
-                  {result?.matched ?? 0}
-                  <span className="text-sm font-normal text-slate-400">
-                    {' '}
-                    / {result?.available ?? 0}
-                  </span>
-                </p>
-                <p className="text-xs text-slate-400">lines matched</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-x-4 gap-y-5 px-5 pb-4 sm:grid-cols-2 lg:grid-cols-4">
-              <div>
-                <FieldLabel>Service</FieldLabel>
-                <MultiSelect
-                  searchable
-                  values={filters.services ?? []}
-                  onChange={(values) => set({ services: values })}
-                  options={options.data?.services ?? []}
-                  placeholder="Every service"
-                />
-              </div>
-              {scopes.length > 1 && (
-                <div>
-                  <FieldLabel>Billed to</FieldLabel>
-                  <MultiSelect
-                    values={filters.billed_to ?? []}
-                    onChange={(values) => set({ billed_to: values })}
-                    options={scopes.map((v) => ({
-                      value: v,
-                      label: v === 'User' ? 'The person' : 'The machine',
-                    }))}
-                    placeholder="Person and machine"
-                  />
-                </div>
-              )}
-              <div>
-                <FieldLabel>Service status</FieldLabel>
-                <MultiSelect
-                  values={filters.statuses ?? []}
-                  onChange={(values) => set({ statuses: values })}
-                  options={(options.data?.statuses ?? []).map((v) => ({ value: v, label: v }))}
-                  placeholder="Any status"
-                />
-              </div>
-              <div>
-                <FieldLabel>Discount on this run</FieldLabel>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={discount}
-                    onChange={(event) => setDiscount(event.target.value)}
-                    placeholder="0"
-                    className={`${inputClass} text-right tabular-nums`}
-                  />
-                  <span className="text-sm text-slate-500">%</span>
-                </div>
-              </div>
-              <div className="flex items-end pb-1">
-                <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(filters.only_billable)}
-                    onChange={(event) => set({ only_billable: event.target.checked ? 1 : 0 })}
-                    className="h-4 w-4 rounded border-slate-300"
-                  />
-                  Hide blocked lines
-                </label>
-              </div>
-            </div>
-
-            <div className="border-t border-slate-100">
-              <button
-                type="button"
-                onClick={() => setAdvanced((current) => !current)}
-                className="flex w-full items-center justify-between px-5 py-3 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50"
-              >
-                <span className="inline-flex items-center gap-2">
-                  Advanced filters
-                  {advancedCount > 0 && (
-                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700">
-                      {advancedCount}
-                    </span>
-                  )}
-                </span>
-                <ChevronDown
-                  size={16}
-                  className={`text-slate-400 transition-transform ${advanced ? 'rotate-180' : ''}`}
-                />
-              </button>
-
-              {advanced && (
-                <div className="grid grid-cols-1 gap-x-4 gap-y-5 border-t border-slate-100 px-5 py-4 sm:grid-cols-2 lg:grid-cols-3">
-                  <div>
-                    <FieldLabel>Department</FieldLabel>
-                    <MultiSelect
-                      searchable
-                      values={filters.departments ?? []}
-                      onChange={(values) => set({ departments: values })}
-                      options={(options.data?.departments ?? []).map((v) => ({
-                        value: v,
-                        label: v,
-                      }))}
-                      placeholder="Any department"
-                    />
-                  </div>
-                  <div>
-                    <FieldLabel>Device type</FieldLabel>
-                    <MultiSelect
-                      searchable
-                      values={filters.device_types ?? []}
-                      onChange={(values) => set({ device_types: values })}
-                      options={(options.data?.device_types ?? []).map((v) => ({
-                        value: v,
-                        label: v,
-                      }))}
-                      placeholder="Any equipment"
-                    />
-                  </div>
-                  <div>
-                    <FieldLabel>Person status</FieldLabel>
-                    <MultiSelect
-                      values={filters.user_statuses ?? []}
-                      onChange={(values) => set({ user_statuses: values })}
-                      options={(options.data?.user_statuses ?? []).map((v) => ({
-                        value: v,
-                        label: v,
-                      }))}
-                      placeholder="Any"
-                    />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <FieldLabel>In service between</FieldLabel>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="date"
-                        value={filters.started_after ?? ''}
-                        max={filters.started_before || undefined}
-                        onChange={(event) => set({ started_after: event.target.value || undefined })}
-                        className={inputClass}
-                      />
-                      <span className="text-sm text-slate-400">→</span>
-                      <input
-                        type="date"
-                        value={filters.started_before ?? ''}
-                        min={filters.started_after || undefined}
-                        onChange={(event) =>
-                          set({ started_before: event.target.value || undefined })
-                        }
-                        className={inputClass}
-                      />
-                    </div>
-                  </div>
-                  <div className="sm:col-span-2">
-                    <FieldLabel>Last billed between</FieldLabel>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="date"
-                        value={filters.last_billed_after ?? ''}
-                        max={filters.last_billed_before || undefined}
-                        onChange={(event) =>
-                          set({ last_billed_after: event.target.value || undefined })
-                        }
-                        className={inputClass}
-                      />
-                      <span className="text-sm text-slate-400">→</span>
-                      <input
-                        type="date"
-                        value={filters.last_billed_before ?? ''}
-                        min={filters.last_billed_after || undefined}
-                        onChange={(event) =>
-                          set({ last_billed_before: event.target.value || undefined })
-                        }
-                        className={inputClass}
-                      />
-                    </div>
-                  </div>
-                  <div className="flex items-end pb-1">
-                    <button
-                      type="button"
-                      onClick={() => setFilters({ only_billable: 0 })}
-                      className="text-xs font-semibold text-blue-600 transition-colors hover:text-blue-700"
-                    >
-                      Reset filters
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-slate-100 bg-white shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
-              <div>
-                <h2 className="text-base font-semibold text-slate-900">Who gets billed</h2>
-                <p className="mt-0.5 text-sm text-slate-400">
-                  Untick anyone you want to leave out. It sticks when you change the filters.
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-2xl font-bold text-slate-900 tabular-nums">
-                  {keptTotal.toLocaleString()}{' '}
-                  <span className="text-sm font-normal text-slate-400">
-                    {result?.currency ?? ''}
-                  </span>
-                </p>
-                <p className="text-xs text-slate-400">estimated total</p>
-              </div>
-            </div>
-
-            {/* a filter is a view; a decision to leave somebody out is a billing decision.
-                The two are counted apart so neither is mistaken for the other */}
-            <div className="flex flex-wrap gap-x-6 gap-y-1 border-y border-slate-100 bg-slate-50/70 px-5 py-2.5 text-xs">
-              <span className="text-slate-500">
-                <strong className="font-semibold text-slate-900 tabular-nums">
-                  {result?.available ?? 0}
-                </strong>{' '}
-                candidates
-              </span>
-              <span className="text-slate-500">
-                <strong className="font-semibold text-emerald-700 tabular-nums">
-                  {keptBillable.length}
-                </strong>{' '}
-                selected · {keptMonths.toFixed(1)} months
-              </span>
-              <span className="text-slate-500">
-                <strong className="font-semibold text-slate-700 tabular-nums">
-                  {excluded.size}
-                </strong>{' '}
-                left out
-                {hiddenExcluded > 0 && (
-                  <span className="text-amber-600"> ({hiddenExcluded} out of view)</span>
-                )}
-              </span>
-              <span className="text-slate-500">
-                <strong className="font-semibold text-amber-700 tabular-nums">
-                  {keptBlocked.length}
-                </strong>{' '}
-                blocked
-              </span>
-              {/* set aside before this run was drawn: not its problem, but one click away
-                  for anybody who wants to see why */}
-              {hiddenBlockers > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setFilters({ ...filters, only_billable: 0 })}
-                  className="text-slate-500 underline-offset-2 hover:underline"
-                >
-                  <strong className="font-semibold text-slate-700 tabular-nums">
-                    {hiddenBlockers}
-                  </strong>{' '}
-                  cannot be billed
-                </button>
-              )}
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 px-5 py-3">
-              <div className="relative min-w-[14rem] flex-1">
-                <Search
-                  size={14}
-                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                />
-                <input
-                  className={`${inputClass} pl-9`}
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search a person, email, hostname, serial or service"
-                  aria-label="Search the candidates"
-                />
-              </div>
-
-              <Select
-                className="w-44"
-                value={groupBy}
-                onChange={(value) => setGroupBy(value as typeof groupBy)}
-                options={[
-                  { value: 'none', label: 'No grouping' },
-                  { value: 'service', label: 'Group by service' },
-                  { value: 'user', label: 'Group by person' },
-                  { value: 'device', label: 'Group by machine' },
-                  { value: 'department', label: 'Group by department' },
-                ]}
-              />
-
-              {/* matching means what the filters and the search show, never the whole run */}
-              <button
-                type="button"
-                onClick={() =>
-                  setExcluded((current) => {
-                    const next = new Set(current);
-                    candidates.forEach((line) => next.delete(line.service_assignment));
-                    return next;
-                  })
-                }
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
-              >
-                Select all matching
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  setExcluded((current) => {
-                    const next = new Set(current);
-                    candidates.forEach((line) => next.add(line.service_assignment));
-                    return next;
-                  })
-                }
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
-              >
-                Exclude all matching
-              </button>
-            </div>
-
-            {perService.length > 0 && (
-              <div className="sticky top-2 z-20 border-y border-slate-100 bg-slate-50/95 px-5 py-3 backdrop-blur">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                    What this run carries
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    {perService.length} service{perService.length > 1 ? 's' : ''} · {kept.length}{' '}
-                    line{kept.length > 1 ? 's' : ''}
-                  </p>
-                </div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {perService.map((row) => (
-                    <div
-                      key={row.name}
-                      className="rounded-lg border border-slate-200 bg-white px-3 py-2"
-                    >
-                      <p className="text-sm font-semibold text-slate-900">
-                        {row.count}
-                        <span className="ml-1.5 font-medium text-slate-500">{row.name}</span>
-                      </p>
-                      <p className="mt-0.5 text-xs text-slate-400 tabular-nums">
-                        {row.months.toFixed(1)} months · {row.amount.toLocaleString()}{' '}
-                        {result?.currency ?? ''}
-                      </p>
-                      {row.partial > 0 && (
-                        <p className="mt-0.5 text-xs text-amber-600">
-                          {row.partial} part of the month only
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {result && result.blocked_count > 0 && !hiddenBlockers && (
-              <div className="mx-5 mb-3 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
-                <TriangleAlert size={16} className="mt-0.5 shrink-0 text-amber-600" />
-                <div className="text-sm text-amber-800">
-                  <p className="font-semibold">
-                    {result.blocked_count} line(s) cannot be billed
-                    {filters.only_billable ? ' and are hidden below' : ''}
-                  </p>
-                  <ul className="mt-1 space-y-0.5">
-                    {Object.entries(result.blocked_by_code).map(([code, count]) => (
-                      <li key={code}>
-                        {count} × {code}
-                      </li>
-                    ))}
-                  </ul>
-                  {Boolean(filters.only_billable) && (
-                    <button
-                      type="button"
-                      onClick={() => set({ only_billable: 0 })}
-                      className="mt-2 inline-flex items-center rounded-lg border border-amber-300 bg-white px-3.5 py-2.5 text-sm font-semibold text-amber-800 transition-colors hover:bg-amber-100"
-                    >
-                      Show them
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-
-            <div className="flex flex-wrap items-center gap-2 px-5 pb-3">
-              <div className="relative flex-1 min-w-[14rem]">
-                <Search
-                  size={16}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                />
-                <input
-                  type="text"
-                  value={filters.search ?? ''}
-                  onChange={(event) => set({ search: event.target.value || undefined })}
-                  placeholder="Search this selection"
-                  className="h-10 w-full rounded-lg border border-slate-200 pl-10 pr-4 text-sm outline-none focus:border-blue-500"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={() => setExcluded(new Set())}
-                className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                Select all
-              </button>
-              <button
-                type="button"
-                onClick={() => setExcluded(new Set(lines.map((line) => line.service_assignment)))}
-                className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                Clear
-              </button>
-            </div>
-
-            <div className="max-h-[30rem] overflow-auto px-5 pb-5">
-              <table className="w-full">
-                <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
-                  <tr>
-                    {resultColumns.map((column, index) => (
-                      <th
-                        key={column || index}
-                        className={`whitespace-nowrap px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-500 ${
-                          index >= resultColumns.length - 3 ? 'text-right' : 'text-left'
-                        } ${index === 0 ? 'rounded-l-lg' : ''} ${
-                          index === resultColumns.length - 1 ? 'rounded-r-lg' : ''
-                        }`}
-                      >
-                        {column}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {grouped.map((group) => (
-                    <Fragment key={group.label}>
-                      {groupBy !== 'none' && (
-                        <tr className="bg-slate-50/80">
-                          <td
-                            colSpan={resultColumns.length}
-                            className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-600"
-                          >
-                            {group.label}
-                            <span className="ml-2 font-normal normal-case text-slate-400">
-                              {group.lines.filter(
-                                (line) => !excluded.has(line.service_assignment)
-                              ).length}{' '}
-                              of {group.lines.length} selected
-                            </span>
-                          </td>
-                        </tr>
-                      )}
-                      {group.lines.map((line) => (
-                    <tr key={line.service_assignment} className="hover:bg-slate-50">
-                      <td className="px-3 py-2.5">
-                        <input
-                          type="checkbox"
-                          checked={!excluded.has(line.service_assignment)}
-                          onChange={() => toggle(line.service_assignment)}
-                          className="h-4 w-4 rounded border-slate-300"
-                        />
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-2.5">
-                        <p className="text-sm font-medium text-slate-800">
-                          {subjectOf(line)}
-                        </p>
-                        {line.department && (
-                          <p className="text-xs text-slate-400">{line.department}</p>
-                        )}
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-2.5 text-sm text-slate-600">
-                        {line.service_name}
-                      </td>
-                      {scopes.length > 1 && (
-                        <td className="whitespace-nowrap px-3 py-2.5">
-                          <StatusBadge value={line.billed_to === 'Device' ? 'Device' : 'User'} />
-                        </td>
-                      )}
-                      <td className="whitespace-nowrap px-3 py-2.5 text-sm text-slate-600">
-                        {line.hostname || '—'}
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-2.5 text-sm text-slate-500">
-                        {line.last_billed_on ? line.last_billed_on.slice(0, 10) : 'Never'}
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-2.5 text-right text-sm text-slate-700 tabular-nums">
-                        {line.billable_months}
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-2.5 text-right text-sm text-slate-500 tabular-nums">
-                        {(line.unit_rate ?? 0).toLocaleString()}
-                      </td>
-                      {hasDiscount && (
-                        <td className="whitespace-nowrap px-3 py-2.5 text-right text-sm text-slate-600 tabular-nums">
-                          {line.discount_percent ? (
-                            <div className="flex flex-col items-end">
-                              <span>{line.discount_percent}%</span>
-                              {line.discount_source && (
-                                <span className="text-xs font-medium text-slate-400">
-                                  {line.discount_source.toLowerCase()}
-                                </span>
-                              )}
-                            </div>
-                          ) : (
-                            '—'
-                          )}
-                        </td>
-                      )}
-                      <td className="whitespace-nowrap px-3 py-2.5 text-right text-sm font-semibold text-slate-900 tabular-nums">
-                        {line.amount.toLocaleString()}
-                      </td>
-                    </tr>
-                      ))}
-                    </Fragment>
-                  ))}
-                  {candidates.length === 0 && (
-                    <tr>
-                      <td
-                        colSpan={resultColumns.length}
-                        className="px-3 py-10 text-center text-sm text-slate-500"
-                      >
-                        {/* an empty list with blockers hidden is not an empty period: it
-                            is a period where nothing can be billed, and saying which is
-                            the difference between a dead end and a thing to fix */}
-                        {hiddenBlockers > 0 ? (
-                          <>
-                            Nothing here can be billed.{' '}
-                            <button
-                              type="button"
-                              onClick={() => setFilters({ ...filters, only_billable: 0 })}
-                              className="font-semibold text-blue-600 underline-offset-2 hover:underline"
-                            >
-                              Show the {hiddenBlockers} line(s) that cannot be
-                            </button>{' '}
-                            to see why.
-                          </>
-                        ) : (
-                          'Nothing matches these filters.'
-                        )}
-                      </td>
-                    </tr>
-                  )}
-                  {candidates.length > visible.length && (
-                    <tr>
-                      <td colSpan={resultColumns.length} className="px-3 py-4 text-center">
-                        <button
-                          type="button"
-                          onClick={() => setShown((current) => current + ROWS_AT_ONCE)}
-                          className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                        >
-                          Show more
-                        </button>
-                        <p className="mt-1.5 text-xs text-slate-400">
-                          Showing {visible.length} of {candidates.length}. The rest are still
-                          on the run.
-                        </p>
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
           </div>
         </div>
-      )}
-
-      <CreditNoteModal
-        open={crediting}
-        run={pending.data?.owed_back.run ?? ''}
-        preselectOwed
-        onClose={() => setCrediting(false)}
-        onCreated={(name) => {
-          setCrediting(false);
-          navigate(`/msp/billing/${name}`);
-        }}
-      />
-
-      {step === 1 && hiddenByFilter > 0 && (
-        <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
-          <TriangleAlert size={16} className="mt-0.5 shrink-0 text-amber-600" />
-          <p className="text-sm text-amber-800">
-            <span className="font-semibold">
-              {hiddenByFilter} billable line(s) are held back by the filters
-            </span>{' '}
-            and will not be on this run. Clear the filters to bill them too.
-          </p>
-        </div>
-      )}
-
-      {error && (
-        <div className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
-          <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
-          <span className="text-sm font-medium text-red-700">{error.message}</span>
-        </div>
-      )}
-
+      </Card>
     </div>
   );
 }

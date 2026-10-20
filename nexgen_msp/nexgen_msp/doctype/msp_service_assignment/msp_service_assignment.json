@@ -45,7 +45,16 @@
   "section_notes",
   "internal_notes",
   "column_break_notes",
-  "customer_visible_notes"
+  "customer_visible_notes",
+  "section_baseline",
+  "baseline_covered_from",
+  "baseline_covered_to",
+  "column_break_baseline",
+  "baseline_source",
+  "baseline_state",
+  "baseline_note",
+  "baseline_verified_on",
+  "baseline_verified_by"
  ],
  "fields": [
   {
@@ -290,6 +299,61 @@
    "fieldtype": "Link",
    "label": "Activation Work Order",
    "options": "MSP Work Order",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_baseline",
+   "fieldtype": "Section Break",
+   "label": "Historical Coverage"
+  },
+  {
+   "fieldname": "baseline_covered_from",
+   "fieldtype": "Date",
+   "label": "Baseline Covered From",
+   "read_only": 1
+  },
+  {
+   "fieldname": "baseline_covered_to",
+   "fieldtype": "Date",
+   "label": "Baseline Covered To",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_baseline",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "baseline_source",
+   "fieldtype": "Select",
+   "label": "Baseline Source",
+   "options": "\nMigrated Baseline\nERPNext Invoice\nManual Attestation",
+   "read_only": 1
+  },
+  {
+   "fieldname": "baseline_state",
+   "fieldtype": "Select",
+   "label": "Baseline State",
+   "options": "\nConfirmed\nAmbiguous\nNeeds Review\nAbsent / Never Billed\nFree / Non-billable",
+   "read_only": 1
+  },
+  {
+   "fieldname": "baseline_note",
+   "fieldtype": "Small Text",
+   "label": "Baseline Note",
+   "read_only": 1
+  },
+  {
+   "fieldname": "baseline_verified_on",
+   "fieldtype": "Datetime",
+   "label": "Baseline Verified On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "baseline_verified_by",
+   "fieldtype": "Link",
+   "label": "Baseline Verified By",
+   "options": "User",
    "read_only": 1
   }
  ],
