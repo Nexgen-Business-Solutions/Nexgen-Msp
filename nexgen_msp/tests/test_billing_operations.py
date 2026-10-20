@@ -753,3 +753,146 @@ class TestTheReturnPostsWhereTheChargePosted(CreditCase):
 
         self.assertEqual(back.return_against, charge.name)
         self.assertEqual(back.is_return, 1)
+
+
+class TestACreditAnswersTheLineItWasBilledOn(CreditCase):
+    """A charge can carry the same service twice, at two rates. A credit answers one."""
+
+    def two_rates(self):
+        assignment = self.billed_ahead()
+        # the price changes inside the quarter, so the engine draws two lines for it
+        self.price(self.service, 6000.0, valid_from="2026-09-01")
+        run = self.drawn(start=self.START, end=self.END)
+        BillingService.finalise(run)
+        BillingService.submit_invoice(name=run, notify=0)
+
+        return run, assignment
+
+    def test_the_charge_really_carries_two_lines_for_it(self):
+        run, assignment = self.two_rates()
+
+        lines = [
+            line
+            for line in BillingService.creditable_lines(run)["lines"]
+            if line["service_assignment"] == assignment
+        ]
+
+        self.assertEqual(len(lines), 2)
+        self.assertNotEqual(lines[0]["unit_rate"], lines[1]["unit_rate"])
+
+    def test_a_credit_is_cut_on_the_stretch_its_days_fall_in(self):
+        run, assignment = self.two_rates()
+        lines = [
+            line
+            for line in BillingService.creditable_lines(run)["lines"]
+            if line["service_assignment"] == assignment
+        ]
+        later = max(lines, key=lambda line: getdate(line["covered_from"]))
+
+        made = wizard.create(
+            kind="credit_note",
+            contract=self.contract,
+            against=run,
+            include=[
+                {
+                    "service_assignment": assignment,
+                    "from": str(later["covered_from"]),
+                    "to": str(later["covered_to"]),
+                }
+            ],
+        )
+        self.track("MSP Billing Run", made["run"])
+
+        credited = frappe.get_doc("MSP Billing Run", made["run"]).lines
+
+        self.assertEqual(len(credited), 1)
+        self.assertEqual(flt(credited[0].unit_rate), flt(later["unit_rate"]))
+
+    def test_crediting_one_stretch_leaves_the_other_creditable(self):
+        run, assignment = self.two_rates()
+        lines = [
+            line
+            for line in BillingService.creditable_lines(run)["lines"]
+            if line["service_assignment"] == assignment
+        ]
+        first = min(lines, key=lambda line: getdate(line["covered_from"]))
+        later = max(lines, key=lambda line: getdate(line["covered_from"]))
+
+        made = wizard.create(
+            kind="credit_note",
+            contract=self.contract,
+            against=run,
+            include=[
+                {
+                    "service_assignment": assignment,
+                    "from": str(later["covered_from"]),
+                    "to": str(later["covered_to"]),
+                }
+            ],
+        )
+        self.track("MSP Billing Run", made["run"])
+
+        again = wizard.create(
+            kind="credit_note",
+            contract=self.contract,
+            against=run,
+            include=[
+                {
+                    "service_assignment": assignment,
+                    "from": str(first["covered_from"]),
+                    "to": str(first["covered_to"]),
+                }
+            ],
+        )
+        self.track("MSP Billing Run", again["run"])
+
+        credited = frappe.get_doc("MSP Billing Run", again["run"]).lines
+
+        self.assertEqual(len(credited), 1)
+        self.assertEqual(flt(credited[0].unit_rate), flt(first["unit_rate"]))
+
+    def test_the_same_stretch_is_still_refused_twice(self):
+        run, assignment = self.two_rates()
+        lines = [
+            line
+            for line in BillingService.creditable_lines(run)["lines"]
+            if line["service_assignment"] == assignment
+        ]
+        later = max(lines, key=lambda line: getdate(line["covered_from"]))
+        asked = [
+            {
+                "service_assignment": assignment,
+                "from": str(later["covered_from"]),
+                "to": str(later["covered_to"]),
+            }
+        ]
+
+        made = wizard.create(
+            kind="credit_note", contract=self.contract, against=run, include=asked
+        )
+        self.track("MSP Billing Run", made["run"])
+
+        with self.assertRaises(ServiceRefused):
+            wizard.create(
+                kind="credit_note", contract=self.contract, against=run, include=asked
+            )
+
+    def test_the_credited_stretches_are_written_down(self):
+        first = self.billed_ahead()
+        run = self.charge()
+
+        made = wizard.create(
+            kind="credit_note",
+            contract=self.contract,
+            against=run,
+            include=[{"service_assignment": first, "from": "2026-09-05", "to": "2026-09-13"}],
+        )
+        self.track("MSP Billing Run", made["run"])
+
+        line = frappe.get_doc("MSP Billing Run", made["run"]).lines[0]
+
+        self.assertTrue(line.billable_segments_json)
+        self.assertEqual(
+            frappe.parse_json(line.billable_segments_json),
+            [{"from": "2026-09-05", "to": "2026-09-13"}],
+        )

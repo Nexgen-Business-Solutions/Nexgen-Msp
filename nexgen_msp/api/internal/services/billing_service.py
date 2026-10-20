@@ -3364,19 +3364,31 @@ class BillingService:
                 f"Billing Run {name} has no invoice to contest.", "INVALID_TRANSITION"
             )
 
+        # what has already been given back, and over which days. A charge can carry the
+        # same assignment twice — two rates over two stretches of the period — so months
+        # are attributed to the stretch they were credited over, never to the assignment
+        # as a whole, or one line's credit would eat another line's entitlement.
         credited = frappe.db.sql(
             """
-            select brl.service_assignment, sum(brl.billable_months) as months
+            select brl.service_assignment, brl.billable_months as months,
+                   brl.covered_from, brl.covered_to, brl.billable_segments_json
             from `tabMSP Billing Run Line` brl
             join `tabMSP Billing Run` br on br.name = brl.parent
             where br.credit_note_of = %(run)s and br.docstatus != 2
-            group by brl.service_assignment
             """,
             {"run": name},
             as_dict=True,
         )
 
-        already = {row.service_assignment: flt(row.months) for row in credited}
+        given = {}
+
+        for row in credited:
+            given.setdefault(row.service_assignment, []).append(
+                {
+                    "months": flt(row.months),
+                    "stretches": BillingService._billed_stretches(row),
+                }
+            )
 
         # a run of several hundred lines used to ask for each end date on its own
         ends = {
@@ -3412,7 +3424,16 @@ class BillingService:
                 continue
 
             billed = flt(line["billable_months"])
-            done = abs(already.get(line["service_assignment"], 0.0))
+            # the credits that fall inside the days this very line was billed over
+            mine = BillingService._billed_stretches(line)
+            done = abs(
+                sum(
+                    entry["months"]
+                    for entry in given.get(line["service_assignment"], [])
+                    if not entry["stretches"]
+                    or coverage_intervals.intersect(entry["stretches"], mine)
+                )
+            )
             remaining = flt(billed - done, 2)
 
             rows.append(
@@ -3557,21 +3578,41 @@ class BillingService:
                         "VALIDATION_ERROR",
                     )
 
-                billed = next(
-                    (
-                        line
-                        for line in source["lines"]
-                        if line["service_assignment"] == row["service_assignment"]
-                    ),
-                    None,
-                )
+                candidates = [
+                    line
+                    for line in source["lines"]
+                    if line["service_assignment"] == row["service_assignment"]
+                    and (not row.get("line") or line.get("line") == row["line"])
+                ]
 
-                if not billed:
+                if not candidates:
                     raise ValidationError(
                         f"{row['service_assignment']} is not on {name}: it cannot be "
                         "credited against a charge it was never part of.",
                         "VALIDATION_ERROR",
                     )
+
+                # a charge that carried this assignment twice — two rates over two
+                # stretches — is answered on the stretch the days fall in, not on whichever
+                # of the two was read first
+                asked_span = coverage_intervals.span(row["from"], row["to"])
+                touching = [
+                    line
+                    for line in candidates
+                    if coverage_intervals.intersect(
+                        asked_span, BillingService._billed_stretches(line)
+                    )
+                ]
+
+                if len(touching) > 1:
+                    raise ValidationError(
+                        f"{row['service_assignment']} was billed more than once over "
+                        f"{row['from']} to {row['to']} on this charge. Name the billed "
+                        "line to credit, rather than the service.",
+                        "VALIDATION_ERROR",
+                    )
+
+                billed = touching[0] if touching else candidates[0]
 
                 # the run's own period is wider than what a line was billed over: a line
                 # that started mid-period was never charged for the days before it, and
@@ -3590,11 +3631,12 @@ class BillingService:
 
                 opens = min(first for first, _last in asked_for)
                 closes = max(last for _first, last in asked_for)
-                windows[row["service_assignment"]] = (str(opens), str(closes))
-                segments[row["service_assignment"]] = [
+                key = billed.get("line") or row["service_assignment"]
+                windows[key] = (str(opens), str(closes))
+                segments[key] = [
                     {"from": str(first), "to": str(last)} for first, last in asked_for
                 ]
-                wanted[row["service_assignment"]] = flt(
+                wanted[key] = flt(
                     sum(
                         BillingService._unused_months(method, first, last)
                         for first, last in asked_for
@@ -3606,17 +3648,9 @@ class BillingService:
                 # a handful of people who stopped within days of each other. A line that
                 # stopped inside it is still credited only for the days it was really not
                 # served: the longest window may not pay back more than it owes.
-                owed = next(
-                    (
-                        line["owed_back"]
-                        for line in source["lines"]
-                        if line["service_assignment"] == row["service_assignment"]
-                        and line.get("owed_back")
-                    ),
-                    None,
-                )
+                owed = billed.get("owed_back")
 
-                if owed and wanted[row["service_assignment"]] > owed["months"]:
+                if owed and wanted[key] > owed["months"]:
                     # keep the days asked for that were really not served, rather than
                     # swapping in a different stretch: the credit must answer the question
                     # it was asked, only smaller
@@ -3631,15 +3665,34 @@ class BillingService:
                             "VALIDATION_ERROR",
                         )
 
-                    windows[row["service_assignment"]] = (str(opens), str(closes))
-                    segments[row["service_assignment"]] = [
-                        {"from": str(opens), "to": str(closes)}
-                    ]
-                    wanted[row["service_assignment"]] = BillingService._unused_months(
-                        method, opens, closes
-                    )
+                    windows[key] = (str(opens), str(closes))
+                    segments[key] = [{"from": str(opens), "to": str(closes)}]
+                    wanted[key] = BillingService._unused_months(method, opens, closes)
             else:
-                wanted[row["service_assignment"]] = flt(row.get("months"))
+                # asked for in months rather than days: it answers the line named, or the
+                # only line that assignment has on this charge
+                months_of = [
+                    line
+                    for line in source["lines"]
+                    if line["service_assignment"] == row["service_assignment"]
+                    and (not row.get("line") or line.get("line") == row["line"])
+                ]
+
+                if len(months_of) > 1:
+                    raise ValidationError(
+                        f"{row['service_assignment']} was billed more than once on this "
+                        "charge. Name the billed line to credit, or give the days.",
+                        "VALIDATION_ERROR",
+                    )
+
+                if not months_of:
+                    raise ValidationError(
+                        f"{row['service_assignment']} is not on {name}.", "VALIDATION_ERROR"
+                    )
+
+                wanted[months_of[0].get("line") or row["service_assignment"]] = flt(
+                    row.get("months")
+                )
 
         if not wanted:
             raise ValidationError("Select at least one line to credit.", "VALIDATION_ERROR")
@@ -3647,10 +3700,12 @@ class BillingService:
         chosen = []
 
         for line in source["lines"]:
-            if line["service_assignment"] not in wanted:
+            key = line.get("line") if line.get("line") in wanted else line["service_assignment"]
+
+            if key not in wanted:
                 continue
 
-            asked = wanted[line["service_assignment"]] or line["remaining_months"]
+            asked = wanted[key] or line["remaining_months"]
 
             if asked <= 0:
                 continue
@@ -3663,7 +3718,7 @@ class BillingService:
                     "VALIDATION_ERROR",
                 )
 
-            chosen.append((line, asked))
+            chosen.append((line, asked, key))
 
         if not chosen:
             raise ValidationError("Nothing left to credit on these lines.", "VALIDATION_ERROR")
@@ -3688,21 +3743,19 @@ class BillingService:
                         "service_assignment": line["service_assignment"],
                         "service_name": line["service_name"],
                         "user_name": line.get("user_name"),
-                        "covered_from": windows.get(line["service_assignment"], (None, None))[0],
-                        "covered_to": windows.get(line["service_assignment"], (None, None))[1],
-                        "billable_segments_json": frappe.as_json(
-                            segments.get(line["service_assignment"], [])
-                        )
-                        if segments.get(line["service_assignment"])
+                        "covered_from": windows.get(key, (None, None))[0],
+                        "covered_to": windows.get(key, (None, None))[1],
+                        "billable_segments_json": frappe.as_json(segments.get(key, []))
+                        if segments.get(key)
                         else None,
                         "months": flt(-months, 3),
                         "unit_rate": line["unit_rate"],
                         "discount_percent": flt(line.get("discount_percent")),
                         "amount": amount_of(line, months),
                     }
-                    for line, months in chosen
+                    for line, months, key in chosen
                 ],
-                "total": flt(sum(amount_of(line, months) for line, months in chosen), 2),
+                "total": flt(sum(amount_of(line, months) for line, months, _key in chosen), 2),
             }
 
         # a credit note still has to read as something a year from now. Said nothing, it
@@ -3757,8 +3810,13 @@ class BillingService:
                         "period_days": line["period_days"],
                         # the stretch given back, when one was named: what makes a second
                         # note over the same days refusable rather than merely unlikely
-                        "covered_from": windows.get(line["service_assignment"], (None, None))[0],
-                        "covered_to": windows.get(line["service_assignment"], (None, None))[1],
+                        "covered_from": windows.get(key, (None, None))[0],
+                        "covered_to": windows.get(key, (None, None))[1],
+                        # the stretches actually given back: two of them with a hole between
+                        # must never read later as one unbroken period credited
+                        "billable_segments_json": frappe.as_json(segments.get(key, []))
+                        if segments.get(key)
+                        else None,
                         "billable_months": -months,
                         "unit_rate": line["unit_rate"],
                         "price_source": line["price_source"],
@@ -3774,7 +3832,7 @@ class BillingService:
                         "amount": amount_of(line, months),
                         "line_comment": reason,
                     }
-                    for line, months in chosen
+                    for line, months, key in chosen
                 ],
             }
         ).insert(ignore_permissions=True)

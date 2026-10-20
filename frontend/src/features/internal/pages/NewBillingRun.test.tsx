@@ -296,6 +296,7 @@ describe('one path prepares the three operations', () => {
         kind: 'credit_note',
         scope: 'all',
         source_run: 'BR-2026-10-165',
+        source_invoice: 'ACC-SINV-2026-00031',
         lines: [
           {
             ...services().lines[0],
@@ -354,6 +355,7 @@ describe('one path prepares the three operations', () => {
 
     await forward();
     await screen.findByText(/A credit follows the document it stands against/);
+    expect(screen.getByText(/ACC-SINV-2026-00031/)).toBeInTheDocument();
     await forward();
     await waitFor(() => expect(internal.getBillingCreditPreview).toHaveBeenCalled());
     await screen.findByText('Step 4 of 4');
@@ -397,5 +399,33 @@ describe('one path prepares the three operations', () => {
     await forward();
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Give the days to credit');
+  });
+
+  it('says so when the charge has no invoice to copy its accounting from', async () => {
+    vi.mocked(internal.getBillingOperationContext).mockResolvedValue(
+      context({ kind: 'credit_note', label: 'Credit note' })
+    );
+    vi.mocked(internal.getBillingOperationServices).mockResolvedValue(
+      services({
+        kind: 'credit_note',
+        scope: 'all',
+        source_run: 'BR-2026-08-002',
+        source_invoice: null,
+        lines: [{ ...services().lines[0], editable: true, proof: true }],
+        blocked: [],
+      })
+    );
+    vi.mocked(internal.getBillingOperationAccounting).mockResolvedValue(accounting());
+    vi.mocked(internal.listMspContracts).mockResolvedValue([]);
+    draw('?kind=credit_note&contract=CON-0001&against=BR-2026-08-002&scope=all&start=2026-09-01&end=2026-09-30');
+
+    await screen.findByText('Contract & period');
+    await forward();
+    await screen.findByText(/Every line of this charge/);
+    fireEvent.click(screen.getByRole('checkbox', { name: /Include Mailbox/ }));
+    await forward();
+
+    expect(await screen.findByText(/This charge has no invoice in ERPNext/)).toBeInTheDocument();
+    expect(screen.getByText(/check its accounting in ERPNext/)).toBeInTheDocument();
   });
 });
