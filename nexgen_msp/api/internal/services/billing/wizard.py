@@ -367,11 +367,12 @@ def _credit_rows(run, include):
     """The stretches a credit is asked for: the operator's own, or the detected ones."""
     chosen = list(include or [])
     rows = []
+    named = [row for row in chosen if not isinstance(row, dict)]
 
     # an operator settling a dispute cuts the stretch themselves; the engine still checks
     # every one of them against what was charged and what was already given back
-    if chosen and isinstance(chosen[0], dict):
-        for row in chosen:
+    if any(isinstance(row, dict) for row in chosen):
+        for row in [entry for entry in chosen if isinstance(entry, dict)]:
             assignment = row.get("service_assignment") or row.get("id")
 
             if not assignment:
@@ -393,12 +394,13 @@ def _credit_rows(run, include):
 
             rows.append(asked)
 
-        return rows
+        if not named:
+            return rows
 
     # the proposal as it was detected: the stretch is read off the charge itself, so no
     # window arrives from a browser
     source = BillingService.creditable_lines(run)
-    wanted = set(chosen)
+    wanted = set(named)
 
     for line in source["lines"]:
         owed = line.get("owed_back") or {}

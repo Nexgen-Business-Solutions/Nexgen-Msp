@@ -620,3 +620,136 @@ class TestACreditGivesBackWhatWasTaken(CreditCase):
                     {"service_assignment": stranger, "from": "2026-09-01", "to": "2026-09-30"}
                 ],
             )
+
+
+class TestWhatTheReturnDocumentCarries(CreditCase):
+    """The return posts the net the charge took, never the list price."""
+
+    def discounted_charge(self, percent):
+        assignment = self.billed_ahead()
+        run = self.drawn(start=self.START, end=self.END)
+        BillingService.set_line_discount(
+            name=run, service_assignment=assignment, discount_percent=percent
+        )
+        BillingService.finalise(run)
+        BillingService.submit_invoice(name=run, notify=0)
+
+        return run, assignment
+
+    def test_the_erpnext_return_carries_the_original_discount(self):
+        run, assignment = self.discounted_charge(20)
+
+        made = wizard.create(
+            kind="credit_note",
+            contract=self.contract,
+            against=run,
+            include=[{"service_assignment": assignment, "from": "2026-09-01", "to": "2026-09-30"}],
+        )
+        self.track("MSP Billing Run", made["run"])
+
+        note = frappe.get_doc("MSP Billing Run", made["run"])
+        document = frappe.get_doc("Sales Invoice", note.sales_invoice)
+        item = document.items[0]
+
+        self.assertEqual(flt(item.discount_percentage), 20)
+        # the net rate, so the return never gives back more than the invoice took
+        self.assertEqual(flt(item.rate, 2), flt(flt(item.price_list_rate) * 0.8, 2))
+
+    def test_the_document_total_matches_the_run_total(self):
+        run, assignment = self.discounted_charge(20)
+
+        made = wizard.create(
+            kind="credit_note",
+            contract=self.contract,
+            against=run,
+            include=[{"service_assignment": assignment, "from": "2026-09-01", "to": "2026-09-30"}],
+        )
+        self.track("MSP Billing Run", made["run"])
+
+        note = frappe.get_doc("MSP Billing Run", made["run"])
+        document = frappe.get_doc("Sales Invoice", note.sales_invoice)
+
+        self.assertEqual(flt(document.net_total, 2), flt(note.total_amount, 2))
+
+
+class TestTheDetectedCreditGoesThroughThePreview(CreditCase):
+    """The step that prices a credit must accept the proposal as it was detected."""
+
+    def test_a_detected_line_is_priced_by_name(self):
+        first = self.billed_ahead()
+        run = self.charge()
+        self.stops(first, "2026-09-24")
+
+        priced = wizard.credit_preview(contract=self.contract, against=run, include=[first])
+
+        self.assertEqual(len(priced["lines"]), 1)
+        self.assertEqual(priced["lines"][0]["service_assignment"], first)
+        self.assertLess(priced["total"], 0)
+
+    def test_the_preview_prices_what_the_creation_writes(self):
+        first = self.billed_ahead()
+        run = self.charge()
+        self.stops(first, "2026-09-24")
+
+        priced = wizard.credit_preview(contract=self.contract, against=run, include=[first])
+        made = wizard.create(
+            kind="credit_note", contract=self.contract, against=run, include=[first]
+        )
+        self.track("MSP Billing Run", made["run"])
+
+        note = frappe.get_doc("MSP Billing Run", made["run"])
+
+        self.assertEqual(flt(priced["total"], 2), flt(note.total_amount, 2))
+
+    def test_an_operator_cut_is_priced_on_the_days_given(self):
+        first = self.billed_ahead()
+        run = self.charge()
+
+        whole = wizard.credit_preview(
+            contract=self.contract,
+            against=run,
+            include=[{"service_assignment": first, "from": "2026-09-01", "to": "2026-09-30"}],
+        )
+        shorter = wizard.credit_preview(
+            contract=self.contract,
+            against=run,
+            include=[{"service_assignment": first, "from": "2026-09-05", "to": "2026-09-13"}],
+        )
+
+        self.assertGreater(abs(whole["total"]), abs(shorter["total"]))
+
+
+class TestTheReturnPostsWhereTheChargePosted(CreditCase):
+    def credited(self):
+        assignment = self.billed_ahead()
+        run = self.charge()
+        made = wizard.create(
+            kind="credit_note",
+            contract=self.contract,
+            against=run,
+            include=[{"service_assignment": assignment, "from": "2026-09-01", "to": "2026-09-30"}],
+        )
+        self.track("MSP Billing Run", made["run"])
+        note = frappe.get_doc("MSP Billing Run", made["run"])
+        original = frappe.db.get_value("MSP Billing Run", run, "sales_invoice")
+
+        return frappe.get_doc("Sales Invoice", original), frappe.get_doc(
+            "Sales Invoice", note.sales_invoice
+        )
+
+    def test_it_carries_the_cost_centre_of_the_charge(self):
+        charge, back = self.credited()
+
+        self.assertEqual(back.cost_center or back.items[0].cost_center,
+                         charge.cost_center or charge.items[0].cost_center)
+
+    def test_it_carries_the_rate_the_charge_was_converted_at(self):
+        charge, back = self.credited()
+
+        self.assertEqual(flt(back.conversion_rate), flt(charge.conversion_rate))
+
+    def test_it_stands_against_the_charge_it_answers(self):
+        charge, back = self.credited()
+
+        self.assertEqual(back.return_against, charge.name)
+        self.assertEqual(back.is_return, 1)

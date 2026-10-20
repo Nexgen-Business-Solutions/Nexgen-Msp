@@ -3491,12 +3491,16 @@ class BillingService:
         method = source["proration_method"]
         wanted = {}
         windows = {}
+        # the exact stretches each credit covers: two stretches with a hole between them
+        # must not read later as one unbroken period given back
+        segments = {}
 
         # the stretches already given back on this invoice, so the same days cannot be
         # returned a second time under a different note
-        given_back = frappe.db.sql(
+        credited_rows = frappe.db.sql(
             """
-            select brl.service_assignment, brl.covered_from, brl.covered_to
+            select brl.service_assignment, brl.covered_from, brl.covered_to,
+                   brl.billable_segments_json
             from `tabMSP Billing Run Line` brl
             join `tabMSP Billing Run` br on br.name = brl.parent
             where br.credit_note_of = %(run)s and br.docstatus != 2
@@ -3505,6 +3509,14 @@ class BillingService:
             {"run": name},
             as_dict=True,
         )
+        # a note written over two stretches with a hole between them gave back neither the
+        # hole nor any right to it: the days are read as they were written, not end to end
+        given_back = {}
+
+        for row in credited_rows:
+            given_back.setdefault(row.service_assignment, []).extend(
+                BillingService._billed_stretches(row)
+            )
 
         for row in lines or []:
             # a credit is asked for either as a number of months or as the stretch that was
@@ -3532,18 +3544,16 @@ class BillingService:
                 clash = next(
                     (
                         done
-                        for done in given_back
-                        if done.service_assignment == row["service_assignment"]
-                        and getdate(done.covered_from) <= getdate(row["to"])
-                        and getdate(done.covered_to) >= getdate(row["from"])
+                        for done in given_back.get(row["service_assignment"], [])
+                        if done[0] <= getdate(row["to"]) and done[1] >= getdate(row["from"])
                     ),
                     None,
                 )
 
                 if clash:
                     raise ValidationError(
-                        f"{clash.covered_from} to {clash.covered_to} was already credited "
-                        "back on this invoice. The same days cannot be given back twice.",
+                        f"{clash[0]} to {clash[1]} was already credited back on this "
+                        "invoice. The same days cannot be given back twice.",
                         "VALIDATION_ERROR",
                     )
 
@@ -3581,6 +3591,9 @@ class BillingService:
                 opens = min(first for first, _last in asked_for)
                 closes = max(last for _first, last in asked_for)
                 windows[row["service_assignment"]] = (str(opens), str(closes))
+                segments[row["service_assignment"]] = [
+                    {"from": str(first), "to": str(last)} for first, last in asked_for
+                ]
                 wanted[row["service_assignment"]] = flt(
                     sum(
                         BillingService._unused_months(method, first, last)
@@ -3619,6 +3632,9 @@ class BillingService:
                         )
 
                     windows[row["service_assignment"]] = (str(opens), str(closes))
+                    segments[row["service_assignment"]] = [
+                        {"from": str(opens), "to": str(closes)}
+                    ]
                     wanted[row["service_assignment"]] = BillingService._unused_months(
                         method, opens, closes
                     )
@@ -3674,6 +3690,11 @@ class BillingService:
                         "user_name": line.get("user_name"),
                         "covered_from": windows.get(line["service_assignment"], (None, None))[0],
                         "covered_to": windows.get(line["service_assignment"], (None, None))[1],
+                        "billable_segments_json": frappe.as_json(
+                            segments.get(line["service_assignment"], [])
+                        )
+                        if segments.get(line["service_assignment"])
+                        else None,
                         "months": flt(-months, 3),
                         "unit_rate": line["unit_rate"],
                         "discount_percent": flt(line.get("discount_percent")),
@@ -3767,6 +3788,92 @@ class BillingService:
         return BillingService.get_run(note.name)
 
     @staticmethod
+    def _accounting_of(invoice):
+        """What a return takes from the invoice it answers: where it posts, and at what rate.
+
+        Read off the original document rather than off today's defaults. A charge booked
+        to one cost centre, converted at one rate and issued on one set of terms is given
+        back the same way, or the two documents never meet in the accounts.
+        """
+        empty = {"document": {}, "item": {}, "taxes": []}
+
+        if not invoice:
+            return empty
+
+        doc = frappe.get_doc("Sales Invoice", invoice)
+        document = {
+            field: doc.get(field)
+            for field in ("cost_center", "payment_terms_template", "taxes_and_charges", "po_no")
+            if doc.get(field)
+        }
+
+        if flt(doc.conversion_rate):
+            document["conversion_rate"] = flt(doc.conversion_rate)
+
+        # whatever analytics this ERPNext actually carries, copied by name rather than guessed
+        for dimension in AccountingDimensionService.catalogue(doc.company):
+            value = doc.get(dimension["fieldname"])
+
+            if value:
+                document[dimension["fieldname"]] = value
+
+        item = {}
+        first = doc.items[0] if doc.items else None
+
+        if first:
+            item = {
+                field: first.get(field)
+                for field in ("cost_center",)
+                if first.get(field)
+            }
+
+            for dimension in AccountingDimensionService.catalogue(doc.company):
+                value = first.get(dimension["fieldname"])
+
+                if value:
+                    item[dimension["fieldname"]] = value
+
+        return {
+            "document": document,
+            "item": item,
+            "taxes": [
+                {
+                    "charge_type": row.charge_type,
+                    "account_head": row.account_head,
+                    "description": row.description,
+                    "rate": flt(row.rate),
+                    "cost_center": row.cost_center,
+                }
+                for row in doc.get("taxes") or []
+            ],
+        }
+
+    @staticmethod
+    def _credited_item(service_item, rate, discount, bucket, period_label, income_account):
+        """One line of a return, priced the way the charge it answers was priced.
+
+        A charge given a discount was invoiced net; giving back the list price would
+        return more money than the customer ever paid, so the return carries the same
+        discount and the same net rate, printed the way ERPNext prints them.
+        """
+        item = {
+            "item_code": service_item,
+            "description": f"{ServiceDefinitionService.label_of(service_item)}"
+            f" — credit for {period_label}",
+            "qty": flt(bucket["months"], 3),
+            "uom": BILLING_UOM,
+            "conversion_factor": 1,
+            "rate": flt(flt(rate, 2) * (1 - flt(discount) / 100.0), 2),
+            "income_account": income_account,
+        }
+
+        if discount:
+            item["price_list_rate"] = flt(rate, 2)
+            item["discount_percentage"] = flt(discount, 2)
+
+        return item
+
+    @staticmethod
     def _issue_credit_note(doc):
         """Draft the return document that carries the credited months."""
         source = frappe.db.get_value(
@@ -3814,6 +3921,10 @@ class BillingService:
         )
 
         period_label = BillingService._period_label(doc)
+        # a return posts where the charge posted: the document it answers decides the
+        # analytics, the rate it was converted at and the terms it was issued under —
+        # anything invented here would land the money in a different place
+        inherited = BillingService._accounting_of(original)
 
         note = frappe.get_doc(
             {
@@ -3826,19 +3937,17 @@ class BillingService:
                 "return_against": original or None,
                 "currency": doc.currency,
                 "remarks": doc.credit_note_reason,
+                **inherited["document"],
                 "items": [
                     {
-                        "item_code": service_item,
-                        "description": f"{frappe.db.get_value('Item', service_item, 'item_name') or service_item}"
-                        f" — credit for {period_label}",
-                        "qty": flt(bucket["months"], 3),
-                        "uom": BILLING_UOM,
-                        "conversion_factor": 1,
-                        "rate": flt(rate, 2),
-                        "income_account": income_account,
+                        **BillingService._credited_item(
+                            service_item, rate, discount, bucket, period_label, income_account
+                        ),
+                        **inherited["item"],
                     }
-                    for (service_item, rate, _discount), bucket in grouped.items()
+                    for (service_item, rate, discount), bucket in grouped.items()
                 ],
+                "taxes": inherited["taxes"],
             }
         )
 

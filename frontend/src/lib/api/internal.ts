@@ -1537,7 +1537,7 @@ export type BillingCreditPreview = {
 export const getBillingCreditPreview = (payload: {
   contract: string;
   against: string;
-  include: { service_assignment: string; from?: string; to?: string; months?: number }[];
+  include: (string | { service_assignment: string; from?: string; to?: string; months?: number })[];
 }) =>
   post<BillingCreditPreview>(`${BASE}.billing_credit_preview`, {
     ...payload,

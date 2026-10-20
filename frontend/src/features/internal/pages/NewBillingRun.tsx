@@ -180,6 +180,18 @@ export default function NewBillingRun() {
     (dimension) => dimension.mandatory && !dimensions[dimension.fieldname]
   );
 
+  /** What a credit is asked for: the operator's own stretches, or the detected lines by name. */
+  const creditLines = () =>
+    chosen.map((line) =>
+      line.editable
+        ? {
+            service_assignment: line.id,
+            from: windows[line.id]?.from,
+            to: windows[line.id]?.to,
+          }
+        : line.id
+    );
+
   const forward = async () => {
     setRefused(null);
 
@@ -207,16 +219,7 @@ export default function NewBillingRun() {
       // what the operator cut is worth what the engine says it is worth, not what the
       // whole line was worth before they shortened it
       try {
-        await priced.mutateAsync({
-          contract,
-          against,
-          include: chosen.map((line) => ({
-            service_assignment: line.id,
-            ...(line.editable
-              ? { from: windows[line.id]?.from, to: windows[line.id]?.to }
-              : {}),
-          })),
-        });
+        await priced.mutateAsync({ contract, against, include: creditLines() });
       } catch (error) {
         return setRefused((error as Error).message);
       }
@@ -231,15 +234,7 @@ export default function NewBillingRun() {
           contract,
           period_start: start,
           period_end: end,
-          include: chosen.map((line) =>
-            line.editable
-              ? {
-                  service_assignment: line.id,
-                  from: windows[line.id]?.from,
-                  to: windows[line.id]?.to,
-                }
-              : line.id
-          ),
+          include: kind === 'credit_note' ? creditLines() : chosen.map((line) => line.id),
           dimensions: draftInvoice ? dimensions : undefined,
           exchange_rate: exchange ? Number(exchange) : undefined,
           discount_percent: kind === 'credit_note' ? 0 : Number(discount || 0),
@@ -626,11 +621,19 @@ export default function NewBillingRun() {
 
           {step === 2 && kind === 'credit_note' && (
             <div className="space-y-5">
-              <Banner tone="blue" title="A credit follows the document it stands against.">
-                Cost centre, accounting dimensions, exchange rate and payment terms are taken
-                from {services.data?.source_run ?? 'the original charge'} and its invoice, so
-                the return posts exactly where the charge did. There is nothing to choose here.
-              </Banner>
+              {services.data?.source_invoice ? (
+                <Banner tone="blue" title="A credit follows the document it stands against.">
+                  Cost centre, accounting dimensions, taxes, exchange rate and payment terms are
+                  copied from {services.data.source_invoice}, so the return posts exactly where
+                  the charge did. There is nothing to choose here.
+                </Banner>
+              ) : (
+                <Banner tone="amber" title="This charge has no invoice in ERPNext.">
+                  {services.data?.source_run ?? 'The charge'} records coverage raised before this
+                  application, so there is no original document to copy from. The return is drawn
+                  on the company defaults — check its accounting in ERPNext before submitting it.
+                </Banner>
+              )}
               <Summary
                 rows={[
                   { label: 'Currency', value: accounting.data?.currency ?? '—' },
