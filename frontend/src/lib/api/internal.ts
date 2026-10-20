@@ -1453,7 +1453,9 @@ export type BillingOperationContext = {
 };
 
 export type BillingCandidate = {
+  /** the billed line when there is one, so two rates of one service stay apart */
   id: string;
+  line?: string | null;
   service: string;
   service_item: string;
   assignment: string;
@@ -1537,7 +1539,10 @@ export type BillingCreditPreview = {
 export const getBillingCreditPreview = (payload: {
   contract: string;
   against: string;
-  include: (string | { service_assignment: string; from?: string; to?: string; months?: number })[];
+  include: (
+    | string
+    | { service_assignment: string; line?: string | null; from?: string; to?: string; months?: number }
+  )[];
 }) =>
   post<BillingCreditPreview>(`${BASE}.billing_credit_preview`, {
     ...payload,
@@ -1553,13 +1558,18 @@ export const createBillingOperation = (payload: {
   contract: string;
   period_start?: string;
   period_end?: string;
-  include?: (string | { service_assignment: string; from?: string; to?: string; months?: number })[];
+  include?: (
+    | string
+    | { service_assignment: string; line?: string | null; from?: string; to?: string; months?: number }
+  )[];
   dimensions?: Record<string, string>;
   exchange_rate?: number;
   discount_percent?: number;
   reason?: string;
   against?: string;
   draft_invoice?: number;
+  /** the figure that was reviewed: the server refuses to write a different one */
+  expected_total?: number;
 }) =>
   post<{ run: string; kind: string }>(`${BASE}.create_billing_operation`, {
     ...payload,

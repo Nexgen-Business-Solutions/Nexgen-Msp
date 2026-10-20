@@ -1342,6 +1342,7 @@ def create_billing_operation(
     reason=None,
     against=None,
     draft_invoice=0,
+    expected_total=None,
 ):
     return _wizard().create(
         kind=kind,
@@ -1355,6 +1356,7 @@ def create_billing_operation(
         reason=reason,
         against=against,
         draft_invoice=draft_invoice,
+        expected_total=expected_total,
     )
 
 

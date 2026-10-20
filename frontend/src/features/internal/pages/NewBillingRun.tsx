@@ -185,7 +185,8 @@ export default function NewBillingRun() {
     chosen.map((line) =>
       line.editable
         ? {
-            service_assignment: line.id,
+            service_assignment: line.assignment,
+            line: line.line,
             from: windows[line.id]?.from,
             to: windows[line.id]?.to,
           }
@@ -240,6 +241,7 @@ export default function NewBillingRun() {
           discount_percent: kind === 'credit_note' ? 0 : Number(discount || 0),
           against,
           draft_invoice: draftInvoice ? 1 : 0,
+          ...(kind === 'credit_note' && priced.data ? { expected_total: priced.data.total } : {}),
         });
 
         navigate(`/msp/billing/${made.run}`);

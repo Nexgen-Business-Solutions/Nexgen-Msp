@@ -175,7 +175,10 @@ def _segments_of(line):
 def _candidate(line, reason, covered, proof=False):
     """One line as the Services step reads it, whatever operation it belongs to."""
     return {
-        "id": line["service_assignment"],
+        # a charge can carry the same assignment twice, at two rates: the line it was
+        # billed on is what a credit answers, so it is what the screen selects
+        "id": line.get("line") or line["service_assignment"],
+        "line": line.get("line"),
         "service": line["service_name"],
         "service_item": line["service_item"],
         "assignment": line["service_assignment"],
@@ -382,6 +385,9 @@ def _credit_rows(run, include):
 
             asked = {"service_assignment": assignment}
 
+            if row.get("line"):
+                asked["line"] = row["line"]
+
             if row.get("from") and row.get("to"):
                 asked["from"], asked["to"] = row["from"], row["to"]
             elif row.get("months"):
@@ -404,13 +410,15 @@ def _credit_rows(run, include):
 
     for line in source["lines"]:
         owed = line.get("owed_back") or {}
+        named_here = {line.get("line"), line["service_assignment"]} & wanted
 
-        if not owed or (wanted and line["service_assignment"] not in wanted):
+        if not owed or (wanted and not named_here):
             continue
 
         rows.append(
             {
                 "service_assignment": line["service_assignment"],
+                "line": line.get("line"),
                 "from": owed["unused_from"],
                 "to": owed["unused_to"],
             }
@@ -472,6 +480,7 @@ def create(
     reason=None,
     against=None,
     draft_invoice=0,
+    expected_total=None,
 ):
     """Step 4 — prepare the operation. Nothing is posted; a person submits it after."""
     BillingService._guard_admin()
@@ -499,6 +508,22 @@ def create(
             raise ValidationError(
                 "Nothing on the chosen lines is owed back on this charge.", "VALIDATION_ERROR"
             )
+
+        # the figure somebody approved is the figure that is written. Anything that moved
+        # in between — a credit raised elsewhere, a line corrected — stops this one rather
+        # than quietly returning a different amount
+        if expected_total not in (None, ""):
+            priced = BillingService.create_credit_note(
+                name=run, lines=frappe.as_json(rows), dry_run=True
+            )
+
+            if abs(flt(priced["total"], 2) - flt(expected_total, 2)) > 0.01:
+                raise ValidationError(
+                    f"This credit now comes to {flt(priced['total'], 2)}, not "
+                    f"{flt(expected_total, 2)} as reviewed. Read it again before it is "
+                    "written.",
+                    "VALIDATION_ERROR",
+                )
 
         created = BillingService.create_credit_note(
             name=run, lines=frappe.as_json(rows), reason=reason

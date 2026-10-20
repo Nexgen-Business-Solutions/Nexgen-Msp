@@ -425,11 +425,13 @@ class TestTheChargeOpenedForSomebodyToCut(CreditCase):
         )
 
         self.assertEqual(answer["scope"], "all")
+        # the candidate is the billed line, which is what a credit answers
         self.assertEqual(
-            sorted(line["id"] for line in answer["lines"]), sorted([first, second])
+            sorted(line["assignment"] for line in answer["lines"]), sorted([first, second])
         )
         for line in answer["lines"]:
             self.assertTrue(line["editable"])
+            self.assertTrue(line["line"])
 
     def test_a_charge_in_arrears_has_nothing_detected_but_is_still_creditable(self):
         """What the operator hit on BR-…-165: nothing owed back, everything creditable."""
@@ -748,6 +750,40 @@ class TestTheReturnPostsWhereTheChargePosted(CreditCase):
 
         self.assertEqual(flt(back.conversion_rate), flt(charge.conversion_rate))
 
+    def test_each_credited_service_answers_its_own_line_of_the_charge(self):
+        """Two services on one invoice, each with its own cost centre: each goes back home."""
+        first = self.billed_ahead()
+        other = self.offering("WCR2")
+        second = self.running(other, client_user=self.mary)
+        frappe.db.set_value(
+            "MSP Service Assignment", second, "effective_start_date", "2023-01-01"
+        )
+        frappe.db.commit()
+        run = self.charge()
+        charge = frappe.get_doc(
+            "Sales Invoice", frappe.db.get_value("MSP Billing Run", run, "sales_invoice")
+        )
+        centres = {row.item_code: row.cost_center for row in charge.items}
+
+        made = wizard.create(
+            kind="credit_note",
+            contract=self.contract,
+            against=run,
+            include=[
+                {"service_assignment": first, "from": "2026-09-01", "to": "2026-09-30"},
+                {"service_assignment": second, "from": "2026-09-01", "to": "2026-09-30"},
+            ],
+        )
+        self.track("MSP Billing Run", made["run"])
+
+        back = frappe.get_doc(
+            "Sales Invoice",
+            frappe.db.get_value("MSP Billing Run", made["run"], "sales_invoice"),
+        )
+
+        for row in back.items:
+            self.assertEqual(row.cost_center, centres.get(row.item_code))
+
     def test_it_stands_against_the_charge_it_answers(self):
         charge, back = self.credited()
 
@@ -896,3 +932,105 @@ class TestACreditAnswersTheLineItWasBilledOn(CreditCase):
             frappe.parse_json(line.billable_segments_json),
             [{"from": "2026-09-05", "to": "2026-09-13"}],
         )
+
+
+class TestOnlyTheFigureThatWasReviewedIsWritten(CreditCase):
+    def test_a_credit_matching_what_was_reviewed_goes_through(self):
+        first = self.billed_ahead()
+        run = self.charge()
+        asked = [{"service_assignment": first, "from": "2026-09-05", "to": "2026-09-13"}]
+        priced = wizard.credit_preview(contract=self.contract, against=run, include=asked)
+
+        made = wizard.create(
+            kind="credit_note",
+            contract=self.contract,
+            against=run,
+            include=asked,
+            expected_total=priced["total"],
+        )
+        self.track("MSP Billing Run", made["run"])
+
+        self.assertTrue(frappe.db.exists("MSP Billing Run", made["run"]))
+
+    def test_a_credit_worth_something_else_is_refused(self):
+        first = self.billed_ahead()
+        run = self.charge()
+
+        with self.assertRaises(ServiceRefused):
+            wizard.create(
+                kind="credit_note",
+                contract=self.contract,
+                against=run,
+                include=[{"service_assignment": first, "from": "2026-09-05", "to": "2026-09-13"}],
+                expected_total=-1.0,
+            )
+
+
+class TestACreditThatStraddlesTwoRates(CreditCase):
+    """Days asked for across a price change are cut, each part at the rate it was billed."""
+
+    def two_rates(self):
+        assignment = self.billed_ahead()
+        self.price(self.service, 6000.0, valid_from="2026-09-01")
+        run = self.drawn(start=self.START, end=self.END)
+        BillingService.finalise(run)
+        BillingService.submit_invoice(name=run, notify=0)
+
+        return run, assignment
+
+    def test_one_request_produces_one_credit_line_per_rate(self):
+        run, assignment = self.two_rates()
+
+        made = wizard.create(
+            kind="credit_note",
+            contract=self.contract,
+            against=run,
+            include=[
+                {"service_assignment": assignment, "from": "2026-08-20", "to": "2026-09-10"}
+            ],
+        )
+        self.track("MSP Billing Run", made["run"])
+
+        lines = frappe.get_doc("MSP Billing Run", made["run"]).lines
+
+        self.assertEqual(len(lines), 2)
+        self.assertEqual(len({flt(line.unit_rate) for line in lines}), 2)
+
+    def test_each_part_keeps_the_days_it_was_billed_over(self):
+        run, assignment = self.two_rates()
+
+        made = wizard.create(
+            kind="credit_note",
+            contract=self.contract,
+            against=run,
+            include=[
+                {"service_assignment": assignment, "from": "2026-08-20", "to": "2026-09-10"}
+            ],
+        )
+        self.track("MSP Billing Run", made["run"])
+
+        for line in frappe.get_doc("MSP Billing Run", made["run"]).lines:
+            self.assertGreaterEqual(getdate(line.covered_from), getdate("2026-08-20"))
+            self.assertLessEqual(getdate(line.covered_to), getdate("2026-09-10"))
+
+    def test_the_preview_prices_both_parts(self):
+        run, assignment = self.two_rates()
+        asked = [{"service_assignment": assignment, "from": "2026-08-20", "to": "2026-09-10"}]
+
+        priced = wizard.credit_preview(contract=self.contract, against=run, include=asked)
+
+        self.assertEqual(len(priced["lines"]), 2)
+
+    def test_a_service_that_stops_owes_only_the_line_that_billed_those_days(self):
+        """The July–August line never billed 25–30 September, so it owes nothing for them."""
+        run, assignment = self.two_rates()
+        self.stops(assignment, "2026-09-24")
+
+        owing = [
+            line
+            for line in BillingService.creditable_lines(run)["lines"]
+            if line["service_assignment"] == assignment and line.get("owed_back")
+        ]
+
+        self.assertEqual(len(owing), 1)
+        self.assertEqual(getdate(owing[0]["owed_back"]["unused_from"]), getdate("2026-09-25"))

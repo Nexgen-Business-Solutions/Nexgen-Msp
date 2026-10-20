@@ -321,14 +321,28 @@ class BillingService:
         if ended >= getdate(run_end):
             return None
 
-        unused_from = max(getdate(add_days(ended, 1)), getdate(run_start))
-        unused_to = getdate(run_end)
+        # the days this very line was billed over, never the run's whole period: a line
+        # that stopped in July owes nothing for days another line charged in September
+        served = BillingService._billed_stretches(line) or coverage_intervals.span(
+            run_start, run_end
+        )
+        after = coverage_intervals.span(add_days(ended, 1), getdate(run_end))
+        unused = coverage_intervals.intersect(served, after)
 
-        if unused_from > unused_to:
+        if not unused:
             return None
 
+        unused_from = min(first for first, _last in unused)
+        unused_to = max(last for _first, last in unused)
         months = min(
-            BillingService._unused_months(method, unused_from, unused_to), flt(remaining)
+            flt(
+                sum(
+                    BillingService._unused_months(method, first, last)
+                    for first, last in unused
+                ),
+                3,
+            ),
+            flt(remaining),
         )
 
         if months <= 0:
@@ -338,8 +352,9 @@ class BillingService:
             "ended_on": ended,
             "unused_from": unused_from,
             "unused_to": unused_to,
-            "unused_days": (unused_to - unused_from).days + 1,
+            "unused_days": sum((last - first).days + 1 for first, last in unused),
             "months": flt(months, 3),
+            "segments": [{"from": str(first), "to": str(last)} for first, last in unused],
         }
 
     @staticmethod
@@ -3592,82 +3607,67 @@ class BillingService:
                         "VALIDATION_ERROR",
                     )
 
-                # a charge that carried this assignment twice — two rates over two
-                # stretches — is answered on the stretch the days fall in, not on whichever
-                # of the two was read first
+                # a charge can carry the same assignment twice — two rates over two
+                # stretches of the same period. The days asked for are cut across the
+                # lines that really billed them, each at its own rate, rather than
+                # answered by whichever line was read first, or refused outright.
                 asked_span = coverage_intervals.span(row["from"], row["to"])
-                touching = [
-                    line
+                shared = [
+                    (
+                        line,
+                        coverage_intervals.intersect(
+                            asked_span, BillingService._billed_stretches(line)
+                        ),
+                    )
                     for line in candidates
-                    if coverage_intervals.intersect(
-                        asked_span, BillingService._billed_stretches(line)
-                    )
                 ]
+                shared = [(line, days) for line, days in shared if days]
 
-                if len(touching) > 1:
-                    raise ValidationError(
-                        f"{row['service_assignment']} was billed more than once over "
-                        f"{row['from']} to {row['to']} on this charge. Name the billed "
-                        "line to credit, rather than the service.",
-                        "VALIDATION_ERROR",
-                    )
+                if not shared:
+                    bounds = candidates[0]
 
-                billed = touching[0] if touching else candidates[0]
-
-                # the run's own period is wider than what a line was billed over: a line
-                # that started mid-period was never charged for the days before it, and
-                # days nobody was charged for cannot be given back
-                served = BillingService._billed_stretches(billed)
-                asked_for = coverage_intervals.intersect(
-                    coverage_intervals.span(row["from"], row["to"]), served
-                )
-
-                if not asked_for:
                     raise ValidationError(
                         f"{row['from']} to {row['to']} was not billed on this line: it "
-                        f"covers {billed.get('covered_from')} to {billed.get('covered_to')}.",
+                        f"covers {bounds.get('covered_from')} to {bounds.get('covered_to')}.",
                         "VALIDATION_ERROR",
                     )
 
-                opens = min(first for first, _last in asked_for)
-                closes = max(last for _first, last in asked_for)
-                key = billed.get("line") or row["service_assignment"]
-                windows[key] = (str(opens), str(closes))
-                segments[key] = [
-                    {"from": str(first), "to": str(last)} for first, last in asked_for
-                ]
-                wanted[key] = flt(
-                    sum(
-                        BillingService._unused_months(method, first, last)
-                        for first, last in asked_for
-                    ),
-                    3,
-                )
+                for billed, asked_for in shared:
+                    # a line that stopped inside the days asked for is still credited only
+                    # for what it did not serve: the question is answered, only smaller
+                    owed = billed.get("owed_back")
 
-                # one stretch covering several lines is the ordinary case — an outage, or
-                # a handful of people who stopped within days of each other. A line that
-                # stopped inside it is still credited only for the days it was really not
-                # served: the longest window may not pay back more than it owes.
-                owed = billed.get("owed_back")
+                    if owed:
+                        unserved = [
+                            (getdate(part["from"]), getdate(part["to"]))
+                            for part in owed.get("segments")
+                            or [{"from": owed["unused_from"], "to": owed["unused_to"]}]
+                        ]
+                        asked_for = coverage_intervals.intersect(asked_for, unserved)
 
-                if owed and wanted[key] > owed["months"]:
-                    # keep the days asked for that were really not served, rather than
-                    # swapping in a different stretch: the credit must answer the question
-                    # it was asked, only smaller
-                    opens = max(getdate(row["from"]), getdate(owed["unused_from"]))
-                    closes = min(getdate(row["to"]), getdate(owed["unused_to"]))
+                        if not asked_for:
+                            raise ValidationError(
+                                f"{row['from']} to {row['to']} was served in full: that "
+                                f"line was only not served from {owed['unused_from']} to "
+                                f"{owed['unused_to']}.",
+                                "VALIDATION_ERROR",
+                            )
 
-                    if closes < opens:
-                        raise ValidationError(
-                            f"{row['from']} to {row['to']} was served in full: that line "
-                            f"was only not served from {owed['unused_from']} to "
-                            f"{owed['unused_to']}.",
-                            "VALIDATION_ERROR",
-                        )
-
-                    windows[key] = (str(opens), str(closes))
-                    segments[key] = [{"from": str(opens), "to": str(closes)}]
-                    wanted[key] = BillingService._unused_months(method, opens, closes)
+                    key = billed.get("line") or row["service_assignment"]
+                    windows[key] = (
+                        str(min(first for first, _last in asked_for)),
+                        str(max(last for _first, last in asked_for)),
+                    )
+                    segments[key] = [
+                        {"from": str(first), "to": str(last)} for first, last in asked_for
+                    ]
+                    wanted[key] = flt(
+                        sum(
+                            BillingService._unused_months(method, first, last)
+                            for first, last in asked_for
+                        ),
+                        3,
+                    )
             else:
                 # asked for in months rather than days: it answers the line named, or the
                 # only line that assignment has on this charge
@@ -3875,25 +3875,24 @@ class BillingService:
             if value:
                 document[dimension["fieldname"]] = value
 
-        item = {}
-        first = doc.items[0] if doc.items else None
+        # each credited service answers its own line of the original: a charge split over
+        # two cost centres must not give both back through the first one
+        dimensions = [entry["fieldname"] for entry in AccountingDimensionService.catalogue(doc.company)]
+        per_item = {}
 
-        if first:
-            item = {
-                field: first.get(field)
-                for field in ("cost_center",)
-                if first.get(field)
+        for row in doc.items:
+            carried = {
+                field: row.get(field)
+                for field in ["cost_center"] + dimensions
+                if row.get(field)
             }
 
-            for dimension in AccountingDimensionService.catalogue(doc.company):
-                value = first.get(dimension["fieldname"])
-
-                if value:
-                    item[dimension["fieldname"]] = value
+            if carried:
+                per_item.setdefault(row.item_code, carried)
 
         return {
             "document": document,
-            "item": item,
+            "item": per_item,
             "taxes": [
                 {
                     "charge_type": row.charge_type,
@@ -4001,7 +4000,7 @@ class BillingService:
                         **BillingService._credited_item(
                             service_item, rate, discount, bucket, period_label, income_account
                         ),
-                        **inherited["item"],
+                        **inherited["item"].get(service_item, {}),
                     }
                     for (service_item, rate, discount), bucket in grouped.items()
                 ],
