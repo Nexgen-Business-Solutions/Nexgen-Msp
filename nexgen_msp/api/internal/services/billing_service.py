@@ -5261,6 +5261,25 @@ class BillingService:
             start, end = BillingService._next_period(
                 covered, row.billing_frequency, row.start_date, timing
             )
+            owed_over = BillingService._billable_over(row.contract, row.customer, start, end)
+
+            # a mark that falls inside a period leaves a short catch-up window first. When
+            # nothing is owed over it — everybody there was already paid for — that window
+            # is not work waiting to be done, and the period to propose is the next whole
+            # one. Said otherwise: the payment is read for everything it covered.
+            if not owed_over:
+                reached = BillingService.covered_from(
+                    covered, row.billing_frequency, timing
+                )
+
+                if reached and covered and getdate(reached) > getdate(covered):
+                    covered = getdate(reached)
+                    start, end = BillingService._next_period(
+                        covered, row.billing_frequency, row.start_date, timing
+                    )
+                    owed_over = BillingService._billable_over(
+                        row.contract, row.customer, start, end
+                    )
 
             if row.end_date:
                 contract_end = getdate(row.end_date)
@@ -5297,9 +5316,7 @@ class BillingService:
                         if state != "Scheduled"
                         else BillingService._nothing_pending()
                     ),
-                    "billable_assignments": BillingService._billable_over(
-                        row.contract, row.customer, start, end
-                    ),
+                    "billable_assignments": owed_over,
                 }
             )
             due.append(row)
