@@ -514,6 +514,7 @@ class UserService:
               and br.customer = sa.customer
               and br.docstatus = 1
               and ifnull(br.credit_note_of, '') = ''
+              and ifnull(br.standalone_credit, 0) = 0
             """,
             assignment,
         )[0][0]

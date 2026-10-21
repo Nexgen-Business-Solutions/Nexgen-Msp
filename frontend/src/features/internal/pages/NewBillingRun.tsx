@@ -78,8 +78,10 @@ export default function NewBillingRun() {
   const [start, setStart] = useState(params.get('start') ?? '');
   const [end, setEnd] = useState(params.get('end') ?? '');
   const against = params.get('against') ?? undefined;
-  // the proposal as it was detected, or the whole charge for the operator to cut
-  const scope = params.get('scope') === 'all' ? 'all' : 'detected';
+  // A proposal raised from Ready to bill says so, and arrives with its lines read and
+  // ticked. Anything opened from scratch loads everything and is configured here, which
+  // is what starting a run from nothing means.
+  const scope = params.get('scope') === 'detected' ? 'detected' : 'all';
 
   const [step, setStep] = useState(0);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
@@ -111,15 +113,16 @@ export default function NewBillingRun() {
     if (!end) setEnd(String(terms.period_end).slice(0, 10));
   }, [terms, start, end]);
 
-  // every eligible line starts selected, which is what the proposal is
+  // every eligible line starts selected, which is what a proposal is: the operator reads
+  // it and validates it. Only a charge opened to be cut by hand starts with nothing
+  // ticked, because there the operator is the one saying what goes back.
   useEffect(() => {
     if (!services.data) return;
 
-    const editable = services.data.lines.some((line) => line.editable);
+    const manual = kind === 'credit_note' && scope === 'all';
 
-    // a charge opened to be cut starts with nothing ticked: the operator says what goes
     setSelected(
-      Object.fromEntries(services.data.lines.map((line) => [line.id, !editable] as const))
+      Object.fromEntries(services.data.lines.map((line) => [line.id, !manual] as const))
     );
     setWindows(
       Object.fromEntries(
@@ -132,7 +135,7 @@ export default function NewBillingRun() {
         ])
       )
     );
-  }, [services.data]);
+  }, [services.data, kind, scope]);
 
   useEffect(() => {
     if (!accounting.data) return;
@@ -180,9 +183,8 @@ export default function NewBillingRun() {
     (dimension) => dimension.mandatory && !dimensions[dimension.fieldname]
   );
 
-  /** A credit on days that were served, or one nothing on file explains, is signed for. */
-  const mustExplain =
-    kind === 'credit_note' && (scope === 'all' || !services.data?.source_run);
+  /** A credit on days that were served is signed for; a detected one says its own why. */
+  const mustExplain = kind === 'credit_note' && scope === 'all';
 
   /** What a credit is asked for: the operator's own stretches, or the detected lines by name. */
   const creditLines = () =>

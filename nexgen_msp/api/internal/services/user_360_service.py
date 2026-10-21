@@ -462,6 +462,7 @@ class User360Service:
               and br.customer = sa.customer
               and br.docstatus = 1
               and ifnull(br.credit_note_of, '') = ''
+              and ifnull(br.standalone_credit, 0) = 0
             group by brl.service_assignment
             """,
             {"assignments": tuple(assignments)},

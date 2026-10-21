@@ -3679,6 +3679,7 @@ class PortalService:
             """
             select br.name, br.total_amount, br.currency, br.sales_invoice,
                    br.billing_period_start, br.billing_period_end, br.credit_note_of,
+                   br.standalone_credit,
                    br.disputed, br.modified as `on`
             from `tabMSP Billing Run` br
             where br.customer = %(customer)s and br.status = 'Invoiced'
@@ -3691,11 +3692,13 @@ class PortalService:
         for row in invoices:
             events.append(
                 {
-                    "kind": "credit_note" if row.credit_note_of else "invoice",
+                    "kind": "credit_note"
+                    if (row.credit_note_of or row.standalone_credit)
+                    else "invoice",
                     "on": row.get("on"),
                     "title": (
                         f"Credit note {row.sales_invoice or row.name} issued"
-                        if row.credit_note_of
+                        if (row.credit_note_of or row.standalone_credit)
                         else f"Invoice {row.sales_invoice or row.name} issued"
                     ),
                     "detail": (

@@ -49,9 +49,17 @@ def _rows_for(assignments, statuses, credits=False, exclude_run=None):
           and br.status in %(statuses)s
           -- a line carried with an exception was never charged for
           and ifnull(brl.exception_code, '') = ''
-          and ifnull(br.credit_note_of, '') {credit_test}
+          -- a credit is money going the other way: against a charge of ours it names it,
+          -- on its own it says so, and neither is a day anybody was charged for
+          and {credit_test}
           and br.name != %(exclude)s
-        """.format(credit_test="!= ''" if credits else "= ''"),
+        """.format(
+            credit_test=(
+                "(ifnull(br.credit_note_of, '') != '' or ifnull(br.standalone_credit, 0) = 1)"
+                if credits
+                else "ifnull(br.credit_note_of, '') = '' and ifnull(br.standalone_credit, 0) = 0"
+            )
+        ),
         {
             "assignments": tuple(assignments),
             "statuses": tuple(statuses),

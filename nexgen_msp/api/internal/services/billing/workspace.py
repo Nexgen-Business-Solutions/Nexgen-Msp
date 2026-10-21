@@ -67,7 +67,7 @@ def _figures():
 
 def _kind_of(row):
     """Which of the three operations a run is, said in the listing rather than guessed."""
-    if row.get("credit_note_of"):
+    if row.get("credit_note_of") or row.get("standalone_credit"):
         return "Credit note"
     if row.get("adjustment_of"):
         return "Additions"

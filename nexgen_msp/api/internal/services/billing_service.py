@@ -838,6 +838,7 @@ class BillingService:
               and br.docstatus < 2
               and br.status not in ('Cancelled')
               and (br.credit_note_of is null or br.credit_note_of = '')
+              and ifnull(br.standalone_credit, 0) = 0
               and br.billing_period_start <= %(period_end)s
               and br.billing_period_end >= %(period_start)s
               and br.name != %(exclude)s
@@ -882,6 +883,7 @@ class BillingService:
                       and br.docstatus < 2
                       and br.status not in ('Cancelled')
                       and (br.credit_note_of is null or br.credit_note_of = '')
+                      and ifnull(br.standalone_credit, 0) = 0
                       and br.billing_period_start <= %(period_end)s
                       and br.billing_period_end >= %(period_start)s
                     limit 1) as billed_on
@@ -959,6 +961,7 @@ class BillingService:
                       -- not charged, and a credit note is money going the other way
                       and ifnull(brl.exception_code, '') = ''
                       and ifnull(br.credit_note_of, '') = ''
+                      and ifnull(br.standalone_credit, 0) = 0
                 ) as last_billed_on
             from `tabMSP Service Assignment` sa
             left join `tabItem` item on item.name = sa.service_item
@@ -2531,7 +2534,8 @@ class BillingService:
         rows = frappe.db.sql(
             f"""
             select
-                br.name, br.customer, br.contract, br.status, br.credit_note_of, br.disputed,
+                br.name, br.customer, br.contract, br.status, br.credit_note_of,
+                br.standalone_credit, br.disputed,
                 br.billing_period_start, br.billing_period_end,
                 br.currency, br.total_amount, br.exception_count,
                 br.sales_invoice, br.adjustment_of, br.reconstructed, br.creation,
@@ -2670,11 +2674,13 @@ class BillingService:
             "coverage_evidence": doc.coverage_evidence,
             "adjustment_of": doc.adjustment_of,
             "credit_note_of": doc.credit_note_of,
+            # a credit that answers no charge of ours, which every screen reads as a credit
+            "standalone_credit": bool(doc.standalone_credit),
             "credit_note_reason": doc.credit_note_reason,
             "disputed": bool(doc.disputed),
             "dispute_reason": doc.dispute_reason,
             "disputed_on": doc.disputed_on,
-            "is_credit_note": bool(doc.credit_note_of),
+            "is_credit_note": bool(doc.credit_note_of or doc.standalone_credit),
             "lines": lines,
             "can_approve": doc.docstatus == 0 and doc.status == "Ready for Approval",
             # rebuilding the lines of a run that already carries an invoice would rewrite
@@ -2687,12 +2693,15 @@ class BillingService:
             "can_invoice": doc.docstatus == 1
             and doc.status == "Approved"
             and not doc.sales_invoice
-            and not doc.credit_note_of,
+            and not doc.credit_note_of
+            and not doc.standalone_credit,
             # a credit note stands against a posted invoice, so there is nothing to contest
             # while the invoice is still a draft
             # a recorded charge has no invoice here to be posted, and is exactly the thing
             # that has to be creditable
-            "can_contest": (posted or bool(doc.reconstructed)) and not doc.credit_note_of,
+            "can_contest": (posted or bool(doc.reconstructed))
+            and not doc.credit_note_of
+            and not doc.standalone_credit,
             "can_resolve_dispute": bool(doc.disputed),
             "dispute_request": doc.dispute_request,
             "can_discard_invoice": bool(doc.sales_invoice) and not posted,
@@ -2840,6 +2849,8 @@ class BillingService:
             from `tabMSP Billing Run Line` brl
             join `tabMSP Billing Run` br on br.name = brl.parent
             where br.customer = %(customer)s and br.status = 'Invoiced'
+              -- a credit of its own answers no charge of ours, so it nets nothing off one
+              and ifnull(br.standalone_credit, 0) = 0
             group by brl.service_assignment, br.billing_period_start, br.billing_period_end
             having net_months > 0
             """,
@@ -3417,6 +3428,7 @@ class BillingService:
             """
             select name from `tabMSP Billing Run`
             where customer = %(customer)s and docstatus != 2 and ifnull(credit_note_of, '') = ''
+              and ifnull(standalone_credit, 0) = 0
               and billing_period_start <= %(end)s and billing_period_end >= %(start)s
             """,
             {"customer": customer, "start": period_start, "end": period_end},
@@ -4212,6 +4224,17 @@ class BillingService:
                 }
             )
 
+        # the same decision asked for twice is one decision: a double click, a retry or
+        # two operators on the same screen must not each write a note of their own. Two
+        # credits that really differ — other days, another reason — carry another key.
+        key = BillingService._operation_key(contract, window_start, window_end, drawn, reason)
+        already = frappe.db.get_value(
+            "MSP Billing Run", {"operation_key": key, "docstatus": ["!=", 2]}, "name"
+        )
+
+        if already and not frappe.utils.cint(dry_run):
+            return BillingService.get_run(already)
+
         # what it comes to, read the same way whether it is shown or written
         if frappe.utils.cint(dry_run):
             return {
@@ -4231,6 +4254,10 @@ class BillingService:
                 "cutoff_datetime": frappe.utils.now(),
                 "currency": terms.currency,
                 "status": "Validating",
+                # a credit that answers no charge of ours still says it is a credit: every
+                # reading of coverage, of the last charge and of the listing asks this
+                "standalone_credit": 1,
+                "operation_key": key,
                 "credit_note_reason": reason,
                 "generation_version": "1",
                 "prepared_by": frappe.session.user,
@@ -4246,6 +4273,27 @@ class BillingService:
         frappe.db.commit()
 
         return BillingService.get_run(note.name)
+
+    @staticmethod
+    def _operation_key(contract, opens, closes, lines, reason):
+        """One fingerprint for one decision: same days, same lines, same words."""
+        import hashlib
+
+        said = "|".join(
+            [
+                str(contract),
+                str(opens),
+                str(closes),
+                " ".join(str(reason or "").split()).lower(),
+            ]
+            + sorted(
+                f"{line['service_assignment']}:{line['covered_from']}:{line['covered_to']}"
+                f":{line['billable_months']}"
+                for line in lines
+            )
+        )
+
+        return hashlib.sha1(said.encode()).hexdigest()
 
     @staticmethod
     def _accounting_of(invoice):
@@ -4702,7 +4750,7 @@ class BillingService:
             if started_run:
                 actions.append({
                     **common,
-                    "kind": "period",
+                    "kind": BillingService._kind_of_run(started_run),
                     "period_start": started_run.billing_period_start,
                     "period_end": started_run.billing_period_end,
                     "run_start": started_run.billing_period_start,
@@ -4772,6 +4820,7 @@ class BillingService:
             from `tabMSP Billing Run Line` brl
             join `tabMSP Billing Run` br on br.name = brl.parent
             where br.{by} in %(names)s and br.status = 'Invoiced'
+              and ifnull(br.standalone_credit, 0) = 0
             group by br.{by}, brl.service_assignment,
                      br.billing_period_start, br.billing_period_end
             having net_months > 0
@@ -4789,6 +4838,17 @@ class BillingService:
                 covered[row.subject] = closes
 
         return covered
+
+    @staticmethod
+    def _kind_of_run(run):
+        """Which of the three operations a run is, read off the run itself."""
+        if run.get("credit_note_of") or run.get("standalone_credit"):
+            return "credit_note"
+
+        if run.get("adjustment_of"):
+            return "additions"
+
+        return "period"
 
     @staticmethod
     def _runs_in_progress(contracts):
@@ -4812,6 +4872,12 @@ class BillingService:
                 "billing_period_end",
                 "total_amount",
                 "currency",
+                # a run already started is continued as what it is: a charge, a catch-up
+                # or a credit. Calling a credit note "Regular billing" on the way back to
+                # it is how somebody opens the wrong screen.
+                "credit_note_of",
+                "standalone_credit",
+                "adjustment_of",
             ],
             order_by="billing_period_end desc",
         )
@@ -4849,6 +4915,7 @@ class BillingService:
             from `tabMSP Billing Run`
             where contract = %(contract)s and status = 'Invoiced'
               and docstatus != 2 and ifnull(credit_note_of, '') = ''
+              and ifnull(standalone_credit, 0) = 0
             order by billing_period_end desc
             limit 1
             """,
@@ -4978,6 +5045,60 @@ class BillingService:
         # period that payment covered, priced as it stood the day it went out. The coverage
         # it rests on is the customer's own mark rather than a run of ours, which is what
         # `proven` says — and what gets written down the moment anything is given back.
+        detected = BillingService.owed_back_without_run(contract, customer)
+
+        if detected["lines"]:
+            answer["owed_back"] = {
+                "lines": len(detected["lines"]),
+                "months": flt(
+                    sum(entry["owed_back"]["months"] for entry in detected["lines"]), 3
+                ),
+                "amount": flt(
+                    sum(flt(entry["amount"]) for entry in detected["lines"]), 2
+                ),
+                "run": None,
+                "proven": False,
+                "period_start": detected["period_start"],
+                "period_end": detected["period_end"],
+            }
+
+        return answer
+
+    @staticmethod
+    def owed_back_without_run(contract, customer=None):
+        """The days this customer paid ahead for and nobody served, with no run on file.
+
+        A customer taken on with a date carries no charge of ours to read, which does not
+        mean nothing is owed: the date says a period was paid for, and a service that
+        stopped inside it was paid for beyond the day it stopped. Those days are read here
+        the way a charge of ours would have shown them — priced as they stood on the day
+        that payment went out — so the proposal somebody validates is the same whether the
+        charge is on file or not.
+        """
+        empty = {"lines": [], "period_start": None, "period_end": None, "currency": None}
+        customer = customer or frappe.db.get_value("MSP Contract", contract, "customer")
+        mark = BillingService.checkpoint(customer)
+
+        if not mark:
+            return empty
+
+        terms = frappe.db.get_value(
+            "MSP Contract",
+            contract,
+            ["billing_frequency", "billing_timing", "proration_method", "currency"],
+            as_dict=True,
+        )
+
+        if not terms or terms.billing_timing != "In Advance":
+            return empty
+
+        paid_through = BillingService.covered_through(
+            customer, terms.billing_frequency, terms.billing_timing
+        )
+
+        if not paid_through or getdate(paid_through) <= getdate(mark):
+            return empty
+
         opens = BillingService._period_start_of(paid_through, terms.billing_frequency)
         method = terms.proration_method or "None"
 
@@ -4988,38 +5109,63 @@ class BillingService:
         except Exception:
             frappe.log_error(title="MSP owed-back scan failed", message=frappe.get_traceback())
 
-            return answer
+            return empty
 
-        owed = [
-            (line, back)
-            for line in covered
-            if not line["exception_code"]
-            for back in [
-                BillingService._unused_after_termination(
-                    line, opens, paid_through, method, flt(line["billable_months"])
-                )
-            ]
-            if back
-        ]
+        # what has already been given back over this window on a note of its own: those
+        # days are not owed twice, so the proposal stops offering them once credited
+        given = {}
 
-        if owed:
-            answer["owed_back"] = {
-                "lines": len(owed),
-                "months": flt(sum(back["months"] for _line, back in owed), 3),
-                "amount": flt(
-                    sum(
-                        back["months"] * flt(line["unit_rate"]) * flt(line["quantity"])
-                        for line, back in owed
+        for row in frappe.db.sql(
+            """
+            select brl.service_assignment, brl.covered_from, brl.covered_to,
+                   brl.billable_segments_json
+            from `tabMSP Billing Run Line` brl
+            join `tabMSP Billing Run` br on br.name = brl.parent
+            where br.contract = %(contract)s and br.docstatus != 2
+              and ifnull(br.standalone_credit, 0) = 1
+              and brl.covered_from is not null and brl.covered_to is not null
+            """,
+            {"contract": contract},
+            as_dict=True,
+        ):
+            given.setdefault(row.service_assignment, []).extend(
+                BillingService._billed_stretches(row)
+            )
+
+        lines = []
+
+        for line in covered:
+            if line["exception_code"]:
+                continue
+
+            back = BillingService._unused_after_termination(
+                line,
+                opens,
+                paid_through,
+                method,
+                flt(line["billable_months"]),
+                credited=given.get(line["service_assignment"]),
+            )
+
+            if not back:
+                continue
+
+            lines.append(
+                {
+                    **line,
+                    "owed_back": back,
+                    "amount": flt(
+                        -back["months"] * flt(line["unit_rate"]) * flt(line["quantity"]), 2
                     ),
-                    2,
-                ),
-                "run": None,
-                "proven": False,
-                "period_start": opens,
-                "period_end": getdate(paid_through),
-            }
+                }
+            )
 
-        return answer
+        return {
+            "lines": lines,
+            "period_start": opens,
+            "period_end": getdate(paid_through),
+            "currency": terms.currency,
+        }
 
     @staticmethod
     def _period_start_of(day, frequency):

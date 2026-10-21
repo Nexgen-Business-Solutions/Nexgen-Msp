@@ -106,6 +106,7 @@ class ActivityService:
                 """
                 select br.name, br.customer, br.total_amount, br.currency, br.sales_invoice,
                        br.billing_period_start, br.billing_period_end, br.credit_note_of,
+                       br.standalone_credit,
                        br.disputed, br.modified as `on`
                 from `tabMSP Billing Run` br
                 where br.status = 'Invoiced'{customers}{window}
@@ -114,7 +115,11 @@ class ActivityService:
                 alias="br.customer",
                 column="br.modified",
             ):
-                kind = "credit_note" if row.credit_note_of else "invoice"
+                kind = (
+                    "credit_note"
+                    if (row.credit_note_of or row.standalone_credit)
+                    else "invoice"
+                )
 
                 if kind not in wanted:
                     continue
@@ -124,7 +129,7 @@ class ActivityService:
                         "kind": kind,
                         "on": row.get("on"),
                         "customer": row.customer,
-                        "title": f"{'Credit note' if row.credit_note_of else 'Invoice'} "
+                        "title": f"{'Credit note' if kind == 'credit_note' else 'Invoice'} "
                         f"{row.sales_invoice or row.name} issued",
                         "detail": f"{frappe.utils.fmt_money(abs(row.total_amount or 0), currency=row.currency)}"
                         f" for {row.billing_period_start} → {row.billing_period_end}"

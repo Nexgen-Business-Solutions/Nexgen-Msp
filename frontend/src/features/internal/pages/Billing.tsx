@@ -152,12 +152,15 @@ export default function Billing() {
       return;
     }
 
-    // the window of the operation itself: a catch-up must never open on the next cycle
+    // the window of the operation itself: a catch-up must never open on the next cycle.
+    // A proposal raised here opens as the proposal it is — its lines ticked, waiting to be
+    // validated — never as a blank charge for somebody to cut.
     navigate(
       `/msp/billing/new?kind=${operation.kind}` +
         `&contract=${encodeURIComponent(operation.contract)}` +
         `&start=${operation.period_start ?? operation.run_start}` +
         `&end=${operation.period_end ?? operation.run_end}` +
+        (operation.kind === 'credit_note' ? '&scope=detected' : '') +
         (operation.run ? `&against=${encodeURIComponent(operation.run)}` : '')
     );
   };

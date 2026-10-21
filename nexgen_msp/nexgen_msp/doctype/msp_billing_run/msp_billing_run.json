@@ -44,6 +44,8 @@
   "column_break_output",
   "adjustment_of",
   "credit_note_of",
+  "standalone_credit",
+  "operation_key",
   "credit_note_reason",
   "amended_from",
   "disputed",
@@ -295,6 +297,20 @@
    "label": "Credit Note Of",
    "options": "MSP Billing Run",
    "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "standalone_credit",
+   "fieldtype": "Check",
+   "label": "Standalone Credit Note",
+   "read_only": 1
+  },
+  {
+   "fieldname": "operation_key",
+   "fieldtype": "Data",
+   "label": "Operation Key",
+   "read_only": 1,
+   "search_index": 1
   },
   {
    "fieldname": "credit_note_reason",

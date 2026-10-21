@@ -75,27 +75,27 @@ def _proposal(contract, kind):
 
 
 def _source_run(contract, against=None):
-    """The charge a credit stands against: the one named, or the last one issued.
+    """The charge a credit stands against: the one named, and only the one named.
 
     A run named by the caller is checked against the contract it is claimed to belong to.
     Crediting one customer's invoice from another customer's screen is not a mistake the
-    server lets a payload make.
+    server lets a payload make. Nothing is attached by guesswork either: a credit nobody
+    pointed at a charge stands on its own, however many charges the contract has behind
+    it — the last one issued has no business being credited for a decision about another.
     """
-    if against:
-        row = frappe.db.get_value(
-            "MSP Billing Run", against, ["name", "contract", "customer", "docstatus"], as_dict=True
+    if not against:
+        return None
+
+    row = frappe.db.get_value(
+        "MSP Billing Run", against, ["name", "contract", "customer", "docstatus"], as_dict=True
+    )
+
+    if not row or row.contract != contract:
+        raise ValidationError(
+            f"{against} is not a billing run of {contract}.", "VALIDATION_ERROR"
         )
 
-        if not row or row.contract != contract:
-            raise ValidationError(
-                f"{against} is not a billing run of {contract}.", "VALIDATION_ERROR"
-            )
-
-        return row.name
-
-    charged = BillingService._latest_charge(contract)
-
-    return charged["name"] if charged else None
+    return row.name
 
 
 def context(kind="period", contract=None, period_start=None, period_end=None, against=None):
@@ -305,6 +305,57 @@ def services(
         run = _source_run(contract, against)
 
         if not run:
+            # no charge of ours on file does not mean nothing was detected: a customer
+            # taken on with a date paid for a period, and what stopped inside it is owed
+            # back. The proposal is offered here exactly as it would be against a run of
+            # ours — read and validated, not composed.
+            if scope != "all":
+                detected = BillingService.owed_back_without_run(contract)
+
+                return {
+                    "kind": kind,
+                    "scope": scope,
+                    "currency": detected["currency"] or terms.currency,
+                    "source_run": None,
+                    "source_invoice": None,
+                    "source_period": {
+                        "from": detected["period_start"] or period_start,
+                        "to": detected["period_end"] or period_end,
+                    },
+                    "billed_in_advance": True,
+                    "lines": [
+                        {
+                            **_candidate(
+                                {
+                                    **line,
+                                    "billable_months": line["owed_back"]["months"],
+                                    "amount": line["amount"],
+                                },
+                                "Service ended on "
+                                f"{line['owed_back']['ended_on']}, inside a period this "
+                                "customer had already paid for; "
+                                f"{line['owed_back']['unused_days']} days were paid for and "
+                                "not served. Nothing of ours charged them, so the note "
+                                "stands on its own.",
+                                "History to verify",
+                                proof=True,
+                            ),
+                            "covered_from": line["owed_back"]["unused_from"],
+                            "covered_to": line["owed_back"]["unused_to"],
+                            "days": line["owed_back"]["unused_days"],
+                            "editable": False,
+                        }
+                        for line in detected["lines"]
+                    ],
+                    "blocked": [],
+                    "note": None
+                    if detected["lines"]
+                    else (
+                        "Nothing this customer paid ahead for stopped being served, so "
+                        "there is nothing detected to give back."
+                    ),
+                }
+
             # nothing on file says what was charged, which does not mean nothing is owed.
             # Every service of the contract is offered, and the operator says which days
             # go back and why — the note then stands on its own.
@@ -327,8 +378,10 @@ def services(
                             "have agreed, at this service's own rate.",
                             "Credit on its own",
                         ),
-                        "covered_from": period_start,
-                        "covered_to": period_end,
+                        # the days this service really ran over the window: its last
+                        # coverage, which is what the operator starts from before cutting
+                        "covered_from": line.get("covered_from") or period_start,
+                        "covered_to": line.get("covered_to") or period_end,
                         "editable": True,
                     }
                     for line in offered
@@ -397,6 +450,57 @@ def _scope(scope):
         )
 
     return scope
+
+
+def _detected_windows(contract, include):
+    """The stretches the proposal itself read, for the lines somebody validated.
+
+    A detected credit is not composed in a browser: the days come from what the engine
+    says was paid for and never served, and the selection only says which of its lines go
+    back. Anything named that the proposal does not carry is refused rather than priced.
+    """
+    detected = BillingService.owed_back_without_run(contract)
+    offered = {
+        line["service_assignment"]: line["owed_back"] for line in detected["lines"]
+    }
+    include = frappe.parse_json(include) if isinstance(include, str) else include
+    asked = []
+
+    for row in include or []:
+        assignment = (
+            row.get("service_assignment") or row.get("id") if isinstance(row, dict) else row
+        )
+        back = offered.get(assignment)
+
+        if not back:
+            raise ValidationError(
+                f"{assignment} is not among the days this customer paid ahead for.",
+                "VALIDATION_ERROR",
+            )
+
+        asked.append(
+            {
+                "service_assignment": assignment,
+                "from": str(back["unused_from"]),
+                "to": str(back["unused_to"]),
+            }
+        )
+
+    if not asked:
+        raise ValidationError("Select at least one line to credit.", "VALIDATION_ERROR")
+
+    return asked
+
+
+def _detected_reason(asked):
+    """What a detected credit says of itself when nobody adds anything."""
+    opens = min(row["from"] for row in asked)
+    closes = max(row["to"] for row in asked)
+
+    return (
+        f"Days paid for and not served, {opens} to {closes}. Read from the coverage this "
+        "customer was taken on with; no charge of ours carries them."
+    )
 
 
 def _credit_windows(include):
@@ -515,13 +619,18 @@ def credit_preview(
     scope = _scope(scope)
     run = _source_run(contract, against)
 
-    # nothing on file to price it against: the days are worth what the service costs
+    # nothing on file to price it against: the detection carries its own days, and a
+    # credit composed by hand carries the ones the operator named
     if not run:
         return BillingService.create_standalone_credit(
             contract=contract,
             period_start=period_start,
             period_end=period_end,
-            lines=_credit_windows(include),
+            lines=(
+                _detected_windows(contract, include)
+                if scope != "all"
+                else _credit_windows(include)
+            ),
             dry_run=True,
         )
 
@@ -583,15 +692,22 @@ def create(
         run = _source_run(contract, against)
 
         if not run:
-            # a credit answering no charge of ours is a decision somebody signs, so the
-            # reason is required here as it is for a credit on days that were served
+            # nothing of ours charged these days, so the note stands on its own. Asked for
+            # as the detection, it carries the days the proposal read and says so itself;
+            # asked for by hand, the operator names the days and signs for them.
+            asked = (
+                _detected_windows(contract, include)
+                if scope != "all"
+                else _credit_windows(include)
+            )
+
             return {
                 "run": BillingService.create_standalone_credit(
                     contract=contract,
                     period_start=period_start,
                     period_end=period_end,
-                    lines=_credit_windows(include),
-                    reason=reason,
+                    lines=asked,
+                    reason=reason or _detected_reason(asked),
                 )["name"],
                 "kind": kind,
             }

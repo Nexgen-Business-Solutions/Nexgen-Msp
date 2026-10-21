@@ -16,7 +16,7 @@ SETTLED = ("Invoiced", "Cancelled")
 
 
 def _kind(run):
-    if run["credit_note_of"]:
+    if run["credit_note_of"] or run.get("standalone_credit"):
         return "Credit note"
     if run["adjustment_of"]:
         return "Additions"

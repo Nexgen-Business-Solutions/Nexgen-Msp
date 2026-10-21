@@ -74,7 +74,7 @@ class TestWhatTheSecondStepOffers(OperationCase):
         self.assertTrue(answer["blocked"])
         self.assertEqual(answer["blocked"][0]["exception_code"], "Missing Rate")
 
-    def test_a_credit_with_nothing_charged_before_still_offers_the_services(self):
+    def test_a_credit_started_from_scratch_offers_every_service_to_configure(self):
         """Nothing on file says what was charged, which does not mean nothing is owed."""
         start, end = self.month()
         answer = wizard.services(
@@ -82,12 +82,28 @@ class TestWhatTheSecondStepOffers(OperationCase):
             contract=self.contract,
             period_start=start,
             period_end=end,
+            scope="all",
         )
 
         self.assertIsNone(answer["source_run"])
         self.assertIsNone(answer["note"])
         self.assertIn(self.assignment, [line["assignment"] for line in answer["lines"]])
         self.assertTrue(all(line["editable"] for line in answer["lines"]))
+
+    def test_a_detected_credit_with_no_charge_on_file_offers_nothing_to_configure(self):
+        """A proposal is read, not composed: with nothing detected it says so."""
+        start, end = self.month()
+        answer = wizard.services(
+            kind="credit_note",
+            contract=self.contract,
+            period_start=start,
+            period_end=end,
+            scope="detected",
+        )
+
+        self.assertIsNone(answer["source_run"])
+        self.assertEqual(answer["lines"], [])
+        self.assertIn("nothing detected", (answer["note"] or "").lower())
 
 
 class TestWhatTheLastStepPrepares(OperationCase):
