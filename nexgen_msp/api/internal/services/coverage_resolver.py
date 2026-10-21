@@ -90,8 +90,15 @@ def baseline_of(assignment):
     A date on the person or the machine is a summary that later runs overwrite; the
     baseline is written against the assignment itself and is never recomputed, because it
     is the only record of what somebody else's invoice already paid for.
+
+    Only a baseline somebody confirmed counts as paid. A date nobody has verified is a
+    question, not an invoice: it neither proves the days were paid for nor allows them to
+    be credited back, and the run says so on the line instead of assuming either way.
     """
     if not assignment.get("baseline_covered_to"):
+        return []
+
+    if (assignment.get("baseline_state") or "") != "Confirmed":
         return []
 
     opens = assignment.get("baseline_covered_from") or assignment.get("effective_start_date")
@@ -170,3 +177,16 @@ def explain(eligible, covered, due, owed):
         return f"{intervals.days(owed)} day(s) were paid for and not served."
 
     return f"{intervals.days(due)} day(s) to bill."
+
+
+def unconfirmed_baseline(assignment):
+    """The days an unverified baseline claims, which nobody may bill or credit yet."""
+    if not assignment.get("baseline_covered_to"):
+        return []
+
+    if (assignment.get("baseline_state") or "") == "Confirmed":
+        return []
+
+    opens = assignment.get("baseline_covered_from") or assignment.get("effective_start_date")
+
+    return intervals.span(opens, assignment["baseline_covered_to"])

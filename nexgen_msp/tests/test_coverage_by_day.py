@@ -179,6 +179,76 @@ class TestTheCoverageSomebodyArrivedWith(DayCase):
         self.assertEqual(line["billable_days"], 22, "the 10th to the 31st")
 
 
+class TestABaselineNobodyConfirmed(DayCase):
+    """A date nobody checked against the original invoice settles nothing.
+
+    Counting it as paid risks losing money that was never invoiced; ignoring it risks
+    billing a period somebody else already charged for. The line says so instead and waits
+    for the baseline to be confirmed.
+    """
+
+    def arrived_with(self, state):
+        assignment = self.live_since("2023-01-01")
+        frappe.db.set_value(
+            "MSP Service Assignment",
+            assignment,
+            {
+                "baseline_covered_from": "2023-01-01",
+                "baseline_covered_to": "2026-08-20",
+                "baseline_source": "Migrated Baseline",
+                "baseline_state": state,
+            },
+        )
+        frappe.db.commit()
+
+        return assignment, self.line_for(assignment, "2026-08-01", "2026-08-31")
+
+    def test_an_ambiguous_baseline_neither_pays_nor_bills(self):
+        _assignment, line = self.arrived_with("Ambiguous")
+
+        self.assertEqual(line["exception_code"], "Unverified Coverage")
+        self.assertEqual(line["amount"], 0.0)
+
+    def test_a_baseline_waiting_for_review_says_the_same(self):
+        _assignment, line = self.arrived_with("Needs Review")
+
+        self.assertEqual(line["exception_code"], "Unverified Coverage")
+
+    def test_a_baseline_with_no_state_at_all_is_not_taken_as_paid(self):
+        _assignment, line = self.arrived_with("")
+
+        self.assertEqual(line["exception_code"], "Unverified Coverage")
+
+    def test_confirming_it_puts_the_days_back_where_they_belong(self):
+        assignment, line = self.arrived_with("Needs Review")
+
+        self.assertEqual(line["exception_code"], "Unverified Coverage")
+
+        frappe.db.set_value(
+            "MSP Service Assignment", assignment, "baseline_state", "Confirmed"
+        )
+        frappe.db.commit()
+
+        after = self.line_for(assignment, "2026-08-01", "2026-08-31")
+
+        self.assertIsNone(after["exception_code"])
+        self.assertEqual(after["billable_days"], 11, "the 21st to the 31st")
+
+    def test_a_period_the_baseline_never_reached_is_billed_as_usual(self):
+        assignment = self.live_since("2023-01-01")
+        frappe.db.set_value(
+            "MSP Service Assignment",
+            assignment,
+            {"baseline_covered_to": "2026-07-31", "baseline_state": "Ambiguous"},
+        )
+        frappe.db.commit()
+
+        line = self.line_for(assignment, "2026-08-01", "2026-08-31")
+
+        self.assertIsNone(line["exception_code"])
+        self.assertEqual(line["billable_days"], 31)
+
+
 class TestPausesStillCutTheirDays(DayCase):
     def test_a_pause_from_the_tenth_to_the_fifteenth(self):
         """P04. The resume day is billable again; the pause ends the day before."""

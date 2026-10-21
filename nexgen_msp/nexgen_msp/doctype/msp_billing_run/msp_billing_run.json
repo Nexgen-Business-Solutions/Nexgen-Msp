@@ -38,7 +38,6 @@
   "section_output",
   "sales_order",
   "sales_invoice",
-  "invoices",
   "reconstructed",
   "coverage_evidence",
   "generation_version",
@@ -257,13 +256,6 @@
    "label": "Sales Invoice",
    "no_copy": 1,
    "options": "Sales Invoice",
-   "read_only": 1
-  },
-  {
-   "fieldname": "invoices",
-   "fieldtype": "Table",
-   "label": "Invoice documents",
-   "options": "MSP Billing Document Link",
    "read_only": 1
   },
   {

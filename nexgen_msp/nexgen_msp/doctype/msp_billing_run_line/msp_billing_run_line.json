@@ -38,16 +38,7 @@
   "serial_snapshot",
   "device_type_snapshot",
   "holder_context_snapshot",
-  "billable_segments_json",
-  "section_grouping",
-  "group_key",
-  "customer_site_snapshot",
-  "po_no_snapshot",
-  "cost_center_snapshot",
-  "column_break_grouping",
-  "sales_invoice",
-  "sales_invoice_item",
-  "source_billing_line"
+  "billable_segments_json"
  ],
  "fields": [
   {
@@ -142,7 +133,7 @@
    "fieldname": "exception_code",
    "fieldtype": "Select",
    "label": "Exception",
-   "options": "\nMissing Rate\nInvalid Dates\nUnapproved Override\nNegative Quantity\nMissing Customer Mapping\nOverlapping Assignment\nAlready Invoiced\nAlready Covered\nMissing Site\nMissing Accounting Group"
+   "options": "\nMissing Rate\nInvalid Dates\nUnapproved Override\nNegative Quantity\nMissing Customer Mapping\nOverlapping Assignment\nAlready Invoiced\nAlready Covered\nUnverified Coverage"
   },
   {
    "fieldname": "exception_detail",
@@ -248,58 +239,6 @@
    "fieldname": "billable_segments_json",
    "fieldtype": "Long Text",
    "label": "Billable Segments",
-   "read_only": 1
-  },
-  {
-   "fieldname": "section_grouping",
-   "fieldtype": "Section Break",
-   "label": "Invoice grouping"
-  },
-  {
-   "fieldname": "group_key",
-   "fieldtype": "Data",
-   "label": "Group Key",
-   "read_only": 1
-  },
-  {
-   "fieldname": "customer_site_snapshot",
-   "fieldtype": "Data",
-   "label": "Site",
-   "read_only": 1
-  },
-  {
-   "fieldname": "po_no_snapshot",
-   "fieldtype": "Data",
-   "label": "PO",
-   "read_only": 1
-  },
-  {
-   "fieldname": "cost_center_snapshot",
-   "fieldtype": "Data",
-   "label": "Cost Center",
-   "read_only": 1
-  },
-  {
-   "fieldname": "column_break_grouping",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "sales_invoice",
-   "fieldtype": "Link",
-   "label": "Sales Invoice",
-   "options": "Sales Invoice",
-   "read_only": 1
-  },
-  {
-   "fieldname": "sales_invoice_item",
-   "fieldtype": "Data",
-   "label": "Sales Invoice Item",
-   "read_only": 1
-  },
-  {
-   "fieldname": "source_billing_line",
-   "fieldtype": "Data",
-   "label": "Source Billing Line",
    "read_only": 1
   }
  ],

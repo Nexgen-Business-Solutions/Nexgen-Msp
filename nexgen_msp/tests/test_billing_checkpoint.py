@@ -178,3 +178,80 @@ class TestWhatTheMarkForbids(CheckpointCase):
 
         self.assertIsNone(line["exception_code"])
         self.assertEqual(line["billable_months"], 1.0)
+
+
+class TestTheMarkAnswersForOneServiceAtATime(CheckpointCase):
+    """A neighbour being billed here proves nothing about a service nobody billed here.
+
+    A customer taken on with history carries one date for the whole company. The day a
+    brand new service gets its first run of ours, that date must still answer for the
+    services it was written for — reading it company-wide is how a quarter somebody else
+    already invoiced came back as billable.
+    """
+
+    def prepaid_and_a_newcomer(self):
+        """Two services on one contract: one carried over, one that starts afterwards."""
+        carried = self.offering("NEIGHA")
+        self.running(carried, client_user=self.john, started=-1000)
+
+        fresh = self.offering("NEIGHB")
+        newcomer = self.running(
+            fresh, client_user=self.make_person(self.customer, "NeighBob"), started=0
+        )
+        frappe.db.set_value(
+            "MSP Service Assignment", newcomer, "effective_start_date", "2026-08-01"
+        )
+        frappe.db.commit()
+
+        self.contract_says(billing_frequency="Monthly", billing_timing="In Arrears")
+        self.stamp("2026-07-31")
+
+        return carried, fresh
+
+    def lines_over(self, start, end):
+        lines, _ = BillingService.build_lines(self.contract, start, end)
+
+        return {line["service_item"]: line for line in lines}
+
+    def test_the_carried_service_is_still_covered_once_the_newcomer_has_a_run(self):
+        carried, fresh = self.prepaid_and_a_newcomer()
+
+        august = self.drawn(start="2026-08-01", end="2026-08-31")
+        BillingService.approve(august)
+
+        july = self.lines_over("2026-07-01", "2026-07-31")
+
+        self.assertEqual(july[carried]["exception_code"], "Already Covered")
+        self.assertEqual(july[carried]["amount"], 0.0)
+        self.assertNotIn(fresh, july, "it did not exist in July")
+
+    def test_and_the_newcomer_is_billed_once_and_only_once(self):
+        carried, fresh = self.prepaid_and_a_newcomer()
+
+        august = self.drawn(start="2026-08-01", end="2026-08-31")
+        BillingService.approve(august)
+
+        again = self.lines_over("2026-08-01", "2026-08-31")
+
+        self.assertEqual(again[fresh]["exception_code"], "Already Covered")
+        self.assertEqual(again[carried]["exception_code"], "Already Covered")
+
+    def test_a_mark_older_than_every_run_survives_a_credit(self):
+        """Crediting August back cannot rub out what July was taken on as covering."""
+        carried, _fresh = self.prepaid_and_a_newcomer()
+
+        august = self.drawn(start="2026-08-01", end="2026-08-31")
+        BillingService.finalise(august)
+        BillingService.submit_invoice(name=august, notify=0)
+
+        frappe.db.sql(
+            "update `tabMSP Billing Run Line` set billable_months = 0 where parent = %s",
+            august,
+        )
+        frappe.db.commit()
+        BillingService._recompute_last_billed(self.customer)
+
+        self.assertEqual(
+            getdate(frappe.db.get_value("Customer", self.customer, "msp_last_billed_on")),
+            getdate("2026-07-31"),
+        )

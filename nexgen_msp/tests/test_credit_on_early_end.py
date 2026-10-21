@@ -283,6 +283,127 @@ class TestGivingItBack(AdvanceCase):
         self.assertLessEqual(line["owed_back"]["months"], line["remaining_months"])
 
 
+class TestWhatDetectionMayNeverCredit(AdvanceCase):
+    """`detected` answers days nobody was served. Served days are somebody's decision.
+
+    The screen offers the two separately; the engine has to hold the line on its own, or
+    the same call with a different flag gives back days that were delivered.
+    """
+
+    def test_a_service_that_served_every_day_is_refused_in_detected(self):
+        run, assignment = self.billed_ahead()
+        before = frappe.db.count("MSP Billing Run", {"credit_note_of": run})
+
+        with self.assertRaises(ServiceRefused) as refusal:
+            BillingService.create_credit_note(
+                name=run,
+                lines=[
+                    {"service_assignment": assignment, "from": "2026-09-05", "to": "2026-09-13"}
+                ],
+                reason="Trying to pass a commercial gesture off as a detection.",
+                only_unserved=True,
+            )
+
+        self.assertIn("served", str(refusal.exception))
+        self.assertEqual(
+            frappe.db.count("MSP Billing Run", {"credit_note_of": run}),
+            before,
+            "nothing was written on the way to the refusal",
+        )
+
+    def test_the_same_days_pass_as_a_decision_somebody_makes(self):
+        run, assignment = self.billed_ahead()
+
+        note = BillingService.create_credit_note(
+            name=run,
+            lines=[{"service_assignment": assignment, "from": "2026-09-05", "to": "2026-09-13"}],
+            reason="Their server was down from the 5th to the 13th.",
+            only_unserved=False,
+        )
+        self.track("MSP Billing Run", note["name"])
+
+        self.assertEqual(frappe.get_doc("MSP Billing Run", note["name"]).lines[0].billable_months, -0.3)
+
+    def test_detection_still_answers_the_days_that_were_not_served(self):
+        run, assignment = self.billed_ahead()
+        self.stops(assignment, "2026-09-24")
+
+        note = BillingService.create_credit_note(
+            name=run,
+            lines=[
+                {"service_assignment": assignment, "from": "2026-09-25", "to": "2026-09-30"}
+            ],
+            reason="Ended on the 24th.",
+            only_unserved=True,
+        )
+        self.track("MSP Billing Run", note["name"])
+
+        self.assertEqual(
+            frappe.get_doc("MSP Billing Run", note["name"]).lines[0].billable_months, -0.2
+        )
+
+
+class TestTwoStretchesOfOneLine(AdvanceCase):
+    """Days left either side of what was already given back are both owed, not one of them."""
+
+    def test_both_stretches_are_credited_in_a_single_note(self):
+        run, assignment = self.billed_ahead()
+
+        first = BillingService.create_credit_note(
+            name=run,
+            lines=[{"service_assignment": assignment, "from": "2026-09-27", "to": "2026-09-28"}],
+            reason="Two days nobody could work.",
+            only_unserved=False,
+        )
+        self.track("MSP Billing Run", first["name"])
+
+        second = BillingService.create_credit_note(
+            name=run,
+            lines=[
+                {"service_assignment": assignment, "from": "2026-09-25", "to": "2026-09-26"},
+                {"service_assignment": assignment, "from": "2026-09-29", "to": "2026-09-30"},
+            ],
+            reason="The four days either side of what was already given back.",
+            only_unserved=False,
+        )
+        doc = frappe.get_doc("MSP Billing Run", second["name"])
+        self.track("MSP Billing Run", doc.name)
+
+        # four days of a thirty-day month, neither stretch swallowing the other
+        self.assertEqual(doc.lines[0].billable_months, flt_round(-4 / 30.0))
+
+        written = frappe.parse_json(doc.lines[0].billable_segments_json or "[]")
+
+        self.assertEqual(
+            [(part["from"], part["to"]) for part in written],
+            [("2026-09-25", "2026-09-26"), ("2026-09-29", "2026-09-30")],
+        )
+
+    def test_and_those_six_days_cannot_be_credited_again(self):
+        run, assignment = self.billed_ahead()
+
+        for stretch in (("2026-09-27", "2026-09-28"), ("2026-09-25", "2026-09-26")):
+            note = BillingService.create_credit_note(
+                name=run,
+                lines=[
+                    {"service_assignment": assignment, "from": stretch[0], "to": stretch[1]}
+                ],
+                reason="Given back once.",
+                only_unserved=False,
+            )
+            self.track("MSP Billing Run", note["name"])
+
+        with self.assertRaises(ServiceRefused):
+            BillingService.create_credit_note(
+                name=run,
+                lines=[
+                    {"service_assignment": assignment, "from": "2026-09-25", "to": "2026-09-28"}
+                ],
+                reason="Asking for the same four days twice.",
+                only_unserved=False,
+            )
+
+
 class TestTheQuarterAfterwards(AdvanceCase):
     """#19 Fix 5: what stopped is not billed again, and the rest carries on."""
 
