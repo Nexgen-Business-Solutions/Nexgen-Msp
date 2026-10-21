@@ -74,12 +74,20 @@ class TestWhatTheSecondStepOffers(OperationCase):
         self.assertTrue(answer["blocked"])
         self.assertEqual(answer["blocked"][0]["exception_code"], "Missing Rate")
 
-    def test_a_credit_with_nothing_charged_before_asks_for_the_coverage_first(self):
-        answer = wizard.services(kind="credit_note", contract=self.contract)
+    def test_a_credit_with_nothing_charged_before_still_offers_the_services(self):
+        """Nothing on file says what was charged, which does not mean nothing is owed."""
+        start, end = self.month()
+        answer = wizard.services(
+            kind="credit_note",
+            contract=self.contract,
+            period_start=start,
+            period_end=end,
+        )
 
         self.assertIsNone(answer["source_run"])
-        self.assertEqual(answer["lines"], [])
-        self.assertIn("record the past coverage", (answer["note"] or "").lower())
+        self.assertIsNone(answer["note"])
+        self.assertIn(self.assignment, [line["assignment"] for line in answer["lines"]])
+        self.assertTrue(all(line["editable"] for line in answer["lines"]))
 
 
 class TestWhatTheLastStepPrepares(OperationCase):

@@ -1096,17 +1096,28 @@ class BillingService:
             blocked = coverage_intervals.merge(
                 held.get("charged", []) + held.get("reserved", [])
             )
-            # a baseline nobody has confirmed proves nothing either way: those days are
-            # not billed, and they are not treated as paid either — the line carries the
-            # question so somebody settles it against the original invoice
-            unverified = coverage_resolver.unconfirmed_baseline(assignment)
+            # what the historical reconciliation says about this very assignment: days
+            # somebody confirmed against the original invoice, a service it found absent
+            # from that invoice, or a question nobody has answered. A baseline nobody
+            # confirmed proves nothing either way — those days are not billed, and they
+            # are not treated as paid either, so the line carries the question.
+            said = coverage_resolver.states(assignment)
+            unverified = coverage_resolver.unconfirmed_baseline(assignment, until=period_end)
 
-            # The days somebody else's invoices paid for, asked of this assignment alone.
-            # A service that began after the customer was taken on was never on those
-            # invoices; one that was already running was, whether or not anything was ever
-            # billed here for it — and another service having a run of ours says nothing
-            # about this one. Our own charges come off separately, line by line, above.
-            if mark and already_paid and getdate(assignment.effective_start_date) <= mark:
+            # The date a customer was taken on with is the coarsest evidence there is: it
+            # says a period was paid for, never by whom. It therefore answers only for an
+            # assignment the reconciliation never reached — a baseline naming this very
+            # service outranks it, whether it confirms the days, says the service was
+            # never on that invoice, or says nobody knows yet. Reading the company-wide
+            # date over such a statement is what let a service absent from the original
+            # invoice read as paid, and a confirmed baseline be stretched months past what
+            # it attests. Our own charges come off separately, line by line, above.
+            if (
+                not said["spoken_for"]
+                and mark
+                and already_paid
+                and getdate(assignment.effective_start_date) <= mark
+            ):
                 blocked = coverage_intervals.merge(
                     blocked + coverage_intervals.span("1900-01-01", already_paid)
                 )
@@ -2475,7 +2486,6 @@ class BillingService:
         params = {
             "start": frappe.utils.cint(start),
             "page_length": frappe.utils.cint(page_length) or 20,
-            "unsettled": UNSETTLED_STATUSES,
         }
 
         if wanted_customers:
@@ -2529,9 +2539,7 @@ class BillingService:
                     as line_count
             from `tabMSP Billing Run` br
             {where}
-            order by (br.docstatus = 0 and ifnull(br.sales_invoice, '') = ''
-                      and br.status in %(unsettled)s) desc,
-                     br.billing_period_end desc, br.creation desc
+            order by br.creation desc
             limit %(page_length)s offset %(start)s
             """,
             params,
@@ -3289,24 +3297,40 @@ class BillingService:
         }
 
     @staticmethod
-    def _charged_on(contract, period_start, period_end):
+    def _charged_on(contract, period_start, period_end, invoice_date=None):
         """The day the original charge went out, which is what it could know about.
 
-        Billed in advance, a period is charged at its start; billed in arrears, at its end.
+        Whoever holds the document knows that day and says so. Without it the terms are
+        all there is to go on — billed in advance a period is charged at its start, billed
+        in arrears at its end — and that guess is a week or two out on a real invoice,
+        which is enough to put a service on a charge it was never on.
         """
+        if invoice_date:
+            return getdate(invoice_date)
+
         timing = frappe.db.get_value("MSP Contract", contract, "billing_timing")
 
         return getdate(period_start) if timing == "In Advance" else getdate(period_end)
 
     @staticmethod
-    def coverage_preview(contract=None, period_start=None, period_end=None):
-        """What that period would have held, line by line, under this contract's terms."""
+    def coverage_preview(
+        contract=None, period_start=None, period_end=None, invoice_date=None
+    ):
+        """What that period would have held, line by line, under this contract's terms.
+
+        A proposal, and nothing more: these are the services this application believes were
+        running, priced as they stand here. Whether each of them was really on the document
+        somebody holds is a question only that document answers, which is why recording the
+        coverage asks for the lines to be attested one by one.
+        """
         BillingService._guard_admin()
 
         if not contract or not frappe.db.exists("MSP Contract", contract):
             raise NotFoundError(f"Contract {contract} not found.", "NOT_FOUND")
 
-        as_known_on = BillingService._charged_on(contract, period_start, period_end)
+        as_known_on = BillingService._charged_on(
+            contract, period_start, period_end, invoice_date
+        )
         lines, terms = BillingService.build_lines(
             contract, period_start, period_end, ignore_coverage=True, as_known_on=as_known_on
         )
@@ -3326,7 +3350,13 @@ class BillingService:
 
     @staticmethod
     def record_past_coverage(
-        contract=None, period_start=None, period_end=None, statement=None, sales_invoice=None
+        contract=None,
+        period_start=None,
+        period_end=None,
+        statement=None,
+        sales_invoice=None,
+        invoice_date=None,
+        attested=None,
     ):
         """Write down a charge this application never raised, so it can be reasoned about.
 
@@ -3334,6 +3364,12 @@ class BillingService:
         that period, who recorded it and on what evidence, and it raises no invoice of its
         own — the charge already happened. From there everything else works unchanged, from
         the coverage a later run respects to the credit an early termination earns.
+
+        What it carries is not what this application guesses: it is what somebody read on
+        the original document and attested, line by line. The guess is offered by
+        `coverage_preview`; this writes down the lines named in `attested` and no others,
+        on the day `invoice_date` says the charge went out. A credit later leans on this
+        record, so a line nobody checked has no business being on it.
         """
         BillingService._guard_admin()
 
@@ -3351,6 +3387,30 @@ class BillingService:
             raise ValidationError(
                 "Give the period that was invoiced, earliest day first.", "VALIDATION_ERROR"
             )
+
+        if not invoice_date:
+            raise ValidationError(
+                "Give the date the original charge went out. Everything this records is "
+                "read as it stood on that day, and a date guessed from the period puts "
+                "services on a charge they were never on.",
+                "VALIDATION_ERROR",
+            )
+
+        charged_on = getdate(invoice_date)
+
+        if charged_on > getdate():
+            raise ValidationError(
+                f"{charged_on} has not happened yet.", "VALIDATION_ERROR"
+            )
+
+        if charged_on < getdate(period_start):
+            raise ValidationError(
+                f"A charge for {period_start} to {period_end} cannot have been issued on "
+                f"{charged_on}, before the period it covers opens.",
+                "VALIDATION_ERROR",
+            )
+
+        named = BillingService._attested_lines(attested)
 
         customer = frappe.db.get_value("MSP Contract", contract, "customer")
         clash = frappe.db.sql_list(
@@ -3385,16 +3445,49 @@ class BillingService:
             period_start,
             period_end,
             ignore_coverage=True,
-            as_known_on=BillingService._charged_on(contract, period_start, period_end),
+            as_known_on=charged_on,
         )
-        charged = [line for line in lines if not line["exception_code"]]
+        proposed = [line for line in lines if not line["exception_code"]]
 
-        if not charged:
+        if not proposed:
             raise ValidationError(
                 f"Nothing was running for {customer} between {period_start} and "
                 f"{period_end}, so there is nothing that charge could have covered.",
                 "VALIDATION_ERROR",
             )
+
+        offered = {line["service_assignment"] for line in proposed}
+        unknown = sorted(named - offered)
+
+        if unknown:
+            raise ValidationError(
+                f"{', '.join(unknown[:3])} is not among the services this period could "
+                "have charged. Read the proposal again before attesting it.",
+                "VALIDATION_ERROR",
+            )
+
+        charged = [line for line in proposed if line["service_assignment"] in named]
+        dropped = [line for line in proposed if line["service_assignment"] not in named]
+        total = flt(sum(flt(line["amount"]) for line in charged), 2)
+
+        if not charged:
+            raise ValidationError(
+                "Attest the lines that are really on the original document: a coverage "
+                "recorded without them proves nothing a credit can lean on.",
+                "VALIDATION_ERROR",
+            )
+
+        # a reconstruction may not claim more than the document it stands for
+        if sales_invoice:
+            net = flt(frappe.db.get_value("Sales Invoice", sales_invoice, "net_total"), 2)
+
+            if net and total > net + 0.01:
+                raise ValidationError(
+                    f"The {len(charged)} line(s) attested come to {total}, more than the "
+                    f"{net} {sales_invoice} was issued for. Check the lines, the rates and "
+                    "the quantities against it.",
+                    "VALIDATION_ERROR",
+                )
 
         doc = frappe.get_doc(
             {
@@ -3409,7 +3502,9 @@ class BillingService:
                 "generation_version": "1",
                 "prepared_by": frappe.session.user,
                 "reconstructed": 1,
-                "coverage_evidence": str(statement).strip(),
+                "coverage_evidence": BillingService._coverage_statement(
+                    statement, charged_on, charged, dropped, sales_invoice
+                ),
                 "sales_invoice": sales_invoice or None,
                 **BillingService._billing_identity(customer),
                 "lines": [
@@ -3426,13 +3521,72 @@ class BillingService:
         BillingService._recompute_last_billed(customer)
         doc.add_comment(
             "Comment",
-            f"Recorded as already charged for {period_start} to {period_end}"
+            f"Recorded as already charged on {charged_on} for {period_start} to "
+            f"{period_end}"
             f"{f' against {sales_invoice}' if sales_invoice else ' outside this application'}"
-            f", by {frappe.session.user}. {str(statement).strip()}",
+            f", by {frappe.session.user}. {len(charged)} line(s) attested, "
+            f"{len(dropped)} left off. {str(statement).strip()}",
         )
         frappe.db.commit()
 
         return BillingService.get_run(doc.name)
+
+    @staticmethod
+    def _attested_lines(attested):
+        """The services somebody says are really on the original document.
+
+        Nothing is assumed from silence: an empty list is refused rather than taken to
+        mean every line this application happened to propose.
+        """
+        named = frappe.parse_json(attested) if isinstance(attested, str) else attested
+
+        if not named:
+            raise ValidationError(
+                "Say which lines you have checked against the original document. This "
+                "record is what a credit will later stand on, and a line nobody read "
+                "there cannot be part of it.",
+                "VALIDATION_ERROR",
+            )
+
+        read = set()
+
+        for entry in named:
+            name = entry.get("service_assignment") if isinstance(entry, dict) else entry
+
+            if name:
+                read.add(name)
+
+        if not read:
+            raise ValidationError(
+                "None of the attested lines names a service assignment.",
+                "VALIDATION_ERROR",
+            )
+
+        return read
+
+    @staticmethod
+    def _coverage_statement(statement, charged_on, charged, dropped, sales_invoice):
+        """What this record says about itself: the words, the date, and what was left off."""
+        said = [
+            str(statement).strip(),
+            f"Charge issued on {charged_on}"
+            + (f" as {sales_invoice}." if sales_invoice else " outside this application."),
+            f"{len(charged)} line(s) attested against the original document.",
+        ]
+
+        if dropped:
+            said.append(
+                f"{len(dropped)} line(s) this application proposed were not on it: "
+                + ", ".join(
+                    sorted(
+                        line.get("user_name") or line.get("hostname") or line["service_item"]
+                        for line in dropped
+                    )[:10]
+                )
+                + "."
+            )
+
+        return " ".join(said)
 
     @staticmethod
     def creditable_lines(name=None):
@@ -3941,6 +4095,159 @@ class BillingService:
         return BillingService.get_run(note.name)
 
     @staticmethod
+    def create_standalone_credit(
+        contract=None,
+        period_start=None,
+        period_end=None,
+        lines=None,
+        reason=None,
+        dry_run=False,
+    ):
+        """Give money back when nothing on file says what was charged.
+
+        A customer can be owed something this application never invoiced — a gesture, a
+        period billed by whatever served them before, an agreement reached outside it. The
+        operator says which service, over which days, and why; the days are priced at the
+        service's own rate. There is nothing to check it against, so the reason is what
+        this record is made of, and the note stands on its own rather than as a return.
+        """
+        BillingService._guard_admin()
+
+        reason = str(reason or "").strip()
+
+        if not reason and not frappe.utils.cint(dry_run):
+            raise ValidationError(
+                "Say why this is being given back. Nothing on file explains a credit that "
+                "answers no charge of ours.",
+                "VALIDATION_ERROR",
+            )
+
+        asked = frappe.parse_json(lines) if isinstance(lines, str) else lines
+
+        if not asked:
+            raise ValidationError("Select at least one line to credit.", "VALIDATION_ERROR")
+
+        terms = frappe.db.get_value(
+            "MSP Contract",
+            contract,
+            ["customer", "currency", "proration_method"],
+            as_dict=True,
+        )
+
+        if not terms:
+            raise NotFoundError(f"Contract {contract} not found.", "NOT_FOUND")
+
+        window_start = getdate(period_start)
+        window_end = getdate(period_end)
+        method = terms.proration_method
+        drawn = []
+
+        for row in asked:
+            assignment = row.get("service_assignment") or row.get("id")
+            first = getdate(row.get("from") or period_start)
+            last = getdate(row.get("to") or period_end)
+
+            if first > last:
+                raise ValidationError(
+                    f"{first} to {last} runs backwards.", "VALIDATION_ERROR"
+                )
+
+            if first < window_start or last > window_end:
+                raise ValidationError(
+                    f"{first} to {last} falls outside {period_start} to {period_end}.",
+                    "VALIDATION_ERROR",
+                )
+
+            held = frappe.db.get_value(
+                "MSP Service Assignment",
+                assignment,
+                [
+                    "name",
+                    "customer",
+                    "service_item",
+                    "assignment_scope",
+                    "client_user",
+                    "managed_device",
+                    "quantity",
+                ],
+                as_dict=True,
+            )
+
+            if not held or held.customer != terms.customer:
+                raise ValidationError(
+                    f"{assignment} is not a service of {terms.customer}.", "VALIDATION_ERROR"
+                )
+
+            priced = ContractService.current_rate(terms.customer, held.service_item, first)
+            rate = flt(priced.price_list_rate) if priced else 0.0
+
+            if not rate:
+                raise ValidationError(
+                    f"{held.service_item} has no rate on {first}, so there is no amount to "
+                    "give back.",
+                    "VALIDATION_ERROR",
+                )
+
+            months = flt(BillingService._unused_share(method, [(first, last)]), 3)
+            quantity = flt(held.quantity or 1)
+            drawn.append(
+                {
+                    "service_assignment": held.name,
+                    "service_item": held.service_item,
+                    "assignment_scope": held.assignment_scope,
+                    "client_user": held.client_user,
+                    "managed_device": held.managed_device,
+                    "quantity": quantity,
+                    "billable_days": (last - first).days + 1,
+                    "period_days": BillingService._period_days(window_start, window_end),
+                    "covered_from": first,
+                    "covered_to": last,
+                    "billable_months": -months,
+                    "unit_rate": rate,
+                    "price_source": "Contract",
+                    "proration_method": method,
+                    "gross_amount": flt(-months * flt(rate) * quantity, 2),
+                    "amount": flt(-months * flt(rate) * quantity, 2),
+                    "line_comment": reason,
+                }
+            )
+
+        # what it comes to, read the same way whether it is shown or written
+        if frappe.utils.cint(dry_run):
+            return {
+                "run": None,
+                "currency": terms.currency,
+                "lines": drawn,
+                "total": flt(sum(flt(line["amount"]) for line in drawn), 2),
+            }
+
+        note = frappe.get_doc(
+            {
+                "doctype": "MSP Billing Run",
+                "customer": terms.customer,
+                "contract": contract,
+                "billing_period_start": window_start,
+                "billing_period_end": window_end,
+                "cutoff_datetime": frappe.utils.now(),
+                "currency": terms.currency,
+                "status": "Validating",
+                "credit_note_reason": reason,
+                "generation_version": "1",
+                "prepared_by": frappe.session.user,
+                **BillingService._billing_identity(terms.customer),
+                "lines": drawn,
+            }
+        ).insert(ignore_permissions=True)
+
+        note.save(ignore_permissions=True)
+        erpnext_bridge.submit(note)
+
+        BillingService._issue_credit_note(note)
+        frappe.db.commit()
+
+        return BillingService.get_run(note.name)
+
+    @staticmethod
     def _accounting_of(invoice):
         """What a return takes from the invoice it answers: where it posts, and at what rate.
 
@@ -4034,19 +4341,25 @@ class BillingService:
 
     @staticmethod
     def _issue_credit_note(doc):
-        """Draft the return document that carries the credited months."""
-        source = frappe.db.get_value(
-            "MSP Billing Run", doc.credit_note_of, ["sales_invoice", "reconstructed"], as_dict=True
+        """Draft the return document that carries the credited months.
+
+        Against an invoice of ours it is a return, and everything about where it posts is
+        taken from that invoice. Against a charge raised elsewhere — or against no charge
+        on file at all — it is a credit note of its own on the company's defaults. The
+        money owed is the same either way; the link is the only thing that cannot be
+        invented, so it is simply left out.
+        """
+        source = (
+            frappe.db.get_value(
+                "MSP Billing Run",
+                doc.credit_note_of,
+                ["sales_invoice", "reconstructed"],
+                as_dict=True,
+            )
+            if doc.credit_note_of
+            else None
         )
         original = source.sales_invoice if source else None
-
-        # a charge raised before this application has nothing here to stand against, so the
-        # credit is a note of its own rather than a return — the money is the same, the
-        # link is what cannot be invented
-        if not original and not (source and source.reconstructed):
-            raise ValidationError(
-                f"{doc.credit_note_of} has no invoice to credit against.", "INVALID_TRANSITION"
-            )
 
         grouped = {}
 
@@ -4154,43 +4467,6 @@ class BillingService:
         return start, end
 
     @staticmethod
-    def prepare_credit(contract=None):
-        """The run to credit against, when there already is one.
-
-        Crediting needs something to credit against. A date the customer arrived with is
-        not that: it says a period was charged somewhere, never at what rate, on which
-        invoice, or for whom. Writing a charge down from it would invent the very record
-        the credit then leans on, so the coverage is recorded by hand first — with its
-        statement and the original invoice — through `record_past_coverage`.
-        """
-        BillingService._guard_admin()
-
-        if not contract or not frappe.db.exists("MSP Contract", contract):
-            raise NotFoundError(f"Contract {contract} not found.", "NOT_FOUND")
-
-        customer = frappe.db.get_value("MSP Contract", contract, "customer")
-        pending = BillingService.pending_adjustments(contract, customer)
-        owed = pending["owed_back"]
-
-        if owed["run"]:
-            return {"run": owed["run"], "recorded": False}
-
-        if not owed["lines"]:
-            raise ValidationError(
-                f"{customer} owes nothing back for that period.", "INVALID_TRANSITION"
-            )
-
-        mark = BillingService.checkpoint(customer)
-
-        raise ValidationError(
-            f"{customer} has no charge on file for {owed['period_start']} to "
-            f"{owed['period_end']}: the only trace is the date it was taken on ({mark}). "
-            "Record that coverage first, with the invoice it came from, and the credit "
-            "can then stand against it.",
-            "INVALID_TRANSITION",
-        )
-
-    @staticmethod
     def pending_for(contract=None):
         """What the last charged period of one contract left behind, people named.
 
@@ -4245,6 +4521,9 @@ class BillingService:
         prepared, is covered; proposing it again is how a period gets billed twice, and a
         proposal that counts it reads as work that is not there.
         """
+        # the same assignments a run would carry, read with the same filters: a service
+        # that has ended still owes the days it ran, and a counter that leaves them out
+        # says there is nothing to do on a period the run screen would bill
         rows = frappe.db.sql(
             """
             select sa.name, sa.effective_start_date, sa.effective_end_date,
@@ -4253,8 +4532,9 @@ class BillingService:
             join `tabMSP Contract Service` cs
               on cs.parent = %(contract)s and cs.service_item = sa.service_item
             where sa.customer = %(customer)s
-              and sa.billing_status = 'Billable'
+              and sa.billing_status in %(billing)s
               and sa.operational_status in %(ops)s
+              and sa.effective_start_date is not null
               and sa.effective_start_date <= %(end)s
               and (sa.effective_end_date is null or sa.effective_end_date >= %(start)s)
             """,
@@ -4262,6 +4542,7 @@ class BillingService:
                 "contract": contract,
                 "customer": customer,
                 "ops": tuple(BILLABLE_OPERATIONAL),
+                "billing": tuple(BILLABLE_BILLING_STATUS),
                 "start": period_start,
                 "end": period_end,
             },
@@ -4288,6 +4569,18 @@ class BillingService:
 
         window = coverage_intervals.span(period_start, period_end)
         covered = coverage_resolver.coverage_of(rows)
+        # the history a run would respect, read the same way it reads it: the date the
+        # customer was taken on with, for the assignments no baseline speaks for
+        terms = (
+            frappe.db.get_value(
+                "MSP Contract", contract, ["billing_frequency", "billing_timing"], as_dict=True
+            )
+            or {}
+        )
+        mark = BillingService.imported_mark(customer)
+        already_paid = BillingService.covered_from(
+            mark, terms.get("billing_frequency"), terms.get("billing_timing") or "In Arrears"
+        )
         owed = 0
 
         for row in rows:
@@ -4307,7 +4600,29 @@ class BillingService:
                 ],
             )
 
-            if coverage_resolver.due_over(live, covered[row.name]):
+            held = covered[row.name]
+            said = coverage_resolver.states(row)
+
+            if (
+                not said["spoken_for"]
+                and mark
+                and already_paid
+                and getdate(row.effective_start_date) <= mark
+            ):
+                held = {
+                    **held,
+                    "charged": coverage_intervals.merge(
+                        held["charged"] + coverage_intervals.span("1900-01-01", already_paid)
+                    ),
+                }
+
+            # a question nobody has answered is not work waiting to be done either
+            unverified = coverage_resolver.unconfirmed_baseline(row, until=period_end)
+
+            if unverified and coverage_intervals.intersect(live, unverified):
+                continue
+
+            if coverage_resolver.due_over(live, held):
                 owed += 1
 
         return owed

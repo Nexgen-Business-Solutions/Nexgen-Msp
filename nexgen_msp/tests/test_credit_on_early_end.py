@@ -471,13 +471,35 @@ class TestACustomerBilledBeforeThisApplication(AdvanceCase):
 
         return assignment
 
-    def recorded(self):
-        return BillingService.record_past_coverage(
-            contract=self.contract,
-            period_start=self.START,
-            period_end=self.END,
-            statement=self.STATEMENT,
+    INVOICED_ON = "2026-07-24"
+
+    def attest(self, period_start=None, period_end=None, invoice_date=None):
+        """Every line the proposal offers, read as somebody who checked the document."""
+        preview = BillingService.coverage_preview(
+            self.contract,
+            period_start or self.START,
+            period_end or self.END,
+            invoice_date=invoice_date or self.INVOICED_ON,
         )
+
+        return [
+            line["service_assignment"]
+            for line in preview["lines"]
+            if not line["exception_code"]
+        ]
+
+    def recorded(self, **changed):
+        asked = {
+            "contract": self.contract,
+            "period_start": self.START,
+            "period_end": self.END,
+            "statement": self.STATEMENT,
+            "invoice_date": self.INVOICED_ON,
+            "attested": self.attest(),
+        }
+        asked.update(changed)
+
+        return BillingService.record_past_coverage(**asked)
 
     def test_nothing_in_the_application_knows_about_the_charge_to_begin_with(self):
         self.running_since("2023-01-01")
@@ -552,19 +574,15 @@ class TestACustomerBilledBeforeThisApplication(AdvanceCase):
         self.assertTrue(run["reconstructed"])
         self.assertEqual(run["status"], "Invoiced")
         self.assertIsNone(run["sales_invoice"], "it raises no invoice of its own")
-        self.assertEqual(run["coverage_evidence"], self.STATEMENT)
+        self.assertIn(self.STATEMENT, run["coverage_evidence"])
+        self.assertIn(self.INVOICED_ON, run["coverage_evidence"])
         self.assertEqual(getdate(run["billing_period_end"]), getdate(self.END))
 
     def test_it_says_nothing_without_a_statement_of_where_the_charge_came_from(self):
         self.running_since("2023-01-01")
 
         with self.assertRaisesRegex(ServiceRefused, "where the original charge came from"):
-            BillingService.record_past_coverage(
-                contract=self.contract,
-                period_start=self.START,
-                period_end=self.END,
-                statement="  ",
-            )
+            self.recorded(statement="  ")
 
     def test_a_period_already_covered_cannot_be_recorded_again(self):
         self.running_since("2023-01-01")
@@ -580,6 +598,8 @@ class TestACustomerBilledBeforeThisApplication(AdvanceCase):
                 period_start=self.START,
                 period_end=self.END,
                 statement=self.STATEMENT,
+                invoice_date=self.INVOICED_ON,
+                attested=["SA-NOTHING-HERE"],
             )
 
     def test_an_invoice_of_another_customer_cannot_be_named_as_the_evidence(self):
@@ -587,13 +607,7 @@ class TestACustomerBilledBeforeThisApplication(AdvanceCase):
         theirs = self.make_customer(f"OTH{self.tag}")
 
         with self.assertRaisesRegex(ServiceRefused, "not a posted invoice"):
-            BillingService.record_past_coverage(
-                contract=self.contract,
-                period_start=self.START,
-                period_end=self.END,
-                statement=self.STATEMENT,
-                sales_invoice=f"SINV-NOPE-{theirs}",
-            )
+            self.recorded(sales_invoice=f"SINV-NOPE-{theirs}")
 
     def test_the_six_unused_days_are_owed_back_from_the_recorded_coverage(self):
         """The worked example of the issue, reached without a run ever having existed."""
@@ -725,10 +739,83 @@ class TestACustomerBilledBeforeThisApplication(AdvanceCase):
             period_start="2026-04-01",
             period_end="2026-06-30",
             statement="The quarter before, also charged by the previous system.",
+            invoice_date="2026-04-02",
+            attested=self.attest("2026-04-01", "2026-06-30", "2026-04-02"),
         )
 
         self.assertGreater(len(earlier["lines"]), 0)
         self.assertEqual(getdate(earlier["billing_period_end"]), getdate("2026-06-30"))
+
+    def test_it_refuses_to_guess_the_day_the_charge_went_out(self):
+        self.running_since("2023-01-01")
+
+        with self.assertRaisesRegex(ServiceRefused, "date the original charge went out"):
+            BillingService.record_past_coverage(
+                contract=self.contract,
+                period_start=self.START,
+                period_end=self.END,
+                statement=self.STATEMENT,
+                attested=self.attest(),
+            )
+
+    def test_it_refuses_a_composition_nobody_attested(self):
+        self.running_since("2023-01-01")
+
+        with self.assertRaisesRegex(ServiceRefused, "which lines you have checked"):
+            BillingService.record_past_coverage(
+                contract=self.contract,
+                period_start=self.START,
+                period_end=self.END,
+                statement=self.STATEMENT,
+                invoice_date=self.INVOICED_ON,
+            )
+
+    def test_it_refuses_a_line_the_period_could_not_have_charged(self):
+        self.running_since("2023-01-01")
+
+        with self.assertRaisesRegex(ServiceRefused, "not among the services"):
+            self.recorded(attested=["SA-2026-99999"])
+
+    def test_it_carries_only_the_lines_that_were_attested(self):
+        kept = self.running_since("2023-01-01")
+        left_off = self.running_since(
+            "2023-01-01", who=self.make_person(self.customer, "NotOnIt")
+        )
+
+        run = self.recorded(attested=[kept])
+        lines = [line["service_assignment"] for line in run["lines"]]
+
+        self.assertEqual(lines, [kept])
+        self.assertNotIn(left_off, lines, "a line nobody read on the document is not on it")
+        self.assertIn("were not on it", run["coverage_evidence"])
+
+    def test_a_charge_cannot_be_dated_before_the_period_it_covers(self):
+        self.running_since("2023-01-01")
+
+        with self.assertRaisesRegex(ServiceRefused, "before the period it covers opens"):
+            self.recorded(invoice_date="2026-06-30")
+
+    def test_the_real_invoice_date_is_what_the_reconstruction_reads(self):
+        """An end the charge already knew about was charged to that day, not to the quarter.
+
+        Guessed from the period, the reconstruction reads the quarter as issued on 1 July
+        and bills a service that stopped on the 20th for all three months. The document
+        went out on the 24th and knew better.
+        """
+        assignment = self.running_since("2023-01-01")
+        self.stops(assignment, "2026-07-20")
+
+        guessed = BillingService.coverage_preview(self.contract, self.START, self.END)
+        read = BillingService.coverage_preview(
+            self.contract, self.START, self.END, invoice_date=self.INVOICED_ON
+        )
+        before = next(l for l in guessed["lines"] if l["service_assignment"] == assignment)
+        after = next(l for l in read["lines"] if l["service_assignment"] == assignment)
+
+        self.assertEqual(getdate(read["as_known_on"]), getdate(self.INVOICED_ON))
+        self.assertEqual(before["billable_months"], 3.0)
+        self.assertEqual(getdate(after["covered_to"]), getdate("2026-07-20"))
+        self.assertLess(after["billable_months"], 3.0)
 
     def test_a_stretch_that_was_served_in_full_is_refused_rather_than_moved(self):
         """A window outside what a line owes is a question, not a rounding error."""

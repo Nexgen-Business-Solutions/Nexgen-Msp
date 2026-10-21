@@ -1318,9 +1318,21 @@ def billing_operation_services(
 
 @frappe.whitelist()
 @handle_errors
-def billing_credit_preview(contract=None, against=None, include=None, scope="detected"):
+def billing_credit_preview(
+    contract=None,
+    against=None,
+    include=None,
+    scope="detected",
+    period_start=None,
+    period_end=None,
+):
     return _wizard().credit_preview(
-        contract=contract, against=against, include=include, scope=scope
+        contract=contract,
+        against=against,
+        include=include,
+        scope=scope,
+        period_start=period_start,
+        period_end=period_end,
     )
 
 
@@ -1382,16 +1394,27 @@ def get_coverage_evidence(customer=None, period_start=None, period_end=None):
 
 @frappe.whitelist()
 @handle_errors
-def preview_past_coverage(contract=None, period_start=None, period_end=None):
+def preview_past_coverage(
+    contract=None, period_start=None, period_end=None, invoice_date=None
+):
     return _billing().coverage_preview(
-        contract=contract, period_start=period_start, period_end=period_end
+        contract=contract,
+        period_start=period_start,
+        period_end=period_end,
+        invoice_date=invoice_date,
     )
 
 
 @frappe.whitelist()
 @handle_errors
 def record_past_coverage(
-    contract=None, period_start=None, period_end=None, statement=None, sales_invoice=None
+    contract=None,
+    period_start=None,
+    period_end=None,
+    statement=None,
+    sales_invoice=None,
+    invoice_date=None,
+    attested=None,
 ):
     return _billing().record_past_coverage(
         contract=contract,
@@ -1399,6 +1422,8 @@ def record_past_coverage(
         period_end=period_end,
         statement=statement,
         sales_invoice=sales_invoice,
+        invoice_date=invoice_date,
+        attested=attested,
     )
 
 

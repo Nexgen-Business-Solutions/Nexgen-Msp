@@ -305,17 +305,37 @@ def services(
         run = _source_run(contract, against)
 
         if not run:
+            # nothing on file says what was charged, which does not mean nothing is owed.
+            # Every service of the contract is offered, and the operator says which days
+            # go back and why — the note then stands on its own.
+            offered, _ = BillingService.build_lines(
+                contract, period_start, period_end, ignore_coverage=True
+            )
+
             return {
                 "kind": kind,
                 "scope": scope,
                 "currency": terms.currency,
                 "source_run": None,
-                "lines": [],
+                "source_invoice": None,
+                "source_period": {"from": period_start, "to": period_end},
+                "lines": [
+                    {
+                        **_candidate(
+                            {**line, "billable_months": 0, "amount": 0},
+                            "No charge of ours covers this period. Give back the days you "
+                            "have agreed, at this service's own rate.",
+                            "Credit on its own",
+                        ),
+                        "covered_from": period_start,
+                        "covered_to": period_end,
+                        "editable": True,
+                    }
+                    for line in offered
+                    if not line.get("exception_code")
+                ],
                 "blocked": [],
-                "note": (
-                    "No charge recorded here to credit against. Record the past coverage "
-                    "first, then the credit stands against something."
-                ),
+                "note": None,
             }
 
         source = BillingService.creditable_lines(run)
@@ -379,8 +399,39 @@ def _scope(scope):
     return scope
 
 
+def _credit_windows(include):
+    """The stretches asked for, when there is no charge on file to read them against."""
+    include = frappe.parse_json(include) if isinstance(include, str) else include
+    asked = []
+
+    for row in include or []:
+        if not isinstance(row, dict):
+            asked.append({"service_assignment": row})
+            continue
+
+        assignment = row.get("service_assignment") or row.get("id")
+
+        if not assignment:
+            raise ValidationError(
+                "Each credited line names its service assignment.", "VALIDATION_ERROR"
+            )
+
+        asked.append(
+            {
+                "service_assignment": assignment,
+                "from": row.get("from"),
+                "to": row.get("to"),
+            }
+        )
+
+    return asked
+
+
 def _credit_rows(run, include):
     """The stretches a credit is asked for: the operator's own, or the detected ones."""
+    # the browser sends its selection as JSON; read as a list of characters it matches
+    # nothing, and the operator is told to select lines they had already selected
+    include = frappe.parse_json(include) if isinstance(include, str) else include
     chosen = list(include or [])
     rows = []
     named = [row for row in chosen if not isinstance(row, dict)]
@@ -446,8 +497,14 @@ def _credit_rows(run, include):
     return rows
 
 
-def credit_preview(contract=None, against=None, include=None, scope="detected"):
-    """What the chosen days come to, priced by the engine that would write them."""
+def credit_preview(
+    contract=None,
+    against=None,
+    include=None,
+    scope="detected",
+    period_start=None,
+    period_end=None,
+):
     """What the chosen days come to, priced by the engine that would write them.
 
     The Confirm step asks for this rather than adding up what the Services step showed:
@@ -458,10 +515,14 @@ def credit_preview(contract=None, against=None, include=None, scope="detected"):
     scope = _scope(scope)
     run = _source_run(contract, against)
 
+    # nothing on file to price it against: the days are worth what the service costs
     if not run:
-        raise ValidationError(
-            "Record the coverage this credit stands against before crediting it.",
-            "VALIDATION_ERROR",
+        return BillingService.create_standalone_credit(
+            contract=contract,
+            period_start=period_start,
+            period_end=period_end,
+            lines=_credit_windows(include),
+            dry_run=True,
         )
 
     return BillingService.create_credit_note(
@@ -522,10 +583,18 @@ def create(
         run = _source_run(contract, against)
 
         if not run:
-            raise ValidationError(
-                "Record the coverage this credit stands against before crediting it.",
-                "VALIDATION_ERROR",
-            )
+            # a credit answering no charge of ours is a decision somebody signs, so the
+            # reason is required here as it is for a credit on days that were served
+            return {
+                "run": BillingService.create_standalone_credit(
+                    contract=contract,
+                    period_start=period_start,
+                    period_end=period_end,
+                    lines=_credit_windows(include),
+                    reason=reason,
+                )["name"],
+                "kind": kind,
+            }
 
         # a credit on days that were served is a decision somebody takes and signs
         if scope == "all" and not str(reason or "").strip():
@@ -585,8 +654,9 @@ def create(
     # the accounting answers are used where they were asked for: at drafting time
     if frappe.utils.cint(draft_invoice) and dimensions is not None:
         detail = BillingService.get_run(created["name"])
-        step = "finalise" if detail["can_approve"] else "invoice"
-        runner = BillingService.finalise if step == "finalise" else BillingService.create_invoice
+        runner = (
+            BillingService.finalise if detail["can_approve"] else BillingService.create_invoice
+        )
         runner(
             name=created["name"],
             dimensions=frappe.as_json(dimensions),

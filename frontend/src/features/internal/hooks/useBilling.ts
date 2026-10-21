@@ -109,7 +109,12 @@ export const useCoverageEvidence = (
   });
 
 export const useCoveragePreview = (
-  payload: { contract: string; period_start: string; period_end: string } | null
+  payload: {
+    contract: string;
+    period_start: string;
+    period_end: string;
+    invoice_date?: string;
+  } | null
 ) =>
   useQuery({
     queryKey: [...billingKeys.all, 'coverage-preview', payload],

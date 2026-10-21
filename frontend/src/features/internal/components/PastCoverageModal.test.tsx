@@ -40,8 +40,17 @@ const preview = {
   currency: 'XAF',
   period_start: '2026-07-01',
   period_end: '2026-09-30',
-  lines: [{ service_assignment: 'SA-2026-00063', exception_code: null }],
+  lines: [
+    {
+      service_assignment: 'SA-2026-00063',
+      service_name: 'Managed mailbox',
+      user_name: 'Abbas',
+      amount: 9000,
+      exception_code: null,
+    },
+  ],
   total_amount: 9000,
+  as_known_on: '2026-07-24',
 };
 
 const recorded = vi.fn();
@@ -66,6 +75,15 @@ const askFor = async (from = '2026-07-01', to = '2026-09-30') => {
   fireEvent.change(screen.getByLabelText('To'), { target: { value: to } });
   fireEvent.click(screen.getByRole('button', { name: 'Find the evidence' }));
   await screen.findByText('What this application found');
+};
+
+/** The contract and the day the document went out, which is what the proposal is read on. */
+const charged = async (issued = '2026-07-24') => {
+  fireEvent.change(screen.getByLabelText('The day the original charge went out'), {
+    target: { value: issued },
+  });
+  fireEvent.click(screen.getByText('Choose the contract'));
+  fireEvent.click(await screen.findByRole('option', { name: /SLA - Kakivu/ }));
 };
 
 beforeEach(() => {
@@ -140,19 +158,18 @@ describe('recording a charge raised before this application', () => {
     show();
     await askFor();
 
-    fireEvent.click(screen.getByText('Choose the contract'));
-    fireEvent.click(await screen.findByRole('option', { name: /SLA - Kakivu/ }));
+    await charged();
 
-    expect(await screen.findByText(/9 000 XAF/)).toBeInTheDocument();
+    expect(await screen.findAllByText(/9 000 XAF/)).toHaveLength(2);
+    expect(screen.getByText(/line\(s\) recorded/).textContent).toContain('1 of 1');
   });
 
   it('refuses to record without a statement of where the charge came from', async () => {
     show();
     await askFor();
 
-    fireEvent.click(screen.getByText('Choose the contract'));
-    fireEvent.click(await screen.findByRole('option', { name: /SLA - Kakivu/ }));
-    await screen.findByText(/9 000 XAF/);
+    await charged();
+    await screen.findAllByText(/9 000 XAF/);
 
     expect(screen.getByRole('button', { name: 'Record as charged' })).toBeDisabled();
   });
@@ -161,9 +178,8 @@ describe('recording a charge raised before this application', () => {
     show();
     await askFor();
 
-    fireEvent.click(screen.getByText('Choose the contract'));
-    fireEvent.click(await screen.findByRole('option', { name: /SLA - Kakivu/ }));
-    await screen.findByText(/9 000 XAF/);
+    await charged();
+    await screen.findAllByText(/9 000 XAF/);
     fireEvent.change(screen.getByLabelText('Where this charge came from'), {
       target: { value: 'Charged by the previous system, invoice KAK-2026-Q3.' },
     });
@@ -176,6 +192,8 @@ describe('recording a charge raised before this application', () => {
         period_end: '2026-09-30',
         statement: 'Charged by the previous system, invoice KAK-2026-Q3.',
         sales_invoice: null,
+        invoice_date: '2026-07-24',
+        attested: ['SA-2026-00063'],
       })
     );
     expect(recorded).toHaveBeenCalledWith('BR-2026-07-900');
@@ -189,9 +207,7 @@ describe('recording a charge raised before this application', () => {
     } as never);
     show();
     await askFor();
-
-    fireEvent.click(screen.getByText('Choose the contract'));
-    fireEvent.click(await screen.findByRole('option', { name: /SLA - Kakivu/ }));
+    await charged();
 
     expect(await screen.findByText(/Nothing was running over this period/)).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Where this charge came from'), {

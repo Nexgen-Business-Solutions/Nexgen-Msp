@@ -258,6 +258,18 @@ class TestWhatTheChargedQuarterLeftBehind(KakivuCase):
     mid-quarter arrival lost their first weeks without anybody noticing.
     """
 
+    def attest(self, period_start, period_end, invoice_date):
+        """The lines of the proposal, as somebody who read the original document."""
+        preview = BillingService.coverage_preview(
+            self.contract, period_start, period_end, invoice_date=invoice_date
+        )
+
+        return [
+            line["service_assignment"]
+            for line in preview["lines"]
+            if not line["exception_code"]
+        ]
+
     def charged_quarter(self):
         """The quarter recorded as charged, the way a customer arriving with history is."""
         return BillingService.record_past_coverage(
@@ -265,6 +277,8 @@ class TestWhatTheChargedQuarterLeftBehind(KakivuCase):
             period_start="2026-07-01",
             period_end=QUARTER_END,
             statement="Charged by the previous system.",
+            invoice_date=MARK,
+            attested=self.attest("2026-07-01", QUARTER_END, MARK),
         )
 
     def pending(self):
@@ -314,8 +328,10 @@ class TestWhatTheChargedQuarterLeftBehind(KakivuCase):
         self.charged_quarter()
 
         run = BillingService.record_past_coverage(
-            contract=self.contract, period_start="2026-10-01", period_end=NEXT_END,
+            contract=self.contract, period_start=NEXT_START, period_end=NEXT_END,
             statement="The quarter ahead, charged.",
+            invoice_date=NEXT_START,
+            attested=self.attest(NEXT_START, NEXT_END, NEXT_START),
         )
         self.assertGreater(len(run["lines"]), 0)
 
@@ -383,3 +399,104 @@ class TestWhatTheChargedQuarterLeftBehind(KakivuCase):
 
         self.assertEqual(pending["catch_up"]["lines"], 0)
         self.assertEqual(pending["owed_back"]["lines"], 0)
+
+
+class TestWhatTheBaselineSaysOutranksTheDate(KakivuCase):
+    """A date on the customer says a period was paid for, never by whom.
+
+    The reconciliation of the import writes what it found against each service: days
+    confirmed on the original invoice, a service that was not on it at all, or a question
+    nobody has answered. Each of those outranks the company-wide date, which is the only
+    thing stopping a service nobody charged from reading as paid.
+    """
+
+    def says(self, assignment, **baseline):
+        frappe.db.set_value("MSP Service Assignment", assignment, baseline)
+        frappe.db.commit()
+
+    def line_for(self, assignment, start="2026-07-25", end=QUARTER_END):
+        lines, _ = BillingService.build_lines(self.contract, start, end)
+
+        return next(
+            (line for line in lines if line["service_assignment"] == assignment), None
+        )
+
+    def test_a_service_the_invoice_never_carried_is_owed_from_its_first_day(self):
+        """Started before the charge went out, absent from it: nobody has been paid."""
+        absent = self.since("2026-07-20")
+        self.says(
+            absent,
+            baseline_state="Absent / Never Billed",
+            baseline_source="Manual Attestation",
+        )
+
+        line = self.line_for(absent, start="2026-07-20")
+
+        self.assertIsNone(line["exception_code"])
+        self.assertGreater(line["billable_months"], 0.0)
+        self.assertEqual(getdate(line["covered_from"]), getdate("2026-07-20"))
+
+    def test_a_service_confirmed_to_an_earlier_day_is_not_stretched_to_the_quarter(self):
+        """The mark reaches 30 September; this baseline attests only to 31 July."""
+        shorter = self.since("2023-01-01")
+        self.says(
+            shorter,
+            baseline_covered_from="2023-01-01",
+            baseline_covered_to="2026-07-31",
+            baseline_state="Confirmed",
+            baseline_source="ERPNext Invoice",
+        )
+
+        line = self.line_for(shorter, start="2026-07-01")
+
+        self.assertIsNone(line["exception_code"])
+        self.assertEqual(getdate(line["covered_from"]), getdate("2026-08-01"))
+        self.assertEqual(getdate(line["covered_to"]), getdate(QUARTER_END))
+
+    def test_a_question_nobody_answered_is_neither_billed_nor_presumed_paid(self):
+        unsure = self.since("2023-01-01")
+        self.says(unsure, baseline_state="Needs Review")
+
+        line = self.line_for(unsure, start="2026-07-01")
+
+        self.assertEqual(line["exception_code"], "Unverified Coverage")
+        self.assertEqual(line["amount"], 0.0)
+
+    def test_a_service_confirmed_over_the_whole_quarter_is_covered(self):
+        settled = self.since("2023-01-01")
+        self.says(
+            settled,
+            baseline_covered_from="2023-01-01",
+            baseline_covered_to=QUARTER_END,
+            baseline_state="Confirmed",
+        )
+
+        line = self.line_for(settled, start="2026-07-01")
+
+        self.assertEqual(line["exception_code"], "Already Covered")
+        self.assertEqual(line["amount"], 0.0)
+
+    def test_a_service_that_began_in_september_is_prorated_to_the_quarter_end(self):
+        later = self.since("2026-09-05", who=self.make_person(self.customer, "September"))
+
+        line = self.line_for(later, start="2026-09-05")
+
+        self.assertIsNone(line["exception_code"])
+        self.assertEqual(getdate(line["covered_from"]), getdate("2026-09-05"))
+        self.assertEqual(getdate(line["covered_to"]), getdate(QUARTER_END))
+
+    def test_and_the_ready_to_bill_count_says_the_same_as_the_run_would(self):
+        """The counter and the preview answer the same question or one of them is lying."""
+        self.since("2023-01-01")
+        absent = self.since(
+            "2026-07-20", who=self.make_person(self.customer, "AbsentOne")
+        )
+        self.says(absent, baseline_state="Absent / Never Billed")
+
+        owed = BillingService._billable_over(
+            self.contract, self.customer, "2026-07-25", QUARTER_END
+        )
+        lines, _ = BillingService.build_lines(self.contract, "2026-07-25", QUARTER_END)
+        billed = [line for line in lines if not line["exception_code"] and line["amount"]]
+
+        self.assertEqual(owed, len(billed))

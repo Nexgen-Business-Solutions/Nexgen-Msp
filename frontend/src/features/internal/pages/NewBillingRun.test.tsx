@@ -225,7 +225,7 @@ describe('one path prepares the three operations', () => {
     expect(screen.getByText(/drafted first; submitting it is a separate decision/)).toBeInTheDocument();
   });
 
-  it('prepares nothing until the review is confirmed, then sends one call', async () => {
+  it('sends one call when the operation is confirmed', async () => {
     ready();
     vi.mocked(internal.createBillingOperation).mockResolvedValue({
       run: 'BR-2026-09-001',
@@ -241,11 +241,6 @@ describe('one path prepares the three operations', () => {
     await forward();
     await screen.findByText('Step 4 of 4');
 
-    fireEvent.click(screen.getByRole('button', { name: /Prepare invoice draft/ }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Confirm your review');
-    expect(internal.createBillingOperation).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByLabelText(/I have reviewed/));
     fireEvent.click(screen.getByRole('button', { name: /Prepare invoice draft/ }));
 
     await waitFor(() => expect(internal.createBillingOperation).toHaveBeenCalledTimes(1));
@@ -363,7 +358,6 @@ describe('one path prepares the three operations', () => {
     // the amount shown is the one the engine priced for the days actually chosen
     expect(await screen.findByText(/60\.00 XAF/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByLabelText(/I have reviewed/));
     fireEvent.click(screen.getByRole('button', { name: /Prepare credit note/ }));
 
     // a credit on days that were served does not go through without a reason
@@ -412,7 +406,7 @@ describe('one path prepares the three operations', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Give the days to credit');
   });
 
-  it('says so when the charge has no invoice to copy its accounting from', async () => {
+  it('draws a credit of its own when there is no document to copy from', async () => {
     vi.mocked(internal.getBillingOperationContext).mockResolvedValue(
       context({ kind: 'credit_note', label: 'Credit note' })
     );
@@ -436,7 +430,7 @@ describe('one path prepares the three operations', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: /Include Mailbox/ }));
     await forward();
 
-    expect(await screen.findByText(/This charge has no invoice in ERPNext/)).toBeInTheDocument();
-    expect(screen.getByText(/check its accounting in ERPNext/)).toBeInTheDocument();
+    expect(await screen.findByText(/A credit note of its own/)).toBeInTheDocument();
+    expect(screen.getByText(/drawn on the company defaults/)).toBeInTheDocument();
   });
 });

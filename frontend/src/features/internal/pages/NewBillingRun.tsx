@@ -86,12 +86,10 @@ export default function NewBillingRun() {
   const [dimensions, setDimensions] = useState<Record<string, string>>({});
   const [exchange, setExchange] = useState('');
   const [discount, setDiscount] = useState('0');
-  const [draftInvoice, setDraftInvoice] = useState(true);
   const [hunt, setHunt] = useState('');
   const [windows, setWindows] = useState<Record<string, { from: string; to: string }>>({});
   // a credit on days that were served is a decision, and it is written down with the note
   const [why, setWhy] = useState('');
-  const [accepted, setAccepted] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
 
   const contracts = useMspContracts({ status: 'Active' });
@@ -182,6 +180,10 @@ export default function NewBillingRun() {
     (dimension) => dimension.mandatory && !dimensions[dimension.fieldname]
   );
 
+  /** A credit on days that were served, or one nothing on file explains, is signed for. */
+  const mustExplain =
+    kind === 'credit_note' && (scope === 'all' || !services.data?.source_run);
+
   /** What a credit is asked for: the operator's own stretches, or the detected lines by name. */
   const creditLines = () =>
     chosen.map((line) =>
@@ -214,24 +216,29 @@ export default function NewBillingRun() {
     }
 
     // a credit posts where its original charge posted: there is no dimension to ask for
-    if (step === 2 && kind !== 'credit_note' && draftInvoice && missingDimension) {
+    if (step === 2 && kind !== 'credit_note' && missingDimension) {
       return setRefused(`${missingDimension.label} is required before a document can be drafted.`);
     }
 
-    if (step === 2 && kind === 'credit_note' && against) {
+    if (step === 2 && kind === 'credit_note') {
       // what the operator cut is worth what the engine says it is worth, not what the
       // whole line was worth before they shortened it
       try {
-        await priced.mutateAsync({ contract, against, scope, include: creditLines() });
+        await priced.mutateAsync({
+          contract,
+          against,
+          scope,
+          period_start: start,
+          period_end: end,
+          include: creditLines(),
+        });
       } catch (error) {
         return setRefused((error as Error).message);
       }
     }
 
     if (step === 3) {
-      if (!accepted) return setRefused('Confirm your review before preparing the operation.');
-
-      if (kind === 'credit_note' && scope === 'all' && !why.trim()) {
+      if (kind === 'credit_note' && mustExplain && !why.trim()) {
         return setRefused('Say why these days are being given back.');
       }
 
@@ -242,15 +249,15 @@ export default function NewBillingRun() {
           period_start: start,
           period_end: end,
           include: kind === 'credit_note' ? creditLines() : chosen.map((line) => line.id),
-          dimensions: draftInvoice ? dimensions : undefined,
+          dimensions,
           exchange_rate: exchange ? Number(exchange) : undefined,
           discount_percent: kind === 'credit_note' ? 0 : Number(discount || 0),
           against,
-          draft_invoice: draftInvoice ? 1 : 0,
+          draft_invoice: kind === 'credit_note' ? 0 : 1,
           ...(kind === 'credit_note'
             ? {
                 scope,
-                ...(scope === 'all' ? { reason: why.trim() } : {}),
+                ...(mustExplain ? { reason: why.trim() } : {}),
                 ...(priced.data ? { expected_total: priced.data.total } : {}),
               }
             : {}),
@@ -280,9 +287,7 @@ export default function NewBillingRun() {
       ? 'Continue →'
       : kind === 'credit_note'
         ? 'Prepare credit note'
-        : draftInvoice
-          ? 'Prepare invoice draft'
-          : 'Create billing run';
+        : 'Prepare invoice draft';
 
   return (
     <div className="space-y-4 px-6 pb-6 pt-4">
@@ -642,16 +647,14 @@ export default function NewBillingRun() {
                   the charge did. There is nothing to choose here.
                 </Banner>
               ) : (
-                <Banner tone="amber" title="This charge has no invoice in ERPNext.">
-                  {services.data?.source_run ?? 'The charge'} records coverage raised before this
-                  application, so there is no original document to copy from. The return is drawn
-                  on the company defaults — check its accounting in ERPNext before submitting it.
+                <Banner tone="blue" title="A credit note of its own.">
+                  Nothing on file carries this money, so the note is drawn on the company
+                  defaults rather than copied from an earlier document.
                 </Banner>
               )}
               <Summary
                 rows={[
                   { label: 'Currency', value: accounting.data?.currency ?? '—' },
-                  { label: 'Posting date', value: 'Set by ERPNext when the return is drafted' },
                   {
                     label: 'Payment terms',
                     value: accounting.data?.payment_terms ?? 'As contracted',
@@ -805,19 +808,7 @@ export default function NewBillingRun() {
                 ]}
               />
 
-              {kind !== 'credit_note' && (
-                <label className="flex items-center gap-2.5 text-xs text-slate-600">
-                  <input
-                    type="checkbox"
-                    checked={draftInvoice}
-                    onChange={(event) => setDraftInvoice(event.target.checked)}
-                    className="h-4 w-4 accent-blue-600"
-                  />
-                  Draft the Sales Invoice in ERPNext now. Submitting it stays a separate decision.
-                </label>
-              )}
-
-              {kind === 'credit_note' && scope === 'all' && (
+              {kind === 'credit_note' && mustExplain && (
                 <div>
                   <Label htmlFor="credit-reason" required>
                     Why these days are given back
@@ -836,16 +827,6 @@ export default function NewBillingRun() {
                   </p>
                 </div>
               )}
-
-              <label className="flex items-start gap-2.5 text-xs text-slate-600">
-                <input
-                  type="checkbox"
-                  checked={accepted}
-                  onChange={(event) => setAccepted(event.target.checked)}
-                  className="mt-0.5 h-4 w-4 accent-blue-600"
-                />
-                I have reviewed the services, amounts and accounting details.
-              </label>
 
               {kind === 'credit_note' && (
                 <p className="text-[11px] text-slate-400">

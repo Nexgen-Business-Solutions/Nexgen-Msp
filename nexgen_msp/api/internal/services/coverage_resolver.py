@@ -179,14 +179,48 @@ def explain(eligible, covered, due, owed):
     return f"{intervals.days(due)} day(s) to bill."
 
 
-def unconfirmed_baseline(assignment):
-    """The days an unverified baseline claims, which nobody may bill or credit yet."""
-    if not assignment.get("baseline_covered_to"):
-        return []
+# what a baseline says about this assignment, read as a statement rather than as a date
+SETTLED = ("Confirmed", "Absent / Never Billed", "Free / Non-billable")
+UNSETTLED = ("Ambiguous", "Needs Review")
 
-    if (assignment.get("baseline_state") or "") == "Confirmed":
+
+def states(assignment):
+    """What the baseline of this assignment says, if anybody has said anything at all.
+
+    `Confirmed` is coverage somebody checked against the original invoice. `Absent / Never
+    Billed` says this service was not on it, which makes its days owed. `Ambiguous` and
+    `Needs Review` say nobody knows yet. An assignment carrying none of these is a line
+    the historical reconciliation never reached, and only then does a date held on the
+    customer have anything to add.
+    """
+    said = (assignment.get("baseline_state") or "").strip()
+
+    return {
+        "said": said,
+        "spoken_for": bool(said or assignment.get("baseline_covered_to")),
+        "settled": said in SETTLED,
+        "unsettled": said in UNSETTLED or bool(
+            assignment.get("baseline_covered_to") and said not in SETTLED
+        ),
+    }
+
+
+def unconfirmed_baseline(assignment, until=None):
+    """The days an unverified baseline claims, which nobody may bill or credit yet.
+
+    A baseline nobody confirmed carries its own dates when it has them. A line merely
+    flagged `Ambiguous` or `Needs Review` carries none, and what is unverified about it is
+    everything up to the day the question is about — `until`.
+    """
+    said = states(assignment)
+
+    if not said["unsettled"]:
         return []
 
     opens = assignment.get("baseline_covered_from") or assignment.get("effective_start_date")
+    closes = assignment.get("baseline_covered_to") or until
 
-    return intervals.span(opens, assignment["baseline_covered_to"])
+    if not closes:
+        return []
+
+    return intervals.span(opens, closes)

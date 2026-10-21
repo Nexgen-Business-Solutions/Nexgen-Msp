@@ -1538,8 +1538,12 @@ export type BillingCreditPreview = {
 /** What the chosen days come to, priced by the engine that would write them. */
 export const getBillingCreditPreview = (payload: {
   contract: string;
-  against: string;
+  /** the charge it answers, when there is one on file */
+  against?: string;
   scope?: string;
+  /** the window, for a credit that answers no charge on file */
+  period_start?: string;
+  period_end?: string;
   include: (
     | string
     | { service_assignment: string; line?: string | null; from?: string; to?: string; months?: number }
@@ -1758,7 +1762,13 @@ export const getCoverageEvidence = (
 ) => get<CoverageEvidence>(`${BASE}.get_coverage_evidence`, payload, signal);
 
 export const previewPastCoverage = (
-  payload: { contract: string; period_start: string; period_end: string },
+  payload: {
+    contract: string;
+    period_start: string;
+    period_end: string;
+    /** the day the original charge went out, which is what it could know about */
+    invoice_date?: string;
+  },
   signal?: AbortSignal
 ) => get<CoveragePreview>(`${BASE}.preview_past_coverage`, payload, signal);
 
@@ -1768,7 +1778,14 @@ export const recordPastCoverage = (payload: {
   period_end: string;
   statement: string;
   sales_invoice?: string | null;
-}) => post<BillingRunDetail>(`${BASE}.record_past_coverage`, payload);
+  invoice_date: string;
+  /** the lines read on the original document, which are the only ones recorded */
+  attested: string[];
+}) =>
+  post<BillingRunDetail>(`${BASE}.record_past_coverage`, {
+    ...payload,
+    attested: JSON.stringify(payload.attested),
+  });
 
 export type InvoiceRecipients = {
   customer: string;

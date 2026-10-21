@@ -50,19 +50,28 @@ const PastCoverageModal: React.FC<Props> = ({
   const [asked, setAsked] = useState<{ period_start: string; period_end: string } | null>(null);
   const [contract, setContract] = useState('');
   const [invoice, setInvoice] = useState('');
+  const [issued, setIssued] = useState('');
   const [statement, setStatement] = useState('');
+  const [left, setLeft] = useState<string[]>([]);
 
   const evidence = useCoverageEvidence(asked && customer ? { customer, ...asked } : null);
-  const preview = useCoveragePreview(asked && contract ? { contract, ...asked } : null);
+  const preview = useCoveragePreview(
+    asked && contract && issued ? { contract, ...asked, invoice_date: issued } : null
+  );
   const record = useRecordPastCoverage();
 
   const found = evidence.data;
   const charged = (preview.data?.lines ?? []).filter((line) => !line.exception_code);
+  // every line of the proposal is recorded unless somebody says it was not on the document
+  const attested = charged
+    .map((line) => line.service_assignment)
+    .filter((assignment) => !left.includes(assignment));
   const error = (evidence.error ?? preview.error ?? record.error) as Error | undefined;
 
   const look = () => {
     setContract('');
     setInvoice('');
+    setLeft([]);
     setAsked(customer && from && until ? { period_start: from, period_end: until } : null);
   };
 
@@ -74,7 +83,7 @@ const PastCoverageModal: React.FC<Props> = ({
   };
 
   const save = async () => {
-    if (!asked || !contract) return;
+    if (!asked || !contract || !issued) return;
 
     try {
       const run = await record.mutateAsync({
@@ -82,6 +91,8 @@ const PastCoverageModal: React.FC<Props> = ({
         ...asked,
         statement: statement.trim(),
         sales_invoice: invoice || null,
+        invoice_date: issued,
+        attested,
       });
       onRecorded(run.name);
     } catch {
@@ -110,7 +121,13 @@ const PastCoverageModal: React.FC<Props> = ({
           <button
             type="button"
             onClick={save}
-            disabled={!contract || !statement.trim() || charged.length === 0 || record.isLoading}
+            disabled={
+              !contract ||
+              !issued ||
+              !statement.trim() ||
+              attested.length === 0 ||
+              record.isLoading
+            }
             className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             Record as charged
@@ -184,6 +201,24 @@ const PastCoverageModal: React.FC<Props> = ({
               </ul>
             </div>
 
+            <div>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-semibold text-slate-700">
+                  The day the original charge went out
+                </span>
+                <input
+                  type="date"
+                  className={INPUT}
+                  value={issued}
+                  onChange={(event) => setIssued(event.target.value)}
+                />
+              </label>
+              <p className="mt-1 text-[11px] text-slate-500">
+                Everything below is read as it stood on that day, so it is the date on the
+                document itself, not the start of the period.
+              </p>
+            </div>
+
             <label className="block">
               <span className="mb-1.5 block text-xs font-semibold text-slate-700">
                 Charged under which contract
@@ -228,7 +263,7 @@ const PastCoverageModal: React.FC<Props> = ({
               </p>
             )}
 
-            {contract && (
+            {contract && issued && (
               <div className="rounded-lg border border-slate-200 p-3">
                 <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                   What that period would have held
@@ -244,17 +279,47 @@ const PastCoverageModal: React.FC<Props> = ({
                 ) : (
                   <>
                     <p className="mt-2 text-sm text-slate-700">
-                      <span className="font-semibold">{charged.length}</span> line(s),{' '}
+                      <span className="font-semibold">{attested.length}</span> of{' '}
+                      {charged.length} line(s) recorded,{' '}
                       <span className="font-semibold">
                         {money(preview.data?.total_amount ?? 0, preview.data?.currency ?? '')}
-                      </span>
-                      .
+                      </span>{' '}
+                      as proposed.
                     </p>
                     <p className="mt-1 text-[11px] text-slate-500">
-                      Priced as the charge stood on {preview.data?.as_known_on}: a service
-                      that ended after that day was charged for the whole period, which is
-                      what makes those days owed back.
+                      This is what this application believes was running on{' '}
+                      {preview.data?.as_known_on}. Untick anything the original document
+                      does not carry — what stays is what the record will say was charged.
                     </p>
+                    <ul className="mt-2 max-h-56 space-y-1 overflow-auto">
+                      {charged.map((line) => (
+                        <li key={line.service_assignment}>
+                          <label className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-xs hover:bg-slate-50">
+                            <input
+                              type="checkbox"
+                              className="h-3.5 w-3.5 accent-blue-600"
+                              checked={!left.includes(line.service_assignment)}
+                              onChange={(event) =>
+                                setLeft((current) =>
+                                  event.target.checked
+                                    ? current.filter((name) => name !== line.service_assignment)
+                                    : [...current, line.service_assignment]
+                                )
+                              }
+                            />
+                            <span className="font-semibold text-slate-700">
+                              {line.service_name}
+                            </span>
+                            <span className="truncate text-slate-500">
+                              {line.user_name || line.hostname || 'Customer'}
+                            </span>
+                            <span className="ml-auto shrink-0 tabular-nums text-slate-500">
+                              {money(line.amount, preview.data?.currency ?? '')}
+                            </span>
+                          </label>
+                        </li>
+                      ))}
+                    </ul>
                   </>
                 )}
               </div>
