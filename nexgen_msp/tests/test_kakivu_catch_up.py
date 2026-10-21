@@ -170,14 +170,28 @@ class TestWhatBillingProposesOnItsOwn(KakivuCase):
 
         return next(row for row in rows if row["customer"] == self.customer)
 
-    def test_it_proposes_the_catch_up_first(self):
+    def test_it_proposes_the_catch_up_when_somebody_arrived_after_the_payment(self):
+        """The short window is work only when it owes something."""
         self.since("2023-03-06")
+        self.since("2026-08-01", who=self.make_person(self.customer, "Newcomer"))
 
         row = self.proposal()
 
         self.assertEqual(getdate(row["covered_upto"]), getdate(MARK))
         self.assertEqual(getdate(row["next_period_start"]), getdate("2026-07-25"))
         self.assertEqual(getdate(row["next_period_end"]), getdate(QUARTER_END))
+        self.assertGreater(row["billable_assignments"], 0)
+
+    def test_a_catch_up_nobody_owes_is_skipped_for_the_quarter_ahead(self):
+        """Everybody there was paid for through 30 September: the work is October."""
+        self.since("2023-03-06")
+
+        row = self.proposal()
+
+        self.assertEqual(getdate(row["covered_upto"]), getdate(QUARTER_END))
+        self.assertEqual(getdate(row["next_period_start"]), getdate(NEXT_START))
+        self.assertEqual(getdate(row["next_period_end"]), getdate(NEXT_END))
+        self.assertGreater(row["billable_assignments"], 0)
 
     def test_it_does_not_treat_the_customer_as_never_billed(self):
         self.since("2023-03-06")

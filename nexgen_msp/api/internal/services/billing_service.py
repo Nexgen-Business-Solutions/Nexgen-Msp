@@ -5053,8 +5053,11 @@ class BillingService:
                 "months": flt(
                     sum(entry["owed_back"]["months"] for entry in detected["lines"]), 3
                 ),
+                # what is owed, as a magnitude: the proposal reads it the same way
+                # whether a run of ours carries those days or only the customer's own
+                # date does, and the screen is the one place a credit wears its sign
                 "amount": flt(
-                    sum(flt(entry["amount"]) for entry in detected["lines"]), 2
+                    sum(-flt(entry["amount"]) for entry in detected["lines"]), 2
                 ),
                 "run": None,
                 "proven": False,
