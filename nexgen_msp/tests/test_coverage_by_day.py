@@ -236,6 +236,45 @@ class TestABaselineNobodyConfirmed(DayCase):
         self.assertIsNone(after["exception_code"])
         self.assertEqual(after["billable_days"], 11, "the 21st to the 31st")
 
+    def test_an_unconfirmed_baseline_speaks_before_the_customer_mark(self):
+        """Both apply at once: the answer that admits nobody checked is the useful one."""
+        assignment = self.live_since("2023-01-01")
+        frappe.db.set_value(
+            "MSP Service Assignment",
+            assignment,
+            {
+                "baseline_covered_from": "2023-01-01",
+                "baseline_covered_to": "2026-08-31",
+                "baseline_state": "Ambiguous",
+            },
+        )
+        frappe.db.set_value("Customer", self.customer, "msp_last_billed_on", "2026-08-31")
+        frappe.db.commit()
+
+        line = self.line_for(assignment, "2026-08-01", "2026-08-31")
+
+        self.assertEqual(line["exception_code"], "Unverified Coverage")
+        self.assertIn("confirmed", line["exception_detail"])
+        self.assertEqual(line["amount"], 0.0, "and nothing is billed either way")
+
+    def test_a_confirmed_baseline_under_the_same_mark_reads_as_covered(self):
+        assignment = self.live_since("2023-01-01")
+        frappe.db.set_value(
+            "MSP Service Assignment",
+            assignment,
+            {
+                "baseline_covered_from": "2023-01-01",
+                "baseline_covered_to": "2026-08-31",
+                "baseline_state": "Confirmed",
+            },
+        )
+        frappe.db.set_value("Customer", self.customer, "msp_last_billed_on", "2026-08-31")
+        frappe.db.commit()
+
+        line = self.line_for(assignment, "2026-08-01", "2026-08-31")
+
+        self.assertEqual(line["exception_code"], "Already Covered")
+
     def test_a_period_the_baseline_never_reached_is_billed_as_usual(self):
         assignment = self.live_since("2023-01-01")
         frappe.db.set_value(

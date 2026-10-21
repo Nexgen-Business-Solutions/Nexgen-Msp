@@ -335,3 +335,101 @@ class TestTheMarkAnswersForOneServiceAtATime(CheckpointCase):
         )
         frappe.db.commit()
         BillingService._recompute_last_billed(self.customer)
+
+
+class TestWhatTheDueListCallsCovered(CheckpointCase):
+    """The next period to bill is read from invoices posted, not from runs on file.
+
+    A draft has charged nobody, and a period given back in full was charged to nobody
+    either. The due list, the contract list and `checkpoint` have to say the same thing, or
+    the screen offers a period somebody already paid for — or hides one nobody has.
+    """
+
+    def monthly(self, suffix):
+        service = self.offering(suffix)
+        self.running(service, client_user=self.john, started=-1000)
+        self.contract_says(billing_frequency="Monthly", billing_timing="In Arrears")
+
+        return service
+
+    def invoiced_august(self):
+        run = self.drawn(start="2026-08-01", end="2026-08-31")
+        BillingService.finalise(run)
+        BillingService.submit_invoice(name=run, notify=0)
+
+        return run
+
+    def listed(self):
+        from nexgen_msp.api.internal.services.contract_service import ContractService
+
+        rows = ContractService.list_contracts()
+
+        return next(row for row in rows if row["customer"] == self.customer)
+
+    def test_a_run_still_in_the_drawer_covers_nothing(self):
+        self.monthly("DUEA")
+        self.drawn(start="2026-08-01", end="2026-08-31")
+
+        row = self.mine_in_due()
+
+        self.assertIsNone(row["covered_upto"], "a draft has charged nobody")
+        self.assertEqual(row["state"], "Never billed")
+
+    def test_and_the_thing_to_do_is_to_finish_that_run(self):
+        self.monthly("DUEB")
+        drafted = self.drawn(start="2026-08-01", end="2026-08-31")
+
+        mine = [
+            action
+            for action in BillingService.due(horizon_days=3650)["actions"]
+            if action["customer"] == self.customer
+        ]
+
+        self.assertEqual([action["open_run"] for action in mine], [drafted])
+
+    def test_an_invoice_posted_moves_the_next_period_on(self):
+        self.monthly("DUEC")
+        self.invoiced_august()
+
+        row = self.mine_in_due()
+
+        self.assertEqual(getdate(row["covered_upto"]), getdate("2026-08-31"))
+        self.assertEqual(getdate(row["next_period_start"]), getdate("2026-09-01"))
+        self.assertEqual(getdate(row["covered_upto"]), BillingService.checkpoint(self.customer))
+
+    def test_giving_the_whole_month_back_puts_it_back_on_the_list(self):
+        service = self.monthly("DUED")
+        run = self.invoiced_august()
+        assignment = frappe.db.get_value(
+            "MSP Service Assignment", {"customer": self.customer, "service_item": service}, "name"
+        )
+
+        note = BillingService.create_credit_note(
+            name=run,
+            lines=[{"service_assignment": assignment, "from": "2026-08-01", "to": "2026-08-31"}],
+            reason="The whole month given back.",
+            only_unserved=False,
+        )
+        self.track("MSP Billing Run", note["name"])
+        BillingService.submit_invoice(name=note["name"], notify=0)
+
+        row = self.mine_in_due()
+
+        self.assertIsNone(BillingService.checkpoint(self.customer))
+        self.assertIsNone(row["covered_upto"], "nothing stands as billed any more")
+        self.assertIsNone(self.listed()["last_billed_on"], "and the contract list agrees")
+
+    def test_the_contract_list_says_what_the_checkpoint_says(self):
+        self.monthly("DUEE")
+        self.invoiced_august()
+
+        self.assertEqual(
+            getdate(self.listed()["last_billed_on"]), BillingService.checkpoint(self.customer)
+        )
+
+    def test_a_customer_taken_on_with_history_is_listed_from_its_own_date(self):
+        self.monthly("DUEF")
+        self.stamp("2026-07-31")
+
+        self.assertEqual(getdate(self.listed()["last_billed_on"]), getdate("2026-07-31"))
+        self.assertEqual(getdate(self.mine_in_due()["covered_upto"]), getdate("2026-07-31"))

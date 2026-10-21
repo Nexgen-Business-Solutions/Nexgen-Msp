@@ -358,26 +358,11 @@ class ContractService:
         """
         ContractService._guard_admin()
 
-        return frappe.db.sql(
+        rows = frappe.db.sql(
             """
             select
                 c.name as customer,
-                nullif(
-                    greatest(
-                        coalesce(
-                            (
-                                select max(br.billing_period_end)
-                                from `tabMSP Billing Run` br
-                                where br.customer = c.name and br.docstatus = 1
-                                  and br.status = 'Invoiced'
-                                  and ifnull(br.credit_note_of, '') = ''
-                            ),
-                            '1900-01-01'
-                        ),
-                        coalesce(c.msp_last_billed_on, '1900-01-01')
-                    ),
-                    '1900-01-01'
-                ) as last_billed_on,
+                c.msp_last_billed_on as imported_mark,
                 live.name as contract,
                 live.title as contract_title,
                 live.status as contract_status,
@@ -407,6 +392,25 @@ class ContractService:
             {"open": OPEN_ASSIGNMENT_STATUSES, "live": LIVE_CONTRACT_STATUSES},
             as_dict=True,
         )
+
+        # how far each customer is billed, by the one definition the engine uses: invoices
+        # posted, credits netted off, and the history it was taken on with. Reading the
+        # runs' own dates here showed a period as billed after it had been given back.
+        from nexgen_msp.api.internal.services.billing_service import BillingService
+
+        billed = BillingService.net_covered([row.customer for row in rows], by="customer")
+
+        for row in rows:
+            marks = [
+                mark
+                for mark in (billed.get(row.customer), row.imported_mark)
+                if mark
+            ]
+            row["last_billed_on"] = (
+                max(frappe.utils.getdate(mark) for mark in marks) if marks else None
+            )
+
+        return rows
 
     @staticmethod
     def get_contract(customer=None):

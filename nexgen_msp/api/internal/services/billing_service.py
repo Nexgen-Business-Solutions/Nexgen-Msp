@@ -1136,6 +1136,19 @@ class BillingService:
                 elif quantity <= 0:
                     exception_code = "Negative Quantity"
                     exception_detail = f"Quantity is {quantity}."
+                # said before `Already Covered`: when both apply, the honest answer is the
+                # one that admits nobody has checked. Claiming the days are paid for would
+                # bury the very question somebody has to settle.
+                elif unverified and coverage_intervals.intersect(
+                    coverage_intervals.span(begins, ends), unverified
+                ):
+                    exception_code = "Unverified Coverage"
+                    exception_detail = (
+                        "This service was taken on as covered to "
+                        f"{assignment.baseline_covered_to}, and nobody has confirmed that "
+                        "against the original invoice. Confirm the baseline before billing "
+                        "or crediting these days."
+                    )
                 elif owed_at_all and not segments:
                     covered_to_day = max(
                         (last for _first, last in blocked), default=None
@@ -1146,16 +1159,6 @@ class BillingService:
                         " period."
                         if covered_to_day
                         else "Already paid for over the whole period."
-                    )
-                elif unverified and coverage_intervals.intersect(
-                    coverage_intervals.span(begins, ends), unverified
-                ):
-                    exception_code = "Unverified Coverage"
-                    exception_detail = (
-                        "This service was taken on as covered to "
-                        f"{assignment.baseline_covered_to}, and nobody has confirmed that "
-                        "against the original invoice. Confirm the baseline before billing "
-                        "or crediting these days."
                     )
                 elif rate_exception:
                     exception_code = rate_exception
@@ -4431,6 +4434,48 @@ class BillingService:
     )
 
     @staticmethod
+    def net_covered(values, by="contract"):
+        """How far each of these is billed, by the same rule as `checkpoint`.
+
+        One line per assignment and period, credits netted off, and only runs whose invoice
+        was really posted: a period given back in full has been billed to nobody, and a run
+        still being prepared has charged nobody. Asked of several at once, because a list
+        of contracts reads the same question for every row.
+        """
+        if by not in ("contract", "customer"):
+            raise ValidationError(f"Cannot read coverage by {by}.", "VALIDATION_ERROR")
+
+        names = [name for name in set(values or []) if name]
+
+        if not names:
+            return {}
+
+        rows = frappe.db.sql(
+            f"""
+            select br.{by} as subject, br.billing_period_end as period_end,
+                   sum(brl.billable_months) as net_months
+            from `tabMSP Billing Run Line` brl
+            join `tabMSP Billing Run` br on br.name = brl.parent
+            where br.{by} in %(names)s and br.status = 'Invoiced'
+            group by br.{by}, brl.service_assignment,
+                     br.billing_period_start, br.billing_period_end
+            having net_months > 0
+            """,
+            {"names": names},
+            as_dict=True,
+        )
+
+        covered = {}
+
+        for row in rows:
+            closes = getdate(row.period_end)
+
+            if row.subject not in covered or closes > covered[row.subject]:
+                covered[row.subject] = closes
+
+        return covered
+
+    @staticmethod
     def _runs_in_progress(contracts):
         """Runs already started on these contracts, read in one pass rather than per row."""
         names = [name for name in set(contracts or []) if name]
@@ -4723,10 +4768,6 @@ class BillingService:
             select
                 c.name as contract, c.customer, c.title, c.billing_frequency,
                 c.billing_timing, c.currency, c.start_date, c.end_date,
-                greatest(
-                    coalesce(max(br.billing_period_end), '1900-01-01'),
-                    coalesce(cust.msp_last_billed_on, '1900-01-01')
-                ) as covered_upto,
                 count(br.name) as runs
             from `tabMSP Contract` c
             join `tabCustomer` cust on cust.name = c.customer
@@ -4734,20 +4775,26 @@ class BillingService:
                 on br.contract = c.name and br.customer = c.customer and br.docstatus != 2 and br.status != 'Cancelled'
             where c.status = 'Active' and ifnull(cust.msp_free_of_charge, 0) = 0
             group by c.name
-            order by covered_upto asc
             """,
             as_dict=True,
         )
 
+        # how far each contract is really billed, read the one way the whole application
+        # reads it: invoices posted, credits netted off, plus whatever history the customer
+        # was taken on with. A draft or an approved run has charged nobody yet.
+        billed = BillingService.net_covered([row.contract for row in rows])
         due = []
 
         for row in rows:
-            # a customer onboarded with history carries its mark even with no run on file,
-            # and the sentinel the query falls back on is not a date anybody was billed on
-            covered = getdate(row.covered_upto) if row.covered_upto else None
-
-            if covered and covered.year < 1901:
-                covered = None
+            marks = [
+                mark
+                for mark in (
+                    billed.get(row.contract),
+                    BillingService.imported_mark(row.customer),
+                )
+                if mark
+            ]
+            covered = max(marks) if marks else None
 
             timing = row.billing_timing or "In Arrears"
             start, end = BillingService._next_period(
