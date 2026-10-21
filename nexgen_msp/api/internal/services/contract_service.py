@@ -362,7 +362,22 @@ class ContractService:
             """
             select
                 c.name as customer,
-                c.msp_last_billed_on as last_billed_on,
+                nullif(
+                    greatest(
+                        coalesce(
+                            (
+                                select max(br.billing_period_end)
+                                from `tabMSP Billing Run` br
+                                where br.customer = c.name and br.docstatus = 1
+                                  and br.status = 'Invoiced'
+                                  and ifnull(br.credit_note_of, '') = ''
+                            ),
+                            '1900-01-01'
+                        ),
+                        coalesce(c.msp_last_billed_on, '1900-01-01')
+                    ),
+                    '1900-01-01'
+                ) as last_billed_on,
                 live.name as contract,
                 live.title as contract_title,
                 live.status as contract_status,

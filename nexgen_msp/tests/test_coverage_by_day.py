@@ -131,6 +131,8 @@ class TestWhatDoesNotCountAsCharged(DayCase):
             name=run,
             reason="All of it back.",
             lines=[{"service_assignment": assignment, "from": "2026-08-01", "to": "2026-08-31"}],
+            # the days were served: giving them back is a decision, not a detection
+            only_unserved=False,
         )
         self.track("MSP Billing Run", note["name"])
 

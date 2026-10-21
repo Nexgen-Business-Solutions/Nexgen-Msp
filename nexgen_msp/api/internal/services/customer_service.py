@@ -193,6 +193,8 @@ class CustomerService:
         if not customer or not frappe.db.exists("Customer", customer):
             raise NotFoundError(f"Customer {customer} not found.", "NOT_FOUND")
 
+        from nexgen_msp.api.internal.services.billing_service import BillingService
+
         doc = frappe.get_doc("Customer", customer)
         address_name = CustomerService._billing_address(customer)
         address = frappe.get_doc("Address", address_name) if address_name else None
@@ -207,7 +209,9 @@ class CustomerService:
             ),
             "contact": CustomerService._primary_contact(customer),
             "disabled": frappe.utils.cint(doc.disabled),
-            "last_billed_on": doc.get("msp_last_billed_on"),
+            # what this customer is billed to, from our own runs or from the date it was
+            # taken on with — the field alone only ever held the second
+            "last_billed_on": BillingService.checkpoint(customer),
             "billing_contact": CustomerService.billing_contact(customer),
             "counts": {
                 "users": frappe.db.count("MSP Client User", {"customer": customer}),

@@ -236,22 +236,102 @@ class TestTheMarkAnswersForOneServiceAtATime(CheckpointCase):
         self.assertEqual(again[fresh]["exception_code"], "Already Covered")
         self.assertEqual(again[carried]["exception_code"], "Already Covered")
 
-    def test_a_mark_older_than_every_run_survives_a_credit(self):
-        """Crediting August back cannot rub out what July was taken on as covering."""
-        carried, _fresh = self.prepaid_and_a_newcomer()
+    def test_a_whole_prepaid_quarter_survives_a_neighbours_single_month(self):
+        """The mixed window: a run for August says nothing about July or September.
 
-        august = self.drawn(start="2026-08-01", end="2026-08-31")
-        BillingService.finalise(august)
-        BillingService.submit_invoice(name=august, notify=0)
+        A charge of ours covering one month inside the paid quarter must not hand the rest
+        of that quarter back to the engine as billable.
+        """
+        carried = self.offering("MIXEDA")
+        self.running(carried, client_user=self.john, started=-1000)
 
-        frappe.db.sql(
-            "update `tabMSP Billing Run Line` set billable_months = 0 where parent = %s",
-            august,
+        neighbour = self.offering("MIXEDB")
+        theirs = self.running(
+            neighbour, client_user=self.make_person(self.customer, "MixedBob"), started=0
+        )
+        frappe.db.set_value(
+            "MSP Service Assignment", theirs, "effective_start_date", "2026-08-01"
         )
         frappe.db.commit()
+
+        self.contract_says(billing_frequency="Quarterly", billing_timing="In Arrears")
+        self.stamp("2026-09-30")
+
+        august = self.drawn(start="2026-08-01", end="2026-08-31")
+        BillingService.approve(august)
+
+        quarter, _ = BillingService.build_lines(self.contract, "2026-07-01", "2026-09-30")
+        mine = {line["service_item"]: line for line in quarter}
+
+        self.assertEqual(mine[carried]["exception_code"], "Already Covered")
+        self.assertEqual(mine[carried]["amount"], 0.0)
+
+    def test_a_run_nobody_invoiced_does_not_count_as_a_charge(self):
+        """Approved is not billed: the quarter is still the one somebody else invoiced."""
+        carried = self.offering("MIXEDC")
+        self.running(carried, client_user=self.john, started=-1000)
+        self.contract_says(billing_frequency="Quarterly", billing_timing="In Arrears")
+        self.stamp("2026-09-30")
+
+        drafted = self.drawn(start="2026-08-01", end="2026-08-31")
+        BillingService.approve(drafted)
+
+        self.assertEqual(BillingService.checkpoint(self.customer), getdate("2026-09-30"))
+
+        quarter, _ = BillingService.build_lines(self.contract, "2026-07-01", "2026-09-30")
+
+        self.assertEqual(quarter[0]["exception_code"], "Already Covered")
+
+    def test_restating_the_dates_does_not_rub_out_a_customer_taken_on_with_history(self):
+        """No run of ours reaches that far back, so none of them may speak for it."""
+        self.prepaid_and_a_newcomer()
+
         BillingService._recompute_last_billed(self.customer)
 
         self.assertEqual(
             getdate(frappe.db.get_value("Customer", self.customer, "msp_last_billed_on")),
             getdate("2026-07-31"),
         )
+
+    def test_crediting_every_run_back_still_leaves_the_history_standing(self):
+        """What somebody else invoiced is not undone by a credit note of ours."""
+        self.prepaid_and_a_newcomer()
+
+        august = self.drawn(start="2026-08-01", end="2026-08-31")
+        BillingService.finalise(august)
+        BillingService.submit_invoice(name=august, notify=0)
+        self.credited(august)
+
+        self.assertEqual(
+            BillingService.checkpoint(self.customer),
+            getdate("2026-07-31"),
+            "the mark falls back to the history, which no credit of ours can touch",
+        )
+
+    def test_a_mark_our_own_runs_wrote_disappears_with_them(self):
+        """Nothing was imported here: credit the only charge back and nothing is billed."""
+        service = self.offering("OWNMARK")
+        self.running(service, client_user=self.john, started=-1000)
+        self.contract_says(billing_frequency="Monthly", billing_timing="In Arrears")
+
+        august = self.drawn(start="2026-08-01", end="2026-08-31")
+        BillingService.finalise(august)
+        BillingService.submit_invoice(name=august, notify=0)
+
+        self.assertEqual(BillingService.checkpoint(self.customer), getdate("2026-08-31"))
+
+        self.credited(august)
+
+        self.assertIsNone(
+            BillingService.checkpoint(self.customer),
+            "a period given back in full was not billed after all",
+        )
+
+    def credited(self, run):
+        """The whole run given back, the way a full refund leaves it."""
+        frappe.db.sql(
+            "update `tabMSP Billing Run Line` set billable_months = 0 where parent = %s",
+            run,
+        )
+        frappe.db.commit()
+        BillingService._recompute_last_billed(self.customer)

@@ -178,42 +178,60 @@ class BillingService:
     def checkpoint(customer):
         """How far this customer is already billed, from whichever source says the latest.
 
-        A run really posted is the first answer. A customer carrying a date from the billing
-        that preceded this application is the second: no run on file is not the same thing
-        as never having been billed, and reading only the runs is what made a customer
-        onboarded with history look brand new.
+        There are two, and they are not the same kind of thing. What our own runs charged
+        is read back from the runs themselves, credits netted off, so a period given back
+        in full stops counting as billed. What preceded this application is the date the
+        customer was taken on with — no run on file is not the same thing as never having
+        been billed, and reading only the runs is what made a customer onboarded with
+        history look brand new.
         """
-        posted = frappe.db.sql(
-            """
-            select max(br.billing_period_end)
-            from `tabMSP Billing Run` br
-            where br.customer = %s and br.docstatus = 1 and br.status = 'Invoiced'
-              and (br.credit_note_of is null or br.credit_note_of = '')
-            """,
-            customer,
-        )[0][0]
-        stamped = frappe.db.get_value("Customer", customer, "msp_last_billed_on")
-        marks = [getdate(mark) for mark in (posted, stamped) if mark]
+        billed = max(
+            (
+                getdate(row.period_end)
+                for row in BillingService.net_billed_periods(customer)
+            ),
+            default=None,
+        )
+        marks = [
+            mark for mark in (billed, BillingService.imported_mark(customer)) if mark
+        ]
 
         return max(marks) if marks else None
 
     @staticmethod
+    def imported_mark(customer):
+        """The date this customer was taken on with: what somebody else's invoices covered.
+
+        Only an import or an administrator writes it. Nothing derived from our own runs is
+        ever written back onto it, or a credit note would leave behind a mark that looks
+        like external history and keeps a period from ever being billed again.
+        """
+        stamped = frappe.db.get_value("Customer", customer, "msp_last_billed_on")
+
+        return getdate(stamped) if stamped else None
+
+    @staticmethod
     def covered_through(customer, frequency, timing):
-        """The last day already paid for, which is not always the day of the last billing.
+        """The last day already paid for, which is not always the day of the last billing."""
+        return BillingService.covered_from(
+            BillingService.checkpoint(customer), frequency, timing
+        )
+
+    @staticmethod
+    def covered_from(mark, frequency, timing):
+        """How far one mark reaches.
 
         Billed in arrears, a customer has paid for the days up to that mark. Billed in
         advance, the same mark paid for the whole period it falls in — so a quarter billed
         on 24 July is covered to 30 September, and billing it again would charge it twice.
         """
-        mark = BillingService.checkpoint(customer)
-
         if not mark:
             return None
 
         if timing == "In Advance":
             return BillingService._period_end_of(mark, frequency)
 
-        return mark
+        return getdate(mark)
 
     @staticmethod
     def _calendar_months(period_start, period_end):
@@ -260,21 +278,32 @@ class BillingService:
         and a credit may never exceed the unused invoiced portion. The share given back is
         therefore exact — six days of a thirty-day month are six thirtieths, not two blocks.
         """
+        return flt(BillingService._unused_share(method, [(period_start, period_end)]), 3)
+
+    @staticmethod
+    def _unused_share(method, stretches):
+        """The same share, unrounded, so several stretches add up before they are rounded.
+
+        Rounding each stretch first and adding afterwards gives a different figure from the
+        days themselves: two days plus two days of a thirty-day month are four thirtieths,
+        not twice a rounded sixty-seventh.
+        """
         months = 0.0
 
-        for window_start, window_end, days_in_month in BillingService._calendar_months(
-            period_start, period_end
-        ):
-            days = (window_end - window_start).days + 1
+        for first, last in stretches:
+            for window_start, window_end, days_in_month in BillingService._calendar_months(
+                first, last
+            ):
+                days = (window_end - window_start).days + 1
 
-            if method == "30-Day Convention":
-                months += min(days, 30) / 30.0
-            elif method == "Daily Actual Days":
-                months += min(days, days_in_month) / float(days_in_month)
-            else:
-                months += 1.0
+                if method == "30-Day Convention":
+                    months += min(days, 30) / 30.0
+                elif method == "Daily Actual Days":
+                    months += min(days, days_in_month) / float(days_in_month)
+                else:
+                    months += 1.0
 
-        return flt(months, 3)
+        return months
 
     @staticmethod
     def _billed_stretches(line):
@@ -340,14 +369,7 @@ class BillingService:
         unused_from = min(first for first, _last in unused)
         unused_to = max(last for _first, last in unused)
         months = min(
-            flt(
-                sum(
-                    BillingService._unused_months(method, first, last)
-                    for first, last in unused
-                ),
-                3,
-            ),
-            flt(remaining),
+            flt(BillingService._unused_share(method, unused), 3), flt(remaining)
         )
 
         if months <= 0:
@@ -794,30 +816,6 @@ class BillingService:
         return found.get(assignment_name)
 
     @staticmethod
-    def _charged_periods(customer, exclude_run=None):
-        """The windows this customer already carries a charge of ours over.
-
-        A credit note gives money back over the same window as the charge it answers, so
-        it is not one of them: what is asked here is which stretches have a charge on file
-        whose lines can be read, not what is still owed over them.
-        """
-        rows = frappe.db.sql(
-            """
-            select billing_period_start as opens, billing_period_end as closes
-            from `tabMSP Billing Run`
-            where customer = %(customer)s and docstatus = 1
-              and ifnull(credit_note_of, '') = ''
-              and (%(exclude)s is null or name != %(exclude)s)
-            """,
-            {"customer": customer, "exclude": exclude_run},
-            as_dict=True,
-        )
-
-        return coverage_intervals.merge(
-            [(getdate(row.opens), getdate(row.closes)) for row in rows]
-        )
-
-    @staticmethod
     def _invoiced_in(assignment_names, period_start, period_end, exclude_run=None):
         """The same question for a whole run at once, keyed by assignment.
 
@@ -1030,12 +1028,15 @@ class BillingService:
 
         # recording a charge that was already raised reads the period as it stood then, so
         # the coverage the same charge established cannot be used to rule it out
-        mark = None if ignore_coverage else BillingService.checkpoint(customer)
+        # what this customer was taken on with, and how far that payment reached. Our own
+        # runs are not read here: a run says who was on it line by line, and those lines
+        # are what `coverage_of` below answers with.
+        mark = None if ignore_coverage else BillingService.imported_mark(customer)
         already_paid = (
             None
-            if ignore_coverage
-            else BillingService.covered_through(
-                customer, terms["billing_frequency"], terms["billing_timing"]
+            if not mark
+            else BillingService.covered_from(
+                mark, terms["billing_frequency"], terms["billing_timing"]
             )
         )
         holder_contexts = BillingService._holder_contexts(
@@ -1053,14 +1054,6 @@ class BillingService:
         )
         invoiced_by_assignment = BillingService._invoiced_in(
             [row.name for row in assignments], period_start, period_end, exclude_run
-        )
-        # the periods this customer already has a charge on file for, whoever was on it:
-        # where one of them answers for a stretch, the lines of that charge say who was
-        # billed, and the company-wide mark has nothing left to add
-        answered = (
-            []
-            if ignore_coverage
-            else BillingService._charged_periods(customer, exclude_run)
         )
         lines = []
 
@@ -1108,25 +1101,15 @@ class BillingService:
             # question so somebody settles it against the original invoice
             unverified = coverage_resolver.unconfirmed_baseline(assignment)
 
-            # The question is asked of this assignment alone. Another service of the same
-            # company having a run of its own says nothing about whether this one was ever
-            # charged, and answering company-wide is what let a prepaid period come back as
-            # billable the moment a neighbour was billed here for the first time.
-            #
-            # Where a charge of ours already answers for those days, its own lines say who
-            # was on it: somebody absent from it was never billed by it, and the mark must
-            # not cover them. Where no charge answers at all, the mark is all there is.
-            if not blocked and not ignore_coverage and not assignment.last_billed_on:
-                if mark and already_paid and getdate(assignment.effective_start_date) <= mark:
-                    spoken_for = coverage_intervals.intersect(
-                        coverage_intervals.span(
-                            assignment.effective_start_date, already_paid
-                        ),
-                        answered,
-                    )
-
-                    if not spoken_for:
-                        blocked = coverage_intervals.span("1900-01-01", already_paid)
+            # The days somebody else's invoices paid for, asked of this assignment alone.
+            # A service that began after the customer was taken on was never on those
+            # invoices; one that was already running was, whether or not anything was ever
+            # billed here for it — and another service having a run of ours says nothing
+            # about this one. Our own charges come off separately, line by line, above.
+            if mark and already_paid and getdate(assignment.effective_start_date) <= mark:
+                blocked = coverage_intervals.merge(
+                    blocked + coverage_intervals.span("1900-01-01", already_paid)
+                )
 
             for begins, ends, rate, source, rate_exception, rate_detail, rate_discount in stretches:
                 exception_code = None
@@ -2855,7 +2838,7 @@ class BillingService:
 
     @staticmethod
     def _recompute_last_billed(customer):
-        """Restate the recorded billing dates from what stands after credits.
+        """Restate how far each person and each machine is billed, credits netted off.
 
         Called whenever an invoice or a credit note is posted, so crediting someone back
         rolls their date to the period before rather than leaving a mark that no longer
@@ -2863,23 +2846,9 @@ class BillingService:
         """
         rows = BillingService.net_billed_periods(customer)
 
-        latest = max((getdate(row.period_end) for row in rows), default=None)
-        stamped = frappe.db.get_value("Customer", customer, "msp_last_billed_on")
-
-        # the date a customer was taken on with says what somebody else's invoices already
-        # covered. Our own runs answer for the stretch they cover and for nothing before
-        # it, so restating the mark from them must never rub out history that stands
-        # further back than any run on file.
-        if stamped:
-            stamped = getdate(stamped)
-            opens = min((getdate(row.period_start) for row in rows), default=None)
-
-            if (latest is None or latest < stamped) and (opens is None or stamped < opens):
-                latest = stamped
-
-        frappe.db.set_value(
-            "Customer", customer, "msp_last_billed_on", latest, update_modified=False
-        )
+        # the customer's own date is what it was taken on with, and nothing here may write
+        # over it: `checkpoint` reads the runs for what the runs charged, so a period
+        # credited back in full stops counting without the mark being touched at all
 
         # how far each person and each machine is billed to, credits already netted off
         per_device = {}
@@ -3790,13 +3759,7 @@ class BillingService:
                         str(min(first for first, _last in held)),
                         str(max(last for _first, last in held)),
                     )
-                    wanted[key] = flt(
-                        sum(
-                            BillingService._unused_months(method, first, last)
-                            for first, last in held
-                        ),
-                        3,
-                    )
+                    wanted[key] = flt(BillingService._unused_share(method, held), 3)
             else:
                 # asked for in months rather than days: it answers the line named, or the
                 # only line that assignment has on this charge

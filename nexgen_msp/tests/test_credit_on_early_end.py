@@ -11,7 +11,7 @@ the same way would hand back more than was charged for those days, which the iss
 """
 
 import frappe
-from frappe.utils import getdate
+from frappe.utils import flt, getdate
 
 from nexgen_msp.api.internal.services.billing_service import BillingService
 from nexgen_msp.utils.errors import ValidationError as ServiceRefused
@@ -369,8 +369,10 @@ class TestTwoStretchesOfOneLine(AdvanceCase):
         doc = frappe.get_doc("MSP Billing Run", second["name"])
         self.track("MSP Billing Run", doc.name)
 
-        # four days of a thirty-day month, neither stretch swallowing the other
-        self.assertEqual(doc.lines[0].billable_months, flt_round(-4 / 30.0))
+        # four days of a thirty-day month, neither stretch swallowing the other and the
+        # share rounded once rather than stretch by stretch
+        self.assertEqual(doc.lines[0].billable_months, flt(-4 / 30.0, 3))
+        self.assertEqual(doc.lines[0].billable_months, -0.133)
 
         written = frappe.parse_json(doc.lines[0].billable_segments_json or "[]")
 
