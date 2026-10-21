@@ -22,11 +22,13 @@
   "section_footer",
   "footer_note",
   "section_dispute",
-  "payment_terms_days",
   "dispute_window_days",
+  "section_notices",
+  "billing_manual_cc_enabled",
   "section_accounting",
   "default_cost_center",
-  "show_cost_center_on_invoice"
+  "show_cost_center_on_invoice",
+  "payment_terms_days"
  ],
  "fields": [
   {
@@ -112,6 +114,17 @@
    "label": "Dispute Window (Days)",
    "default": "10",
    "non_negative": 1
+  },
+  {
+   "fieldname": "section_notices",
+   "fieldtype": "Section Break",
+   "label": "Invoice notices"
+  },
+  {
+   "default": "1",
+   "fieldname": "billing_manual_cc_enabled",
+   "fieldtype": "Check",
+   "label": "Allow chosen copies on invoice notices"
   },
   {
    "fieldname": "section_accounting",

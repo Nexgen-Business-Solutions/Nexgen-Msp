@@ -16,6 +16,8 @@ from nexgen_msp.utils.errors import ValidationError
 
 KINDS = ("period", "additions", "credit_note")
 
+SCOPES = ("detected", "all")
+
 LABELS = {
     "period": "Regular billing",
     "additions": "Additions",
@@ -366,6 +368,17 @@ def services(
     }
 
 
+def _scope(scope):
+    """Which of the two credits is being asked for, said rather than assumed."""
+    if scope not in SCOPES:
+        raise ValidationError(
+            f"{scope} is not a credit scope: it is either detected or all.",
+            "VALIDATION_ERROR",
+        )
+
+    return scope
+
+
 def _credit_rows(run, include):
     """The stretches a credit is asked for: the operator's own, or the detected ones."""
     chosen = list(include or [])
@@ -415,19 +428,26 @@ def _credit_rows(run, include):
         if not owed or (wanted and not named_here):
             continue
 
-        rows.append(
-            {
-                "service_assignment": line["service_assignment"],
-                "line": line.get("line"),
-                "from": owed["unused_from"],
-                "to": owed["unused_to"],
-            }
-        )
+        # the days left can be two stretches either side of what was already given back:
+        # each one is asked for on its own, never flattened into one window that covers
+        # days nobody owes any more
+        for part in owed.get("segments") or [
+            {"from": owed["unused_from"], "to": owed["unused_to"]}
+        ]:
+            rows.append(
+                {
+                    "service_assignment": line["service_assignment"],
+                    "line": line.get("line"),
+                    "from": part["from"],
+                    "to": part["to"],
+                }
+            )
 
     return rows
 
 
 def credit_preview(contract=None, against=None, include=None, scope="detected"):
+    """What the chosen days come to, priced by the engine that would write them."""
     """What the chosen days come to, priced by the engine that would write them.
 
     The Confirm step asks for this rather than adding up what the Services step showed:
@@ -435,7 +455,7 @@ def credit_preview(contract=None, against=None, include=None, scope="detected"):
     one the whole line was worth.
     """
     BillingService._guard_admin()
-
+    scope = _scope(scope)
     run = _source_run(contract, against)
 
     if not run:
@@ -498,11 +518,20 @@ def create(
         raise ValidationError("Select at least one service line.", "VALIDATION_ERROR")
 
     if kind == "credit_note":
+        scope = _scope(scope)
         run = _source_run(contract, against)
 
         if not run:
             raise ValidationError(
                 "Record the coverage this credit stands against before crediting it.",
+                "VALIDATION_ERROR",
+            )
+
+        # a credit on days that were served is a decision somebody takes and signs
+        if scope == "all" and not str(reason or "").strip():
+            raise ValidationError(
+                "Say why these days are being given back: a credit on days that were "
+                "served is a decision, and it is written down with the note.",
                 "VALIDATION_ERROR",
             )
 

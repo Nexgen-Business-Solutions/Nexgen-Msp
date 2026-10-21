@@ -217,13 +217,18 @@ class TestGivingItBack(AdvanceCase):
         self.assertEqual(doc.lines[0].billable_months, -0.2)
 
     def test_it_can_be_asked_for_as_the_stretch_that_was_not_served(self):
-        """The operator knows the dates, not the months: the conversion belongs here."""
+        """The operator knows the dates, not the months: the conversion belongs here.
+
+        These days were served: giving them back is a decision somebody takes, which the
+        engine accepts as such rather than as a termination it detected.
+        """
         run, assignment = self.billed_ahead()
 
         note = BillingService.create_credit_note(
             name=run,
             lines=[{"service_assignment": assignment, "from": "2026-09-05", "to": "2026-09-13"}],
             reason="Their server was down from the 5th to the 13th.",
+            only_unserved=False,
         )
 
         doc = frappe.get_doc("MSP Billing Run", note["name"])

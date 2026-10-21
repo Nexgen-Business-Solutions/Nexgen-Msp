@@ -457,6 +457,7 @@ class TestTheChargeOpenedForSomebodyToCut(CreditCase):
             kind="credit_note",
             contract=self.contract,
             against=run,
+            scope="all",
             include=[{"service_assignment": first, "from": "2026-09-05", "to": "2026-09-13"}],
             reason="Their server was down from the 5th to the 13th.",
         )
@@ -477,6 +478,8 @@ class TestTheChargeOpenedForSomebodyToCut(CreditCase):
                 kind="credit_note",
                 contract=self.contract,
                 against=run,
+                scope="all",
+                reason="Settled by agreement with the customer.",
                 include=[{"service_assignment": first, "from": "2026-10-01", "to": "2026-10-05"}],
             )
 
@@ -488,6 +491,8 @@ class TestTheChargeOpenedForSomebodyToCut(CreditCase):
             kind="credit_note",
             contract=self.contract,
             against=run,
+            scope="all",
+            reason="Settled by agreement with the customer.",
             include=[{"service_assignment": first, "from": "2026-09-05", "to": "2026-09-13"}],
         )
         self.track("MSP Billing Run", made["run"])
@@ -497,6 +502,8 @@ class TestTheChargeOpenedForSomebodyToCut(CreditCase):
                 kind="credit_note",
                 contract=self.contract,
                 against=run,
+                scope="all",
+                reason="Settled by agreement with the customer.",
                 include=[{"service_assignment": first, "from": "2026-09-10", "to": "2026-09-20"}],
             )
 
@@ -509,6 +516,8 @@ class TestTheChargeOpenedForSomebodyToCut(CreditCase):
                 kind="credit_note",
                 contract=self.contract,
                 against=run,
+                scope="all",
+                reason="Settled by agreement with the customer.",
                 include=[{"service_assignment": first}],
             )
 
@@ -560,6 +569,8 @@ class TestACreditGivesBackWhatWasTaken(CreditCase):
             kind="credit_note",
             contract=self.contract,
             against=run,
+            scope="all",
+            reason="Settled: the service was unusable in September.",
             include=[{"service_assignment": first, "from": "2026-09-01", "to": "2026-09-30"}],
         )
         self.track("MSP Billing Run", made["run"])
@@ -584,6 +595,8 @@ class TestACreditGivesBackWhatWasTaken(CreditCase):
                 kind="credit_note",
                 contract=self.contract,
                 against=run,
+                scope="all",
+                reason="Settled by agreement with the customer.",
                 include=[{"service_assignment": late, "from": "2026-07-01", "to": "2026-07-31"}],
             )
 
@@ -599,6 +612,8 @@ class TestACreditGivesBackWhatWasTaken(CreditCase):
             kind="credit_note",
             contract=self.contract,
             against=run,
+            scope="all",
+            reason="Settled by agreement with the customer.",
             include=[{"service_assignment": late, "from": "2026-09-01", "to": "2026-09-30"}],
         )
         self.track("MSP Billing Run", made["run"])
@@ -618,6 +633,8 @@ class TestACreditGivesBackWhatWasTaken(CreditCase):
                 kind="credit_note",
                 contract=self.contract,
                 against=run,
+                scope="all",
+                reason="Settled by agreement with the customer.",
                 include=[
                     {"service_assignment": stranger, "from": "2026-09-01", "to": "2026-09-30"}
                 ],
@@ -645,6 +662,8 @@ class TestWhatTheReturnDocumentCarries(CreditCase):
             kind="credit_note",
             contract=self.contract,
             against=run,
+            scope="all",
+            reason="Settled by agreement with the customer.",
             include=[{"service_assignment": assignment, "from": "2026-09-01", "to": "2026-09-30"}],
         )
         self.track("MSP Billing Run", made["run"])
@@ -664,6 +683,8 @@ class TestWhatTheReturnDocumentCarries(CreditCase):
             kind="credit_note",
             contract=self.contract,
             against=run,
+            scope="all",
+            reason="Settled by agreement with the customer.",
             include=[{"service_assignment": assignment, "from": "2026-09-01", "to": "2026-09-30"}],
         )
         self.track("MSP Billing Run", made["run"])
@@ -710,11 +731,13 @@ class TestTheDetectedCreditGoesThroughThePreview(CreditCase):
         whole = wizard.credit_preview(
             contract=self.contract,
             against=run,
+            scope="all",
             include=[{"service_assignment": first, "from": "2026-09-01", "to": "2026-09-30"}],
         )
         shorter = wizard.credit_preview(
             contract=self.contract,
             against=run,
+            scope="all",
             include=[{"service_assignment": first, "from": "2026-09-05", "to": "2026-09-13"}],
         )
 
@@ -729,6 +752,8 @@ class TestTheReturnPostsWhereTheChargePosted(CreditCase):
             kind="credit_note",
             contract=self.contract,
             against=run,
+            scope="all",
+            reason="Settled by agreement with the customer.",
             include=[{"service_assignment": assignment, "from": "2026-09-01", "to": "2026-09-30"}],
         )
         self.track("MSP Billing Run", made["run"])
@@ -769,6 +794,8 @@ class TestTheReturnPostsWhereTheChargePosted(CreditCase):
             kind="credit_note",
             contract=self.contract,
             against=run,
+            scope="all",
+            reason="Settled by agreement with the customer.",
             include=[
                 {"service_assignment": first, "from": "2026-09-01", "to": "2026-09-30"},
                 {"service_assignment": second, "from": "2026-09-01", "to": "2026-09-30"},
@@ -829,6 +856,8 @@ class TestACreditAnswersTheLineItWasBilledOn(CreditCase):
             kind="credit_note",
             contract=self.contract,
             against=run,
+            scope="all",
+            reason="Settled by agreement with the customer.",
             include=[
                 {
                     "service_assignment": assignment,
@@ -858,6 +887,8 @@ class TestACreditAnswersTheLineItWasBilledOn(CreditCase):
             kind="credit_note",
             contract=self.contract,
             against=run,
+            scope="all",
+            reason="Settled by agreement with the customer.",
             include=[
                 {
                     "service_assignment": assignment,
@@ -872,6 +903,8 @@ class TestACreditAnswersTheLineItWasBilledOn(CreditCase):
             kind="credit_note",
             contract=self.contract,
             against=run,
+            scope="all",
+            reason="Settled by agreement with the customer.",
             include=[
                 {
                     "service_assignment": assignment,
@@ -904,13 +937,23 @@ class TestACreditAnswersTheLineItWasBilledOn(CreditCase):
         ]
 
         made = wizard.create(
-            kind="credit_note", contract=self.contract, against=run, include=asked
+            kind="credit_note",
+            contract=self.contract,
+            against=run,
+            scope="all",
+            reason="Settled by agreement with the customer.",
+            include=asked,
         )
         self.track("MSP Billing Run", made["run"])
 
         with self.assertRaises(ServiceRefused):
             wizard.create(
-                kind="credit_note", contract=self.contract, against=run, include=asked
+                kind="credit_note",
+                contract=self.contract,
+                against=run,
+                scope="all",
+                reason="Settled by agreement with the customer.",
+                include=asked,
             )
 
     def test_the_credited_stretches_are_written_down(self):
@@ -921,6 +964,8 @@ class TestACreditAnswersTheLineItWasBilledOn(CreditCase):
             kind="credit_note",
             contract=self.contract,
             against=run,
+            scope="all",
+            reason="Settled by agreement with the customer.",
             include=[{"service_assignment": first, "from": "2026-09-05", "to": "2026-09-13"}],
         )
         self.track("MSP Billing Run", made["run"])
@@ -939,12 +984,16 @@ class TestOnlyTheFigureThatWasReviewedIsWritten(CreditCase):
         first = self.billed_ahead()
         run = self.charge()
         asked = [{"service_assignment": first, "from": "2026-09-05", "to": "2026-09-13"}]
-        priced = wizard.credit_preview(contract=self.contract, against=run, include=asked)
+        priced = wizard.credit_preview(
+            contract=self.contract, against=run, scope="all", include=asked
+        )
 
         made = wizard.create(
             kind="credit_note",
             contract=self.contract,
             against=run,
+            scope="all",
+            reason="Settled by agreement with the customer.",
             include=asked,
             expected_total=priced["total"],
         )
@@ -961,6 +1010,8 @@ class TestOnlyTheFigureThatWasReviewedIsWritten(CreditCase):
                 kind="credit_note",
                 contract=self.contract,
                 against=run,
+                scope="all",
+                reason="Settled by agreement with the customer.",
                 include=[{"service_assignment": first, "from": "2026-09-05", "to": "2026-09-13"}],
                 expected_total=-1.0,
             )
@@ -985,6 +1036,8 @@ class TestACreditThatStraddlesTwoRates(CreditCase):
             kind="credit_note",
             contract=self.contract,
             against=run,
+            scope="all",
+            reason="Settled by agreement with the customer.",
             include=[
                 {"service_assignment": assignment, "from": "2026-08-20", "to": "2026-09-10"}
             ],
@@ -1003,6 +1056,8 @@ class TestACreditThatStraddlesTwoRates(CreditCase):
             kind="credit_note",
             contract=self.contract,
             against=run,
+            scope="all",
+            reason="Settled by agreement with the customer.",
             include=[
                 {"service_assignment": assignment, "from": "2026-08-20", "to": "2026-09-10"}
             ],
@@ -1017,7 +1072,9 @@ class TestACreditThatStraddlesTwoRates(CreditCase):
         run, assignment = self.two_rates()
         asked = [{"service_assignment": assignment, "from": "2026-08-20", "to": "2026-09-10"}]
 
-        priced = wizard.credit_preview(contract=self.contract, against=run, include=asked)
+        priced = wizard.credit_preview(
+            contract=self.contract, against=run, scope="all", include=asked
+        )
 
         self.assertEqual(len(priced["lines"]), 2)
 
@@ -1144,5 +1201,127 @@ class TestADisputeIsNotATermination(CreditCase):
                 scope="all",
                 include=[
                     {"service_assignment": first, "from": "2026-10-01", "to": "2026-10-15"}
+                ],
+            )
+
+
+class TestWhatIsLeftEitherSideOfACredit(CreditCase):
+    """Two days credited in the middle leave two stretches, not one wide window."""
+
+    def remaining(self, run, assignment):
+        return next(
+            line["owed_back"]
+            for line in BillingService.creditable_lines(run)["lines"]
+            if line["service_assignment"] == assignment
+        )
+
+    def test_crediting_the_middle_leaves_two_stretches(self):
+        first = self.billed_ahead()
+        run = self.charge()
+        self.stops(first, "2026-09-24")
+
+        made = wizard.create(
+            kind="credit_note",
+            contract=self.contract,
+            against=run,
+            include=[{"service_assignment": first, "from": "2026-09-27", "to": "2026-09-28"}],
+        )
+        self.track("MSP Billing Run", made["run"])
+
+        left = self.remaining(run, first)
+
+        self.assertEqual(
+            left["segments"],
+            [{"from": "2026-09-25", "to": "2026-09-26"}, {"from": "2026-09-29", "to": "2026-09-30"}],
+        )
+
+    def test_the_rest_can_be_given_back_in_one_go(self):
+        first = self.billed_ahead()
+        run = self.charge()
+        self.stops(first, "2026-09-24")
+
+        middle = wizard.create(
+            kind="credit_note",
+            contract=self.contract,
+            against=run,
+            include=[{"service_assignment": first, "from": "2026-09-27", "to": "2026-09-28"}],
+        )
+        self.track("MSP Billing Run", middle["run"])
+
+        rest = wizard.create(
+            kind="credit_note", contract=self.contract, against=run, include=[first]
+        )
+        self.track("MSP Billing Run", rest["run"])
+
+        line = frappe.get_doc("MSP Billing Run", rest["run"]).lines[0]
+
+        self.assertEqual(
+            frappe.parse_json(line.billable_segments_json),
+            [{"from": "2026-09-25", "to": "2026-09-26"}, {"from": "2026-09-29", "to": "2026-09-30"}],
+        )
+
+    def test_nothing_is_proposed_once_both_sides_are_back(self):
+        first = self.billed_ahead()
+        run = self.charge()
+        self.stops(first, "2026-09-24")
+
+        middle = wizard.create(
+            kind="credit_note",
+            contract=self.contract,
+            against=run,
+            include=[{"service_assignment": first, "from": "2026-09-27", "to": "2026-09-28"}],
+        )
+        self.track("MSP Billing Run", middle["run"])
+        rest = wizard.create(
+            kind="credit_note", contract=self.contract, against=run, include=[first]
+        )
+        self.track("MSP Billing Run", rest["run"])
+
+        self.assertEqual(
+            wizard.services(kind="credit_note", contract=self.contract, against=run)["lines"],
+            [],
+        )
+
+
+class TestTheDetectedModeIsAContract(CreditCase):
+    def test_served_days_are_refused_even_when_nothing_was_detected(self):
+        first = self.billed_ahead()
+        run = self.charge()
+
+        with self.assertRaises(ServiceRefused):
+            wizard.create(
+                kind="credit_note",
+                contract=self.contract,
+                against=run,
+                include=[
+                    {"service_assignment": first, "from": "2026-09-01", "to": "2026-09-15"}
+                ],
+            )
+
+    def test_an_unknown_scope_is_refused(self):
+        first = self.billed_ahead()
+        run = self.charge()
+
+        with self.assertRaises(ServiceRefused):
+            wizard.create(
+                kind="credit_note",
+                contract=self.contract,
+                against=run,
+                scope="whatever",
+                include=[first],
+            )
+
+    def test_a_commercial_credit_has_to_say_why(self):
+        first = self.billed_ahead()
+        run = self.charge()
+
+        with self.assertRaises(ServiceRefused):
+            wizard.create(
+                kind="credit_note",
+                contract=self.contract,
+                against=run,
+                scope="all",
+                include=[
+                    {"service_assignment": first, "from": "2026-09-01", "to": "2026-09-15"}
                 ],
             )

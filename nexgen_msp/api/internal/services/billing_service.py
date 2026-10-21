@@ -914,7 +914,7 @@ class BillingService:
             """
             select
                 sa.name, sa.service_item, sa.assignment_scope, sa.client_user, sa.managed_device,
-                sa.quantity, sa.operational_status, sa.billing_status,
+                sa.customer_site, sa.quantity, sa.operational_status, sa.billing_status,
                 sa.effective_start_date, sa.effective_end_date,
                 sa.price_source, sa.agreed_rate, sa.rate_override_reason,
                 sa.baseline_covered_from, sa.baseline_covered_to, sa.baseline_state,
@@ -1181,6 +1181,11 @@ class BillingService:
                         "exception_detail": exception_detail,
                         "line_comment": assignment.line_comment,
                         "billable_segments_json": frappe.as_json(segments),
+                        # what the contract's own grouping will read when the documents are
+                        # drawn, frozen with the line rather than looked up months later
+                        "customer_site_snapshot": assignment.customer_site,
+                        "cost_center_snapshot": terms.get("default_cost_center"),
+                        "po_no_snapshot": None,
                         **snapshot,
                     }
                 )
@@ -1604,7 +1609,7 @@ class BillingService:
 
         doc = BillingService._open_run(name)
 
-        if doc.sales_invoice:
+        if BillingService.invoice_links_of(doc):
             raise ValidationError(
                 "This run already carries an invoice; its scope can no longer change.",
                 "INVALID_TRANSITION",
@@ -1646,7 +1651,7 @@ class BillingService:
 
         doc = BillingService._open_run(name)
 
-        if doc.sales_invoice:
+        if BillingService.invoice_links_of(doc):
             raise ValidationError(
                 "This run already carries an invoice; its scope can no longer change.",
                 "INVALID_TRANSITION",
@@ -1815,10 +1820,12 @@ class BillingService:
 
         doc = frappe.get_doc("MSP Billing Run", name)
 
-        if doc.sales_invoice:
+        drawn = BillingService.invoice_links_of(doc)
+
+        if drawn:
             raise ValidationError(
-                f"This run carries invoice {doc.sales_invoice}. Cancel or delete that invoice "
-                "first — dropping the run would leave it orphaned.",
+                f"This run carries invoice {drawn[0]['sales_invoice']}. Cancel or delete "
+                "that invoice first — dropping the run would leave it orphaned.",
                 "INVALID_TRANSITION",
             )
 
@@ -1941,7 +1948,7 @@ class BillingService:
         ).insert(ignore_permissions=True)
 
     @staticmethod
-    def _create_order(doc, items, company, conversion_rate, dimensions=None):
+    def _create_order(doc, items, company, conversion_rate, dimensions=None, label=None):
         """The order the invoice is drawn from, delivered at the close of the period."""
         # a period already elapsed cannot be delivered in the past, so it delivers on the day
         # the order is raised
@@ -1957,6 +1964,13 @@ class BillingService:
             "delivery_date": delivery,
             "items": [{**item, "delivery_date": delivery} for item in items],
         }
+
+        # which group of the run this document answers, said on the document itself
+        if label:
+            payload["po_no"] = label[:140] if label.startswith("PO ") else None
+            payload["remarks"] = f"{doc.name} — {label}"
+        else:
+            payload["remarks"] = doc.name
 
         if doc.currency:
             payload["currency"] = doc.currency
@@ -2013,13 +2027,45 @@ class BillingService:
         )
 
     @staticmethod
-    def _invoice_groups(doc):
-        """One invoice line per service and rate: quantity is the number of months billed.
+    def _group_of(row, mode):
+        """Which document a line belongs on, and what that group is called.
 
-        Keeping the rate in the key is what lets a correction ride on the same invoice as a
-        separate line, exactly as the printed invoice has always shown it.
+        The contract says how its invoices are cut. A line that cannot answer the question
+        the contract asks is not quietly moved onto somebody else's invoice: it says what
+        is missing and stays off until that is settled.
         """
-        grouped = {}
+        if mode == "By Site":
+            site = (row.get("customer_site_snapshot") or "").strip()
+
+            if not site:
+                return None, None, "Missing Site"
+
+            return f"SITE:{site}", site, None
+
+        if mode == "By PO or Cost Center":
+            po = (row.get("po_no_snapshot") or "").strip()
+
+            if po:
+                return f"PO:{po}", f"PO {po}", None
+
+            centre = (row.get("cost_center_snapshot") or "").strip()
+
+            if centre:
+                return f"CC:{centre}", centre, None
+
+            return None, None, "Missing Accounting Group"
+
+        return "ALL", None, None
+
+    @staticmethod
+    def _invoice_groups(doc, mode="One Invoice"):
+        """The documents this run produces, and the lines each one carries.
+
+        One group per invoice the contract asks for, and inside it one line per service and
+        rate: keeping the rate in the key is what lets a correction ride on the same
+        invoice as a separate line, exactly as the printed invoice has always shown it.
+        """
+        groups = {}
 
         for row in doc.lines:
             if row.exception_code:
@@ -2030,15 +2076,41 @@ class BillingService:
             if not months:
                 continue
 
-            bucket = grouped.setdefault(
+            key, label, missing = BillingService._group_of(row, mode)
+
+            if missing:
+                continue
+
+            group = groups.setdefault(
+                key,
+                {"key": key, "label": label, "mode": mode, "lines": {}, "rows": []},
+            )
+            bucket = group["lines"].setdefault(
                 (row.service_item, flt(row.unit_rate, 2), flt(row.discount_percent, 2)),
                 {"months": 0.0, "amount": 0.0, "targets": 0},
             )
             bucket["months"] += months
             bucket["amount"] += flt(row.amount)
             bucket["targets"] += 1
+            group["rows"].append(row)
 
-        return grouped
+        return groups
+
+    @staticmethod
+    def _ungrouped(doc, mode):
+        """The lines the contract's own grouping cannot place, each with what it lacks."""
+        missing = []
+
+        for row in doc.lines:
+            if row.exception_code or not flt(row.billable_months):
+                continue
+
+            _key, _label, lacking = BillingService._group_of(row, mode)
+
+            if lacking:
+                missing.append((row, lacking))
+
+        return missing
 
     @staticmethod
     def create_invoice(name=None, dimensions=None, exchange_rate=None):
@@ -2054,9 +2126,12 @@ class BillingService:
 
         doc = frappe.get_doc("MSP Billing Run", name)
 
-        if doc.sales_invoice:
+        already = BillingService.invoice_links_of(doc)
+
+        if already:
             raise ValidationError(
-                f"Billing Run {name} is already invoiced as {doc.sales_invoice}.",
+                f"Billing Run {name} is already invoiced as "
+                f"{', '.join(link['sales_invoice'] for link in already)}.",
                 "VALIDATION_ERROR",
             )
 
@@ -2069,39 +2144,60 @@ class BillingService:
         # submitted order behind with no invoice to draw from it
         dimensions = AccountingDimensionService.resolve(dimensions)
 
-        grouped = BillingService._invoice_groups(doc)
+        mode = (
+            frappe.db.get_value("MSP Contract", doc.contract, "invoice_grouping")
+            or "One Invoice"
+        )
+        groups = BillingService._invoice_groups(doc, mode)
+        unplaced = BillingService._ungrouped(doc, mode)
 
-        if not grouped:
+        if unplaced:
+            first, lacking = unplaced[0]
+
+            raise ValidationError(
+                f"{doc.contract} invoices {mode.lower()}, and "
+                f"{first.service_name_snapshot or first.service_item} has no "
+                f"{'site' if lacking == 'Missing Site' else 'PO or cost centre'} to be "
+                f"billed under ({len(unplaced)} line(s) in all). Settle that before "
+                "invoicing rather than putting them on somebody else's invoice.",
+                "VALIDATION_ERROR",
+            )
+
+        if not groups:
             raise ValidationError("This run has no billable line.", "VALIDATION_ERROR")
 
         period_label = BillingService._period_label(doc)
-        items = []
 
-        for (service_item, rate, discount), bucket in grouped.items():
-            # what the customer reads, which the catalogue name is not always fit for
-            item_name = ServiceDefinitionService.label_of(service_item)
+        def items_of(group):
+            drawn = []
 
-            item = {
-                "item_code": service_item,
-                "item_name": item_name,
-                "description": (
-                    f"{period_label}"
-                    f" ({doc.billing_period_start} → {doc.billing_period_end})"
-                ),
-                # the headcount behind the line, printed in its own column
-                "msp_billed_count": bucket["targets"],
-                "qty": flt(bucket["months"], 3),
-                "uom": BILLING_UOM,
-                "conversion_factor": 1,
-                "rate": flt(flt(rate, 2) * (1 - flt(discount) / 100.0), 2),
-            }
+            for (service_item, rate, discount), bucket in group["lines"].items():
+                # what the customer reads, which the catalogue name is not always fit for
+                item_name = ServiceDefinitionService.label_of(service_item)
+                label = (
+                    f"{period_label} ({doc.billing_period_start} → {doc.billing_period_end})"
+                )
 
-            if discount:
-                # ERPNext prints the list price and what came off it
-                item["price_list_rate"] = flt(rate, 2)
-                item["discount_percentage"] = flt(discount, 2)
+                item = {
+                    "item_code": service_item,
+                    "item_name": item_name,
+                    "description": f"{label} — {group['label']}" if group["label"] else label,
+                    # the headcount behind the line, printed in its own column
+                    "msp_billed_count": bucket["targets"],
+                    "qty": flt(bucket["months"], 3),
+                    "uom": BILLING_UOM,
+                    "conversion_factor": 1,
+                    "rate": flt(flt(rate, 2) * (1 - flt(discount) / 100.0), 2),
+                }
 
-            items.append(item)
+                if discount:
+                    # ERPNext prints the list price and what came off it
+                    item["price_list_rate"] = flt(rate, 2)
+                    item["discount_percentage"] = flt(discount, 2)
+
+                drawn.append(item)
+
+            return drawn
 
         company = frappe.defaults.get_global_default("company")
         company_currency, income_account = frappe.db.get_value(
@@ -2116,18 +2212,69 @@ class BillingService:
                 "VALIDATION_ERROR",
             )
 
-        for item in items:
-            item["income_account"] = income_account
-
         conversion_rate = BillingService._conversion_rate(
             doc.currency, company_currency, company, exchange_rate
         )
 
-        order = BillingService._create_order(doc, items, company, conversion_rate, dimensions)
-        invoice = BillingService._invoice_from_order(order, conversion_rate, dimensions)
+        # every document of this run is drawn before any of them is kept: a group that
+        # fails leaves no half-invoiced run behind, which is the whole reason the drafts
+        # are prepared first and written down together
+        drawn = []
 
-        doc.db_set("sales_order", order.name)
-        doc.db_set("sales_invoice", invoice.name)
+        try:
+            for key in sorted(groups):
+                group = groups[key]
+                items = items_of(group)
+
+                for item in items:
+                    item["income_account"] = income_account
+
+                order = BillingService._create_order(
+                    doc, items, company, conversion_rate, dimensions, label=group["label"]
+                )
+                invoice = BillingService._invoice_from_order(
+                    order, conversion_rate, dimensions
+                )
+                drawn.append((group, order, invoice))
+        except Exception:
+            frappe.db.rollback()
+            raise
+
+        links = []
+
+        for group, order, invoice in drawn:
+            links.append(
+                {
+                    "grouping_mode": group["mode"],
+                    "group_key": group["key"],
+                    "group_label": group["label"],
+                    "company": company,
+                    "customer": doc.customer,
+                    "currency": doc.currency,
+                    "sales_order": order.name,
+                    "sales_invoice": invoice.name,
+                    "idempotency_key": f"{doc.name}:{group['key']}",
+                    "dimensions_snapshot": frappe.as_json(dimensions or {}),
+                }
+            )
+
+            # which document each billed line ended up on, so a credit, a dispute or an
+            # audit can go straight to it rather than guess
+            for row in group["rows"]:
+                frappe.db.set_value(
+                    "MSP Billing Run Line",
+                    row.name,
+                    {"group_key": group["key"], "sales_invoice": invoice.name},
+                    update_modified=False,
+                )
+
+        doc.set("invoices", links)
+        doc.save(ignore_permissions=True)
+
+        # a run that draws one document keeps saying so where every older reader looks
+        first = drawn[0]
+        doc.db_set("sales_order", first[1].name if len(drawn) == 1 else None)
+        doc.db_set("sales_invoice", first[2].name if len(drawn) == 1 else None)
         doc.db_set("status", "Invoice Drafted")
         frappe.db.commit()
 
@@ -2260,35 +2407,53 @@ class BillingService:
             raise NotFoundError(f"Billing Run {name} not found.", "NOT_FOUND")
 
         doc = frappe.get_doc("MSP Billing Run", name)
+        drawn = BillingService.invoice_links_of(doc)
 
-        if not doc.sales_invoice:
+        if not drawn:
             raise ValidationError(f"{name} has no invoice to discard.", "INVALID_TRANSITION")
 
-        invoice = frappe.get_doc("Sales Invoice", doc.sales_invoice)
+        posted = [
+            link["sales_invoice"]
+            for link in drawn
+            if frappe.db.get_value("Sales Invoice", link["sales_invoice"], "docstatus") != 0
+        ]
 
-        if invoice.docstatus != 0:
+        if posted:
             raise ValidationError(
-                f"{invoice.name} is already posted. Raise a credit note instead of discarding it.",
+                f"{', '.join(posted)} is already posted. Raise a credit note instead of "
+                "discarding it.",
                 "INVALID_TRANSITION",
             )
 
-        order = doc.sales_order
+        # a run's documents are thrown away together: half a run's invoices on file is
+        # not a state anybody can reason about
+        for link in drawn:
+            frappe.delete_doc(
+                "Sales Invoice", link["sales_invoice"], ignore_permissions=True
+            )
 
+            # the order exists only to carry this invoice, so it goes with it
+            order = link.get("sales_order")
+
+            if order and frappe.db.exists("Sales Order", order):
+                order_doc = frappe.get_doc("Sales Order", order)
+
+                if order_doc.docstatus == 1:
+                    order_doc.cancel()
+
+                frappe.delete_doc("Sales Order", order, ignore_permissions=True)
+
+        frappe.db.set_value(
+            "MSP Billing Run Line",
+            {"parent": name},
+            {"sales_invoice": None, "sales_invoice_item": None},
+            update_modified=False,
+        )
+        doc.set("invoices", [])
+        doc.save(ignore_permissions=True)
         doc.db_set("sales_invoice", None)
         doc.db_set("sales_order", None)
         doc.db_set("status", "Approved")
-
-        frappe.delete_doc("Sales Invoice", invoice.name, ignore_permissions=True)
-
-        # the order exists only to carry this invoice, so it goes with it
-        if order and frappe.db.exists("Sales Order", order):
-            order_doc = frappe.get_doc("Sales Order", order)
-
-            if order_doc.docstatus == 1:
-                order_doc.cancel()
-
-            frappe.delete_doc("Sales Order", order, ignore_permissions=True)
-
         frappe.db.commit()
 
         return BillingService.get_run(name)
@@ -2307,10 +2472,12 @@ class BillingService:
 
         doc = frappe.get_doc("MSP Billing Run", name)
 
-        if doc.sales_invoice:
+        standing = BillingService.invoice_links_of(doc)
+
+        if standing:
             raise ValidationError(
-                f"This run carries invoice {doc.sales_invoice}. Discard it first — a run "
-                "cannot be reopened while an invoice stands against it.",
+                f"This run carries invoice {standing[0]['sales_invoice']}. Discard it "
+                "first — a run cannot be reopened while an invoice stands against it.",
                 "INVALID_TRANSITION",
             )
 
@@ -2550,10 +2717,10 @@ class BillingService:
                 else []
             )
 
-        posted = (
-            frappe.db.get_value("Sales Invoice", doc.sales_invoice, "docstatus") == 1
-            if doc.sales_invoice
-            else False
+        drawn = BillingService.invoice_links_of(doc)
+        posted = bool(drawn) and all(
+            frappe.db.get_value("Sales Invoice", link["sales_invoice"], "docstatus") == 1
+            for link in drawn
         )
 
         # a run drawn before the identity was frozen has nothing to read back, and the
@@ -2609,6 +2776,33 @@ class BillingService:
             "approved_at": doc.approved_at,
             "sales_order": doc.sales_order,
             "sales_invoice": doc.sales_invoice,
+            # every document this run drew, which is more than one when the contract
+            # invoices by site or by accounting group
+            "invoices": [
+                {
+                    **link,
+                    "status": frappe.db.get_value(
+                        "Sales Invoice", link["sales_invoice"], "status"
+                    ),
+                    "submitted": frappe.db.get_value(
+                        "Sales Invoice", link["sales_invoice"], "docstatus"
+                    )
+                    == 1,
+                    "amount": flt(
+                        frappe.db.get_value(
+                            "Sales Invoice", link["sales_invoice"], "grand_total"
+                        ),
+                        2,
+                    ),
+                    "outstanding": flt(
+                        frappe.db.get_value(
+                            "Sales Invoice", link["sales_invoice"], "outstanding_amount"
+                        ),
+                        2,
+                    ),
+                }
+                for link in BillingService.invoice_links_of(doc)
+            ],
             "invoice_status": frappe.db.get_value("Sales Invoice", doc.sales_invoice, "status")
             if doc.sales_invoice
             else None,
@@ -2634,7 +2828,7 @@ class BillingService:
             and doc.status not in ("Approved", "Invoiced", "Cancelled"),
             "can_invoice": doc.docstatus == 1
             and doc.status == "Approved"
-            and not doc.sales_invoice
+            and not drawn
             and not doc.credit_note_of,
             # a credit note stands against a posted invoice, so there is nothing to contest
             # while the invoice is still a draft
@@ -2643,14 +2837,14 @@ class BillingService:
             "can_contest": (posted or bool(doc.reconstructed)) and not doc.credit_note_of,
             "can_resolve_dispute": bool(doc.disputed),
             "dispute_request": doc.dispute_request,
-            "can_discard_invoice": bool(doc.sales_invoice) and not posted,
+            "can_discard_invoice": bool(drawn) and not posted,
             "can_reopen": doc.docstatus == 1
             and not doc.sales_invoice
             # nothing to reopen: it records a charge that already went out
             and not doc.reconstructed,
             "can_cancel": doc.status not in ("Invoiced", "Cancelled")
             and not doc.sales_invoice,
-            "can_submit_invoice": bool(doc.sales_invoice) and not posted,
+            "can_submit_invoice": bool(drawn) and not posted,
         }
 
 
@@ -2703,7 +2897,44 @@ class BillingService:
         return name
 
     @staticmethod
-    def submit_invoice(name=None, notify=1, recipients=None):
+    def invoice_links_of(run):
+        """Every ERPNext document this run drew, old runs included.
+
+        A run billed `One Invoice` carries its document in the scalar fields it always
+        carried; a run billed by site or by accounting group carries several in its own
+        table. Readers ask here and stop caring which of the two it is.
+        """
+        doc = run if hasattr(run, "invoices") else frappe.get_doc("MSP Billing Run", run)
+        links = [
+            {
+                "group_key": row.group_key,
+                "group_label": row.group_label,
+                "grouping_mode": row.grouping_mode,
+                "sales_order": row.sales_order,
+                "sales_invoice": row.sales_invoice,
+            }
+            for row in (doc.get("invoices") or [])
+            if row.sales_invoice
+        ]
+
+        if links:
+            return links
+
+        if doc.sales_invoice:
+            return [
+                {
+                    "group_key": "ALL",
+                    "group_label": None,
+                    "grouping_mode": "One Invoice",
+                    "sales_order": doc.sales_order,
+                    "sales_invoice": doc.sales_invoice,
+                }
+            ]
+
+        return []
+
+    @staticmethod
+    def submit_invoice(name=None, notify=1, recipients=None, sales_invoice=None):
         """Post the invoice to the ledger. The run only becomes final once this succeeds."""
         BillingService._guard_admin()
 
@@ -2711,13 +2942,36 @@ class BillingService:
             raise NotFoundError(f"Billing Run {name} not found.", "NOT_FOUND")
 
         doc = frappe.get_doc("MSP Billing Run", name)
+        links = BillingService.invoice_links_of(doc)
 
-        if not doc.sales_invoice:
+        if not links:
             raise ValidationError(
                 f"Billing Run {name} has no invoice yet.", "INVALID_TRANSITION"
             )
 
-        invoice = frappe.get_doc("Sales Invoice", doc.sales_invoice)
+        # a run can carry several documents; one is posted at a time, and the run is only
+        # final once every one of them is
+        pending = [
+            link["sales_invoice"]
+            for link in links
+            if frappe.db.get_value("Sales Invoice", link["sales_invoice"], "docstatus") == 0
+        ]
+
+        if sales_invoice:
+            if sales_invoice not in [link["sales_invoice"] for link in links]:
+                raise ValidationError(
+                    f"{sales_invoice} is not a document of {name}.", "VALIDATION_ERROR"
+                )
+
+            posting = sales_invoice
+        elif pending:
+            posting = pending[0]
+        else:
+            raise ValidationError(
+                f"Every document of {name} is already submitted.", "INVALID_TRANSITION"
+            )
+
+        invoice = frappe.get_doc("Sales Invoice", posting)
         # posting is authorised above, at `_guard_admin`; the invoice itself is an ERPNext
         # record no MSP role holds rights on
         invoice.flags.ignore_permissions = True
@@ -2753,8 +3007,19 @@ class BillingService:
 
         erpnext_bridge.submit(invoice)
 
-        doc.db_set("status", "Invoiced")
-        BillingService._recompute_last_billed(doc.customer)
+        # the run is invoiced when every one of its documents is: a half-posted run says
+        # so rather than claiming to be finished
+        left = [
+            link["sales_invoice"]
+            for link in links
+            if link["sales_invoice"] != invoice.name
+            and frappe.db.get_value("Sales Invoice", link["sales_invoice"], "docstatus") == 0
+        ]
+
+        if not left:
+            doc.db_set("status", "Invoiced")
+            BillingService._recompute_last_billed(doc.customer)
+
         frappe.db.commit()
 
         # whoever was chosen on the way in, checked against this customer's own addresses;
@@ -2996,8 +3261,26 @@ class BillingService:
         to = [address for address in wanted if address == email]
         copies = [address for address in wanted if address != email]
 
-        # a copy with nobody to copy is simply the recipient
-        return (to, copies) if to else (copies, [])
+        # a customer that names no billing contact is written to at the addresses somebody
+        # chose, which are its own: a copy with nobody to copy is simply the recipient
+        if not to:
+            return copies, []
+
+        # #21 asks for one recipient and no copies. The product decision to let somebody
+        # name copies alongside the contact is held behind a switch until that requirement
+        # is updated, so the screen can offer it while the server still writes to the
+        # contact alone.
+        if copies and not BillingService._manual_cc_enabled():
+            copies = []
+
+        return to, copies
+
+    @staticmethod
+    def _manual_cc_enabled():
+        """Whether chosen copies may actually be written to, which #21 does not yet allow."""
+        return bool(
+            frappe.db.get_single_value("MSP Invoice Settings", "billing_manual_cc_enabled")
+        )
 
     @staticmethod
     def _notify_customer(doc, invoice, grouped, chosen=None):
@@ -3652,7 +3935,19 @@ class BillingService:
                     # them. A dispute settled by hand answers days that were served — a
                     # correction somebody decided — and is held to the entitlement of the
                     # line instead: billed days, not already credited, within its months.
-                    owed = billed.get("owed_back") if only_unserved else None
+                    owed = billed.get("owed_back")
+
+                    if only_unserved and not owed:
+                        raise ValidationError(
+                            f"{billed.get('user_name') or billed['service_name']} served "
+                            f"every day it was billed for over {row['from']} to "
+                            f"{row['to']}. A credit on days that were served is a "
+                            "decision somebody makes, not one this detects.",
+                            "VALIDATION_ERROR",
+                        )
+
+                    if not only_unserved:
+                        owed = None
 
                     if owed:
                         unserved = [
@@ -3671,17 +3966,27 @@ class BillingService:
                             )
 
                     key = billed.get("line") or row["service_assignment"]
-                    windows[key] = (
-                        str(min(first for first, _last in asked_for)),
-                        str(max(last for _first, last in asked_for)),
+                    # a line can be asked for twice — the days left either side of what was
+                    # already given back — so each stretch is added to what this line is
+                    # owed rather than replacing it
+                    held = coverage_intervals.merge(
+                        [
+                            (getdate(part["from"]), getdate(part["to"]))
+                            for part in segments.get(key, [])
+                        ]
+                        + list(asked_for)
                     )
                     segments[key] = [
-                        {"from": str(first), "to": str(last)} for first, last in asked_for
+                        {"from": str(first), "to": str(last)} for first, last in held
                     ]
+                    windows[key] = (
+                        str(min(first for first, _last in held)),
+                        str(max(last for _first, last in held)),
+                    )
                     wanted[key] = flt(
                         sum(
                             BillingService._unused_months(method, first, last)
-                            for first, last in asked_for
+                            for first, last in held
                         ),
                         3,
                     )

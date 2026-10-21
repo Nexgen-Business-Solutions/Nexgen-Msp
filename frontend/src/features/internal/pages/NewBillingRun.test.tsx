@@ -366,10 +366,21 @@ describe('one path prepares the three operations', () => {
     fireEvent.click(screen.getByLabelText(/I have reviewed/));
     fireEvent.click(screen.getByRole('button', { name: /Prepare credit note/ }));
 
+    // a credit on days that were served does not go through without a reason
+    expect(await screen.findByRole('alert')).toHaveTextContent('Say why these days');
+    expect(internal.createBillingOperation).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText(/Why these days are given back/), {
+      target: { value: 'Settled: the service was unusable.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Prepare credit note/ }));
+
     await waitFor(() => expect(internal.createBillingOperation).toHaveBeenCalledTimes(1));
     expect(vi.mocked(internal.createBillingOperation).mock.calls[0][0]).toMatchObject({
       kind: 'credit_note',
       against: 'BR-2026-10-165',
+      scope: 'all',
+      reason: 'Settled: the service was unusable.',
       include: [{ service_assignment: 'SA-1', from: '2026-09-05', to: '2026-09-13' }],
     });
   });

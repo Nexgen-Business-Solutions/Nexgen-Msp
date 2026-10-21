@@ -244,9 +244,27 @@ class TestChoosingWhoIsTold(BillingContactCase):
         self.assertEqual(to, [self.pay])
         self.assertEqual(copies, [])
 
-    def test_the_others_chosen_are_copied(self):
+    def test_copies_are_held_back_until_the_requirement_allows_them(self):
+        """#21 asks for one recipient: a chosen copy waits behind the setting."""
         account = self.make_account(
             "customer", "MSP Customer Manager", customer=self.mine, suffix=f"cc2{self.tag}"
+        )
+
+        to, copies = BillingService._chosen_recipients(self.mine, [self.pay, account])
+
+        self.assertEqual(to, [self.pay])
+        self.assertEqual(copies, [])
+
+    def test_the_others_chosen_are_copied_once_it_is_allowed(self):
+        account = self.make_account(
+            "customer", "MSP Customer Manager", customer=self.mine, suffix=f"cc2b{self.tag}"
+        )
+        frappe.db.set_single_value("MSP Invoice Settings", "billing_manual_cc_enabled", 1)
+        frappe.db.commit()
+        self.addCleanup(
+            lambda: frappe.db.set_single_value(
+                "MSP Invoice Settings", "billing_manual_cc_enabled", 0
+            )
         )
 
         to, copies = BillingService._chosen_recipients(self.mine, [self.pay, account])

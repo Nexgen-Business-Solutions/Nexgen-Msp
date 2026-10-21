@@ -89,6 +89,8 @@ export default function NewBillingRun() {
   const [draftInvoice, setDraftInvoice] = useState(true);
   const [hunt, setHunt] = useState('');
   const [windows, setWindows] = useState<Record<string, { from: string; to: string }>>({});
+  // a credit on days that were served is a decision, and it is written down with the note
+  const [why, setWhy] = useState('');
   const [accepted, setAccepted] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
 
@@ -229,6 +231,10 @@ export default function NewBillingRun() {
     if (step === 3) {
       if (!accepted) return setRefused('Confirm your review before preparing the operation.');
 
+      if (kind === 'credit_note' && scope === 'all' && !why.trim()) {
+        return setRefused('Say why these days are being given back.');
+      }
+
       try {
         const made = await create.mutateAsync({
           kind,
@@ -242,7 +248,11 @@ export default function NewBillingRun() {
           against,
           draft_invoice: draftInvoice ? 1 : 0,
           ...(kind === 'credit_note'
-            ? { scope, ...(priced.data ? { expected_total: priced.data.total } : {}) }
+            ? {
+                scope,
+                ...(scope === 'all' ? { reason: why.trim() } : {}),
+                ...(priced.data ? { expected_total: priced.data.total } : {}),
+              }
             : {}),
         });
 
@@ -805,6 +815,26 @@ export default function NewBillingRun() {
                   />
                   Draft the Sales Invoice in ERPNext now. Submitting it stays a separate decision.
                 </label>
+              )}
+
+              {kind === 'credit_note' && scope === 'all' && (
+                <div>
+                  <Label htmlFor="credit-reason" required>
+                    Why these days are given back
+                  </Label>
+                  <textarea
+                    id="credit-reason"
+                    value={why}
+                    onChange={(event) => setWhy(event.target.value)}
+                    rows={3}
+                    placeholder="What was settled, with the customer, and on what basis."
+                    className="w-full rounded-lg border border-slate-200 p-3 text-xs outline-none transition-colors focus:border-blue-400"
+                  />
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    These days were served. The note carries this sentence, and it is what
+                    anybody reading the credit a year from now will have.
+                  </p>
+                </div>
               )}
 
               <label className="flex items-start gap-2.5 text-xs text-slate-600">
