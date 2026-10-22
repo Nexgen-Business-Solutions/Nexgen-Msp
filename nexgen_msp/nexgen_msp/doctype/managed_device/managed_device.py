@@ -1,14 +1,13 @@
 # Copyright (c) 2026, Nexgen Business Solutions and contributors
 # For license information, please see license.txt
 
-import re
-
 import frappe
 from frappe import _
 from frappe.model.document import Document
 from frappe.utils import getdate
 
-MAC_PATTERN = re.compile(r"^[0-9A-F]{2}([:-])(?:[0-9A-F]{2}\1){4}[0-9A-F]{2}$")
+from nexgen_msp.utils.mac_address import normalize_mac_address
+
 CLOSED_STATUSES = ("Returned", "Damaged", "Retired", "Lost")
 
 
@@ -70,11 +69,13 @@ class ManagedDevice(Document):
 		primary_count = 0
 
 		for row in self.network_interfaces:
-			row.mac_address = (row.mac_address or "").strip().upper().replace(".", ":")
-
-			if not MAC_PATTERN.match(row.mac_address):
+			try:
+				row.mac_address = normalize_mac_address(row.mac_address)
+			except ValueError:
 				frappe.throw(
-					_("Row {0}: {1} is not a valid MAC address.").format(row.idx, frappe.bold(row.mac_address))
+					_("Row {0}: {1} is not a valid MAC address. Use AA-BB-CC-DD-EE-FF.").format(
+						row.idx, frappe.bold(row.mac_address or "")
+					)
 				)
 
 			if row.mac_address in seen:
