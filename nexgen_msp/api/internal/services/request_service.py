@@ -1,6 +1,7 @@
 import frappe
 
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
+from nexgen_msp.utils.mac_address import normalize_mac_address
 
 ADMIN_ROLES = ("MSP System Admin", "System Manager", "Administrator")
 
@@ -520,11 +521,18 @@ class RequestService:
 
             if interfaces:
                 known = {
-                    (interface.mac_address or "").upper() for interface in device.network_interfaces
+                    normalize_mac_address(interface.mac_address)
+                    for interface in device.network_interfaces if interface.mac_address
                 }
                 for interface in interfaces:
-                    mac = (interface.get("mac_address") or "").strip().upper()
-                    if mac and mac not in known:
+                    raw_mac = (interface.get("mac_address") or "").strip()
+                    if not raw_mac:
+                        continue
+                    try:
+                        mac = normalize_mac_address(raw_mac)
+                    except ValueError:
+                        raise ValidationError("Invalid MAC address. Use AA-BB-CC-DD-EE-FF.", "VALIDATION_ERROR")
+                    if mac not in known:
                         device.append(
                             "network_interfaces",
                             {
@@ -532,6 +540,7 @@ class RequestService:
                                 "mac_address": mac,
                             },
                         )
+                        known.add(mac)
 
             device.save()
             return device.name
