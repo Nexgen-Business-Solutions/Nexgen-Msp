@@ -2,6 +2,7 @@ import datetime
 import re
 
 from nexgen_msp.utils.errors import ValidationError
+from nexgen_msp.utils.mac_address import normalize_mac_address
 
 EXCLUDED_COLUMNS = ("user", "password")
 
@@ -83,7 +84,6 @@ DEVICE_TYPE_MAP = {
     "vm": "VM",
 }
 
-MAC_PATTERN = re.compile(r"^[0-9A-F]{2}([:-])(?:[0-9A-F]{2}\1){4}[0-9A-F]{2}$")
 
 BIDI_PATTERN = re.compile(r"[‎‏‪-‮⁦-⁩]")
 
@@ -159,8 +159,10 @@ def is_yes(value):
 def normalize_mac(value):
     if is_blank(value):
         return None
-    candidate = str(value).strip().upper().replace(".", ":")
-    return candidate if MAC_PATTERN.match(candidate) else False
+    try:
+        return normalize_mac_address(str(value))
+    except ValueError:
+        return False
 
 
 def normalize_device_type(value):
