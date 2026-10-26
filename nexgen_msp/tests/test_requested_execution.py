@@ -633,7 +633,7 @@ class TestResolvingTheRequestedDevice(RequestedWorkCase):
 
         self.assertEqual(
             [(row.interface_type, row.mac_address) for row in rows],
-            [("Wi-Fi", "AA:BB:CC:DD:EE:01"), ("LAN", "AA:BB:CC:DD:EE:02")],
+            [("Wi-Fi", "AA-BB-CC-DD-EE-01"), ("LAN", "AA-BB-CC-DD-EE-02")],
         )
 
     def test_registering_without_interfaces_still_registers_the_machine(self):

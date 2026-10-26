@@ -2,6 +2,7 @@ import datetime
 import re
 
 from nexgen_msp.utils.errors import ValidationError
+from nexgen_msp.utils.mac_address import canonical_or_none
 
 EXCLUDED_COLUMNS = ("user", "password")
 
@@ -83,7 +84,6 @@ DEVICE_TYPE_MAP = {
     "vm": "VM",
 }
 
-MAC_PATTERN = re.compile(r"^[0-9A-F]{2}([:-])(?:[0-9A-F]{2}\1){4}[0-9A-F]{2}$")
 
 BIDI_PATTERN = re.compile(r"[‎‏‪-‮⁦-⁩]")
 
@@ -157,10 +157,17 @@ def is_yes(value):
 
 
 def normalize_mac(value):
+    """`None` for an empty cell, `False` for a malformed one, the canonical form otherwise.
+
+    The two sentinels are the parser's own convention — a blank cell is silence, a bad one
+    is reported in `invalid_macs`. The format is decided by `utils.mac_address`, the same
+    function the DocType and the services use, so the file cannot import a MAC in a shape
+    the application would refuse to save.
+    """
     if is_blank(value):
         return None
-    candidate = str(value).strip().upper().replace(".", ":")
-    return candidate if MAC_PATTERN.match(candidate) else False
+
+    return canonical_or_none(value) or False
 
 
 def normalize_device_type(value):

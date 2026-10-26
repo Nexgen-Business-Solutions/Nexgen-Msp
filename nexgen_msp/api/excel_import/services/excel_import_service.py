@@ -8,8 +8,10 @@ from nexgen_msp.api.excel_import.services import excel_parser
 from nexgen_msp.utils import device_holders as holders
 from nexgen_msp.utils.device_status import AVAILABLE_STATUSES, DEPLOYED_STATUSES
 
-FIELD_HOLDERS = "holder_log"
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
+from nexgen_msp.utils.mac_address import canonical_or_none
+
+FIELD_HOLDERS = "holder_log"
 
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[a-zA-Z]{2,}$")
 
@@ -570,13 +572,21 @@ class ExcelImportService:
 
     @staticmethod
     def _add_interfaces(device, macs, report):
-        """Append the MAC addresses the device does not already carry."""
+        """Append the MAC addresses the device does not already carry.
+
+        Held and offered are compared in their canonical form: a card written `0A:...` in
+        the file and `0A-...` on the record is one card, and appending it again would give
+        the machine two interfaces for one piece of hardware.
+        """
         doc = frappe.get_doc("MSP Managed Device", device)
-        held = {(row.mac_address or "").lower() for row in doc.network_interfaces}
+        held = {
+            canonical_or_none(row.mac_address) or (row.mac_address or "").upper()
+            for row in doc.network_interfaces
+        }
         added = 0
 
         for mac in macs:
-            address = (mac.get("mac_address") or "").lower()
+            address = canonical_or_none(mac.get("mac_address"))
 
             if not address or address in held:
                 continue

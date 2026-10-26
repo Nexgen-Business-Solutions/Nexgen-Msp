@@ -1,16 +1,14 @@
 # Copyright (c) 2026, Nexgen Business Solutions and contributors
 # For license information, please see license.txt
 
-import re
-
 import frappe
 from frappe import _
 from frappe.model.document import Document
 from frappe.utils import getdate
 
 from nexgen_msp.utils import device_holders as holders
+from nexgen_msp.utils.mac_address import normalize_mac_address
 
-MAC_PATTERN = re.compile(r"^[0-9A-F]{2}([:-])(?:[0-9A-F]{2}\1){4}[0-9A-F]{2}$")
 CLOSED_STATUSES = ("Returned", "Damaged", "Retired", "Lost")
 
 
@@ -100,15 +98,21 @@ class MSPManagedDevice(Document):
 			frappe.throw(_("Out of Service Date cannot be earlier than In Service Since."))
 
 	def validate_network_interfaces(self):
+		"""Every interface is stored the one way Parallels RAS reads it.
+
+		The punctuation somebody typed is their business; what is saved is canonical, and
+		the duplicate check runs on the canonical value so the same card written two ways
+		is caught as the one card it is.
+		"""
 		seen = set()
 		primary_count = 0
 
 		for row in self.network_interfaces:
-			row.mac_address = (row.mac_address or "").strip().upper().replace(".", ":")
-
-			if not MAC_PATTERN.match(row.mac_address):
+			try:
+				row.mac_address = normalize_mac_address(row.mac_address)
+			except ValueError as refusal:
 				frappe.throw(
-					_("Row {0}: {1} is not a valid MAC address.").format(row.idx, frappe.bold(row.mac_address))
+					_("Row {0}: {1}").format(row.idx, frappe.bold(str(refusal)))
 				)
 
 			if row.mac_address in seen:

@@ -5,6 +5,7 @@ from nexgen_msp.utils.meta import select_options
 from nexgen_msp.utils import permissions, request_targets
 from nexgen_msp.utils.assignments import OPEN_ASSIGNMENT_STATUSES
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
+from nexgen_msp.utils.mac_address import REFUSAL as MAC_REFUSAL, canonical_or_none
 
 ADMIN_ROLES = ("MSP System Admin", "Administrator")
 
@@ -957,12 +958,21 @@ class RequestService:
                 device.device_type = device_type
 
             if interfaces:
+                # one card is one card whatever the punctuation: held and offered are
+                # compared canonically, and the DocType saves them that way
                 known = {
-                    (interface.mac_address or "").upper() for interface in device.network_interfaces
+                    canonical_or_none(interface.mac_address) or (interface.mac_address or "").upper()
+                    for interface in device.network_interfaces
                 }
                 for interface in interfaces:
-                    mac = (interface.get("mac_address") or "").strip().upper()
-                    if mac and mac not in known:
+                    mac = canonical_or_none(interface.get("mac_address"))
+
+                    if not mac:
+                        raise ValidationError(
+                            f"{interface.get('mac_address')}: {MAC_REFUSAL}", "VALIDATION_ERROR"
+                        )
+
+                    if mac not in known:
                         device.append(
                             "network_interfaces",
                             {
@@ -970,6 +980,7 @@ class RequestService:
                                 "mac_address": mac,
                             },
                         )
+                        known.add(mac)
 
             device.save()
             return device.name
@@ -1025,7 +1036,8 @@ class RequestService:
                     "network_interfaces": [
                         {
                             "interface_type": interface.get("interface_type") or "Other",
-                            "mac_address": (interface.get("mac_address") or "").strip().upper(),
+                            "mac_address": canonical_or_none(interface.get("mac_address"))
+                            or interface.get("mac_address"),
                         }
                         for interface in interfaces
                     ],

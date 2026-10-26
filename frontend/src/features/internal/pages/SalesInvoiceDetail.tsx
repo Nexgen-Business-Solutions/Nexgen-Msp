@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Mail } from 'lucide-react';
 import { salesInvoiceDeskUrl } from '@/lib/api/internal';
-import { useSalesInvoice } from '../hooks/useBilling';
+import { useSalesInvoice, useSendInvoiceEmail } from '../hooks/useBilling';
 import { useMspContracts } from '../hooks/useMspContracts';
+import NotifyRecipientsModal from '../components/NotifyRecipientsModal';
 import PastCoverageModal from '../components/PastCoverageModal';
 import {
   Banner,
@@ -50,6 +51,11 @@ export default function SalesInvoiceDetail() {
   const navigate = useNavigate();
   const invoice = useSalesInvoice(name);
   const [reconciling, setReconciling] = useState(false);
+  const [mailing, setMailing] = useState(false);
+  // the one email this page sends, carried by the id that makes a double click one send
+  const [attempt, setAttempt] = useState('');
+  const [queued, setQueued] = useState<string | null>(null);
+  const sending = useSendInvoiceEmail();
   const contracts = useMspContracts(reconciling ? {} : { status: '__none__' });
 
   const data = invoice.data;
@@ -99,6 +105,23 @@ export default function SalesInvoiceDetail() {
             </p>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
+            {/* a posted invoice can be sent again from here: the document already exists,
+                so nothing is drawn, approved or posted by writing to somebody about it */}
+            {data.docstatus === 1 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQueued(null);
+                  sending.reset();
+                  setAttempt(`${data.name}-${Date.now()}`);
+                  setMailing(true);
+                }}
+                className={btn}
+              >
+                <Mail size={14} />
+                Send by email
+              </button>
+            )}
             <a href={salesInvoiceDeskUrl(data.name)} target="_blank" rel="noreferrer" className={btn}>
               Open in ERPNext ↗
             </a>
@@ -299,6 +322,33 @@ export default function SalesInvoiceDetail() {
         onRecorded={(run) => {
           setReconciling(false);
           navigate(`/msp/billing/${run}`);
+        }}
+      />
+
+      {/* the choice the billing run already offers, on an invoice that needs no run */}
+      <NotifyRecipientsModal
+        open={mailing}
+        invoice={data.name}
+        title="Send this invoice"
+        subtitle="The billing contact is written to; anyone else chosen is copied."
+        confirmLabel="Send invoice"
+        requireRecipient
+        busy={sending.isPending}
+        result={queued}
+        error={sending.error instanceof Error ? sending.error.message : null}
+        onCancel={() => setMailing(false)}
+        onConfirm={async (recipients) => {
+          setQueued(null);
+          const sent = await sending.mutateAsync({
+            name: data.name,
+            recipients,
+            request_id: attempt,
+          });
+          setQueued(
+            `Queued for sending to ${sent.to.join(', ')}${
+              sent.cc.length ? `, copied to ${sent.cc.join(', ')}` : ''
+            }. The email queue says when it has gone out.`
+          );
         }}
       />
     </div>

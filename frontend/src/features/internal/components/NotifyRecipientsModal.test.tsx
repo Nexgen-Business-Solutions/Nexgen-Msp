@@ -6,7 +6,7 @@ import NotifyRecipientsModal from './NotifyRecipientsModal';
 
 vi.mock('@/lib/api/internal', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api/internal')>();
-  return { ...actual, getInvoiceRecipients: vi.fn() };
+  return { ...actual, getInvoiceRecipients: vi.fn(), getInvoiceEmailRecipients: vi.fn() };
 });
 
 const recipients = (overrides: Record<string, unknown> = {}) => ({
@@ -132,6 +132,128 @@ describe('choosing who is told about an invoice', () => {
 
     await waitFor(() =>
       expect(vi.mocked(internal.getInvoiceRecipients).mock.calls[0][0]).toBe('BR-2026-10-165')
+    );
+  });
+});
+
+const invoiceRecipients = (overrides: Record<string, unknown> = {}) => ({
+  ...recipients(),
+  invoice: 'ACC-SINV-2026-00042',
+  customer_name: 'Kakivu Mousse USD',
+  posting_date: '2026-09-30',
+  period: 'September 2026',
+  currency: 'XAF',
+  grand_total: 155520,
+  is_return: false,
+  status: 'Unpaid',
+  pdf: { filename: 'Invoice-ACC-SINV-2026-00042.pdf', print_format: 'Nexgen MSP Invoice' },
+  attempts: [],
+  ...overrides,
+});
+
+const showInvoice = () =>
+  render(
+    <QueryClientProvider
+      client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+    >
+      <NotifyRecipientsModal
+        open
+        invoice="ACC-SINV-2026-00042"
+        confirmLabel="Send invoice"
+        title="Send this invoice"
+        requireRecipient
+        onCancel={() => {}}
+        onConfirm={confirm}
+      />
+    </QueryClientProvider>
+  );
+
+describe('the same choice, on an invoice that needs no run', () => {
+  beforeEach(() => {
+    vi.mocked(internal.getInvoiceEmailRecipients).mockResolvedValue(invoiceRecipients() as never);
+  });
+
+  it('says which document leaves, what is attached, and opens on the contact', async () => {
+    showInvoice();
+
+    expect(await screen.findByText('ACC-SINV-2026-00042')).toBeInTheDocument();
+    expect(screen.getByText(/Kakivu Mousse USD · September 2026/)).toBeInTheDocument();
+    expect(screen.getByText('Invoice-ACC-SINV-2026-00042.pdf')).toBeInTheDocument();
+    expect(screen.getByText('Accounts Payable')).toBeInTheDocument();
+
+    const boxes = screen.getAllByRole('checkbox');
+    expect(boxes.map((box) => (box as HTMLInputElement).checked)).toEqual([true, false, false]);
+  });
+
+  it('sends the addresses that were offered, the chosen ones alone', async () => {
+    showInvoice();
+    await screen.findByText('Marwa Hasno');
+
+    fireEvent.click(screen.getAllByRole('checkbox')[1]);
+    fireEvent.click(screen.getByRole('button', { name: 'Send invoice' }));
+
+    expect(confirm).toHaveBeenCalledWith(['pay@kakivu.test', 'marwa@kakivu.test']);
+  });
+
+  it('never sends an invoice to nobody', async () => {
+    showInvoice();
+    await screen.findByText('Accounts Payable');
+
+    fireEvent.click(screen.getAllByRole('checkbox')[0]);
+
+    expect(screen.getByRole('button', { name: 'Send invoice' })).toBeDisabled();
+  });
+
+  it('holds the button while the send is in flight', async () => {
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <NotifyRecipientsModal
+          open
+          invoice="ACC-SINV-2026-00042"
+          confirmLabel="Send invoice"
+          requireRecipient
+          busy
+          onCancel={() => {}}
+          onConfirm={confirm}
+        />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByRole('button', { name: 'Sending…' })).toBeDisabled();
+  });
+
+  it('shows what was sent before and what became of it', async () => {
+    vi.mocked(internal.getInvoiceEmailRecipients).mockResolvedValue(
+      invoiceRecipients({
+        attempts: [
+          {
+            invoice: 'ACC-SINV-2026-00042',
+            attempt: 'EQ-0000',
+            request_id: 'older',
+            state: 'Sent',
+            to: ['pay@kakivu.test'],
+            cc: [],
+            by: 'admin@example.invalid',
+            on: '2026-10-01 09:00:00',
+          },
+        ],
+      }) as never
+    );
+    showInvoice();
+
+    expect(await screen.findByText('Previous sends')).toBeInTheDocument();
+    expect(screen.getByText('Sent')).toBeInTheDocument();
+  });
+
+  it('asks the server for this invoice', async () => {
+    showInvoice();
+
+    await waitFor(() =>
+      expect(vi.mocked(internal.getInvoiceEmailRecipients).mock.calls[0][0]).toBe(
+        'ACC-SINV-2026-00042'
+      )
     );
   });
 });

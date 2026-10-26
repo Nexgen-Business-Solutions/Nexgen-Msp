@@ -16,6 +16,41 @@ describe('network interfaces, as a name and a value', () => {
     expect(onChange).toHaveBeenLastCalledWith([{ interface_type: 'Wi-Fi', mac_address: 'AA-BB' }]);
   });
 
+  it('punctuates the address while it is being typed', () => {
+    const onChange = vi.fn();
+    render(<InterfaceEditor value={[{ interface_type: 'Wi-Fi', mac_address: '' }]} onChange={onChange} />);
+    const written = screen.getByLabelText('Interface 1 value');
+
+    fireEvent.change(written, { target: { value: '0aea311a95bb' } });
+    expect(onChange).toHaveBeenLastCalledWith([
+      { interface_type: 'Wi-Fi', mac_address: '0A-EA-31-1A-95-BB' },
+    ]);
+
+    fireEvent.change(written, { target: { value: '0A:EA:31:1A:95:BB' } });
+    expect(onChange).toHaveBeenLastCalledWith([
+      { interface_type: 'Wi-Fi', mac_address: '0A-EA-31-1A-95-BB' },
+    ]);
+
+    // the hyphens appear as the digits do, and nothing past the sixth octet is taken
+    fireEvent.change(written, { target: { value: '0aea3' } });
+    expect(onChange).toHaveBeenLastCalledWith([{ interface_type: 'Wi-Fi', mac_address: '0A-EA-3' }]);
+
+    fireEvent.change(written, { target: { value: '0aea311a95bbcc' } });
+    expect(onChange).toHaveBeenLastCalledWith([
+      { interface_type: 'Wi-Fi', mac_address: '0A-EA-31-1A-95-BB' },
+    ]);
+  });
+
+  it('lets a backspace keep deleting', () => {
+    const onChange = vi.fn();
+    render(<InterfaceEditor value={[{ interface_type: 'Wi-Fi', mac_address: '0A-EA' }]} onChange={onChange} />);
+
+    // what the browser hands over once the typist has rubbed out the trailing character
+    fireEvent.change(screen.getByLabelText('Interface 1 value'), { target: { value: '0A-E' } });
+
+    expect(onChange).toHaveBeenLastCalledWith([{ interface_type: 'Wi-Fi', mac_address: '0A-E' }]);
+  });
+
   it('adds an empty pair and removes one', () => {
     const onChange = vi.fn();
     const two = [

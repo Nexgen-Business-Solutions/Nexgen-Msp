@@ -3034,12 +3034,16 @@ class BillingService:
         }
 
     @staticmethod
-    def _chosen_recipients(customer, chosen):
+    def _chosen_recipients(customer, chosen, allow_cc=False):
         """The addresses to write to, kept to the ones this customer actually owns.
 
         Returns the named contact as the recipient and the rest as copies. Anything the
         screen did not offer is refused rather than quietly dropped: an invoice reaching an
         address nobody named is the fault this whole path exists to prevent.
+
+        `allow_cc` is what #23 asks for and #21 does not: somebody sending one invoice by
+        hand chooses who is copied, while the notice that follows a billing run keeps
+        writing to the contact alone until that requirement is updated.
         """
         email, _refusal = BillingService.billing_contact_email(customer)
         allowed = {row["email"] for row in BillingService.portal_accounts(customer)}
@@ -3068,7 +3072,7 @@ class BillingService:
         # name copies alongside the contact is held behind a switch until that requirement
         # is updated, so the screen can offer it while the server still writes to the
         # contact alone.
-        if copies and not BillingService._manual_cc_enabled():
+        if copies and not allow_cc and not BillingService._manual_cc_enabled():
             copies = []
 
         return to, copies

@@ -535,7 +535,7 @@ describe('Prepare requested Device', () => {
       expect(internal.resolveRequestedDevice).toHaveBeenCalledWith(
         expect.objectContaining({
           mode: 'new',
-          interfaces: [{ interface_type: 'Wi-Fi', mac_address: 'AA:BB:CC:DD:EE:01' }],
+          interfaces: [{ interface_type: 'Wi-Fi', mac_address: 'AA-BB-CC-DD-EE-01' }],
         })
       )
     );

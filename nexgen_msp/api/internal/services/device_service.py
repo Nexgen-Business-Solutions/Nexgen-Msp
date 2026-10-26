@@ -15,6 +15,7 @@ from nexgen_msp.utils import request_targets
 from nexgen_msp.api.internal.services.request_service import CUSTOMER_STATUS, RequestService
 from nexgen_msp.api.internal.services.user_service import UserService
 from nexgen_msp.api.internal.services.device_lifecycle_service import DeviceLifecycleService
+from nexgen_msp.utils.mac_address import canonical_or_none
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 from nexgen_msp.utils.assignments import OPEN_ASSIGNMENT_STATUSES
 
@@ -126,11 +127,15 @@ class DeviceService:
                     or holder.username like %(search)s
                     or exists (
                         select 1 from `tabMSP Network Interface` ni
-                        where ni.parent = device.name and ni.mac_address like %(search)s
+                        where ni.parent = device.name
+                          and (ni.mac_address like %(search)s or ni.mac_address = %(mac)s)
                     )
                 )"""
             )
             params["search"] = f"%{search}%"
+            # a whole MAC is looked for as the address it is, whichever way it was typed;
+            # anything shorter stays the partial text search it always was
+            params["mac"] = canonical_or_none(search) or ""
 
         return (" where " + " and ".join(conditions)) if conditions else "", params
 
@@ -714,14 +719,16 @@ class DeviceService:
         if interfaces is not None:
             doc.network_interfaces = []
             for interface in interfaces:
-                mac = (interface.get("mac_address") or "").strip().upper()
+                mac = (interface.get("mac_address") or "").strip()
                 if not mac:
                     continue
                 doc.append(
                     "network_interfaces",
                     {
                         "interface_type": interface.get("interface_type") or "Other",
-                        "mac_address": mac,
+                        # the DocType is the authority on the format: whatever punctuation
+                        # arrives here, what it saves is AA-BB-CC-DD-EE-FF
+                        "mac_address": canonical_or_none(mac) or mac,
                     },
                 )
 
@@ -902,13 +909,13 @@ class DeviceService:
         rows = []
 
         for interface in interfaces or []:
-            mac = (interface.get("mac_address") or "").strip().upper()
+            mac = (interface.get("mac_address") or "").strip()
             if not mac:
                 continue
             rows.append(
                 {
                     "interface_type": interface.get("interface_type") or "Other",
-                    "mac_address": mac,
+                    "mac_address": canonical_or_none(mac) or mac,
                 }
             )
 

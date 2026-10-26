@@ -264,9 +264,20 @@ def render(name, context):
 
 
 def send(
-    name, recipients, context, reference_doctype=None, reference_name=None, now=False, cc=None
+    name,
+    recipients,
+    context,
+    reference_doctype=None,
+    reference_name=None,
+    now=False,
+    cc=None,
+    attachments=None,
 ):
-    """Queue a branded email. Never let a mail failure break the operation that triggered it."""
+    """Queue a branded email. Never let a mail failure break the operation that triggered it.
+
+    What comes back is the queued row when there is one, so a caller that has to trace its
+    own mail can; it is still only ever read as "something was queued" or "nothing was".
+    """
     recipients = [address for address in (recipients or []) if address]
     cc = [address for address in (cc or []) if address and address not in recipients]
 
@@ -275,16 +286,20 @@ def send(
 
     try:
         subject, message = render(name, context)
-        frappe.sendmail(
-            recipients=recipients,
-            cc=cc,
-            subject=subject,
-            message=message,
-            reference_doctype=reference_doctype,
-            reference_name=reference_name,
-            now=now,
+
+        return (
+            frappe.sendmail(
+                recipients=recipients,
+                cc=cc,
+                subject=subject,
+                message=message,
+                reference_doctype=reference_doctype,
+                reference_name=reference_name,
+                attachments=attachments or None,
+                now=now,
+            )
+            or True
         )
-        return True
     except Exception:
         frappe.log_error(title=f"{name} could not be sent", message=frappe.get_traceback())
         return False

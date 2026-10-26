@@ -273,7 +273,7 @@ describe('one path prepares the three operations', () => {
     );
     vi.mocked(internal.getBillingOperationAccounting).mockResolvedValue(accounting());
     vi.mocked(internal.listMspContracts).mockResolvedValue([]);
-    draw('?kind=credit_note&contract=CON-0001&start=2026-09-25&end=2026-09-30');
+    draw('?kind=credit_note&contract=CON-0001&scope=detected&start=2026-09-25&end=2026-09-30');
 
     await screen.findByText('Contract & period');
     await forward();

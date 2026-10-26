@@ -1384,6 +1384,30 @@ def get_sales_invoice_detail(name=None):
     return _invoices().invoice_detail(name=name)
 
 
+def _invoice_email():
+    from nexgen_msp.api.internal.services.invoice_email_service import InvoiceEmailService
+
+    return InvoiceEmailService
+
+
+@frappe.whitelist()
+@handle_errors
+def get_sales_invoice_email_recipients(name=None):
+    return _invoice_email().recipients(name=name)
+
+
+@frappe.whitelist()
+@handle_errors
+def send_sales_invoice_email(name=None, recipients=None, request_id=None):
+    return _invoice_email().send(name=name, recipients=recipients, request_id=request_id)
+
+
+@frappe.whitelist()
+@handle_errors
+def get_sales_invoice_email_history(name=None):
+    return _invoice_email().history(name=name)
+
+
 @frappe.whitelist()
 @handle_errors
 def get_coverage_evidence(customer=None, period_start=None, period_end=None):

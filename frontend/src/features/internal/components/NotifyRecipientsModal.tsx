@@ -1,15 +1,27 @@
 import React, { useEffect, useState } from 'react';
-import { AlertCircle, Mail, TriangleAlert } from 'lucide-react';
+import { AlertCircle, Check, Mail, Paperclip, TriangleAlert } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
 import Avatar from '@/shared/components/Avatar';
-import { useInvoiceRecipients } from '../hooks/useBilling';
+import { Pill } from './billing/ui';
+import { day, money } from './billing/format';
+import { useInvoiceEmailRecipients, useInvoiceRecipients } from '../hooks/useBilling';
 
 type Props = {
   open: boolean;
-  run: string;
-  /** what the button says, since the same choice precedes an invoice and a credit note */
+  /** the run whose notice is being addressed… */
+  run?: string;
+  /** …or an invoice sent on its own, which needs no run at all */
+  invoice?: string;
+  /** what the button says, since the same choice precedes an invoice, a credit note or a resend */
   confirmLabel: string;
+  title?: string;
+  subtitle?: string;
+  /** an invoice sent to nobody is not a send; a run may be submitted telling no one */
+  requireRecipient?: boolean;
   busy?: boolean;
+  /** what the server answered: queued, or why nothing went out */
+  result?: string | null;
+  error?: string | null;
   onCancel: () => void;
   onConfirm: (recipients: string[]) => void;
 };
@@ -21,7 +33,13 @@ const Line: React.FC<{
   email: string;
   note?: string;
 }> = ({ checked, onChange, name, email, note }) => (
-  <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-200 p-3 transition-colors hover:bg-slate-50">
+  <label
+    className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-all ${
+      checked
+        ? 'border-blue-200 bg-blue-50/60 ring-1 ring-blue-100'
+        : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+    }`}
+  >
     <input
       type="checkbox"
       checked={checked}
@@ -41,27 +59,48 @@ const Line: React.FC<{
   </label>
 );
 
+const STATES: Record<string, 'amber' | 'green' | 'red'> = {
+  Queued: 'amber',
+  Sent: 'green',
+  Failed: 'red',
+};
+
 /**
- * Who is told that this invoice went out.
+ * Who this invoice goes to.
  *
- * The named billing contact is the one the notice is addressed to, ticked to begin with
- * because that is what naming them meant. Anyone else chosen is copied, and the list only
- * ever holds this company's own accounts — the server checks the same thing again, so an
- * address that was never offered cannot be slipped in.
+ * One choice for the notice that follows a billing run and for an invoice sent again on
+ * its own, because it is the same decision: the named billing contact is who the document
+ * is addressed to, ticked to begin with because that is what naming them meant, and
+ * anyone else chosen is copied. The list only ever holds this company's own accounts —
+ * nothing is typed in here, and the server checks the same list again, so an address that
+ * was never offered cannot be slipped in.
+ *
+ * Opened on an invoice it also says which document is about to leave, what is attached to
+ * it, and what was already sent and became of it.
  */
 const NotifyRecipientsModal: React.FC<Props> = ({
   open,
   run,
+  invoice,
   confirmLabel,
+  title = 'Who should be told?',
+  subtitle = 'The billing contact is written to; anyone else chosen is copied.',
+  requireRecipient = false,
   busy,
+  result,
+  error,
   onCancel,
   onConfirm,
 }) => {
-  const recipients = useInvoiceRecipients(open ? run : undefined);
+  const ofRun = useInvoiceRecipients(open && !invoice ? run : undefined);
+  const ofInvoice = useInvoiceEmailRecipients(open && invoice ? invoice : undefined);
+  const recipients = invoice ? ofInvoice : ofRun;
+  const document = ofInvoice.data;
   const [chosen, setChosen] = useState<string[]>([]);
 
   const named = recipients.data?.billing_contact;
   const others = recipients.data?.portal_users ?? [];
+  const copies = chosen.filter((address) => address !== named?.email);
 
   useEffect(() => {
     if (!open) return;
@@ -73,32 +112,45 @@ const NotifyRecipientsModal: React.FC<Props> = ({
       on ? [...current, email] : current.filter((address) => address !== email)
     );
 
+  const nobody = chosen.length === 0;
+
   return (
     <Modal
       open={open}
       onClose={onCancel}
       icon={Mail}
       tone="blue"
-      title="Who should be told?"
-      subtitle="The billing contact is written to; anyone else chosen is copied."
+      title={title}
+      subtitle={subtitle}
       widthClass="max-w-xl"
       footer={
-        <div className="flex items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={() => onConfirm(chosen)}
-            disabled={busy || recipients.isLoading}
-            className="rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {chosen.length === 0 ? `${confirmLabel} without telling anyone` : confirmLabel}
-          </button>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs text-slate-500">
+            {nobody
+              ? 'Nobody chosen'
+              : `1 addressed${copies.length ? ` · ${copies.length} copied` : ''}`}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onCancel}
+              className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => onConfirm(chosen)}
+              disabled={busy || recipients.isLoading || (requireRecipient && nobody)}
+              className="rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {busy
+                ? 'Sending…'
+                : nobody && !requireRecipient
+                  ? `${confirmLabel} without telling anyone`
+                  : confirmLabel}
+            </button>
+          </div>
         </div>
       }
     >
@@ -111,6 +163,28 @@ const NotifyRecipientsModal: React.FC<Props> = ({
         </div>
       ) : (
         <div className="space-y-4">
+          {document && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-mono text-sm font-bold text-slate-800">
+                  {document.invoice}
+                </span>
+                {document.is_return && <Pill tone="purple">Credit / Return</Pill>}
+                <span className="ml-auto text-sm font-bold text-slate-800">
+                  {money(document.grand_total, document.currency)}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-slate-500">
+                {document.customer_name || document.customer} · {document.period} · posted{' '}
+                {day(document.posting_date)}
+              </p>
+              <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-slate-600">
+                <Paperclip size={13} className="shrink-0 text-slate-400" />
+                {document.pdf.filename}
+              </p>
+            </div>
+          )}
+
           <div>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
               Billing contact
@@ -127,7 +201,8 @@ const NotifyRecipientsModal: React.FC<Props> = ({
               <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
                 <TriangleAlert size={16} className="mt-0.5 shrink-0 text-amber-600" />
                 <span className="text-sm text-amber-800">
-                  {named?.refusal ?? 'No billing contact is named for this company.'}
+                  {named?.refusal ?? 'No billing contact is named for this company.'}{' '}
+                  Choose below who this goes to.
                 </span>
               </div>
             )}
@@ -156,10 +231,51 @@ const NotifyRecipientsModal: React.FC<Props> = ({
             )}
           </div>
 
-          {chosen.length === 0 && (
+          {nobody && !requireRecipient && (
             <p className="text-xs text-slate-500">
               Nobody is ticked, so no notice goes out. The invoice is posted all the same.
             </p>
+          )}
+
+          {error && (
+            <div className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
+              <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
+              <span className="text-sm font-medium text-red-700">{error}</span>
+            </div>
+          )}
+
+          {result && (
+            <div className="flex items-start gap-2.5 rounded-lg border border-emerald-100 bg-emerald-50 p-3">
+              <Check size={16} className="mt-0.5 shrink-0 text-emerald-600" />
+              <span className="text-sm font-medium text-emerald-800">{result}</span>
+            </div>
+          )}
+
+          {!!document?.attempts.length && (
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Previous sends
+              </p>
+              <div className="space-y-1.5">
+                {document.attempts.map((attempt) => (
+                  <div
+                    key={attempt.attempt ?? `${attempt.on}`}
+                    className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs"
+                  >
+                    <Pill tone={STATES[attempt.state] ?? 'gray'}>{attempt.state}</Pill>
+                    <span className="min-w-0 truncate text-slate-700">
+                      {attempt.to.join(', ') || '—'}
+                    </span>
+                    <span className="ml-auto shrink-0 text-slate-400">
+                      {attempt.by} · {String(attempt.on ?? '').slice(0, 16)}
+                    </span>
+                    {attempt.error && (
+                      <span className="w-full text-rose-700">{attempt.error}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
         </div>
       )}

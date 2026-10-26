@@ -2645,6 +2645,53 @@ export type SalesInvoiceFilters = {
 export const getSalesInvoiceDetail = (name: string, signal?: AbortSignal) =>
   get<SalesInvoiceDetail>(`${BASE}.get_sales_invoice_detail`, { name }, signal);
 
+/** One time an invoice was mailed from here, and what became of it. */
+export type InvoiceEmailAttempt = {
+  invoice: string;
+  attempt: string | null;
+  request_id: string | null;
+  state: 'Queued' | 'Sent' | 'Failed' | string;
+  to: string[];
+  cc: string[];
+  by: string | null;
+  on: string | null;
+  error?: string | null;
+  repeated?: boolean;
+};
+
+/** An invoice, who it can be sent to, and what was sent before: the billing run's own choice. */
+export type InvoiceEmailRecipients = InvoiceRecipients & {
+  invoice: string;
+  customer_name: string | null;
+  posting_date: string | null;
+  period: string;
+  currency: string | null;
+  grand_total: number;
+  is_return: boolean;
+  status: string;
+  pdf: { filename: string; print_format: string | null };
+  attempts: InvoiceEmailAttempt[];
+};
+
+export const getInvoiceEmailRecipients = (name: string, signal?: AbortSignal) =>
+  get<InvoiceEmailRecipients>(
+    `${BASE}.get_sales_invoice_email_recipients`,
+    { name },
+    signal
+  );
+
+export const sendInvoiceEmail = (payload: {
+  name: string;
+  /** addresses the screen offered, never typed: the contact is written to, the rest copied */
+  recipients: string[];
+  /** the same attempt replayed is one attempt; a deliberate resend carries a new id */
+  request_id: string;
+}) =>
+  post<InvoiceEmailAttempt>(`${BASE}.send_sales_invoice_email`, {
+    ...payload,
+    recipients: JSON.stringify(payload.recipients),
+  });
+
 /** What the last charged period of one contract left behind, people named. */
 export type PendingAdjustments = {
   contract: string;

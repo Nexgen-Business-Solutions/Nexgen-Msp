@@ -164,6 +164,28 @@ export const useBillingInvoice = (run?: string, enabled = true) =>
     enabled: enabled && Boolean(run),
   });
 
+/** Who one invoice can be sent to, and what was sent before. */
+export const useInvoiceEmailRecipients = (invoice?: string) =>
+  useQuery({
+    queryKey: [...billingKeys.all, 'invoice-email', invoice ?? ''] as const,
+    queryFn: ({ signal }) => internal.getInvoiceEmailRecipients(invoice as string, signal),
+    enabled: Boolean(invoice),
+    staleTime: 0,
+  });
+
+export const useSendInvoiceEmail = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: internal.sendInvoiceEmail,
+    onSuccess: (_attempt, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: [...billingKeys.all, 'invoice-email', variables.name],
+      });
+    },
+  });
+};
+
 export const useExchangePreview = (run: string | undefined, enabled: boolean) =>
   useQuery({
     queryKey: [...billingKeys.all, 'exchange', run] as const,
