@@ -18,7 +18,7 @@ target one at a time before a line is written.
 import frappe
 
 from nexgen_msp.api.internal.services.service_definition_service import ServiceDefinitionService
-from nexgen_msp.utils import operations, request_targets
+from nexgen_msp.utils import billing_marks, operations, request_targets
 from nexgen_msp.utils.assignments import OPEN_ASSIGNMENT_STATUSES
 from nexgen_msp.utils.errors import ValidationError
 from nexgen_msp.utils.request_intents import IN_FLIGHT_STATUSES
@@ -426,27 +426,7 @@ def _assignments(customer, people, devices):
 
 def _billed_through(assignments):
     """The last day each personal service was invoiced for, in one query."""
-    if not assignments:
-        return {}
-
-    rows = frappe.db.sql(
-        """
-        select brl.service_assignment as assignment, max(br.billing_period_end) as billed_to
-        from `tabMSP Billing Run Line` brl
-        join `tabMSP Billing Run` br on br.name = brl.parent
-        join `tabMSP Service Assignment` sa on sa.name = brl.service_assignment
-        where brl.service_assignment in %(assignments)s
-          and br.customer = sa.customer
-          and br.docstatus = 1
-          and ifnull(br.credit_note_of, '') = ''
-          and ifnull(br.standalone_credit, 0) = 0
-        group by brl.service_assignment
-        """,
-        {"assignments": tuple(assignments)},
-        as_dict=True,
-    )
-
-    return {row.assignment: row.billed_to for row in rows}
+    return billing_marks.billed_to(assignments)
 
 
 def _in_flight(customer, editing=None):

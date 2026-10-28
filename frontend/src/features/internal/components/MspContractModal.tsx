@@ -5,6 +5,7 @@ import FieldLabel from '@/shared/components/FieldLabel';
 import Select from '@/shared/components/Select';
 import MultiSelect from '@/shared/components/MultiSelect';
 import type { MspContract, MspContractDetail } from '@/lib/api/internal';
+import { today } from '@/shared/lib/today';
 import { useMspContractOptions, useSaveMspContract } from '../hooks/useMspContracts';
 
 type Props = {
@@ -31,8 +32,6 @@ const EMPTY: Partial<MspContract> = {
   currency: undefined,
   billing_notes: null,
 };
-
-const today = () => new Date().toISOString().slice(0, 10);
 
 const toOptions = (values: string[] = []) => values.map((value) => ({ value, label: value }));
 

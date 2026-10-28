@@ -3,6 +3,7 @@ import { AlertCircle, ShieldCheck } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
 import FieldLabel from '@/shared/components/FieldLabel';
 import Select from '@/shared/components/Select';
+import { today } from '@/shared/lib/today';
 import RequestReferenceField from './RequestReferenceField';
 import {
   useAssignDeviceService,
@@ -18,8 +19,6 @@ type Props = {
 
 const inputClass =
   'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
-
-const today = () => new Date().toISOString().slice(0, 10);
 
 const DeviceServiceModal: React.FC<Props> = ({ device, defaultRequest, onClose }) => {
   const context = useDeviceContext(device);

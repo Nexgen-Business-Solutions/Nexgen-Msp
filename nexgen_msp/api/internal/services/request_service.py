@@ -723,16 +723,19 @@ class RequestService:
 
         doc.save()
         doc.add_comment("Comment", f"{spec['label']}{': ' + reason if reason else ''}")
-        frappe.db.commit()
 
         # approving is not a paper decision: the work it calls for exists from that moment,
-        # and the technician finds it waiting rather than having to ask for it
+        # and the technician finds it waiting rather than having to ask for it. It is written
+        # under the lock this operation already holds and committed with the approval, so a
+        # request never reads approved with the work it calls for missing
         if spec.get("builds_plan"):
             from nexgen_msp.api.internal.services.request_execution_service import (
                 RequestExecutionService,
             )
 
             RequestExecutionService.build_execution_plan(doc.name)
+
+        frappe.db.commit()
 
         RequestService._notify_requester(doc, action, reason)
 

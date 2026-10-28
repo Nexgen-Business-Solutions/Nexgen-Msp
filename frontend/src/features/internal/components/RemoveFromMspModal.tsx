@@ -3,14 +3,13 @@ import { AlertCircle, Ban } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
 import FieldLabel from '@/shared/components/FieldLabel';
 import type { CatalogueRow } from '@/lib/api/internal';
+import { today } from '@/shared/lib/today';
 import { useRemoveServiceFromMsp } from '../hooks/useCatalogue';
 
 type Props = { service: CatalogueRow | null; contracts?: number; onClose: () => void };
 
 const inputClass =
   'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
-
-const today = () => new Date().toISOString().slice(0, 10);
 
 /** Stop offering a service. What is already running is the customer's, not the catalogue's. */
 const RemoveFromMspModal: React.FC<Props> = ({ service, contracts = 0, onClose }) => {

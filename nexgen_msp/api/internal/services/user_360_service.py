@@ -29,6 +29,7 @@ from nexgen_msp.api.internal.services.service_definition_service import (
 from nexgen_msp.api.internal.services.service_availability_service import (
     ServiceAvailabilityService,
 )
+from nexgen_msp.utils import billing_marks
 from nexgen_msp.utils import remarks as remarks_util
 from nexgen_msp.utils import request_intents, request_targets
 from nexgen_msp.utils.assignments import OPEN_ASSIGNMENT_STATUSES
@@ -449,27 +450,7 @@ class User360Service:
     @staticmethod
     def _billed_through(assignments):
         """The last day each of these services was invoiced for, in one query."""
-        if not assignments:
-            return {}
-
-        rows = frappe.db.sql(
-            """
-            select brl.service_assignment as assignment, max(br.billing_period_end) as billed_to
-            from `tabMSP Billing Run Line` brl
-            join `tabMSP Billing Run` br on br.name = brl.parent
-            join `tabMSP Service Assignment` sa on sa.name = brl.service_assignment
-            where brl.service_assignment in %(assignments)s
-              and br.customer = sa.customer
-              and br.docstatus = 1
-              and ifnull(br.credit_note_of, '') = ''
-              and ifnull(br.standalone_credit, 0) = 0
-            group by brl.service_assignment
-            """,
-            {"assignments": tuple(assignments)},
-            as_dict=True,
-        )
-
-        return {row.assignment: row.billed_to for row in rows}
+        return billing_marks.billed_to(assignments)
 
     @staticmethod
     def _describe_service(row, pending=None):

@@ -14,7 +14,14 @@ from nexgen_msp.nexgen_msp.doctype.msp_request.msp_request import (
     requested_date_refusal,
     requester_edit_refusal,
 )
-from nexgen_msp.utils import approval, operations, permissions, request_intents, request_targets
+from nexgen_msp.utils import (
+    approval,
+    billing_marks,
+    operations,
+    permissions,
+    request_intents,
+    request_targets,
+)
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 # "no row like this yet", told apart from a row whose action group is None
@@ -3085,14 +3092,7 @@ class PortalService:
             conditions.append("coalesce(cu.lifecycle_status, dcu.lifecycle_status) = %(user_status)s")
             values["user_status"] = user_status
 
-        billed = """
-            (
-                select max(br.billing_period_end)
-                from `tabMSP Billing Run Line` brl
-                join `tabMSP Billing Run` br on br.name = brl.parent
-                where brl.service_assignment = sa.name and br.docstatus = 1
-            )
-        """
+        billed = billing_marks.BILLED_TO
 
         if last_billed_after:
             conditions.append(f"{billed} >= %(last_billed_after)s")
@@ -3132,8 +3132,11 @@ class PortalService:
                 coalesce(cu.department, dcu.department) as department,
                 coalesce(cu.email, dcu.email) as email,
                 coalesce(cu.lifecycle_status, dcu.lifecycle_status) as user_status,
-                coalesce(d.hostname, own.hostname) as hostname,
-                coalesce(sa.managed_device, own.name) as device,
+                -- the machine of a service is the one the service names: a person's other
+                -- machines are theirs, not this line's, and one of several picked at random
+                -- would read as the machine the service is on
+                d.hostname as hostname,
+                sa.managed_device as device,
                 sa.quantity as quantity,
                 sa.uom as uom,
                 sa.operational_status as operational_status,
@@ -3855,12 +3858,7 @@ class PortalService:
             select
                 sa.name, sa.operational_status, sa.billing_status,
                 sa.effective_start_date, sa.effective_end_date,
-                (
-                    select max(br.billing_period_end)
-                    from `tabMSP Billing Run Line` brl
-                    join `tabMSP Billing Run` br on br.name = brl.parent
-                    where brl.service_assignment = sa.name and br.docstatus = 1
-                ) as last_billed_on
+                {billing_marks.BILLED_TO} as last_billed_on
             from `tabMSP Service Assignment` sa
             where {" and ".join(conditions)}
             order by (sa.operational_status not in ('Ended', 'Cancelled')) desc,

@@ -29,8 +29,14 @@ def workbook(title, columns, rows):
 
 	for line, row in enumerate(rows, start=2):
 		for index, (key, _label) in enumerate(columns, start=1):
-			cell = sheet.cell(row=line, column=index, value=_as_text(row.get(key)))
+			written = _as_text(row.get(key))
+			cell = sheet.cell(row=line, column=index, value=written)
 			cell.font = BODY
+
+			if isinstance(written, str) and written.startswith("="):
+				# a hostname somebody wrote as `=…` is that hostname, not a calculation the
+				# spreadsheet is to carry out when the file is opened
+				cell.data_type = "s"
 
 	sheet.freeze_panes = "A2"
 

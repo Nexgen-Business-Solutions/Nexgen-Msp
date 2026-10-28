@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { AlertCircle, CircleX } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
 import FieldLabel from '@/shared/components/FieldLabel';
+import { today } from '@/shared/lib/today';
 import { useStopAllServices } from '../hooks/useUsers';
 
 type Props = {
@@ -13,8 +14,6 @@ type Props = {
 
 const inputClass =
   'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
-
-const today = () => new Date().toISOString().slice(0, 10);
 
 /** Every personal service of one person, closed from one day. Their machines keep their own. */
 const StopAllServicesModal: React.FC<Props> = ({ person, sourceRequest, onClose, onDone }) => {

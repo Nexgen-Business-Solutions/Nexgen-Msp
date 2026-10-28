@@ -169,6 +169,18 @@ export const useUserServiceAvailability = (clientUser?: string) =>
     enabled: Boolean(clientUser),
   });
 
+/** Everything a change to one person is read from, wherever it is being watched from. */
+const forgetWhatThePersonMoved = (queryClient: ReturnType<typeof useQueryClient>) => {
+  queryClient.invalidateQueries({ queryKey: [...userKeys.all, 'list'] });
+  queryClient.invalidateQueries({ queryKey: userKeys.stats() });
+  queryClient.invalidateQueries({ queryKey: [...userKeys.all, 'availability'] });
+  queryClient.invalidateQueries({ queryKey: ['internal', 'dashboard'] });
+  // a service change moves the machine's row too
+  queryClient.invalidateQueries({ queryKey: ['internal', 'devices'] });
+  // the same action may have been launched from a request workflow
+  queryClient.invalidateQueries({ queryKey: ['internal', 'requests'] });
+};
+
 const useUserMutation = <TVariables>(
   clientUser: string,
   mutationFn: (variables: TVariables) => Promise<internal.UserDetail>
@@ -179,14 +191,7 @@ const useUserMutation = <TVariables>(
     mutationFn,
     onSuccess: (detail) => {
       queryClient.setQueryData(userKeys.detail(clientUser), detail);
-      queryClient.invalidateQueries({ queryKey: [...userKeys.all, 'list'] });
-      queryClient.invalidateQueries({ queryKey: userKeys.stats() });
-      queryClient.invalidateQueries({ queryKey: [...userKeys.all, 'availability'] });
-      queryClient.invalidateQueries({ queryKey: ['internal', 'dashboard'] });
-      // a service change moves the machine's row too, wherever it is being watched from
-      queryClient.invalidateQueries({ queryKey: ['internal', 'devices'] });
-      // the same action may have been launched from a request workflow
-      queryClient.invalidateQueries({ queryKey: ['internal', 'requests'] });
+      forgetWhatThePersonMoved(queryClient);
     },
   });
 };
@@ -204,10 +209,8 @@ export const useAddDevice = (clientUser: string) => {
     mutationFn: internal.addUserDevice,
     onSuccess: (detail) => {
       queryClient.setQueryData(userKeys.detail(clientUser), detail);
-      queryClient.invalidateQueries({ queryKey: [...userKeys.all, 'list'] });
-      queryClient.invalidateQueries({ queryKey: userKeys.stats() });
       // a machine registered for a request turns that request's lines into device lines
-      queryClient.invalidateQueries({ queryKey: ['internal', 'requests'] });
+      forgetWhatThePersonMoved(queryClient);
     },
   });
 };
@@ -232,7 +235,7 @@ const useStatusChange = <T,>(mutationFn: (payload: T) => Promise<internal.UserDe
     mutationFn,
     onSuccess: (detail) => {
       queryClient.setQueryData(userKeys.detail(detail.user.name), detail);
-      queryClient.invalidateQueries({ queryKey: [...userKeys.all, 'list'] });
+      forgetWhatThePersonMoved(queryClient);
     },
   });
 };

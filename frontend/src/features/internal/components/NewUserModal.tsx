@@ -3,6 +3,7 @@ import { AlertCircle, UserPlus } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
 import FieldLabel from '@/shared/components/FieldLabel';
 import Select from '@/shared/components/Select';
+import { today } from '@/shared/lib/today';
 import { useCreateClientUser } from '../hooks/useRequests';
 import { useUserFilterOptions } from '../hooks/useUsers';
 import { useDepartmentOptions } from '../hooks/useSettings';
@@ -11,8 +12,6 @@ type Props = { open: boolean; onClose: () => void; onCreated: (clientUser: strin
 
 const inputClass =
   'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
-
-const today = () => new Date().toISOString().slice(0, 10);
 
 const NewUserModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
   const options = useUserFilterOptions();

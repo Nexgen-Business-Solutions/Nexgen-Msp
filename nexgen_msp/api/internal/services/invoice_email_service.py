@@ -140,11 +140,12 @@ class InvoiceEmailService:
     def _summary(invoice):
         """What this very document says, line by line, for the body of the mail."""
         doc = frappe.get_doc("Sales Invoice", invoice)
-        money = lambda amount: f"{frappe.utils.flt(amount, 2):,.0f} {doc.currency}".replace(
-            ",", " "
-        )
+        # the currency decides how many decimals the figure has: a 23.48 that reads 23 in the
+        # mail is not the amount the document says
+        money = lambda amount: frappe.utils.fmt_money(amount, currency=doc.currency)
         rows = [(item.item_name or item.item_code, money(item.amount)) for item in doc.items]
-        rows.append(("Total", money(doc.grand_total or doc.net_total)))
+        total = doc.grand_total if doc.grand_total is not None else doc.net_total
+        rows.append(("Total", money(total)))
 
         return notifications.summary_table(rows)
 
@@ -271,18 +272,21 @@ class InvoiceEmailService:
         if not request_id:
             return None
 
+        # the request is the last thing the line says, so the match is the whole of it: a
+        # shorter identifier is not a replay of a longer one that happens to start with it
+        tail = f"· request {request_id}"
         said = frappe.db.get_value(
             "Comment",
             {
                 "reference_doctype": "Sales Invoice",
                 "reference_name": invoice,
-                "content": ["like", f"%[{AUDIT_TAG}]%request {request_id}%"],
+                "content": ["like", f"%[{AUDIT_TAG}]%{tail}"],
             },
             ["name", "content", "creation", "owner"],
             as_dict=True,
         )
 
-        if not said:
+        if not said or not said.content.endswith(tail):
             return None
 
         for attempt in InvoiceEmailService.history(invoice)["attempts"]:

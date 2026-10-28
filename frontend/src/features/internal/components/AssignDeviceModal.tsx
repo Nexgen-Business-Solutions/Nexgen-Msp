@@ -3,6 +3,7 @@ import { AlertCircle, UserPlus } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
 import FieldLabel from '@/shared/components/FieldLabel';
 import Select from '@/shared/components/Select';
+import { today } from '@/shared/lib/today';
 import { useAssignDevice, useCustomerUsers } from '../hooks/useDevices';
 
 type Props = {
@@ -19,8 +20,6 @@ type Props = {
 const labelClass = 'mb-1.5 block text-xs font-semibold text-slate-700';
 const inputClass =
   'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
-
-const today = () => new Date().toISOString().slice(0, 10);
 
 const AssignDeviceModal: React.FC<Props> = ({
   open,

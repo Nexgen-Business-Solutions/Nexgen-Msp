@@ -1,6 +1,7 @@
 import frappe
 
 from nexgen_msp.api.internal.services.contract_service import ContractService
+from nexgen_msp.utils import billing_marks
 from nexgen_msp.utils import identifiers
 from nexgen_msp.utils import remarks as remarks_util
 from nexgen_msp.utils import request_targets
@@ -503,21 +504,7 @@ class UserService:
     @staticmethod
     def _billed_to(assignment):
         """The last day this assignment has been invoiced for, if it ever was."""
-        return frappe.db.sql(
-            """
-            select max(br.billing_period_end)
-            from `tabMSP Billing Run Line` brl
-            join `tabMSP Billing Run` br on br.name = brl.parent
-            join `tabMSP Service Assignment` sa on sa.name = brl.service_assignment
-            where brl.service_assignment = %s
-              -- only that company's own runs can have billed it
-              and br.customer = sa.customer
-              and br.docstatus = 1
-              and ifnull(br.credit_note_of, '') = ''
-              and ifnull(br.standalone_credit, 0) = 0
-            """,
-            assignment,
-        )[0][0]
+        return billing_marks.billed_to([assignment]).get(assignment)
 
     @staticmethod
     def _checked_request(source_request, customer):

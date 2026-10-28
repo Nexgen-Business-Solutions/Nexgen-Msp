@@ -13,7 +13,7 @@ from nexgen_msp.api.internal.services.service_definition_service import (
     ServiceDefinitionService,
 )
 from nexgen_msp.api.internal.services.billing import accounting, money
-from nexgen_msp.utils import erpnext_bridge, permissions
+from nexgen_msp.utils import billing_marks, erpnext_bridge, permissions
 from nexgen_msp.utils import intervals as coverage_intervals
 from nexgen_msp.utils.catalogue import BILLING_UOM
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
@@ -936,7 +936,7 @@ class BillingService:
         run_discount = flt(run_discount)
 
         assignments = frappe.db.sql(
-            """
+            f"""
             select
                 sa.name, sa.service_item, sa.assignment_scope, sa.client_user, sa.managed_device,
                 sa.quantity, sa.operational_status, sa.billing_status,
@@ -953,17 +953,7 @@ class BillingService:
                 device.serial_number as serial_number,
                 device.device_type as device_type,
                 coalesce(item.item_name, sa.service_item) as service_name,
-                (
-                    select max(br.billing_period_end)
-                    from `tabMSP Billing Run Line` brl
-                    join `tabMSP Billing Run` br on br.name = brl.parent
-                    where brl.service_assignment = sa.name and br.docstatus = 1
-                      -- a line that sat on a run flagged with an exception was carried,
-                      -- not charged, and a credit note is money going the other way
-                      and ifnull(brl.exception_code, '') = ''
-                      and ifnull(br.credit_note_of, '') = ''
-                      and ifnull(br.standalone_credit, 0) = 0
-                ) as last_billed_on
+                {billing_marks.BILLED_TO} as last_billed_on
             from `tabMSP Service Assignment` sa
             left join `tabItem` item on item.name = sa.service_item
             left join `tabMSP Client User` cu on cu.name = sa.client_user

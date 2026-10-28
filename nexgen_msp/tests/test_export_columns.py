@@ -317,3 +317,43 @@ class TestTheCustomerListCarriesWhatOursDoes(MSPTestCase):
         # the history is read machine by machine, so a list page leaves it to the sheet
         self.assertNotIn("previous_holders", laptop)
 
+
+class TestWhatASheetDoesNotCalculate(MSPTestCase):
+    """A value that looks like a formula is the value somebody wrote, not a calculation.
+
+    A hostname or a name beginning with `=` is written into the sheet as text, so opening
+    the file reads the record back rather than running it.
+    """
+
+    def sheet_of(self, written):
+        from nexgen_msp.utils import listing_export
+
+        stream = io.BytesIO(
+            listing_export.workbook("Users", [("full_name", "User")], [{"full_name": written}])
+        )
+
+        return load_workbook(stream).active["A2"]
+
+    def test_a_value_beginning_with_an_equals_sign_stays_text(self):
+        cell = self.sheet_of("=1+1")
+
+        self.assertEqual(cell.data_type, "s", "it is a string, not a formula")
+        self.assertEqual(cell.value, "=1+1", "and it is the value that was written")
+
+    def test_an_ordinary_value_is_untouched(self):
+        cell = self.sheet_of("KV-ABBASS")
+
+        self.assertEqual(cell.data_type, "s")
+        self.assertEqual(cell.value, "KV-ABBASS")
+
+    def test_a_number_is_still_a_number(self):
+        from nexgen_msp.utils import listing_export
+
+        stream = io.BytesIO(
+            listing_export.workbook("Users", [("count", "Count")], [{"count": 12}])
+        )
+        cell = load_workbook(stream).active["A2"]
+
+        self.assertEqual(cell.value, 12)
+        self.assertEqual(cell.data_type, "n")
+

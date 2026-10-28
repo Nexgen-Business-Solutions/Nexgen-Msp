@@ -383,3 +383,45 @@ class TestWhatIsNotTouched(InvoiceMailCase):
 
         self.assertEqual(to, [address])
         self.assertEqual(copies, [], "the automatic notice writes to the contact alone")
+
+
+class TestWhatTheMailSaysTheAmountIs(InvoiceMailCase):
+    """The figure in the body is the document's figure, to the last centime.
+
+    A total rounded to the nearest unit is not the amount the invoice says, and a customer
+    reading 23 where the document says 23.48 has been told the wrong thing.
+    """
+
+    def said_of(self, name):
+        return frappe.utils.strip_html(InvoiceEmailService._summary(name))
+
+    def test_a_total_with_centimes_keeps_them(self):
+        name = self.posted_invoice(total=23.48)
+        doc = frappe.get_doc("Sales Invoice", name)
+
+        self.assertIn(frappe.utils.fmt_money(doc.grand_total, currency=doc.currency), self.said_of(name))
+
+    def test_a_total_under_one_is_not_rounded_away(self):
+        name = self.posted_invoice(total=0.49)
+        doc = frappe.get_doc("Sales Invoice", name)
+        said = self.said_of(name)
+
+        self.assertIn(frappe.utils.fmt_money(doc.grand_total, currency=doc.currency), said)
+        self.assertNotIn(f"0 {doc.currency}", said, "the amount is not nothing")
+
+
+class TestWhichAttemptIsBeingReplayed(InvoiceMailCase):
+    def test_a_shorter_request_is_not_a_replay_of_a_longer_one(self):
+        name = self.posted_invoice()
+        address = self.accountant()
+        InvoiceEmailService.send(name=name, recipients=[address], request_id="replay-9876543210")
+
+        self.assertIsNotNone(
+            InvoiceEmailService._attempt_of(name, "replay-9876543210"),
+            "its own request is a replay of itself",
+        )
+        self.assertIsNone(
+            InvoiceEmailService._attempt_of(name, "replay-98765"),
+            "another request that merely starts the same is not",
+        )
+

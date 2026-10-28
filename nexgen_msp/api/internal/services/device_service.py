@@ -5,6 +5,7 @@ from nexgen_msp.api.internal.services.service_definition_service import (
 )
 
 from nexgen_msp.api.internal.services.contract_service import ContractService
+from nexgen_msp.utils import billing_marks
 from nexgen_msp.utils import device_holders as holders
 from nexgen_msp.utils import identifiers
 from nexgen_msp.utils import operations
@@ -433,19 +434,14 @@ class DeviceService:
         )
 
         services = frappe.db.sql(
-            """
+            f"""
             select
                 sa.name, sa.service_item,
                 coalesce(item.item_name, sa.service_item) as service_name,
                 sa.assignment_scope, sa.operational_status, sa.billing_status,
                 sa.effective_start_date, sa.effective_end_date,
                 sa.internal_notes, sa.source_request, sa.client_user,
-                (
-                    select max(br.billing_period_end)
-                    from `tabMSP Billing Run Line` brl
-                    join `tabMSP Billing Run` br on br.name = brl.parent
-                    where brl.service_assignment = sa.name and br.docstatus = 1
-                ) as last_billed_on
+                {billing_marks.BILLED_TO} as last_billed_on
             from `tabMSP Service Assignment` sa
             left join `tabItem` item on item.name = sa.service_item
             where sa.managed_device = %(device)s

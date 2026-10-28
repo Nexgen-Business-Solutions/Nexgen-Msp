@@ -212,8 +212,9 @@ class RequestExecutionService:
 			else:
 				RequestExecutionService._plan_service_action(doc, row)
 
-		frappe.db.commit()
-
+		# the caller commits: approving a request and creating the work it calls for is one
+		# operation, and a plan that was written while the approval was not is worse than
+		# neither being written at all
 		return RequestExecutionService.get_execution_plan(doc.name)
 
 	@staticmethod

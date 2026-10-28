@@ -4,6 +4,8 @@ Nothing here carries any work out. Building a plan writes work orders and touche
 person, no machine and no service assignment.
 """
 
+from unittest.mock import patch
+
 import frappe
 
 from nexgen_msp.api.internal.services.request_execution_service import RequestExecutionService
@@ -583,3 +585,46 @@ class TestApprovingIsWhatCreatesTheWork(ExecutionPlanCase):
             frappe.db.count("MSP Client User", {"full_name": "Marie Dupont"}),
             0,
         )
+
+
+class TestApprovingAndPlanningAreOneOperation(ExecutionPlanCase):
+    """A request never reads approved with the work it calls for missing.
+
+    The approval used to be committed before the work was written, so anything that went
+    wrong while writing it left a request approved with nothing behind it — and `approve`
+    is not offered twice, because it only moves a request that is still under review.
+    """
+
+    def test_work_that_cannot_be_written_takes_the_approval_with_it(self):
+        name = self.raise_request(self.line(self.offering("AT1")))
+        self.decide(name)
+
+        with patch.object(
+            RequestExecutionService,
+            "_plan_service_action",
+            side_effect=RuntimeError("the work order could not be written"),
+        ):
+            with self.assertRaises(RuntimeError):
+                self.as_user(self.tech, lambda: RequestService.run_action(name=name, action="approve"))
+
+        frappe.db.rollback()
+
+        self.assertEqual(
+            frappe.db.get_value("MSP Request", name, "status"),
+            "Under Review",
+            "the approval went back with the work that failed",
+        )
+        self.assertEqual(len(self.orders(name)), 0, "and nothing was left half written")
+
+        # and the decision can simply be taken again
+        self.approve(name)
+
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "status"), "Approved")
+        self.assertEqual(len(self.orders(name)), 1)
+
+    def test_an_approval_that_goes_through_writes_both(self):
+        name = self.approve(self.raise_request(self.line(self.offering("AT2"))))
+
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "status"), "Approved")
+        self.assertEqual(len(self.orders(name)), 1)
+

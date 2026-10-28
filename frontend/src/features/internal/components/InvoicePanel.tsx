@@ -144,10 +144,10 @@ const InvoicePanel: React.FC<{ run: string; isAdmin?: boolean }> = ({ run, isAdm
                   {item.qty} {item.uom}
                 </td>
                 <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600 tabular-nums">
-                  {money(item.price_list_rate || item.rate)}
+                  {item.price_list_rate ? money(item.price_list_rate) : '—'}
                 </td>
                 <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600 tabular-nums">
-                  {item.discount_percentage ? `${item.discount_percentage}%` : '—'}
+                  {item.price_list_rate ? `${item.discount_percentage || 0}%` : '—'}
                 </td>
                 <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900 tabular-nums">
                   {money(item.amount)}

@@ -4,6 +4,7 @@ import Modal from '@/shared/components/Modal';
 import FieldLabel from '@/shared/components/FieldLabel';
 import Select from '@/shared/components/Select';
 import type { CustomerRequestRef, UserDetail } from '@/lib/api/internal';
+import { today } from '@/shared/lib/today';
 import RequestReferenceField from './RequestReferenceField';
 import { useAssignService, useUserServiceAvailability } from '../hooks/useUsers';
 
@@ -17,8 +18,6 @@ type Props = {
 
 const inputClass =
   'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
-
-const today = () => new Date().toISOString().slice(0, 10);
 
 const AddUserServiceModal: React.FC<Props> = ({
   open,
@@ -78,7 +77,7 @@ const AddUserServiceModal: React.FC<Props> = ({
       icon={Layers}
       tone="blue"
       title="Add service"
-      subtitle="Record the personal service now. Contract and pricing gaps can be resolved later."
+      subtitle="Record the personal service now. A missing rate can be configured later; only services their contract covers are offered here."
       widthClass="max-w-lg"
       footer={
         <div className="flex items-center justify-end gap-2">

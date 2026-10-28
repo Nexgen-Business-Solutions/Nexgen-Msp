@@ -6,6 +6,7 @@ import InterfaceEditor from '@/shared/components/InterfaceEditor';
 import FieldLabel from '@/shared/components/FieldLabel';
 import Select from '@/shared/components/Select';
 import type { CustomerRequestRef, DeviceInterface } from '@/lib/api/internal';
+import { today } from '@/shared/lib/today';
 import RequestReferenceField from './RequestReferenceField';
 import { useAddDevice, useCustomerRequests } from '../hooks/useUsers';
 import {
@@ -35,8 +36,6 @@ type Props = {
 const labelClass = 'mb-1.5 block text-xs font-semibold text-slate-700';
 const inputClass =
   'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
-
-const today = () => new Date().toISOString().slice(0, 10);
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
 
