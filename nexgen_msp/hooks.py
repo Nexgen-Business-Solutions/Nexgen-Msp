@@ -249,6 +249,7 @@ doc_events = {
 	# a document this application drew may be posted on either side, and is undone on one:
 	# `billing.accounting` owns that asymmetry
 	"Sales Invoice": {
+		"before_submit": "nexgen_msp.api.internal.services.billing.accounting.refuse_ambiguous_posting",
 		"on_submit": "nexgen_msp.api.internal.services.billing.accounting.invoice_submitted",
 		"before_cancel": "nexgen_msp.api.internal.services.billing.accounting.refuse_unowned_cancel",
 		"on_cancel": "nexgen_msp.api.internal.services.billing.accounting.invoice_cancelled",

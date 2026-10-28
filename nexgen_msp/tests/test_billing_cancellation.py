@@ -197,6 +197,31 @@ class TestPostingFromEitherSide(CancellationCase):
             "the run is brought up to date; writing to the customer is somebody's decision",
         )
 
+    def test_a_document_two_runs_claim_is_not_posted_by_a_guess(self):
+        run = self.approved()
+        invoice = self.invoice_of(run)
+        other = self.approved(back=9)
+        frappe.db.set_value(RUN, other, "sales_invoice", invoice, update_modified=False)
+        frappe.db.commit()
+
+        try:
+            with self.assertRaises(frappe.ValidationError) as refused:
+                doc = frappe.get_doc(INVOICE, invoice)
+                doc.flags.ignore_permissions = True
+                doc.submit()
+
+            said = frappe.utils.strip_html(str(refused.exception))
+
+            self.assertIn("claimed by more than one Billing Run", said)
+            self.assertIn(run, said)
+            self.assertIn(other, said)
+            self.assertEqual(self.docstatus_of(invoice), 0, "nothing was posted")
+            self.assertEqual(self.status_of(run), "Invoice Drafted")
+            self.assertEqual(self.status_of(other), "Invoice Drafted")
+        finally:
+            frappe.db.set_value(RUN, other, "sales_invoice", None, update_modified=False)
+            frappe.db.commit()
+
     def test_saying_it_twice_changes_nothing(self):
         run = self.posted()
         before = frappe.db.get_value(RUN, run, "modified")
@@ -330,6 +355,101 @@ class TestErpnextMayNotCancelOurDocument(CancellationCase):
 
         with self.assertRaises(frappe.ValidationError):
             self.cancel_in_erpnext(invoice)
+
+
+class TestErpnextMayNotCancelTheRunEither(CancellationCase):
+    """Cancelling the run itself in the Desk leaves the document it posted standing.
+
+    That is the same half-cancelled state the refusal on the document exists to prevent,
+    reached from the other end, so the run refuses it too and names where it is done.
+    """
+
+    def cancel_natively(self, run):
+        doc = frappe.get_doc(RUN, run)
+        doc.flags.ignore_permissions = True
+        doc.cancel()
+
+    def test_cancelling_the_run_in_the_desk_is_refused_while_its_document_stands(self):
+        run = self.posted()
+        invoice = self.invoice_of(run)
+
+        with self.assertRaises(frappe.ValidationError) as refused:
+            self.cancel_natively(run)
+
+        said = frappe.utils.strip_html(str(refused.exception))
+
+        self.assertIn("cancelled in Nexgen MSP", said)
+        self.assertEqual(frappe.db.get_value(RUN, run, "docstatus"), 1, "the run is untouched")
+        self.assertEqual(self.status_of(run), "Invoiced")
+        self.assertEqual(self.docstatus_of(invoice), 1, "and so is its document")
+
+    def test_the_same_restriction_holds_through_the_api_rather_than_the_desk(self):
+        from frappe.client import cancel as api_cancel
+
+        run = self.posted()
+
+        with self.assertRaises(frappe.ValidationError):
+            api_cancel(RUN, run)
+
+        self.assertEqual(frappe.db.get_value(RUN, run, "docstatus"), 1)
+        self.assertEqual(self.status_of(run), "Invoiced")
+
+    def test_a_run_that_carries_no_document_is_cancelled_where_the_others_are(self):
+        run = self.approved()
+        BillingService.discard_invoice(name=run)
+
+        with self.assertRaises(frappe.ValidationError):
+            self.cancel_natively(run)
+
+        out = BillingService.cancel(name=run, reason="ZZTEST drawn by mistake")
+
+        self.assertEqual(out["status"], "Cancelled")
+
+    def test_the_permission_names_one_run_and_cannot_be_borrowed(self):
+        run = self.posted()
+        other = self.approved(back=9)
+
+        self.assertFalse(accounting.run_cancellation_permitted(run))
+
+        with accounting.cancelling_run(run):
+            self.assertTrue(accounting.run_cancellation_permitted(run))
+            self.assertFalse(accounting.run_cancellation_permitted(other))
+
+        self.assertFalse(accounting.run_cancellation_permitted(run), "it is taken away again")
+
+    def test_the_permission_is_taken_away_even_when_the_operation_fails(self):
+        run = self.posted()
+
+        with self.assertRaises(RuntimeError):
+            with accounting.cancelling_run(run):
+                raise RuntimeError("the ledger refused")
+
+        self.assertFalse(accounting.run_cancellation_permitted(run))
+
+        with self.assertRaises(frappe.ValidationError):
+            self.cancel_natively(run)
+
+    def test_cancelling_from_here_still_takes_the_run_and_its_document_together(self):
+        run = self.posted()
+        invoice = self.invoice_of(run)
+
+        BillingService.cancel(name=run, reason="ZZTEST billing correction")
+
+        self.assertEqual(self.status_of(run), "Cancelled")
+        self.assertEqual(frappe.db.get_value(RUN, run, "docstatus"), 2)
+        self.assertEqual(self.docstatus_of(invoice), 2)
+
+    def test_a_permitted_cancellation_is_the_one_door_that_opens(self):
+        """What reopening an approved run goes through, which the guard must not close."""
+        start, end = self.month()
+        run = self.drawn(start=start, end=end)
+        BillingService.approve(name=run)
+
+        with accounting.cancelling_run(run):
+            self.cancel_natively(run)
+
+        self.assertEqual(frappe.db.get_value(RUN, run, "docstatus"), 2)
+        self.assertEqual(self.status_of(run), "Cancelled")
 
 
 class TestCancellingFromHere(CancellationCase):
@@ -583,6 +703,46 @@ class TestRepairingWhatWasLeftBehind(CancellationCase):
         self.assertTrue(done["applied"])
         self.assertEqual(self.status_of(run), "Cancelled")
         self.assertEqual(self.docstatus_of(invoice), 2, "nothing was posted again")
+
+    def test_a_cancelled_run_against_a_posted_document_is_not_called_repaired(self):
+        """Two records that contradict each other, which no repair can reconcile.
+
+        The run was undone and the document was not, so bringing the run back to `Invoiced`
+        would say it was billed and bringing the document down is not something a status
+        write does. Reporting it as applied is what must not happen.
+        """
+        run = self.posted()
+        invoice = self.invoice_of(run)
+        frappe.db.set_value(RUN, run, "status", "Cancelled", update_modified=False)
+        frappe.db.commit()
+
+        planned = accounting.reconcile_run(name=run)
+
+        self.assertEqual(planned["mismatch"]["code"], "POSTED_ELSEWHERE")
+
+        with self.assertRaises(ServiceRefused) as refused:
+            accounting.reconcile_run(name=run, apply=1)
+
+        self.assertIn(invoice, str(refused.exception))
+        self.assertIn(run, str(refused.exception))
+        self.assertEqual(self.status_of(run), "Cancelled", "nothing was written")
+        self.assertEqual(self.docstatus_of(invoice), 1)
+        self.assertEqual(
+            run_view.run_view(run)["accounting_mismatch"]["code"],
+            "POSTED_ELSEWHERE",
+            "and the contradiction is still reported",
+        )
+
+    def test_a_repair_that_reaches_nothing_says_so_rather_than_reporting_success(self):
+        run = self.posted()
+        frappe.db.set_value(RUN, run, "status", "Invoice Drafted", update_modified=False)
+        frappe.db.commit()
+
+        done = accounting.reconcile_run(name=run, apply=1)
+
+        self.assertTrue(done["applied"])
+        self.assertIsNone(done["mismatch"], "what was repaired is no longer reported as found")
+        self.assertEqual(done["status"], "Invoiced")
 
     def test_repairing_the_same_thing_twice_changes_nothing(self):
         run = self.posted()

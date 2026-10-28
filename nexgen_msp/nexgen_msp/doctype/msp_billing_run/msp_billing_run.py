@@ -27,6 +27,18 @@ class MSPBillingRun(Document):
 		self.approved_by = frappe.session.user
 		self.approved_at = now_datetime()
 
+	def before_cancel(self):
+		from nexgen_msp.api.internal.services.billing import accounting
+
+		if not accounting.run_cancellation_permitted(self.name):
+			frappe.throw(
+				_(
+					"This Billing Run is cancelled in Nexgen MSP, so the accounting document "
+					"it posted is undone in the same operation."
+				),
+				title=_("Cancellation not allowed"),
+			)
+
 	def on_cancel(self):
 		# on_cancel runs after the row is written, so the status needs writing on its own
 		self.db_set("status", "Cancelled")

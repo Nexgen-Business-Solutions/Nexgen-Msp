@@ -31,6 +31,9 @@ AUDIT_PREFIX = "[billing-cancel]"
 # the permission to cancel one document, made here and held for the length of one operation
 PERMIT = "nexgen_msp_cancelling"
 
+# and the same for the run itself, which is cancelled by this side or not at all
+RUN_PERMIT = "nexgen_msp_cancelling_run"
+
 DRAFT, SUBMITTED, VOIDED = 0, 1, 2
 
 ACCOUNTING_STATE = {DRAFT: "Draft", SUBMITTED: "Posted", VOIDED: "Cancelled"}
@@ -142,17 +145,78 @@ def cancelling(run, invoice):
         frappe.flags[PERMIT] = current
 
 
+def _run_permits():
+    return frappe.flags.get(RUN_PERMIT) or {}
+
+
+def run_cancellation_permitted(run):
+    """Whether this very run is being cancelled by an operation that started on this side."""
+    return bool(_run_permits().get(run))
+
+
+@contextmanager
+def cancelling_run(run):
+    """Permission to cancel one Billing Run, made on this side and for this operation only.
+
+    A run is cancelled through the operation that also sees to the document it posted, so
+    the Desk's own cancellation is refused. This is how the operation says, for the length
+    of itself and for one named run, that it is the one asking. Nothing that arrives in a
+    request can reach it, and it is taken away again whatever happens next.
+    """
+    token = frappe.generate_hash(length=16)
+    held = dict(_run_permits())
+
+    if run in held:
+        raise ValidationError(
+            f"{run} is already being cancelled. Wait for that operation to finish.",
+            "INVALID_TRANSITION",
+        )
+
+    held[run] = token
+    frappe.flags[RUN_PERMIT] = held
+
+    try:
+        yield
+    finally:
+        current = dict(_run_permits())
+
+        if current.get(run) == token:
+            current.pop(run)
+
+        frappe.flags[RUN_PERMIT] = current
+
+
 # --------------------------------------------------------------------- document events
 
 
-def invoice_submitted(doc, method=None):
-    """A document of ours was posted — here or in ERPNext — so its run says so too."""
-    runs = runs_of(doc.name)
+def _owner_for_event(doc):
+    """Who owns the document an ERPNext event is about, said the way the Desk reads it."""
+    try:
+        return owner_of(doc.name)
+    except ValidationError as unclear:
+        frappe.throw(unclear.message, title=_("Posting not allowed"))
 
-    if len(runs) != 1:
+
+def refuse_ambiguous_posting(doc, method=None):
+    """A document two runs claim is not posted until somebody repairs the link.
+
+    Which of them was posted is a decision, not a guess, and this runs before the posting
+    is written rather than after, so a refusal leaves the document the draft it was.
+    """
+    _owner_for_event(doc)
+
+
+def invoice_submitted(doc, method=None):
+    """A document of ours was posted — here or in ERPNext — so its run says so too.
+
+    A document no run claims is ERPNext's own and is left exactly as it is.
+    """
+    run = _owner_for_event(doc)
+
+    if not run:
         return
 
-    mark_posted(runs[0])
+    mark_posted(run)
 
 
 def refuse_unowned_cancel(doc, method=None):
@@ -466,13 +530,14 @@ def cancel_run(name=None, reason=None):
         else:
             operation = "already-cancelled"
 
-    if run.docstatus == SUBMITTED:
-        run.flags.ignore_links = True
-        run.cancel()
-    else:
-        run.flags.ignore_links = True
-        run.status = CANCELLED
-        run.save()
+    with cancelling_run(name):
+        if run.docstatus == SUBMITTED:
+            run.flags.ignore_links = True
+            run.cancel()
+        else:
+            run.flags.ignore_links = True
+            run.status = CANCELLED
+            run.save()
 
     BillingService._recompute_last_billed(run.customer)
 
@@ -540,6 +605,16 @@ def reconcile_run(name=None, apply=0):
     if not frappe.utils.cint(apply):
         return plan
 
+    if plan["would"] == POSTED and (run.status == CANCELLED or run.docstatus == VOIDED):
+        # a run that was undone cannot be brought back to a posting, and a posted document
+        # is not undone by writing on the run, so there is no repair this can carry out
+        raise ValidationError(
+            f"{run.sales_invoice} is posted in ERPNext while {name} is cancelled. A repair "
+            "cannot reconcile the two: whichever of them is wrong has to be settled on its "
+            "own side.",
+            "INVALID_TRANSITION",
+        )
+
     if plan["would"] == POSTED:
         mark_posted(name)
     elif run.docstatus == VOIDED:
@@ -547,15 +622,26 @@ def reconcile_run(name=None, apply=0):
         frappe.db.set_value(RUN, name, "status", CANCELLED)
         BillingService._recompute_last_billed(run.customer)
     else:
-        run.flags.ignore_links = True
+        with cancelling_run(name):
+            run.flags.ignore_links = True
 
-        if run.docstatus == SUBMITTED:
-            run.cancel()
-        else:
-            run.status = CANCELLED
-            run.save()
+            if run.docstatus == SUBMITTED:
+                run.cancel()
+            else:
+                run.status = CANCELLED
+                run.save()
 
         BillingService._recompute_last_billed(run.customer)
+
+    left = state_of(frappe.get_doc(RUN, name).as_dict())
+
+    if left.get("mismatch"):
+        raise ValidationError(
+            f"{name} still reads {frappe.db.get_value(RUN, name, 'status')} against "
+            f"{run.sales_invoice}. Nothing has been repaired.",
+            "INVALID_TRANSITION",
+            detail={"mismatch": left["mismatch"]},
+        )
 
     _audit(
         name,
@@ -566,4 +652,10 @@ def reconcile_run(name=None, apply=0):
     )
     frappe.db.commit()
 
-    return {**plan, "applied": True, "status": frappe.db.get_value(RUN, name, "status")}
+    return {
+        **plan,
+        "applied": True,
+        "status": frappe.db.get_value(RUN, name, "status"),
+        "invoice_docstatus": left.get("invoice_docstatus"),
+        "mismatch": None,
+    }

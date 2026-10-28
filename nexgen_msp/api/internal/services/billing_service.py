@@ -2348,7 +2348,8 @@ class BillingService:
                 "INVALID_TRANSITION",
             )
 
-        doc.cancel()
+        with accounting.cancelling_run(name):
+            doc.cancel()
 
         amended = frappe.copy_doc(doc)
         amended.amended_from = doc.name
