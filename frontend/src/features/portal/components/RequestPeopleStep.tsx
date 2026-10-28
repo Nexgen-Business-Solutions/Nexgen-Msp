@@ -5,6 +5,7 @@ import Modal from '@/shared/components/Modal';
 import Select from '@/shared/components/Select';
 import TruncatedNote from '@/shared/components/TruncatedNote';
 import type { RequestSubjectRow } from '@/lib/api/portal';
+import { machineIdentity } from '@/shared/request';
 import {
   useCompanySelection,
   useDepartmentSelection,
@@ -581,7 +582,7 @@ const RequestPeopleStep: React.FC<{ builder: Builder }> = ({ builder }) => {
                     {row.last_billed ? fmtDate(row.last_billed) : '—'}
                   </td>
                   <td className="px-4 py-2.5 text-sm">
-                    <Tokens values={row.devices.map((device) => device.label)} />
+                    <Tokens values={row.devices.map((device) => machineIdentity(device))} />
                   </td>
                   <td className="px-4 py-2.5 text-sm">
                     <Tokens

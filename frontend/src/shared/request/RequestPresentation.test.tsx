@@ -357,7 +357,7 @@ describe('requested actions', () => {
     const row = within(table).getAllByRole('row')[1];
     expect(within(row).getAllByRole('cell').map((cell) => cell.textContent)).toEqual([
       'Marie DupontNEW',
-      'New laptopUNRESOLVED',
+      'New laptopUNRESOLVEDSerial number not assigned yet',
       'Add Sophos',
       '—',
     ]);
@@ -382,7 +382,9 @@ describe('requested actions', () => {
     const holder = document.querySelector('[data-group="grp-holder"]') as HTMLElement;
     fireEvent.click(within(holder).getByRole('button', { name: 'View details' }));
     const row = within(within(holder).getByRole('table')).getAllByRole('row')[1];
-    expect(row.textContent).toBe('Franck MbassiACI-LT-023Change holderHeld by Franck Mbassi');
+    expect(row.textContent).toBe(
+      'Franck MbassiACI-LT-023SN: SN-023Change holderHeld by Franck Mbassi'
+    );
     expect(within(holder).getAllByText('Franck Mbassi → Marie Dupont')).toHaveLength(1);
     expect(within(holder).getAllByText('NEW')).toHaveLength(1);
 

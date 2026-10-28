@@ -679,8 +679,16 @@ def approve_billing_run(name=None):
 
 @frappe.whitelist()
 @handle_errors
-def cancel_billing_run(name=None):
-    return _billing().cancel(name=name)
+def cancel_billing_run(name=None, reason=None):
+    return _billing().cancel(name=name, reason=reason)
+
+
+@frappe.whitelist()
+@handle_errors
+def reconcile_billing_run(name=None, apply=0):
+    from nexgen_msp.api.internal.services.billing import accounting
+
+    return accounting.reconcile_run(name=name, apply=apply)
 
 
 @frappe.whitelist()

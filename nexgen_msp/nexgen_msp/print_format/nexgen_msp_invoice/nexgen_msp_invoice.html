@@ -4,17 +4,26 @@
     {%- if entry.strip() %}<p>{{ entry.strip() }}</p>{% endif -%}
   {%- endfor -%}
 {%- endmacro -%}
-{%- set gross_total = doc.items | map(attribute="amount") | sum -%}
-{%- set list_total = [] -%}
-{%- for item in doc.items -%}
-  {%- if list_total.append((item.price_list_rate or item.rate) * item.qty) -%}{%- endif -%}
-{%- endfor -%}
-{%- set subtotal = list_total | sum -%}
-{%- set discount_amount = subtotal - doc.net_total -%}
+{#- the printed figures are the document's own: the lines add up to its total, the deductions
+    are the ones it records, and the amount owed is the one ERPNext governs -#}
+{%- set lines_total = doc.items | map(attribute="amount") | sum -%}
+{%- set rounding = doc.total - lines_total -%}
+{%- set invoice_discount = doc.discount_amount or 0 -%}
+{%- set payable = doc.rounded_total if (doc.rounded_total and not doc.disable_rounded_total) else doc.grand_total -%}
 {%- set show_centre = msp.show_cost_center_on_invoice and doc.cost_center -%}
 {%- macro money(value) -%}
   {%- set formatted = frappe.format_value(value | abs, {"fieldtype": "Currency"}, doc) -%}
   {%- if value < 0 -%}({{ formatted }}){%- else -%}{{ formatted }}{%- endif -%}
+{%- endmacro -%}
+{#- a quantity may be a part of a month, so it keeps its decimals and loses its padding -#}
+{%- macro quantity(item) -%}
+  {{ "{:.3f}".format(item.qty | float).rstrip("0").rstrip(".") or "0" }}{% if item.uom %} {{ item.uom }}{% endif %}
+{%- endmacro -%}
+{#- the percentage the line records, which is not deduced from two rounded prices -#}
+{%- macro percentage(item) -%}
+  {%- if item.price_list_rate -%}
+    {{ "{:.2f}".format(item.discount_percentage | float).rstrip("0").rstrip(".") or "0" }}%
+  {%- else -%}—{%- endif -%}
 {%- endmacro -%}
 
 <div class="msp-invoice">
@@ -24,7 +33,7 @@
         <img width="200" src="/assets/nexgen_msp/images/nexgen-logo.png" alt="{{ msp.issuer_name }}" />
       </td>
       
-      <td class="title">INVOICE</td>
+      <td class="title">{% if doc.is_return %}CREDIT NOTE{% else %}INVOICE{% endif %}</td>
     </tr>
     <tr>
       <td class="address" colspan="3">
@@ -59,10 +68,12 @@
     <thead>
       <tr>
         <th class="band desc">DESCRIPTION</th>
-        <th class="band center billed">BILLED</th>
-        <th class="band center qty">QTY</th>
-        <th class="band center price">UNIT PRICE</th>
-        <th class="band center amount">AMOUNT</th>
+        <th class="band center billed">USERS/DEVICES</th>
+        <th class="band center qty">QUANTITY</th>
+        <th class="band center price">LIST UNIT PRICE</th>
+        <th class="band center discount">DISCOUNT %</th>
+        <th class="band center price">NET UNIT PRICE</th>
+        <th class="band center amount">LINE TOTAL</th>
       </tr>
     </thead>
     <tbody>
@@ -70,9 +81,11 @@
       <tr>
         <td>{{ item.item_name }}{% if item.description %} — {{ item.description }}{% endif %}</td>
         <td class="right">{{ item.msp_billed_count or "—" }}</td>
-        <td class="right">{{ item.qty }}</td>
-        <td class="right">{{ money(item.price_list_rate or item.rate) }}</td>
-        <td class="right">{{ money((item.price_list_rate or item.rate) * item.qty) }}</td>
+        <td class="right">{{ quantity(item) }}</td>
+        <td class="right">{% if item.price_list_rate %}{{ money(item.price_list_rate) }}{% else %}—{% endif %}</td>
+        <td class="right">{{ percentage(item) }}</td>
+        <td class="right">{{ money(item.rate) }}</td>
+        <td class="right">{{ money(item.amount) }}</td>
       </tr>
       {%- endfor %}
     </tbody>
@@ -122,13 +135,25 @@
     <tr>
       <td class="thanks">{{ msp.footer_note }}</td>
       <td class="label">SUBTOTAL</td>
-      <td class="figure">{{ money(subtotal) }}</td>
+      <td class="figure">{{ money(lines_total) }}</td>
     </tr>
-    {%- if discount_amount %}
+    {%- if rounding | round(2) %}
     <tr>
       <td></td>
-      <td class="label">DISCOUNT</td>
-      <td class="figure">({{ frappe.format_value(discount_amount | abs, {"fieldtype": "Currency"}, doc) }})</td>
+      <td class="label">ROUNDING</td>
+      <td class="figure">{{ money(rounding) }}</td>
+    </tr>
+    {%- endif %}
+    {%- if invoice_discount %}
+    <tr>
+      <td></td>
+      <td class="label">INVOICE DISCOUNT</td>
+      <td class="figure">{{ money(invoice_discount * -1) }}</td>
+    </tr>
+    <tr>
+      <td></td>
+      <td class="label">NET TOTAL</td>
+      <td class="figure">{{ money(doc.net_total) }}</td>
     </tr>
     {%- endif %}
     {%- for tax in doc.taxes %}
@@ -138,15 +163,22 @@
       <td class="figure">{{ money(tax.tax_amount) }}</td>
     </tr>
     {%- endfor %}
+    {%- if doc.rounding_adjustment %}
+    <tr>
+      <td></td>
+      <td class="label">ROUNDING ADJUSTMENT</td>
+      <td class="figure">{{ money(doc.rounding_adjustment) }}</td>
+    </tr>
+    {%- endif %}
     <tr class="grand">
       <td class="empty"></td>
       <td class="band">TOTAL</td>
-      <td class="band right">{{ money(doc.grand_total) }}</td>
+      <td class="band right">{{ money(payable) }}</td>
     </tr>
     <tr>
       <td></td>
       <td class="words" colspan="2">
-        {{ doc.in_words or frappe.utils.money_in_words(doc.grand_total, doc.currency) }}
+        {{ doc.in_words or frappe.utils.money_in_words(payable, doc.currency) }}
       </td>
     </tr>
   </table>
@@ -195,12 +227,19 @@
   .parties .value { text-align: center; font-weight: bold; white-space: nowrap; }
 
   .msp-invoice .grid td, .msp-invoice .grid th { border: 1px solid #b9c2cc; }
-  .items td { padding: 5px 7px; font-size: 8.5pt; }
+  .items td { padding: 5px 6px; font-size: 8pt; }
+  .items th.band { padding: 5px 6px; font-size: 7.5pt; }
+  .items .desc { width: 29%; }
   .items .billed { width: 9%; }
-  .items .qty { width: 9%; }
-  .items .price { width: 15%; }
-  .items .amount { width: 16%; }
+  .items .qty { width: 11%; }
+  .items .price { width: 14%; }
+  .items .discount { width: 9%; }
+  .items .amount { width: 14%; }
   .items .right { text-align: right; white-space: nowrap; }
+  .items td:first-child { word-break: break-word; }
+  /* a long table carries its own head onto the next page, and no row is cut in two */
+  .items thead { display: table-header-group; }
+  .items tr { page-break-inside: avoid; }
 
   .bank { margin-top: 20px; }
   /* the print stylesheet pads every cell with !important, which would indent this block */

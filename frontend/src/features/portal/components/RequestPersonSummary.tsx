@@ -1,6 +1,7 @@
 import React from 'react';
 import RecordLink from '@/shared/components/RecordLink';
 import type { RequestSubjectRow } from '@/lib/api/portal';
+import { SERIAL_NOT_RECORDED, machineName } from '@/shared/request';
 
 const Fact: React.FC<{ label: string; value?: string | null }> = ({ label, value }) => (
   <div className="min-w-0">
@@ -47,11 +48,13 @@ const RequestPersonSummary: React.FC<{ person: RequestSubjectRow }> = ({ person 
             <tr key={device.name} data-device={device.name}>
               <td className="px-3 py-2 text-xs font-semibold text-slate-900">
                 <RecordLink name={device.name} kind="device">
-                  {device.hostname || device.label}
+                  {machineName(device)}
                 </RecordLink>
               </td>
               <td className="px-3 py-2 text-xs text-slate-700">{device.device_type || '—'}</td>
-              <td className="px-3 py-2 text-xs text-slate-700">{device.serial_number || '—'}</td>
+              <td className="px-3 py-2 text-xs text-slate-700">
+                {device.serial_number || SERIAL_NOT_RECORDED}
+              </td>
               <td className="px-3 py-2 text-xs text-slate-700">
                 {person.current_services
                   .filter((service) => service.managed_device === device.name)

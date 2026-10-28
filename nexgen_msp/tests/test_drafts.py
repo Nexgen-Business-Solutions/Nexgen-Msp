@@ -62,6 +62,33 @@ class TestTheDraft(MSPTestCase):
         )
         return self.track("MSP Request", out["name"]), out
 
+    def person_only(self, email, name=None, details=None, priority=None):
+        """A draft that names who it is for and nothing it does to them yet."""
+        subjects = [
+            {
+                "subject_key": f"user:{self.person}",
+                "kind": "existing",
+                "client_user": self.person,
+                "full_name": frappe.db.get_value("MSP Client User", self.person, "full_name"),
+                "added_via": "Existing",
+            }
+        ]
+        out = self.as_user(
+            email,
+            lambda: PortalService.save_draft(
+                name=name,
+                customer=self.customer,
+                subjects=frappe.as_json(subjects),
+                action_groups=frappe.as_json([]),
+                requested_devices=frappe.as_json([]),
+                lines=frappe.as_json([]),
+                priority=priority,
+                details=details,
+            ),
+        )
+
+        return self.track("MSP Request", out["name"]), out
+
     def portal_names(self, email):
         listed = self.as_user(email, lambda: PortalService.list_requests(page_length=500))
         return [row["name"] for row in listed["rows"]]
@@ -92,6 +119,119 @@ class TestTheDraft(MSPTestCase):
         self.assertEqual(
             frappe.db.count("MSP Request", {"customer": self.customer, "status": "Draft"}), 1
         )
+
+    def test_a_draft_that_names_people_and_no_action_is_still_saved(self):
+        name, out = self.person_only(self.author, details="Marie starts on Monday.")
+
+        self.assertEqual(out["status"], "Draft")
+        self.assertEqual([row["client_user"] for row in out["subjects"]], [self.person])
+        self.assertEqual(out["lines"], [], "nothing is invented to make it savable")
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "details"), "Marie starts on Monday.")
+        self.assertEqual(frappe.db.count("MSP Request Line", {"parent": name}), 0)
+
+    def test_an_incomplete_draft_reopens_with_everything_it_was_given(self):
+        name, _ = self.person_only(self.author, details="Keep this.", priority="High")
+        reopened = self.as_user(self.author, lambda: PortalService.get_request(name))
+
+        self.assertEqual(reopened["name"], name)
+        self.assertEqual(reopened["status"], "Draft")
+        self.assertEqual(reopened["details"], "Keep this.")
+        self.assertEqual(reopened["priority"], "High")
+        self.assertEqual([row["client_user"] for row in reopened["subjects"]], [self.person])
+
+    def test_saving_an_incomplete_draft_three_times_writes_one_document(self):
+        name, _ = self.person_only(self.author)
+        again, _ = self.person_only(self.author, name=name)
+        third, out = self.person_only(self.author, name=name, details="Third time.")
+
+        self.assertEqual({again, third}, {name})
+        self.assertEqual(frappe.db.count("MSP Request", {"customer": self.customer}), 1)
+        self.assertEqual(out["details"], "Third time.")
+        self.assertEqual(
+            frappe.db.get_value("MSP Request", name, ["requester", "customer"], as_dict=True),
+            frappe._dict({"requester": self.author, "customer": self.customer}),
+        )
+
+    def test_a_save_that_fails_leaves_no_half_written_request_behind(self):
+        from nexgen_msp.api.portal.services import portal_service
+
+        before = frappe.db.count("MSP Request", {"customer": self.customer})
+        held = portal_service.PortalService._write_requested
+
+        def fail(*args, **kwargs):
+            raise RuntimeError("ZZTEST the write failed halfway")
+
+        portal_service.PortalService._write_requested = staticmethod(fail)
+
+        try:
+            with self.assertRaises(RuntimeError):
+                self.person_only(self.author)
+        finally:
+            portal_service.PortalService._write_requested = held
+
+        frappe.db.rollback()
+
+        self.assertEqual(frappe.db.count("MSP Request", {"customer": self.customer}), before)
+        self.assertEqual(
+            frappe.db.count("MSP Requested Client User", {"customer": self.customer}), 0
+        )
+        self.assertEqual(frappe.db.count("MSP Requested Device", {"customer": self.customer}), 0)
+
+    def test_an_incomplete_draft_cannot_be_sent(self):
+        name, _ = self.person_only(self.author)
+
+        with self.assertRaises(ValidationError) as refused:
+            self.as_user(
+                self.author,
+                lambda: PortalService.create_request(
+                    name=name,
+                    customer=self.customer,
+                    subjects=frappe.as_json([]),
+                    action_groups=frappe.as_json([]),
+                    requested_devices=frappe.as_json([]),
+                    lines=frappe.as_json([]),
+                ),
+            )
+
+        self.assertIn("at least one line", str(refused.exception).lower())
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "status"), "Draft")
+
+    def test_an_incomplete_draft_starts_nothing_and_asks_nobody(self):
+        self.rights_of_decider()
+        frappe.db.delete("Email Queue")
+        name, _ = self.person_only(self.author)
+
+        self.assertEqual(frappe.db.count("Email Queue"), 0)
+        self.assertEqual(frappe.db.count("MSP Work Order", {"request": name}), 0)
+        self.assertEqual(frappe.db.count("MSP Service Assignment", {"source_request": name}), 0)
+        self.assertNotIn(name, self.our_names())
+        self.assertNotIn(name, self.portal_names(self.colleague))
+
+    def test_an_incomplete_draft_is_only_its_authors_to_save_over(self):
+        name, _ = self.person_only(self.author)
+
+        with self.assertRaises(Exception):
+            self.person_only(self.colleague, name=name)
+
+        self.assertEqual(frappe.db.get_value("MSP Request", name, "requester"), self.author)
+
+    def test_a_draft_is_refused_for_a_company_the_author_may_not_act_for(self):
+        other = self.make_customer("OTHER")
+        self.track("MSP Approval Authority", other)
+
+        with self.assertRaises(Exception):
+            self.as_user(
+                self.author,
+                lambda: PortalService.save_draft(
+                    customer=other,
+                    subjects=frappe.as_json([]),
+                    action_groups=frappe.as_json([]),
+                    requested_devices=frappe.as_json([]),
+                    lines=frappe.as_json([]),
+                ),
+            )
+
+        self.assertEqual(frappe.db.count("MSP Request", {"customer": other}), 0)
 
     def test_a_draft_tells_nobody(self):
         self.rights_of_decider()

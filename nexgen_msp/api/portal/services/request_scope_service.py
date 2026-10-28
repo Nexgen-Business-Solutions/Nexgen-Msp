@@ -1178,6 +1178,7 @@ def _target(row, scope, device, current):
         "device_requirement_key": device.get("device_requirement_key") if device else None,
         "requested_device": device.get("requested_device") if device else None,
         "device_label": device["label"] if device else None,
+        "device_serial_number": device.get("serial_number") if device else None,
         "source_service_assignment": current["assignment"] if current else None,
         "current_state": current["status"] if current else None,
     }
@@ -1190,6 +1191,7 @@ def _exclusion(row, code, device=None):
         "full_name": row["full_name"],
         "managed_device": device["name"] if device else None,
         "device_label": device["label"] if device else None,
+        "device_serial_number": device.get("serial_number") if device else None,
         "current_state": None,
         "reason_code": code,
         "reason": REASON_TEXT.get(code, REASON_TEXT["NO_CURRENT_ASSIGNMENT"]),

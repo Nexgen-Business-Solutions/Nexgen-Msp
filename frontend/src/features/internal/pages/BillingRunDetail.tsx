@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { AlertCircle, ArrowLeft, ShieldCheck } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Ban, RefreshCw, ShieldCheck } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
 import BillingExceptionGroup from '../components/BillingExceptionGroup';
 import InvoiceAccountingModal from '../components/InvoiceAccountingModal';
@@ -74,6 +74,9 @@ export default function BillingRunDetail() {
   const [outcome, setOutcome] = useState('');
   const [invoicing, setInvoicing] = useState(false);
   const [telling, setTelling] = useState(false);
+  const [undoing, setUndoing] = useState(false);
+  const [reason, setReason] = useState('');
+  const [reconciling, setReconciling] = useState(false);
 
   const data = view.data;
 
@@ -121,6 +124,8 @@ export default function BillingRunDetail() {
     if (what === 'invoice') return setInvoicing(true);
     if (what === 'submit_invoice') return setTelling(true);
     if (what === 'resolve_dispute') return setSettling(true);
+    if (what === 'cancel') return setUndoing(true);
+    if (what === 'reconcile') return setReconciling(true);
     if (what === 'invoice_pdf') return downloadInvoicePdf(data.name);
     if (what === 'breakdown') return downloadBreakdownFile(data.name);
     if (what === 'edit_invoice')
@@ -211,9 +216,11 @@ export default function BillingRunDetail() {
           value={data.sales_invoice ?? 'Not created'}
           hint={
             data.sales_invoice
-              ? data.invoice_submitted
+              ? data.accounting_state === 'Posted'
                 ? 'posted in ERPNext'
-                : 'draft — not posted yet'
+                : data.accounting_state === 'Cancelled'
+                  ? 'cancelled in ERPNext'
+                  : 'draft — not posted yet'
               : undefined
           }
         />
@@ -250,6 +257,38 @@ export default function BillingRunDetail() {
           >
             Review credit →
           </button>
+        </Banner>
+      )}
+
+      {data.accounting_mismatch && (
+        <Banner tone="amber" title="This run and ERPNext do not agree.">
+          {data.accounting_mismatch.message}
+          {data.can_reconcile && (
+            <button
+              type="button"
+              onClick={() => setReconciling(true)}
+              className="ml-1 font-bold underline underline-offset-2"
+            >
+              Reconcile →
+            </button>
+          )}
+        </Banner>
+      )}
+
+      {data.cancellation && (
+        <Banner tone="blue" title="This run was cancelled.">
+          {data.cancellation.reason || 'No reason was given.'} Cancelled by{' '}
+          {data.cancellation.by || 'somebody'}
+          {data.cancellation.before.document
+            ? ` · ${data.cancellation.before.document} was cancelled in ERPNext with it.`
+            : '.'}
+        </Banner>
+      )}
+
+      {data.invoice_amended_to && (
+        <Banner tone="blue" title="The document was amended in ERPNext.">
+          {data.sales_invoice} was replaced by {data.invoice_amended_to}. This run keeps the
+          document it drew; moving it onto the replacement is a decision nobody has taken here.
         </Banner>
       )}
 
@@ -367,6 +406,53 @@ export default function BillingRunDetail() {
               ]}
             />
 
+            {data.reconciliation && (
+              <>
+                <Divider />
+                <PanelTitle>
+                  What was billed, and what the document says
+                </PanelTitle>
+                <Summary
+                  rows={[
+                    {
+                      label: 'Run amount',
+                      value: money(data.reconciliation.run_amount, data.reconciliation.currency),
+                    },
+                    {
+                      label: 'Document net total',
+                      value: money(data.reconciliation.net_total, data.reconciliation.currency),
+                    },
+                    {
+                      label: 'Taxes',
+                      value: money(data.reconciliation.taxes, data.reconciliation.currency),
+                    },
+                    {
+                      label: 'Document total',
+                      value: money(data.reconciliation.grand_total, data.reconciliation.currency),
+                    },
+                    {
+                      label: 'Difference',
+                      value: (
+                        <span
+                          className={
+                            data.reconciliation.material ? 'text-amber-700' : 'text-slate-700'
+                          }
+                        >
+                          {money(data.reconciliation.difference, data.reconciliation.currency)}
+                        </span>
+                      ),
+                    },
+                  ]}
+                />
+                <p className="mt-2 text-[11px] text-slate-400">
+                  {data.reconciliation.basis}
+                  {data.reconciliation.material
+                    ? ' The document was edited after the run was drawn; the run keeps its own figures.'
+                    : ''}
+                </p>
+              </>
+            )}
+
             <Divider />
             <PanelTitle>Activity</PanelTitle>
             <ul className="space-y-2.5">
@@ -431,6 +517,102 @@ export default function BillingRunDetail() {
           placeholder="Describe the investigation and its outcome."
           className="mt-3 w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-blue-400"
         />
+      </Modal>
+
+      <Modal
+        open={undoing}
+        onClose={() => setUndoing(false)}
+        icon={Ban}
+        tone="red"
+        title="Cancel Billing Run?"
+        subtitle={
+          data.sales_invoice
+            ? `${data.name} and its ${
+                data.is_credit_note ? 'credit note' : 'invoice'
+              } ${data.sales_invoice} are cancelled together, or neither is.`
+            : `${data.name} has drawn no accounting document. Only the run is cancelled.`
+        }
+        widthClass="max-w-2xl"
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <button type="button" onClick={() => setUndoing(false)} className={btn}>
+              Keep Billing Run
+            </button>
+            <button
+              type="button"
+              disabled={action.isLoading || !reason.trim()}
+              onClick={async () => {
+                if (await move('cancel', { reason })) {
+                  setUndoing(false);
+                  setReason('');
+                }
+              }}
+              className={`${btnPrimary} bg-red-600 hover:bg-red-700 disabled:opacity-50`}
+            >
+              {action.isLoading ? 'Cancelling…' : 'Cancel Billing Run'}
+            </button>
+          </div>
+        }
+      >
+        {data.sales_invoice && data.invoice_submitted && (
+          <p className="text-xs font-medium text-slate-600">
+            {data.sales_invoice} is posted in ERPNext. It is cancelled there, through its own
+            accounting checks, and this run is only cancelled if that succeeds.
+          </p>
+        )}
+        {data.sales_invoice && !data.invoice_submitted && (
+          <p className="text-xs font-medium text-slate-600">
+            {data.sales_invoice} is still a draft, so it is deleted rather than cancelled:
+            nothing of it was ever booked.
+          </p>
+        )}
+        <label htmlFor="cancel-reason" className="mt-3 block text-xs font-bold text-slate-700">
+          Cancellation reason
+        </label>
+        <textarea
+          id="cancel-reason"
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          rows={3}
+          placeholder="Why is this run being cancelled? Kept on the run's file."
+          className="mt-1 w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-blue-400"
+        />
+        <p className="mt-1 text-[11px] text-slate-500">Required for the audit trail.</p>
+      </Modal>
+
+      <Modal
+        open={reconciling}
+        onClose={() => setReconciling(false)}
+        icon={RefreshCw}
+        tone="amber"
+        title="Reconcile with ERPNext?"
+        subtitle="The ledger is right about its own documents. This brings the run up to date and nothing else."
+        widthClass="max-w-2xl"
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <button type="button" onClick={() => setReconciling(false)} className={btn}>
+              Leave it
+            </button>
+            <button
+              type="button"
+              disabled={action.isLoading}
+              onClick={async () => {
+                if (await move('reconcile', { apply: 1 })) setReconciling(false);
+              }}
+              className={btnPrimary}
+            >
+              {action.isLoading ? 'Reconciling…' : 'Reconcile the run'}
+            </button>
+          </div>
+        }
+      >
+        <p className="text-sm font-medium text-slate-700">
+          {data.accounting_mismatch?.message || 'This run agrees with ERPNext.'}
+        </p>
+        <p className="mt-2 text-xs text-slate-500">
+          Nothing is posted, re-posted or raised. The lines, the amounts and the period this run
+          was drawn on are left exactly as they are.
+        </p>
       </Modal>
 
       <InvoiceAccountingModal

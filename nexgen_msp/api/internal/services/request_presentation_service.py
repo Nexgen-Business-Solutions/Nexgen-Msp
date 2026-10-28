@@ -111,22 +111,29 @@ class _Labels:
     def __init__(self):
         self.cache = {}
 
-    def _get(self, doctype, name, field):
+    def _read(self, doctype, name, field):
         if not name:
             return None
 
         key = (doctype, name, field)
 
         if key not in self.cache:
-            self.cache[key] = frappe.db.get_value(doctype, name, field) or name
+            self.cache[key] = frappe.db.get_value(doctype, name, field) or None
 
         return self.cache[key]
+
+    def _get(self, doctype, name, field):
+        return self._read(doctype, name, field) or name
 
     def service(self, item):
         return self._get("Item", item, "item_name")
 
     def device(self, device):
         return self._get("MSP Managed Device", device, "hostname")
+
+    def serial(self, device):
+        """The serial number as recorded, and nothing in its place: the MSP key is not one."""
+        return self._read("MSP Managed Device", device, "serial_number")
 
     def person(self, client_user):
         return self._get("MSP Client User", client_user, "full_name")
@@ -229,10 +236,16 @@ class RequestPresentationService:
         machines = {}
 
         for entity in machine_entities.values():
+            prepared = entity.get("prepared_values") or {}
+            asked = entity.get("requested_snapshot") or {}
+            resolved = entity.get("resolved_to") or {}
             machines[entity["key"]] = {
                 "key": entity["key"],
                 "display_label": entity["display_name"],
                 "open": entity["status"] == "Open",
+                "serial_number": prepared.get("serial_number")
+                or asked.get("serial_number")
+                or labels.serial(resolved.get("name")),
             }
 
         machine_keys = {entity["name"]: entity["key"] for entity in machine_entities.values()}
@@ -420,6 +433,7 @@ class RequestPresentationService:
                 "key": key,
                 "display_label": RequestPresentationService._device_label(row),
                 "open": True,
+                "serial_number": row.get("serial_number") or None,
                 "draft": row,
             }
 
@@ -811,16 +825,19 @@ class RequestPresentationService:
             kind = "requested_device"
             label = machine.get("display_label") or row["machine_key"]
             badge = "UNRESOLVED" if machine.get("open", True) else None
+            serial = machine.get("serial_number")
             state = None
         elif row["managed_device"]:
             kind = "managed_device"
             label = labels.device(row["managed_device"])
             badge = None
+            serial = labels.serial(row["managed_device"])
             state = None
         else:
             kind = "requested_client_user" if row["person_new"] else "client_user"
             label = f"{service} · Personal" if service else person.get("full_name") or row["subject_key"]
             badge = "NEW" if row["person_new"] and row["person_open"] else None
+            serial = None
             state = None
 
         snapshot = row["state_snapshot"] or {}
@@ -858,6 +875,9 @@ class RequestPresentationService:
             # the record this target points at, so a reader can open its file without
             # leaving the request: a Requested entity has none until it is resolved
             "target_name": row["managed_device"] or (None if row["person_new"] else person.get("client_user")),
+            # the serial number as the record holds it, so the reader identifies the machine
+            # itself rather than a hostname two of them may share
+            "device_serial_number": serial,
             "target_badge": badge,
             "operation_label": operation_label,
             "state_at_request": state,

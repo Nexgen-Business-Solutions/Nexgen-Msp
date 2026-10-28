@@ -6,6 +6,8 @@ ERPNext's own. Removing a service from MSP never switches an Item off for the re
 and an Item is only repaired when somebody says, field by field, that it should be.
 """
 
+from decimal import Decimal
+
 import frappe
 
 from nexgen_msp.api.internal.services.contract_service import ContractService
@@ -20,6 +22,9 @@ from nexgen_msp.utils.catalogue import BILLING_UOM
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 ITEM_GROUP = "Services"
+
+# the fingerprint fields that are quantities, compared by value and not by how they were written
+NUMERIC_FINGERPRINT_FIELDS = ("month_conversion_factor",)
 
 # what the catalogue says about MSP itself, and what it says about ERPNext: two axes, never one
 MSP_AVAILABILITY = {True: "Available", False: "Not available"}
@@ -432,10 +437,32 @@ class CatalogueService:
             if field not in current:
                 continue
 
-            if str(current[field] if current[field] is not None else "") != str(
-                value if value is not None else ""
-            ):
+            if field in NUMERIC_FINGERPRINT_FIELDS:
+                same = CatalogueService._same_number(current[field], value)
+            else:
+                same = str(current[field] if current[field] is not None else "") == str(
+                    value if value is not None else ""
+                )
+
+            if not same:
                 raise ValidationError(STALE_ITEM, "ITEM_CHANGED_DURING_CONFIGURATION")
+
+    @staticmethod
+    def _same_number(current, seen):
+        """Whether two readings of the same unit factor are the same number.
+
+        A browser sends back the JSON it was given, and JSON writes `1.0` as `1`. The factor is
+        read by value, so `1` and `1.00` are one answer, while an absent factor stays its own
+        state: no unit table is not a factor of zero. Anything that will not read as a number is
+        compared as it was written, which keeps a real difference a refusal.
+        """
+        if current is None or seen is None:
+            return current is None and seen is None
+
+        try:
+            return Decimal(str(current)) == Decimal(str(seen))
+        except (ArithmeticError, ValueError):
+            return str(current) == str(seen)
 
     @staticmethod
     def _write_definition(item, scope, invoice_label):

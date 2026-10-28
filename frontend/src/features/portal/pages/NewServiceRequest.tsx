@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { AlertCircle, ArrowLeft, ArrowRight, Info, Save, Trash2 } from 'lucide-react';
+import { AlertCircle, ArrowLeft, ArrowRight, Check, Info, Save, Trash2 } from 'lucide-react';
 import { FrappeError } from '@/lib/api/client';
 import ConfirmModal from '@/shared/components/ConfirmModal';
 import WorkflowHeader, { primaryBtn, quietBtn, secondaryBtn } from '@/shared/components/WorkflowHeader';
@@ -33,11 +33,12 @@ const STEPS = [
 
 export default function NewServiceRequest() {
   const navigate = useNavigate();
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   // an act started from a machine's own page arrives with the machine and the people on it
   const seed = (useLocation().state as { seed?: RequestSeed } | null)?.seed ?? null;
   const [step, setStep] = useState(seed ? 1 : 0);
   const [givingUp, setGivingUp] = useState(false);
+  const [saved, setSaved] = useState<string | null>(null);
   const rights = useMyApprovalRights();
   // a draft is picked up where it was left; a refused request is read back and corrected
   const edit = params.get('edit') ?? undefined;
@@ -110,6 +111,33 @@ export default function NewServiceRequest() {
       ? ((refusal.detail?.people ?? []) as { client_user: string; full_name: string; reason: string }[])
       : null;
 
+  /**
+   * Putting the request aside.
+   *
+   * Nothing is confirmed until the server has said which document it wrote: the name on the
+   * screen is the one it returned, the address is corrected to it so a reload comes back to
+   * this very draft, and a refusal leaves everything on the page exactly where it is.
+   */
+  const putAside = async () => {
+    setSaved(null);
+
+    try {
+      const stored = await builder.putAside();
+
+      if (!stored) return;
+
+      setSaved(stored.name);
+
+      if (params.get('draft') !== stored.name) {
+        const next = new URLSearchParams(params);
+        next.set('draft', stored.name);
+        setParams(next, { replace: true });
+      }
+    } catch {
+      // what went wrong is read off the builder's own error, below the header
+    }
+  };
+
   const hasSubjects = builder.subjects.length > 0;
   const hasActions = builder.actionGroups.length > 0;
   const canLeaveStep = [hasSubjects, hasActions, true, builder.canSend][step];
@@ -145,12 +173,12 @@ export default function NewServiceRequest() {
             {builder.canSave && (
               <button
                 type="button"
-                onClick={() => builder.putAside()}
+                onClick={putAside}
                 disabled={builder.saving}
                 className={secondaryBtn}
               >
                 <Save size={15} />
-                Save draft
+                {builder.saving ? 'Saving…' : 'Save draft'}
               </button>
             )}
 
@@ -309,9 +337,22 @@ export default function NewServiceRequest() {
         builder.error && (
           <div className="flex items-start gap-2.5 rounded-xl border border-red-100 bg-red-50 p-4">
             <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
-            <span className="text-sm font-medium text-red-700">{builder.error.message}</span>
+            <div>
+              <p className="text-sm font-bold text-red-800">Draft was not saved</p>
+              <p className="mt-0.5 text-sm font-medium text-red-700">{builder.error.message}</p>
+              <p className="mt-0.5 text-xs text-red-600">
+                Nothing you entered has been lost. Correct the problem and try again.
+              </p>
+            </div>
           </div>
         )
+      )}
+
+      {saved && !builder.error && (
+        <div className="flex items-start gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+          <Check size={16} className="mt-0.5 shrink-0 text-emerald-700" />
+          <span className="text-sm font-semibold text-emerald-800">Draft saved — {saved}</span>
+        </div>
       )}
 
       <ConfirmModal

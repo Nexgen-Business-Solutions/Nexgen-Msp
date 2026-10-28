@@ -134,6 +134,7 @@ class TestThePreview(PresentationCase):
                     "target_kind": "requested_client_user",
                     # a person who does not exist yet has no record to link to
                     "target_name": None,
+                    "device_serial_number": None,
                     "target_badge": "NEW",
                     "operation_label": f"Add {self.m365_name}",
                     "state_at_request": "Not assigned",
@@ -508,6 +509,112 @@ class TestSaidOnce(PresentationCase):
             )
             self.assertEqual(len({target["target_label"] for target in targets}), 2)
             self.assertIn("PC-KANTO", {target["target_label"] for target in targets})
+
+
+class TestWhichMachine(PresentationCase):
+    """Which machine a target points at, read from the machine's own record."""
+
+    def test_an_existing_machine_is_read_with_the_serial_number_its_record_holds(self):
+        out = self.preview()
+        transfer = self.group_of(out, "grp:transfer")["targets"][0]
+
+        self.assertEqual(transfer["target_label"], self.hostname)
+        self.assertEqual(
+            transfer["device_serial_number"],
+            frappe.db.get_value("MSP Managed Device", self.laptop, "serial_number"),
+        )
+        self.assertIsNone(self.group_of(out, "grp:m365")["targets"][0]["device_serial_number"])
+
+    def test_a_machine_that_does_not_exist_yet_has_the_number_asked_for_and_no_other(self):
+        self.assertIsNone(self.group_of(self.preview(), "grp:sophos")["targets"][0]["device_serial_number"])
+
+        asked = f"ZZTEST-ASK-{self.tag}"
+        payload = self.scenario()
+        payload["requested_devices"] = [self.new_laptop(serial_number=asked)]
+        sophos = self.group_of(self.preview(payload), "grp:sophos")["targets"][0]
+
+        self.assertEqual(sophos["target_kind"], "requested_device")
+        self.assertEqual(sophos["device_serial_number"], asked)
+
+    def test_two_machines_of_the_same_person_keep_their_own_numbers(self):
+        other = self.make_device(
+            self.customer,
+            hostname=f"WO{self.tag[:4]}",
+            holder=self.franck,
+            serial=f"ZZTEST-WO-{self.tag}",
+        )
+        franck = self.existing(self.franck)
+        payload = self.scenario()
+        payload["action_groups"].append(
+            self.group(
+                "grp:transfer-two",
+                "device.transfer",
+                [
+                    self.target(
+                        franck,
+                        "Device",
+                        managed_device=other,
+                        current_holder=self.franck,
+                        requested_holder_subject_key="new:marie",
+                    )
+                ],
+            )
+        )
+
+        machines = {
+            target["target_name"]: target["device_serial_number"]
+            for group in self.preview(payload)["action_groups"]
+            for target in group["targets"]
+            if target["target_kind"] == "managed_device"
+        }
+
+        self.assertEqual(
+            machines,
+            {
+                self.laptop: frappe.db.get_value("MSP Managed Device", self.laptop, "serial_number"),
+                other: frappe.db.get_value("MSP Managed Device", other, "serial_number"),
+            },
+        )
+
+    def test_a_request_read_back_says_the_same_machine_and_the_same_number(self):
+        asked = f"ZZTEST-BACK-{self.tag}"
+        payload = self.scenario()
+        payload["requested_devices"] = [self.new_laptop(serial_number=asked)]
+        draft = self.save(**payload)["name"]
+        name = self.send(name=draft, **self.payload_of(self.reopen(draft)))["name"]
+
+        for out in (self.portal_view(name), self.internal_view(name)):
+            self.assertEqual(
+                self.group_of(out, "grp:transfer")["targets"][0]["device_serial_number"],
+                frappe.db.get_value("MSP Managed Device", self.laptop, "serial_number"),
+            )
+            self.assertEqual(
+                self.group_of(out, "grp:sophos")["targets"][0]["device_serial_number"], asked
+            )
+
+    def test_a_machine_without_a_number_says_nothing_rather_than_its_msp_key(self):
+        bare = self.make_device(self.customer, hostname=f"WB{self.tag[:4]}", holder=self.franck)
+        franck = self.existing(self.franck)
+        payload = self.scenario()
+        payload["action_groups"] = [
+            self.group(
+                "grp:bare",
+                "device.transfer",
+                [
+                    self.target(
+                        franck,
+                        "Device",
+                        managed_device=bare,
+                        current_holder=self.franck,
+                        requested_holder_subject_key="new:marie",
+                    )
+                ],
+            )
+        ]
+        target = self.group_of(self.preview(payload), "grp:bare")["targets"][0]
+
+        self.assertIsNone(target["device_serial_number"])
+        self.assertNotEqual(target["device_serial_number"], bare)
 
 
 class TestApprovalAndRejection(PresentationCase):

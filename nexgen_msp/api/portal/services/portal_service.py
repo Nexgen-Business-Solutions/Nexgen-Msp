@@ -4,6 +4,7 @@ from nexgen_msp.api.internal.services.service_definition_service import (
     ServiceDefinitionService,
 )
 
+from nexgen_msp.api.internal.services.billing import money
 from nexgen_msp.utils.meta import select_options
 
 
@@ -1464,7 +1465,9 @@ class PortalService:
         """
         lines = frappe.parse_json(lines) if isinstance(lines, str) else lines
 
-        if not lines:
+        # what is sent has to carry a line; a draft put aside before it says what to do is
+        # the caller's business, and `_write` is where the difference is decided
+        if strict and not lines:
             raise ValidationError("At least one line is required.", "VALIDATION_ERROR")
 
         if strict:
@@ -2288,7 +2291,10 @@ class PortalService:
         else:
             PortalService._mint_line_devices(lines, people, machines)
 
-        if not lines:
+        # a draft may be put aside before it says what to do: the people chosen are worth
+        # keeping on their own. Sending it, or modifying one already sent, is what demands
+        # at least one line.
+        if not lines and (submit or modify):
             raise ValidationError("At least one line is required.", "VALIDATION_ERROR")
 
         refusal = requested_date_refusal(
@@ -3222,12 +3228,12 @@ class PortalService:
         PortalService._guard_invoices()
         customer = PortalService._resolve_customer(customer)
 
-        return frappe.db.sql(
+        rows = frappe.db.sql(
             """
             select
                 br.name, br.billing_period_start, br.billing_period_end,
                 br.total_amount, br.currency, br.sales_invoice,
-                br.adjustment_of, br.approved_at,
+                br.adjustment_of, br.approved_at, br.credit_note_of, br.standalone_credit,
                 br.disputed, br.dispute_reason, br.disputed_on,
                 si.status as invoice_status, si.docstatus as invoice_docstatus,
                 si.posting_date,
@@ -3243,6 +3249,14 @@ class PortalService:
             {"customer": customer},
             as_dict=True,
         )
+
+        # the customer reads their own history here, so a credit has to read as money coming
+        # back rather than as another charge
+        for row in rows:
+            row["is_credit_note"] = bool(row.credit_note_of or row.standalone_credit)
+            row["signed_amount"] = money.signed(row.total_amount, row["is_credit_note"])
+
+        return rows
 
     @staticmethod
     def get_billing_detail(name=None):
@@ -3265,6 +3279,8 @@ class PortalService:
                 "currency",
                 "sales_invoice",
                 "adjustment_of",
+                "credit_note_of",
+                "standalone_credit",
                 "disputed",
                 "dispute_reason",
                 "disputed_on",
@@ -3282,6 +3298,9 @@ class PortalService:
             raise ValidationError(
                 "This period has not been invoiced yet.", "PERMISSION_DENIED", 403
             )
+
+        run["is_credit_note"] = bool(run.credit_note_of or run.standalone_credit)
+        run["signed_amount"] = money.signed(run.total_amount, run["is_credit_note"])
 
         rows = frappe.db.sql(
             """

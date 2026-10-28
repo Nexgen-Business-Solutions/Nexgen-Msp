@@ -161,6 +161,7 @@ export const presentationFixture = (): RequestPresentation => ({
           person_label: 'Franck Mbassi',
           target_label: 'ACI-LT-023',
           target_kind: 'managed_device',
+          device_serial_number: 'SN-023',
           operation_label: 'Change holder',
           state_at_request: 'Held by Franck Mbassi',
           relationship: {

@@ -1,6 +1,7 @@
 import React from 'react';
 import RecordLink from '@/shared/components/RecordLink';
 import type { RequestSubjectRow } from '@/lib/api/portal';
+import { SERIAL_NOT_ASSIGNED, SERIAL_NOT_RECORDED } from '@/shared/request';
 
 const Fact: React.FC<{ label: string; value?: React.ReactNode }> = ({ label, value }) => (
   <div className="min-w-0">
@@ -22,7 +23,13 @@ const RequestDeviceSummary: React.FC<{ device: RequestSubjectRow }> = ({ device 
     <section aria-label={`${device.full_name} details`} className="w-full basis-full">
       <dl className="grid grid-cols-2 gap-x-6 gap-y-2 md:grid-cols-4">
         <Fact label="Type" value={machine?.device_type} />
-        <Fact label="Serial number" value={machine?.serial_number} />
+        <Fact
+          label="Serial number"
+          value={
+            machine?.serial_number ||
+            (device.managed_device ? SERIAL_NOT_RECORDED : SERIAL_NOT_ASSIGNED)
+          }
+        />
         <Fact label="Status" value={machine?.status} />
         <Fact
           label="Record"

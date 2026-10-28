@@ -8,4 +8,5 @@ export { default as RequestInformationPanel } from './RequestInformationPanel';
 export { default as RequestAttentionPanel } from './RequestAttentionPanel';
 export { default as RequestApprovalBar } from './RequestApprovalBar';
 export { default as RequestRejection } from './RequestRejection';
+export * from './device';
 export * from './types';

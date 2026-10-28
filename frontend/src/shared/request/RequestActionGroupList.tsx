@@ -6,6 +6,7 @@ import type {
   RequestTargetPresentation,
 } from './types';
 import RecordLink from '@/shared/components/RecordLink';
+import { machineSerial } from './device';
 import { badgeClass, linkButtonClass, sectionClass, sectionHeadClass } from './format';
 
 type Props = {
@@ -97,6 +98,15 @@ function TargetTable({
                     </RecordLink>
                     {target.target_badge && (
                       <span className={`${badgeClass('amber')} ml-1.5`}>{target.target_badge}</span>
+                    )}
+                    {(target.target_kind === 'managed_device' ||
+                      target.target_kind === 'requested_device') && (
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {machineSerial(
+                          { serial_number: target.device_serial_number },
+                          target.target_kind === 'requested_device'
+                        )}
+                      </p>
                     )}
                   </td>
                   <td className={td}>

@@ -853,6 +853,9 @@ export const useRequestBuilder = (
       }))
     );
     setDraft(stored.name);
+    // what is on the screen is now what was saved, so the address may say which draft this
+    // is without the restore reading it back over the top of it
+    setLoaded(true);
 
     return stored;
   };

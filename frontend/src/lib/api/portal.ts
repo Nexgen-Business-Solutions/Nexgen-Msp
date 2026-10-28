@@ -548,6 +548,9 @@ export type PortalBillingRow = {
   billing_period_start: string;
   billing_period_end: string;
   total_amount: number;
+  /** a credit is money coming back, said as such wherever the figure is read */
+  is_credit_note: boolean;
+  signed_amount: number;
   currency: string | null;
   sales_invoice: string | null;
   adjustment_of: string | null;
@@ -584,6 +587,8 @@ export type PortalBillingDetail = {
     billing_period_start: string;
     billing_period_end: string;
     total_amount: number;
+    is_credit_note: boolean;
+    signed_amount: number;
     currency: string | null;
     sales_invoice: string | null;
     adjustment_of: string | null;
@@ -938,6 +943,7 @@ export type RequestTarget = {
   device_requirement_key?: string | null;
   requested_device?: string | null;
   device_label: string | null;
+  device_serial_number?: string | null;
   source_service_assignment: string | null;
   current_state?: string | null;
   current_holder?: string | null;
@@ -953,6 +959,7 @@ export type RequestExclusion = {
   full_name: string;
   managed_device: string | null;
   device_label: string | null;
+  device_serial_number?: string | null;
   current_state: string | null;
   reason_code: string;
   reason: string;

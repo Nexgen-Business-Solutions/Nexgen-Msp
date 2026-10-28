@@ -124,6 +124,12 @@ class MSPRequest(Document):
 				frappe.throw(_("A billing dispute must point at the run it disputes."))
 			return
 
+		# a draft is work in progress: somebody may put aside a request that names the people
+		# it is for before it names anything to do to them, and come back to it. What is sent
+		# still has to carry a line, which is checked the moment it stops being a draft.
+		if self.status == "Draft":
+			return
+
 		if not self.lines:
 			frappe.throw(_("A request must contain at least one line."))
 

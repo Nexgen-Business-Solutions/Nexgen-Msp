@@ -14,6 +14,7 @@ import type {
 } from '@/lib/api/portal';
 import { askedAmong, askedFrom, askedIndex, keyOf, machinesAskedFor } from '../askedScope';
 import { recall, remember } from '@/shared/lib/openingSelection';
+import { machineIdentity } from '@/shared/request';
 import RecordLink from '@/shared/components/RecordLink';
 import RequestDeviceSummary from './RequestDeviceSummary';
 import RequestPersonSummary from './RequestPersonSummary';
@@ -85,6 +86,7 @@ const onRequestedDevice = (target: RequestTarget, device: RequestedDeviceDraft):
   device_requirement_key: device.device_requirement_key,
   requested_device: device.requested_device ?? null,
   device_label: device.display_label,
+  device_serial_number: device.serial_number ?? null,
 });
 
 const futurePeopleOf = (subjects: RequestSubject[]) =>
@@ -303,7 +305,14 @@ const ServiceImpact: React.FC<{
               {settled.map(({ row, target }, index) => {
                 const id = target ? keyOf(target) : `x${index}`;
                 const name = target?.full_name ?? row.base?.full_name ?? row.exclusion?.full_name ?? '';
-                const device = target?.device_label ?? row.exclusion?.device_label;
+                const machine = target ?? row.exclusion;
+                const device =
+                  machine && machine.device_label
+                    ? machineIdentity(
+                        { label: machine.device_label, serial_number: machine.device_serial_number },
+                        Boolean(target?.device_requirement_key)
+                      )
+                    : null;
                 const subject = subjectOf(row.subjectKey);
 
                 return (
@@ -466,7 +475,10 @@ const Transfers: React.FC<{
             {option.targets.map((target) => (
               <tr key={target.managed_device}>
                 <td className="px-3 py-2 text-sm font-medium text-slate-900">
-                  {target.device_label}
+                  {machineIdentity({
+                    label: target.device_label,
+                    serial_number: target.device_serial_number,
+                  })}
                 </td>
                 <td className="px-3 py-2 text-sm text-slate-600">
                   {target.current_holder_label ?? '—'}
@@ -571,6 +583,7 @@ const AssignDevice: React.FC<{
         ...target,
         managed_device: device.name,
         device_label: device.hostname || device.name,
+        device_serial_number: device.serial_number,
         current_holder: device.current_holder,
         current_holder_label: device.current_holder_name ?? null,
       };
@@ -665,7 +678,7 @@ const AssignDevice: React.FC<{
                       )}
                     </td>
                     <td className="px-3 py-2 align-top text-xs text-slate-500">
-                      {holdings.get(target.subject_key)?.join(', ') || 'No Device'}
+                      {holdings.get(target.subject_key)?.join(' / ') || 'No Device'}
                     </td>
                     <td className="px-3 py-2 align-top">
                       <Select
@@ -687,7 +700,12 @@ const AssignDevice: React.FC<{
                         <div className="mt-2 flex flex-wrap items-center gap-1.5">
                           {picked[id] && (
                             <span className="text-xs text-slate-700">
-                              <span className="font-semibold">{shown.device_label}</span>
+                              <span className="font-semibold">
+                                {machineIdentity({
+                                  label: shown.device_label,
+                                  serial_number: shown.device_serial_number,
+                                })}
+                              </span>
                               {' · '}
                               {picked[id].status}
                               {' · '}
@@ -710,7 +728,13 @@ const AssignDevice: React.FC<{
                       {on && how === 'new' &&
                         (shown.device_requirement_key ? (
                           <p className="mt-2 text-xs font-semibold text-slate-700">
-                            {shown.device_label}
+                            {machineIdentity(
+                              {
+                                label: shown.device_label,
+                                serial_number: shown.device_serial_number,
+                              },
+                              true
+                            )}
                             <NewDeviceBadge />
                           </p>
                         ) : (
@@ -833,7 +857,10 @@ const ReturnToStock: React.FC<{
                     />
                   </td>
                   <td className="px-3 py-2 text-sm font-medium text-slate-900">
-                    {target.device_label}
+                    {machineIdentity({
+                      label: target.device_label,
+                      serial_number: target.device_serial_number,
+                    })}
                   </td>
                   <td className="px-3 py-2 text-sm text-slate-600">
                     {target.current_holder_label ?? '—'}
@@ -928,7 +955,15 @@ const ReviewImpact: React.FC<{
                     <td className="px-3 py-2">
                       <span className="text-sm font-medium text-slate-900">{target.full_name}</span>
                       {target.device_label && (
-                        <span className="ml-1.5 text-xs text-slate-500">{target.device_label}</span>
+                        <span className="ml-1.5 text-xs text-slate-500">
+                          {machineIdentity(
+                            {
+                              label: target.device_label,
+                              serial_number: target.device_serial_number,
+                            },
+                            Boolean(target.device_requirement_key)
+                          )}
+                        </span>
                       )}
                       {target.device_requirement_key && <NewDeviceBadge />}
                     </td>
@@ -945,6 +980,203 @@ const ReviewImpact: React.FC<{
     </Modal>
   );
 };
+
+/**
+ * What a selection stands for, counted as the server reads it.
+ *
+ * People, machines and eligible targets are three different numbers: one person may hold two
+ * machines, two people may share one, and a machine service reaches machines rather than
+ * people. So the people are counted as people, the machines are counted once each by their
+ * own key, and how many targets an act reaches stays the server's answer.
+ */
+const tally = (scoped: RequestSubjectRow[]) => {
+  const machines = new Set(scoped.flatMap((row) => row.devices.map((device) => device.name)));
+  const people = scoped.filter((row) => row.kind !== 'device');
+
+  return { people: people.length, devices: scoped.length - people.length, machines: machines.size };
+};
+
+type Tally = ReturnType<typeof tally>;
+
+const counting = (value: number, one: string, many: string) =>
+  `${value} ${value === 1 ? one : many}`;
+
+const selectionLine = (counted: Tally) =>
+  [
+    counting(counted.people, 'person selected', 'people selected'),
+    counted.devices > 0 ? counting(counted.devices, 'device selected', 'devices selected') : null,
+    counting(counted.machines, 'linked device', 'linked devices'),
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
+const eligibleLine = (value: number, deviceScoped: boolean) =>
+  deviceScoped
+    ? counting(value, 'eligible device', 'eligible devices')
+    : counting(value, 'eligible person', 'eligible people');
+
+/** What the excluded have in common, when they have something in common. */
+const exclusionNote = (option: RequestOperationOption) => {
+  const codes = new Set(option.exclusions.map((row) => row.reason_code));
+  const one = codes.size === 1 ? [...codes][0] : null;
+  const count = option.excluded_subject_count;
+
+  if (one === 'NO_CURRENT_DEVICE')
+    return counting(count, 'person without a linked device', 'people without a linked device');
+  if (one === 'ALREADY_ACTIVE') return `${count} already ${count === 1 ? 'has' : 'have'} it`;
+  if (one === 'PENDING_CONFLICT') return `${count} already in another request`;
+
+  return `${count} not eligible`;
+};
+
+const figureClass = 'rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2';
+
+const Figure: React.FC<{ label: string; value: number }> = ({ label, value }) => (
+  <div className={figureClass}>
+    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">{label}</p>
+    <p className="mt-0.5 text-sm font-semibold text-slate-900">{value}</p>
+  </div>
+);
+
+/**
+ * Why an act reaches the targets it reaches, before anybody adds it.
+ *
+ * The numbers on the row raise the question — 24 people, 22 machines — and this answers it
+ * from the same server reading the act itself is built on: who it reaches, who it misses and
+ * the reason given for each one. Nothing here selects, creates or changes anything; a missing
+ * machine is a fact about the Devices page, not something to invent on the way past.
+ */
+const ActionEligibility: React.FC<{
+  option: RequestOperationOption;
+  label: string;
+  scopeLabel: string;
+  counted: Tally;
+  deviceScoped: boolean;
+  onClose: () => void;
+}> = ({ option, label, scopeLabel, counted, deviceScoped, onClose }) => (
+  <Modal
+    open
+    onClose={onClose}
+    icon={Info}
+    tone="slate"
+    title={
+      option.excluded_subject_count > 0
+        ? `Why only ${option.applicable_target_count}?`
+        : 'Eligibility'
+    }
+    subtitle={`${option.operation_label} · ${label} · ${scopeLabel}`}
+    widthClass="max-w-3xl"
+    footer={
+      <div className="flex items-center justify-end">
+        <button type="button" onClick={onClose} className={primaryBtn}>
+          Done
+        </button>
+      </div>
+    }
+  >
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+        <Figure label="People selected" value={counted.people} />
+        <Figure label="Linked devices" value={counted.machines} />
+        <Figure
+          label={deviceScoped ? 'Eligible devices' : 'Eligible people'}
+          value={option.applicable_target_count}
+        />
+        <Figure label="Excluded" value={option.excluded_subject_count} />
+      </div>
+
+      <div className="overflow-hidden rounded-lg border border-slate-200">
+        <table className="w-full">
+          <thead className="bg-slate-50">
+            <tr>
+              <Th>{deviceScoped ? 'Eligible device' : 'Eligible person'}</Th>
+              <Th>Person</Th>
+              <Th>Current state</Th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {option.targets.map((target) => (
+              <tr key={keyOf(target)}>
+                <td className="px-3 py-2 text-sm font-medium text-slate-900">
+                  {target.device_label
+                    ? machineIdentity(
+                        {
+                          label: target.device_label,
+                          serial_number: target.device_serial_number,
+                        },
+                        Boolean(target.device_requirement_key)
+                      )
+                    : target.full_name}
+                </td>
+                <td className="px-3 py-2 text-sm text-slate-600">{target.full_name}</td>
+                <td className="px-3 py-2 text-sm text-slate-600">{target.current_state ?? '—'}</td>
+              </tr>
+            ))}
+
+            {option.targets.length === 0 && (
+              <tr>
+                <td colSpan={3} className="px-3 py-3 text-sm text-slate-500">
+                  Nothing in this selection can take this action.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {option.exclusions.length > 0 && (
+        <div className="overflow-hidden rounded-lg border border-slate-200">
+          <table className="w-full">
+            <thead className="bg-slate-50">
+              <tr>
+                <Th>Excluded</Th>
+                <Th>Device</Th>
+                <Th>Reason</Th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {option.exclusions.map((row) => (
+                <tr key={`${row.subject_key}|${row.managed_device ?? 'none'}|${row.reason_code}`}>
+                  <td className="px-3 py-2 text-sm font-medium text-slate-900">{row.full_name}</td>
+                  <td className="px-3 py-2 text-sm text-slate-600">
+                    {row.device_label
+                      ? machineIdentity({
+                          label: row.device_label,
+                          serial_number: row.device_serial_number,
+                        })
+                      : '—'}
+                  </td>
+                  <td className="px-3 py-2 text-sm text-slate-600">
+                    {row.reason}
+                    <span className="ml-1.5 rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold text-slate-500">
+                      {row.reason_code}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {option.exclusions.some((row) => row.reason_code === 'NO_CURRENT_DEVICE') && (
+        <p className="text-[11px] text-slate-500">
+          A person with no linked Device is not given one from here. Machines are held and
+          handed over on the{' '}
+          <a
+            href="/msp/devices"
+            target="_blank"
+            rel="noreferrer"
+            className="font-semibold text-blue-700 hover:underline"
+          >
+            Devices
+          </a>{' '}
+          page, or asked for with Assign Device.
+        </p>
+      )}
+    </div>
+  </Modal>
+);
 
 /** The people the current scope stands for, read rather than guessed. */
 const ScopePeople: React.FC<{ rows: RequestSubjectRow[]; onClose: () => void }> = ({
@@ -983,7 +1215,7 @@ const ScopePeople: React.FC<{ rows: RequestSubjectRow[]; onClose: () => void }> 
                 <p className="text-[11px] text-slate-500">{row.department || 'No Department'}</p>
               </td>
               <td className="px-3 py-2 text-sm text-slate-600">
-                {row.devices.map((device) => device.label).join(', ') || '—'}
+                {row.devices.map((device) => machineIdentity(device)).join(' / ') || '—'}
               </td>
               <td className="px-3 py-2 text-sm text-slate-600">
                 {row.current_services.map((service) => service.label).join(', ') || '—'}
@@ -1059,6 +1291,11 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
     card: RequestServiceOption;
   } | null>(null);
   const [device, setDevice] = useState<RequestOperationOption | null>(null);
+  const [explaining, setExplaining] = useState<{
+    option: RequestOperationOption;
+    label: string;
+    deviceScoped: boolean;
+  } | null>(null);
   const [reviewing, setReviewing] = useState<string | null>(null);
 
   const projection = useRequestScope(builder.subjectDrafts);
@@ -1089,6 +1326,7 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
     builder.editing
   );
   const domains = useMemo(() => operations.data?.domains ?? [], [operations.data]);
+  const counted = useMemo(() => tally(scoped), [scoped]);
   const departments = [...new Set(rows.map((row) => row.department).filter(Boolean) as string[])];
   const person = scope.type === 'Person' ? scoped[0] : null;
 
@@ -1346,6 +1584,34 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
                                       {action.applicable_target_count > 0 &&
                                         ` · ${all ? action.applicable_target_count : left}`}
                                     </button>
+                                    <p className="w-full text-right text-[10px] text-slate-500">
+                                      {selectionLine(counted)} ·{' '}
+                                      {eligibleLine(
+                                        action.applicable_target_count,
+                                        card.service_scope === 'Device'
+                                      )}
+                                    </p>
+                                    <p className="w-full text-right text-[10px] text-slate-500">
+                                      {action.excluded_subject_count > 0 && (
+                                        <>{exclusionNote(action)} — </>
+                                      )}
+                                      <button
+                                        type="button"
+                                        title={`${action.operation_label} ${card.object_label}`}
+                                        onClick={() =>
+                                          setExplaining({
+                                            option: action,
+                                            label: card.object_label,
+                                            deviceScoped: card.service_scope === 'Device',
+                                          })
+                                        }
+                                        className="font-semibold text-blue-700 hover:underline"
+                                      >
+                                        {action.excluded_subject_count > 0
+                                          ? `Why only ${action.applicable_target_count}?`
+                                          : 'View exclusions'}
+                                      </button>
+                                    </p>
                                   </React.Fragment>
                                 );
                               })}
@@ -1428,6 +1694,27 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
                                     : 'Review Devices'}
                               </button>
                             </div>
+                            <p className="mt-1 text-right text-[10px] text-slate-500">
+                              {option.excluded_subject_count > 0 && (
+                                <>{exclusionNote(option)} — </>
+                              )}
+                              <button
+                                type="button"
+                                title={option.operation_label}
+                                onClick={() =>
+                                  setExplaining({
+                                    option,
+                                    label: option.operation_label,
+                                    deviceScoped: true,
+                                  })
+                                }
+                                className="font-semibold text-blue-700 hover:underline"
+                              >
+                                {option.excluded_subject_count > 0
+                                  ? `Why only ${option.applicable_target_count}?`
+                                  : 'View exclusions'}
+                              </button>
+                            </p>
                           </td>
                         </tr>
                       ))}
@@ -1509,6 +1796,17 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
 
       {reading && <ScopePeople rows={scoped} onClose={() => setReading(false)} />}
 
+      {explaining && (
+        <ActionEligibility
+          option={explaining.option}
+          label={explaining.label}
+          scopeLabel={scope.label}
+          counted={counted}
+          deviceScoped={explaining.deviceScoped}
+          onClose={() => setExplaining(null)}
+        />
+      )}
+
       {service && (
         <ServiceImpact
           option={service.option}
@@ -1547,7 +1845,9 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
             asked={machinesAskedFor(builder.actionGroups)}
             machines={machines}
             holdings={
-              new Map(rows.map((row) => [row.subject_key, row.devices.map((held) => held.label)]))
+              new Map(
+                rows.map((row) => [row.subject_key, row.devices.map((held) => machineIdentity(held))])
+              )
             }
             taken={machinesTaken(builder.actionGroups, builder.subjects)}
             onClose={() => setDevice(null)}

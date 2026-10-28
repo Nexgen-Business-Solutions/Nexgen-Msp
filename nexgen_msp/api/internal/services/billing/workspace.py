@@ -9,6 +9,7 @@ import frappe
 from frappe.utils import cint, flt, getdate
 
 from nexgen_msp.api.internal.services import sales_invoice_service
+from nexgen_msp.api.internal.services.billing import money
 from nexgen_msp.api.internal.services.billing_service import BillingService
 
 # what the one status filter means on each list, so both tabs read the same way
@@ -37,7 +38,8 @@ def _figures():
     """The four numbers at the top, each one a count somebody can act on."""
     rows = frappe.db.sql(
         """
-        select status, exception_count, total_amount, currency
+        select status, exception_count, total_amount, currency,
+               credit_note_of, standalone_credit, adjustment_of, reconstructed
         from `tabMSP Billing Run`
         where docstatus != 2
         """,
@@ -45,12 +47,6 @@ def _figures():
     )
 
     settled = [row for row in rows if row.status in ("Invoiced", "Invoice Drafted")]
-    # two currencies are two totals: nothing here adds XAF to USD to make one number
-    totals = {}
-
-    for row in [entry for entry in rows if entry.status == "Invoiced"]:
-        key = row.currency or ""
-        totals[key] = flt(totals.get(key, 0) + flt(row.total_amount), 2)
 
     return {
         "runs": len(rows),
@@ -58,10 +54,13 @@ def _figures():
         "awaiting": len([row for row in rows if row.status == "Ready for Approval"]),
         "blocked": len([row for row in rows if cint(row.exception_count)]),
         "blocked_lines": sum(cint(row.exception_count) for row in rows),
-        "invoiced_totals": [
-            {"currency": currency, "amount": amount}
-            for currency, amount in sorted(totals.items(), key=lambda pair: -pair[1])
-        ],
+        # what was really billed: credits come off rather than add up, and two currencies
+        # stay two totals — nothing here adds XAF to USD to make one number
+        "invoiced_totals": money.totals_by_currency(
+            (row.currency, money.signed(row.total_amount, _kind_of(row) == "Credit note"))
+            for row in rows
+            if row.status == "Invoiced"
+        ),
     }
 
 
@@ -87,6 +86,33 @@ def _runs(search, status, page, page_length, count_only=False):
         count_only=count_only,
     )
 
+    # what the ledger says about each document on this page, read in one go: a run that
+    # says `Invoice Drafted` against a posted document is said so here rather than later
+    documents = {
+        found.name: found.docstatus
+        for found in (
+            frappe.get_all(
+                "Sales Invoice",
+                filters={
+                    "name": ["in", [row["sales_invoice"] for row in listed["rows"] if row["sales_invoice"]]]
+                },
+                fields=["name", "docstatus"],
+            )
+            if any(row["sales_invoice"] for row in listed["rows"])
+            else []
+        )
+    }
+
+    def adrift(row):
+        if not row["sales_invoice"]:
+            return False
+
+        posted = documents.get(row["sales_invoice"])
+
+        return (posted == 1 and row["status"] != "Invoiced") or (
+            posted == 2 and row["status"] == "Invoiced"
+        )
+
     return [
         {
             "name": row["name"],
@@ -96,9 +122,12 @@ def _runs(search, status, page, page_length, count_only=False):
             "period_end": row["billing_period_end"],
             "lines": row["line_count"],
             "exceptions": row["exception_count"],
-            "amount": flt(row["total_amount"], 2),
+            "amount": money.signed(row["total_amount"], _kind_of(row) == "Credit note"),
             "currency": row["currency"],
             "sales_invoice": row["sales_invoice"],
+            "is_credit_note": _kind_of(row) == "Credit note",
+            "invoice_docstatus": documents.get(row["sales_invoice"]),
+            "needs_reconciliation": adrift(row),
             "status": row["status"],
             "disputed": bool(row["disputed"]),
         }
@@ -121,8 +150,9 @@ def _invoices(search, status, page, page_length, count_only=False):
             "customer": row["customer_name"] or row["customer"],
             "posting_date": row["posting_date"],
             "due_date": row["due_date"],
-            "amount": flt(row["grand_total"], 2),
-            "outstanding": flt(row["outstanding_amount"], 2),
+            # the document's own direction, settled on the way out: a credit deducts
+            "amount": row["signed_total"],
+            "outstanding": row["signed_outstanding"],
             "currency": row["currency"],
             "is_return": bool(row["is_return"]),
             "origin": row["origin"],

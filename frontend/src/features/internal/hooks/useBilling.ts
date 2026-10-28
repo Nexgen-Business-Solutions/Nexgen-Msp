@@ -72,10 +72,9 @@ export const useRunAction = () => {
   return useMutation({
     mutationFn: (variables: { action: string; name: string; extra?: Record<string, unknown> }) =>
       internal.runBillingAction(variables.action, variables.name, variables.extra),
-    onSuccess: (detail) => {
-      queryClient.invalidateQueries({ queryKey: billingKeys.detail(detail.name) });
-      queryClient.invalidateQueries({ queryKey: [...billingKeys.all, 'workspace'] });
-    },
+    // posting, cancelling and reconciling all move what the other billing reads depend on —
+    // the history, the invoice lists and the figures — so the whole family is re-read
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: billingKeys.all }),
   });
 };
 

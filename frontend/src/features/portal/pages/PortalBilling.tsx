@@ -27,7 +27,7 @@ export default function PortalBilling() {
   const billing = usePortalBilling();
 
   const rows = billing.data ?? [];
-  const total = rows.reduce((sum, row) => sum + (row.total_amount || 0), 0);
+  const total = rows.reduce((sum, row) => sum + (row.signed_amount || 0), 0);
   const currency = rows[0]?.currency ?? '';
 
   return (
@@ -100,7 +100,10 @@ export default function PortalBilling() {
               </div>
             </td>
             <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900 tabular-nums">
-              {(row.total_amount || 0).toLocaleString()} {row.currency ?? ''}
+              {(row.signed_amount || 0).toLocaleString()} {row.currency ?? ''}
+              {row.is_credit_note && (
+                <span className="block text-[11px] font-semibold text-violet-600">Credit note</span>
+              )}
             </td>
             <td className="whitespace-nowrap px-4 py-3">
               <div className="flex justify-end">

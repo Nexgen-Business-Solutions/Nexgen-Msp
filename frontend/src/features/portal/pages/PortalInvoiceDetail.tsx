@@ -89,9 +89,11 @@ export default function PortalInvoiceDetail() {
           </div>
 
           <div className="text-right">
-            <p className="text-xs font-medium text-slate-400">Total</p>
+            <p className="text-xs font-medium text-slate-400">
+              {run.is_credit_note ? 'Credited back' : 'Total'}
+            </p>
             <p className="text-2xl font-bold text-slate-900 tabular-nums">
-              {(run.total_amount || 0).toLocaleString()} {currency}
+              {(run.signed_amount || 0).toLocaleString()} {currency}
             </p>
             <p className="text-xs text-slate-400">{data.line_count} lines billed</p>
           </div>

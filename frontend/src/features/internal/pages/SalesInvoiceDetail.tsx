@@ -79,7 +79,6 @@ export default function SalesInvoiceDetail() {
   }
 
   const currency = data.currency;
-  const sign = data.is_return ? '−' : '';
 
   return (
     <div className="space-y-5 px-6 pb-6 pt-4">
@@ -148,8 +147,16 @@ export default function SalesInvoiceDetail() {
       </Card>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Metric label="Total" value={`${sign}${money(data.grand_total, currency)}`} hint="including taxes" />
-        <Metric label="Outstanding" value={money(data.outstanding_amount, currency)} hint="as ERPNext holds it" />
+        <Metric
+          label="Total"
+          value={money(data.signed_total, currency)}
+          hint={data.is_credit_note ? 'credited back, including taxes' : 'including taxes'}
+        />
+        <Metric
+          label="Outstanding"
+          value={money(data.signed_outstanding, currency)}
+          hint="as ERPNext holds it"
+        />
         <Metric label="Due date" value={day(data.due_date)} hint={data.payment_terms_template ?? undefined} />
         <Metric label="Status" value={data.status} hint={data.docstatus === 1 ? 'submitted' : 'draft'} />
       </div>
@@ -202,8 +209,10 @@ export default function SalesInvoiceDetail() {
                       {money(item.rate, currency)}
                     </Td>
                     <Td align="right" className="font-bold tabular-nums text-slate-800">
-                      {sign}
-                      {money(item.amount, currency)}
+                      {money(
+                        data.is_credit_note ? -Math.abs(item.amount) : item.amount,
+                        currency
+                      )}
                     </Td>
                   </tr>
                 ))}
@@ -211,11 +220,13 @@ export default function SalesInvoiceDetail() {
             </table>
           </div>
           <Foot
-            left={`Net ${money(data.net_total, currency)} · taxes ${money(data.total_taxes_and_charges, currency)}`}
+            left={`Net ${money(data.signed_net_total, currency)} · taxes ${money(
+              data.total_taxes_and_charges,
+              currency
+            )}`}
             right={
               <strong className="text-sm font-bold text-slate-800">
-                {sign}
-                {money(data.grand_total, currency)}
+                {money(data.signed_total, currency)}
               </strong>
             }
           />
@@ -302,7 +313,7 @@ export default function SalesInvoiceDetail() {
                     {entry.name}
                   </button>
                   <span className="text-slate-500 tabular-nums">
-                    −{money(entry.grand_total, currency)}
+                    {money(-Math.abs(entry.grand_total), currency)}
                   </span>
                   <Pill tone={entry.docstatus === 1 ? 'green' : 'gray'}>{entry.status}</Pill>
                 </div>

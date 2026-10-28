@@ -31,6 +31,9 @@ const forgetRequests = (queryClient: ReturnType<typeof useQueryClient>, customer
   }
 
   queryClient.invalidateQueries({ queryKey: portalKeys.summary(customer) });
+  // staff read the same requests through their own queries: a draft saved here has to
+  // appear there too, for whoever is entitled to see it, without anybody reloading a page
+  queryClient.invalidateQueries({ queryKey: ['internal', 'requests'] });
 };
 
 const useListParams = (key: ListKey, limit?: number) => {

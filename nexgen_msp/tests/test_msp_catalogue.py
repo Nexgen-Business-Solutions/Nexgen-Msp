@@ -5,6 +5,8 @@ MSP is the definition's; being disabled, being stocked, carrying a unit table is
 this application repairs an Item only when somebody says, field by field, that it should.
 """
 
+import json
+
 import frappe
 
 from nexgen_msp.api.internal.services.catalogue_service import CatalogueService
@@ -228,6 +230,95 @@ class TestAdoptingAnExistingItem(CatalogueCase):
             )
 
         self.assertEqual(refused.exception.code, "ITEM_CHANGED_DURING_CONFIGURATION")
+        self.assertIsNone(self.definition(theirs))
+
+    def month_uom(self, item, factor):
+        """A unit table the site wrote itself, with the Month line it chose."""
+        doc = frappe.get_doc("Item", item)
+        doc.uoms = [row for row in doc.uoms if row.uom != "Month"]
+
+        if factor is not None:
+            doc.append("uoms", {"uom": "Month", "conversion_factor": factor})
+
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+
+    def as_the_browser_sends_it(self, fingerprint, **written):
+        """The fingerprint as it comes back from a browser, which writes 1.0 as 1."""
+        return json.dumps({**json.loads(json.dumps(fingerprint)), **written})
+
+    def test_same_factor_after_browser_json_roundtrip_is_not_stale(self):
+        theirs = self.item("ROUNDTRIP")
+        self.month_uom(theirs, 1)
+        seen = CatalogueService.get_item_msp_compatibility(item=theirs)["fingerprint"]
+
+        self.assertEqual(seen["month_conversion_factor"], 1.0)
+
+        out = CatalogueService.enable_item_for_msp(
+            item=theirs,
+            scope="Device",
+            seen=self.as_the_browser_sends_it(seen, month_conversion_factor=1),
+        )
+
+        self.assertEqual(self.definition(theirs).name, out["definition"])
+        self.assertTrue(self.msp_enabled(theirs))
+
+    def test_changed_factor_is_stale(self):
+        theirs = self.item("REFACTORED")
+        self.month_uom(theirs, 1)
+        seen = CatalogueService.get_item_msp_compatibility(item=theirs)["fingerprint"]
+
+        self.month_uom(theirs, 2)
+
+        with self.assertRaises(NexgenError) as refused:
+            CatalogueService.enable_item_for_msp(
+                item=theirs,
+                scope="Device",
+                fix_month_factor=1,
+                seen=self.as_the_browser_sends_it(seen, month_conversion_factor=1),
+            )
+
+        self.assertEqual(refused.exception.code, "ITEM_CHANGED_DURING_CONFIGURATION")
+        self.assertIsNone(self.definition(theirs))
+        self.assertEqual(msp_catalogue.read_item(theirs).month_conversion_factor, 2)
+
+    def test_absent_factor_is_not_zero(self):
+        theirs = self.item("NOFACTOR")
+        seen = CatalogueService.get_item_msp_compatibility(item=theirs)["fingerprint"]
+
+        self.assertIsNone(seen["month_conversion_factor"])
+
+        with self.assertRaises(NexgenError) as refused:
+            CatalogueService.enable_item_for_msp(
+                item=theirs,
+                scope="User",
+                add_month_uom=1,
+                seen=self.as_the_browser_sends_it(seen, month_conversion_factor=0),
+            )
+
+        self.assertEqual(refused.exception.code, "ITEM_CHANGED_DURING_CONFIGURATION")
+
+        self.month_uom(theirs, 1)
+
+        with self.assertRaises(NexgenError) as later:
+            CatalogueService.enable_item_for_msp(
+                item=theirs, scope="User", seen=self.as_the_browser_sends_it(seen)
+            )
+
+        self.assertEqual(later.exception.code, "ITEM_CHANGED_DURING_CONFIGURATION")
+
+        kept = CatalogueService.get_item_msp_compatibility(item=theirs)["fingerprint"]
+        self.month_uom(theirs, None)
+
+        with self.assertRaises(NexgenError) as gone:
+            CatalogueService.enable_item_for_msp(
+                item=theirs,
+                scope="User",
+                add_month_uom=1,
+                seen=self.as_the_browser_sends_it(kept, month_conversion_factor=1),
+            )
+
+        self.assertEqual(gone.exception.code, "ITEM_CHANGED_DURING_CONFIGURATION")
         self.assertIsNone(self.definition(theirs))
 
     def test_a_scope_is_required(self):

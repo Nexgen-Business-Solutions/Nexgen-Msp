@@ -437,7 +437,7 @@ export default function NewBillingRun() {
                       value:
                         terms?.proposed_amount === null || terms?.proposed_amount === undefined
                           ? '—'
-                          : `${terms.proposed_amount < 0 ? '−' : ''}${money(terms.proposed_amount, currency)}`,
+                          : money(terms.proposed_amount, currency),
                     },
                   ]}
                 />
@@ -802,10 +802,7 @@ export default function NewBillingRun() {
                   },
                   {
                     label: 'Estimated total (before taxes)',
-                    value: `${(priced.data?.total ?? total) < 0 ? '−' : ''}${money(
-                      priced.data?.total ?? total,
-                      currency
-                    )}`,
+                    value: money(priced.data?.total ?? total, currency),
                   },
                 ]}
               />

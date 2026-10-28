@@ -13,6 +13,7 @@ a company the reader may not act for.
 import frappe
 from frappe.utils import flt
 
+from nexgen_msp.api.internal.services.billing import money
 from nexgen_msp.api.internal.services.contract_service import ContractService
 from nexgen_msp.utils import access
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
@@ -125,6 +126,9 @@ def list_invoices(
         row["billing_run"] = runs.get(row.name)
         # where it came from is read off a link that exists, never guessed from its shape
         row["origin"] = "MSP" if row["billing_run"] else "ERPNext"
+        # a return is money going back, whichever way ERPNext stored its figures
+        row["signed_total"] = money.signed(row["grand_total"], row["is_return"])
+        row["signed_outstanding"] = money.signed(row["outstanding_amount"], row["is_return"])
 
     return {"total": total, "rows": rows, "page": page, "page_length": page_length}
 
@@ -146,6 +150,10 @@ def invoice_detail(name=None):
         **card,
         "billing_run": run,
         "origin": "MSP" if run else "ERPNext",
+        "is_credit_note": bool(card.is_return),
+        "signed_total": money.signed(card.grand_total, card.is_return),
+        "signed_net_total": money.signed(doc.net_total, card.is_return),
+        "signed_outstanding": money.signed(card.outstanding_amount, card.is_return),
         "conversion_rate": flt(doc.conversion_rate),
         "payment_terms_template": doc.payment_terms_template,
         "cost_center": doc.cost_center,

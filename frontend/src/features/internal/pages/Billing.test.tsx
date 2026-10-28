@@ -197,3 +197,127 @@ describe('the billing page reads one workspace', () => {
     expect(screen.queryByText('Invoiced', { exact: true })).not.toBeInTheDocument();
   });
 });
+
+/**
+ * A credit is money going back.
+ *
+ * The server settles which way each figure points, so the list prints what it is given: a
+ * credit note reads as a deduction and keeps saying it is a credit note, whatever state its
+ * document is in — and nothing on the way adds a second minus sign.
+ */
+describe('how the history reads a credit note', () => {
+  const creditRun = {
+    name: 'BR-2026-10-004',
+    customer: 'Kakivu Mousse USD',
+    kind: 'Credit note',
+    period_start: '2026-07-01',
+    period_end: '2026-09-30',
+    lines: 4,
+    exceptions: 0,
+    amount: -23.48,
+    currency: 'USD',
+    sales_invoice: 'R-SINV-2026-00021',
+    is_credit_note: true,
+    invoice_docstatus: 1,
+    needs_reconciliation: false,
+    status: 'Invoiced',
+    disputed: false,
+  };
+
+  it('shows a posted credit note as a deduction, still typed as a credit note', async () => {
+    vi.mocked(internal.getBillingWorkspace).mockResolvedValue(workspace({ rows: [creditRun] }));
+    vi.mocked(internal.listMspContracts).mockResolvedValue([]);
+    draw();
+
+    const row = (await screen.findByText('BR-2026-10-004')).closest('tr') as HTMLElement;
+
+    expect(within(row).getByText('−23.48 USD')).toBeInTheDocument();
+    expect(within(row).getByText('Credit note')).toBeInTheDocument();
+    expect(within(row).getByText('Invoiced'), 'what it is and what state it is in').toBeInTheDocument();
+    expect(within(row).queryByText('23.48 USD')).not.toBeInTheDocument();
+  });
+
+  it('keeps a regular run positive beside it', async () => {
+    vi.mocked(internal.getBillingWorkspace).mockResolvedValue(
+      workspace({
+        rows: [
+          creditRun,
+          { ...creditRun, name: 'BR-2026-10-003', kind: 'Regular billing', amount: 100, is_credit_note: false },
+        ],
+      })
+    );
+    vi.mocked(internal.listMspContracts).mockResolvedValue([]);
+    draw();
+
+    const charge = (await screen.findByText('BR-2026-10-003')).closest('tr') as HTMLElement;
+
+    expect(within(charge).getByText('100.00 USD')).toBeInTheDocument();
+    expect(within(charge).queryByText('−100.00 USD')).not.toBeInTheDocument();
+  });
+
+  it('shows a return in the invoices list with one minus sign, not two', async () => {
+    vi.mocked(internal.getBillingWorkspace).mockResolvedValue(
+      workspace({
+        tab: 'invoices',
+        rows: [
+          {
+            name: 'R-SINV-2026-00021',
+            customer: 'Kakivu Mousse USD',
+            posting_date: '2026-10-20',
+            due_date: '2026-11-19',
+            amount: -23.48,
+            outstanding: -23.48,
+            currency: 'USD',
+            is_return: true,
+            origin: 'MSP',
+            billing_run: 'BR-2026-10-004',
+            status: 'Return',
+          },
+        ],
+      })
+    );
+    vi.mocked(internal.listMspContracts).mockResolvedValue([]);
+    draw();
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Sales invoices/ }));
+
+    const row = (await screen.findByText('R-SINV-2026-00021')).closest('tr') as HTMLElement;
+
+    expect(within(row).getAllByText('−23.48 USD')).toHaveLength(2);
+    expect(within(row).queryByText('−−23.48 USD')).not.toBeInTheDocument();
+    expect(within(row).getByText('Credit note')).toBeInTheDocument();
+  });
+
+  it('says which runs no longer agree with ERPNext', async () => {
+    vi.mocked(internal.getBillingWorkspace).mockResolvedValue(
+      workspace({
+        rows: [{ ...creditRun, status: 'Invoice Drafted', needs_reconciliation: true }],
+      })
+    );
+    vi.mocked(internal.listMspContracts).mockResolvedValue([]);
+    draw();
+
+    const row = (await screen.findByText('BR-2026-10-004')).closest('tr') as HTMLElement;
+
+    expect(within(row).getByText('Out of sync')).toBeInTheDocument();
+  });
+
+  it('nets the credits off the invoiced totals it is given', async () => {
+    vi.mocked(internal.getBillingWorkspace).mockResolvedValue(
+      workspace({
+        figures: {
+          runs: 2,
+          settled: 2,
+          awaiting: 0,
+          blocked: 0,
+          blocked_lines: 0,
+          invoiced_totals: [{ currency: 'USD', amount: 76.52 }],
+        },
+      })
+    );
+    vi.mocked(internal.listMspContracts).mockResolvedValue([]);
+    draw();
+
+    expect(await screen.findByText('76.52 USD')).toBeInTheDocument();
+  });
+});

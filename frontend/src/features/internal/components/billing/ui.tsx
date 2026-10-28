@@ -18,11 +18,13 @@ export const TONES = {
 
 export type Tone = keyof typeof TONES;
 
-export const Pill: React.FC<{ tone?: Tone; children: React.ReactNode }> = ({
+export const Pill: React.FC<{ tone?: Tone; title?: string; children: React.ReactNode }> = ({
   tone = 'gray',
+  title,
   children,
 }) => (
   <span
+    title={title}
     className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-bold ${TONES[tone]}`}
   >
     {children}

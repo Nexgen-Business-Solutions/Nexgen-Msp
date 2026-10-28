@@ -1287,7 +1287,21 @@ export type BillingRunRow = {
   billing_period_start: string;
   billing_period_end: string;
   currency: string | null;
+  /** the run's own frozen calculation, before taxes, as it was drawn */
   total_amount: number;
+  /** the same figure pointed the way it has to be read: a credit deducts */
+  signed_total_amount: number;
+  /** the run's calculation beside the document's own totals, on the one comparable basis */
+  reconciliation: {
+    currency: string | null;
+    run_amount: number;
+    net_total: number;
+    taxes: number;
+    grand_total: number;
+    difference: number;
+    material: boolean;
+    basis: string;
+  } | null;
   exception_count: number;
   sales_invoice: string | null;
   adjustment_of: string | null;
@@ -1363,7 +1377,21 @@ export type BillingRunDetail = {
   billing_period_end: string;
   cutoff_datetime: string | null;
   currency: string | null;
+  /** the run's own frozen calculation, before taxes, as it was drawn */
   total_amount: number;
+  /** the same figure pointed the way it has to be read: a credit deducts */
+  signed_total_amount: number;
+  /** the run's calculation beside the document's own totals, on the one comparable basis */
+  reconciliation: {
+    currency: string | null;
+    run_amount: number;
+    net_total: number;
+    taxes: number;
+    grand_total: number;
+    difference: number;
+    material: boolean;
+    basis: string;
+  } | null;
   exception_count: number;
   prepared_by: string | null;
   approved_by: string | null;
@@ -1372,6 +1400,12 @@ export type BillingRunDetail = {
   sales_invoice: string | null;
   invoice_status: string | null;
   invoice_submitted: boolean;
+  /** what the ledger says about the document: 0 draft, 1 posted, 2 cancelled */
+  invoice_docstatus: number | null;
+  accounting_state: 'Draft' | 'Posted' | 'Cancelled' | null;
+  /** the document ERPNext made to replace a cancelled one, shown and never followed */
+  invoice_amended_to: string | null;
+  accounting_mismatch: { code: string; message: string } | null;
   /** a charge raised before this application, written down so it can be reasoned about */
   reconstructed: boolean;
   coverage_evidence: string | null;
@@ -1391,6 +1425,17 @@ export type BillingRunDetail = {
   can_revalidate: boolean;
   can_invoice: boolean;
   can_cancel: boolean;
+  cancel_blocked: string | null;
+  can_reconcile: boolean;
+  cancellation: {
+    operation: string;
+    reason: string | null;
+    by: string | null;
+    at: string;
+    on: string | null;
+    before: { run: string; document: string | null; invoice_docstatus: number | null };
+    after: { run: string; document: string | null; invoice_docstatus: number | null };
+  } | null;
   can_submit_invoice: boolean;
   can_contest: boolean;
   can_discard_invoice: boolean;
@@ -1798,6 +1843,7 @@ export const getInvoiceRecipients = (name: string, signal?: AbortSignal) =>
 
 const BILLING_ENDPOINTS: Record<string, string> = {
   finalise: `${BASE}.finalise_billing_run`,
+  reconcile: `${BASE}.reconcile_billing_run`,
   submit_invoice: `${BASE}.submit_invoice_billing_run`,
   discard_invoice: `${BASE}.discard_billing_invoice`,
   reopen: `${BASE}.reopen_billing_run`,
@@ -2601,9 +2647,14 @@ export type SalesInvoiceRow = {
   return_against: string | null;
   billing_run: string | null;
   origin: 'MSP' | 'ERPNext';
+  /** the document's own direction, settled by the server: a credit deducts */
+  signed_total: number;
+  signed_outstanding: number;
 };
 
 export type SalesInvoiceDetail = SalesInvoiceRow & {
+  is_credit_note: boolean;
+  signed_net_total: number;
   conversion_rate: number;
   payment_terms_template: string | null;
   cost_center: string | null;
@@ -2736,6 +2787,10 @@ export type BillingWorkspaceRow = {
   amount: number;
   currency: string | null;
   sales_invoice?: string | null;
+  is_credit_note?: boolean;
+  /** what the ledger says about the linked document, when there is one */
+  invoice_docstatus?: number | null;
+  needs_reconciliation?: boolean;
   disputed?: boolean;
   /** invoices only */
   posting_date?: string;

@@ -83,6 +83,7 @@ export type RequestTargetPresentation = {
   target_label: string;
   target_kind: 'client_user' | 'requested_client_user' | 'managed_device' | 'requested_device';
   target_name?: string | null;
+  device_serial_number?: string | null;
   target_badge: 'NEW' | 'NEW DEVICE' | 'UNRESOLVED' | null;
   operation_label: string;
   state_at_request: string | null;

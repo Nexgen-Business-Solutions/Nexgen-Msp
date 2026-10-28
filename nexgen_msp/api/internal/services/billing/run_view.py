@@ -62,10 +62,19 @@ def _moves(run):
         ("invoice_pdf", "Invoice PDF", "quiet", run["invoice_submitted"]),
         ("breakdown", "Breakdown file", "quiet", True),
         ("resolve_dispute", "Settle the dispute", "warn", run["can_resolve_dispute"]),
+        # what was posted or cancelled before the two sides were kept together
+        ("reconcile", "Reconcile with ERPNext", "warn", run.get("can_reconcile", False)),
         # a customer contests their invoice from their own portal; what this side offers
         # against a posted charge is a credit note, prepared like any other operation
         ("credit", "Create credit note", "quiet", run["can_contest"]),
-        ("cancel", "Cancel run", "danger", run["can_cancel"]),
+        (
+            "cancel",
+            "Cancel run and credit note" if run["is_credit_note"] and run["sales_invoice"]
+            else "Cancel run and invoice" if run["sales_invoice"]
+            else "Cancel run",
+            "danger",
+            run["can_cancel"],
+        ),
     ]
 
     return [
@@ -98,6 +107,18 @@ def _activity(run):
 
     if run["disputed"]:
         events.append({"label": "Customer disputed the invoice", "by": None, "on": run["disputed_on"]})
+
+    undone = run.get("cancellation")
+
+    if undone:
+        events.append(
+            {
+                "label": "Billing run cancelled"
+                + (f" — {undone['reason']}" if undone.get("reason") else ""),
+                "by": undone.get("by"),
+                "on": undone.get("on"),
+            }
+        )
 
     return events
 
@@ -153,7 +174,8 @@ def run_view(name=None):
         "credit_detected": _credit_detected(run),
         "activity": _activity(run),
         "figures": {
-            "amount": flt(run["total_amount"], 2),
+            # the run's own calculation, pointed the way it is read
+            "amount": flt(run["signed_total_amount"], 2),
             "currency": run["currency"],
             "lines": len(run["lines"]),
             "billed_lines": len(billed),

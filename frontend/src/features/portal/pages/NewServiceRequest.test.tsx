@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as portal from '@/lib/api/portal';
 import { FrappeError } from '@/lib/api/client';
@@ -348,7 +348,7 @@ describe('The Request Builder, step by step', () => {
     const row = (await screen.findByText('Alice Ndom')).closest('tr') as HTMLElement;
 
     expect(within(row).getByText('2026-09-24')).toBeInTheDocument();
-    expect(within(row).getByText('ACI-LT-011')).toBeInTheDocument();
+    expect(within(row).getByText('ACI-LT-011 · SN: SN-011')).toBeInTheDocument();
     expect(within(row).getByText('+ 2 more')).toBeInTheDocument();
   });
 
@@ -886,7 +886,12 @@ describe('choosing existing people and machines', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Ask for a Device' }));
     const asking = (await screen.findByLabelText('Include Alice Ndom')).closest('tr') as HTMLElement;
-    expect(within(asking).getByText('ACI-LT-011, ACI-PH-002, ACI-TAB-003')).toBeInTheDocument();
+    expect(
+      within(asking).getByText(
+        'ACI-LT-011 · SN: SN-011 / ACI-PH-002 · Serial number not recorded / ' +
+          'ACI-TAB-003 · Serial number not recorded'
+      )
+    ).toBeInTheDocument();
     fireEvent.click(await screen.findByRole('button', { name: 'Choose a Device for Alice Ndom' }));
 
     const picker = lastDialog();
@@ -912,7 +917,7 @@ describe('choosing existing people and machines', () => {
     fireEvent.click(held);
 
     expect(screen.getAllByRole('dialog')).toHaveLength(1);
-    expect(screen.getByText('ACI-LT-005')).toBeInTheDocument();
+    expect(screen.getByText('ACI-LT-005 · SN: SN-5')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Add action' }));
 
     const payload = await toReviewAndSubmit();
@@ -970,7 +975,7 @@ describe('machines and holders that do not exist yet', () => {
     await pickScope('All selected');
 
     fireEvent.click(await screen.findByRole('button', { name: 'Configure transfers' }));
-    const row = (await screen.findByText('ACI-LT-011')).closest('tr') as HTMLElement;
+    const row = (await screen.findByText(/ACI-LT-011/)).closest('tr') as HTMLElement;
 
     expect(within(row).getByText('Alice Ndom-Essomba')).toBeInTheDocument();
     expect(within(row).queryByText('Alice Ndom')).not.toBeInTheDocument();
@@ -1355,8 +1360,8 @@ describe('where the Actions step opens', () => {
     const machines = within(details).getAllByRole('row').slice(1);
     expect(machines.map((row) => [...row.querySelectorAll('td')].map((cell) => cell.textContent))).toEqual([
       ['ACI-LT-011', 'Laptop', 'SN-011', '—'],
-      ['ACI-PH-002', 'Phone', '—', '—'],
-      ['ACI-TAB-003', 'Tablet', '—', '—'],
+      ['ACI-PH-002', 'Phone', 'Serial number not recorded', '—'],
+      ['ACI-TAB-003', 'Tablet', 'Serial number not recorded', '—'],
     ]);
   });
 
@@ -1734,6 +1739,169 @@ describe('a request that may no longer be modified', () => {
   });
 });
 
+/**
+ * Which machine a request is about.
+ *
+ * A hostname is not an identification: the person who approves the work reads the serial
+ * number the record holds, or is told there is none, and a machine that does not exist yet
+ * cannot have one.
+ */
+describe('the machine a request points at', () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  const onMachine = (
+    device: string,
+    label: string,
+    serial: string | null
+  ): portal.RequestTarget => ({
+    subject_key: 'user:CU-001',
+    client_user: 'CU-001',
+    requested_client_user: null,
+    full_name: 'Alice Ndom',
+    department: 'Purchasing',
+    target_scope: 'Device',
+    managed_device: device,
+    device_requirement_key: null,
+    requested_device: null,
+    device_label: label,
+    device_serial_number: serial,
+    source_service_assignment: null,
+    current_state: null,
+  });
+
+  const sophosOn = (targets: portal.RequestTarget[]) =>
+    ({
+      customer: 'ACI',
+      selected_subject_count: 1,
+      domains: [
+        {
+          key: 'Service' as const,
+          label: 'Services',
+          options: [
+            {
+              object_key: 'SOPHOS',
+              object_label: 'Sophos',
+              service_scope: 'Device',
+              current_count: 0,
+              without_count: targets.length,
+              actions: [
+                {
+                  operation_code: 'service.add',
+                  operation_label: 'Add',
+                  operation_label_snapshot: 'Add Sophos',
+                  object_key: 'SOPHOS',
+                  object_label: 'Sophos',
+                  targets,
+                  exclusions: [],
+                  applicable_target_count: targets.length,
+                  applicable_subject_count: 1,
+                  excluded_subject_count: 0,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    }) as never;
+
+  const impactOf = async (count: number) => {
+    const sophos = (await screen.findByText('Sophos')).closest('tr') as HTMLElement;
+    fireEvent.click(within(sophos).getByRole('button', { name: `Add · ${count}` }));
+
+    return lastDialog();
+  };
+
+  it('reads a machine as its hostname and its serial number, in People and in an action', async () => {
+    setUp();
+    vi.mocked(portal.evaluateRequestOperations).mockResolvedValue(
+      sophosOn([onMachine('MD-1', 'ACI-LT-011', 'SN-011')])
+    );
+    show();
+    await addAlice();
+
+    const person = (await screen.findByText('Alice Ndom')).closest('tr') as HTMLElement;
+    expect(within(person).getByText('ACI-LT-011 · SN: SN-011')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
+    const impact = await impactOf(1);
+
+    expect(within(impact).getByText('ACI-LT-011 · SN: SN-011')).toBeInTheDocument();
+  });
+
+  it('keeps each serial number on its own machine when one person holds two', async () => {
+    setUp();
+    vi.mocked(portal.evaluateRequestOperations).mockResolvedValue(
+      sophosOn([onMachine('MD-1', 'ACI-LT-011', 'SN-011'), onMachine('MD-2', 'ACI-PH-002', 'SN-002')])
+    );
+    show();
+    await addAlice();
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
+
+    const impact = await impactOf(2);
+    const laptop = within(impact).getByText('ACI-LT-011 · SN: SN-011').closest('tr') as HTMLElement;
+    const phone = within(impact).getByText('ACI-PH-002 · SN: SN-002').closest('tr') as HTMLElement;
+
+    expect(within(laptop).queryByText(/SN-002/)).not.toBeInTheDocument();
+    expect(within(phone).queryByText(/SN-011/)).not.toBeInTheDocument();
+
+    fireEvent.click(within(laptop).getByLabelText('Include Alice Ndom'));
+    fireEvent.click(within(impact).getByRole('button', { name: 'Add action' }));
+
+    const payload = await toReviewAndSubmit();
+
+    expect(payload.action_groups[0].targets.map((target) => target.managed_device)).toEqual(['MD-2']);
+  });
+
+  it('says a recorded machine has no serial number rather than inventing one', async () => {
+    setUp();
+    vi.mocked(portal.evaluateRequestOperations).mockResolvedValue(
+      sophosOn([onMachine('MD-2', 'ACI-PH-002', null)])
+    );
+    show();
+    await addAlice();
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
+
+    const impact = await impactOf(1);
+
+    expect(
+      within(impact).getByText('ACI-PH-002 · Serial number not recorded')
+    ).toBeInTheDocument();
+  });
+
+  it('has no serial number to show for a machine that does not exist yet, and still goes through', async () => {
+    setUp();
+    vi.mocked(portal.evaluateRequestOperations).mockResolvedValue(
+      deviceOperations([assignOption]) as never
+    );
+    show();
+    await addAlice();
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Ask for a Device' }));
+    const row = (await screen.findByLabelText('Include Alice Ndom')).closest('tr') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: 'One that already exists' }));
+    fireEvent.click(await screen.findByRole('option', { name: 'A new one' }));
+    fireEvent.click(within(row).getByRole('button', { name: 'New device for Alice Ndom' }));
+    fireEvent.click(within(lastDialog()).getByRole('button', { name: 'Add device' }));
+
+    await waitFor(() => expect(within(row).getByText('NEW DEVICE')).toBeInTheDocument());
+    const asked = within(row).getByText('NEW DEVICE').closest('p') as HTMLElement;
+
+    expect(asked.textContent).toContain('Serial number not assigned yet');
+    expect(asked.textContent).not.toContain('SN:');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add action' }));
+
+    const payload = await toReviewAndSubmit();
+
+    expect(payload.requested_devices).toHaveLength(1);
+    expect(payload.requested_devices[0].serial_number ?? null).toBeNull();
+  });
+});
+
 describe('several machines for one person', () => {
   afterEach(() => {
     cleanup();
@@ -1891,8 +2059,8 @@ describe('several machines for one person', () => {
     fireEvent.click(within(sophos).getByRole('button', { name: 'Add · 2' }));
 
     const impact = lastDialog();
-    const laptop = within(impact).getByText('ACI-LT-011').closest('tr') as HTMLElement;
-    const phone = within(impact).getByText('ACI-PH-002').closest('tr') as HTMLElement;
+    const laptop = within(impact).getByText(/ACI-LT-011/).closest('tr') as HTMLElement;
+    const phone = within(impact).getByText(/ACI-PH-002/).closest('tr') as HTMLElement;
 
     expect(within(impact).getAllByLabelText('Include Alice Ndom')).toHaveLength(2);
     fireEvent.click(within(phone).getByLabelText('Include Alice Ndom'));
@@ -1903,5 +2071,502 @@ describe('several machines for one person', () => {
 
     expect(payload.action_groups).toHaveLength(1);
     expect(payload.action_groups[0].targets.map((target) => target.managed_device)).toEqual(['MD-1']);
+  });
+});
+
+/**
+ * Why an act reaches fewer machines than there are people.
+ *
+ * The documented case: 24 people selected, 22 of them hold a machine, and a Device service
+ * reaches those 22. The numbers are shown where the decision is taken, and the two people who
+ * hold nothing are named with the reason the server gave, before anything is added.
+ */
+describe('why an action reaches the targets it reaches', () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  type Held = { name: string; hostname: string; serial: string | null };
+
+  const person = (name: string, fullName: string, held: Held[]): portal.RequestSubjectRow => ({
+    subject_key: `user:${name}`,
+    kind: 'existing',
+    client_user: name,
+    requested_client_user: null,
+    full_name: fullName,
+    department: 'Operations',
+    email: `${name.toLowerCase()}@kakivu.cm`,
+    username: name.toLowerCase(),
+    added_via: 'Company',
+    selection_label: 'Kakivu Mousse USD',
+    devices: held.map((device) => ({
+      name: device.name,
+      label: device.hostname,
+      status: 'Active',
+      hostname: device.hostname,
+      device_type: 'Laptop',
+      serial_number: device.serial,
+    })),
+    current_services: [],
+    last_billed: null,
+    usable: true,
+    reason_code: null,
+  });
+
+  const target = (row: portal.RequestSubjectRow, held: Held): portal.RequestTarget => ({
+    subject_key: row.subject_key,
+    client_user: row.client_user,
+    requested_client_user: null,
+    full_name: row.full_name,
+    department: row.department,
+    target_scope: 'Device',
+    managed_device: held.name,
+    device_requirement_key: null,
+    requested_device: null,
+    device_label: held.hostname,
+    device_serial_number: held.serial,
+    source_service_assignment: null,
+    current_state: null,
+  });
+
+  const excluded = (
+    row: portal.RequestSubjectRow,
+    code: string,
+    reason: string,
+    held?: Held
+  ): portal.RequestExclusion => ({
+    subject_key: row.subject_key,
+    client_user: row.client_user,
+    full_name: row.full_name,
+    managed_device: held?.name ?? null,
+    device_label: held?.hostname ?? null,
+    device_serial_number: held?.serial ?? null,
+    current_state: null,
+    reason_code: code,
+    reason,
+  });
+
+  const datto = (
+    targets: portal.RequestTarget[],
+    exclusions: portal.RequestExclusion[],
+    people: number
+  ) =>
+    ({
+      customer: 'KAKIVU',
+      selected_subject_count: people,
+      domains: [
+        {
+          key: 'Service' as const,
+          label: 'Services',
+          options: [
+            {
+              object_key: 'DATTO',
+              object_label: 'Datto RMM',
+              service_scope: 'Device',
+              current_count: 0,
+              without_count: targets.length,
+              actions: [
+                {
+                  operation_code: 'service.add',
+                  operation_label: 'Add',
+                  operation_label_snapshot: 'Add Datto RMM',
+                  object_key: 'DATTO',
+                  object_label: 'Datto RMM',
+                  targets,
+                  exclusions,
+                  applicable_target_count: targets.length,
+                  applicable_subject_count: new Set(targets.map((row) => row.subject_key)).size,
+                  excluded_subject_count: new Set(exclusions.map((row) => row.subject_key)).size,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    }) as never;
+
+  const scene = (rows: portal.RequestSubjectRow[], operations: unknown) => {
+    setUp();
+    vi.mocked(portal.getCompanySelection).mockResolvedValue({
+      ...groupSelection('Company'),
+      selection_label: 'Kakivu Mousse USD',
+      active_count: rows.length,
+      departments: ['Operations'],
+      people: rows.map((row) => ({
+        name: row.client_user as string,
+        full_name: row.full_name,
+        email: row.email,
+        username: row.username,
+        department: row.department,
+        lifecycle_status: 'Active',
+      })),
+    } as never);
+    vi.mocked(portal.evaluateRequestScope).mockImplementation(async ({ subjects }) => ({
+      customer: 'KAKIVU',
+      subjects: subjects
+        .map((subject) => rows.find((row) => row.subject_key === subject.subject_key))
+        .filter(Boolean) as portal.RequestSubjectRow[],
+    }));
+    vi.mocked(portal.evaluateRequestOperations).mockResolvedValue(operations as never);
+  };
+
+  const toActions = async (last: string) => {
+    show();
+    fireEvent.click(screen.getByRole('button', { name: /Entire company/ }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Add entire company' })).toBeEnabled()
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Add entire company' }));
+    await screen.findByText(last);
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
+    await screen.findByText('Group actions stay explicit');
+
+    return (await screen.findByText('Datto RMM')).closest('tr') as HTMLElement;
+  };
+
+  const machine = (index: number): Held => ({
+    name: `MD-${index}`,
+    hostname: `KAK-LT-${String(index).padStart(3, '0')}`,
+    serial: `SN-${String(index).padStart(3, '0')}`,
+  });
+
+  /** The documented company: 24 people, 22 of whom hold one machine each. */
+  const kakivu = () => {
+    const holders = Array.from({ length: 22 }, (_, index) =>
+      person(`CU-${index + 100}`, `Holder ${index + 1}`, [machine(index + 1)])
+    );
+
+    return [
+      ...holders,
+      person('CU-200', 'Firdosh Samnani', []),
+      person('CU-201', 'NAWAZDDINE (Stolen PC)', []),
+    ];
+  };
+
+  it('reads 24 people, 22 linked devices and 22 eligible devices on the row itself', async () => {
+    const rows = kakivu();
+    scene(
+      rows,
+      datto(
+        rows.slice(0, 22).map((row, index) => target(row, machine(index + 1))),
+        rows.slice(22).map((row) => excluded(row, 'NO_CURRENT_DEVICE', 'Person has no current Device.')),
+        24
+      )
+    );
+
+    const row = await toActions('NAWAZDDINE (Stolen PC)');
+
+    expect(
+      within(row).getByText('24 people selected · 22 linked devices · 22 eligible devices')
+    ).toBeInTheDocument();
+    expect(within(row).getByText(/2 people without a linked device/)).toBeInTheDocument();
+    expect(within(row).getByRole('button', { name: 'Add · 22' })).toBeInTheDocument();
+    expect(within(row).getByRole('button', { name: 'Why only 22?' })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('names who is left out and the reason the server gave, without touching anything', async () => {
+    const rows = kakivu();
+    scene(
+      rows,
+      datto(
+        rows.slice(0, 22).map((row, index) => target(row, machine(index + 1))),
+        rows.slice(22).map((row) => excluded(row, 'NO_CURRENT_DEVICE', 'Person has no current Device.')),
+        24
+      )
+    );
+
+    const row = await toActions('NAWAZDDINE (Stolen PC)');
+    fireEvent.click(within(row).getByRole('button', { name: 'Why only 22?' }));
+
+    const panel = lastDialog();
+
+    expect(within(panel).getByText('Firdosh Samnani')).toBeInTheDocument();
+    expect(within(panel).getByText('NAWAZDDINE (Stolen PC)')).toBeInTheDocument();
+    expect(within(panel).getAllByText('Person has no current Device.')).toHaveLength(2);
+    expect(within(panel).getAllByText('NO_CURRENT_DEVICE')).toHaveLength(2);
+    expect(within(panel).getByText('KAK-LT-001 · SN: SN-001')).toBeInTheDocument();
+
+    fireEvent.click(within(panel).getByRole('button', { name: 'Done' }));
+
+    expect(screen.getByText('No action added yet.')).toBeInTheDocument();
+    expect(portal.createRequest).not.toHaveBeenCalled();
+    expect(portal.saveRequestDraft).not.toHaveBeenCalled();
+    expect(portal.updateRequest).not.toHaveBeenCalled();
+  });
+
+  it('counts one person with two machines as one person and two devices', async () => {
+    const rows = [person('CU-100', 'Holder 1', [machine(1), machine(2)])];
+    scene(
+      rows,
+      datto([target(rows[0], machine(1)), target(rows[0], machine(2))], [], 1)
+    );
+
+    const row = await toActions('Holder 1');
+
+    expect(
+      within(row).getByText('1 person selected · 2 linked devices · 2 eligible devices')
+    ).toBeInTheDocument();
+    expect(within(row).getByRole('button', { name: 'View exclusions' })).toBeInTheDocument();
+  });
+
+  it('counts a machine two people share once', async () => {
+    const shared = machine(7);
+    const rows = [
+      person('CU-100', 'Holder 1', [shared]),
+      person('CU-101', 'Holder 2', [shared]),
+    ];
+    scene(rows, datto([target(rows[0], shared)], [], 2));
+
+    const row = await toActions('Holder 2');
+
+    expect(
+      within(row).getByText('2 people selected · 1 linked device · 1 eligible device')
+    ).toBeInTheDocument();
+  });
+
+  it('says a person holds nothing rather than offering them a machine service', async () => {
+    const rows = [person('CU-100', 'Holder 1', [])];
+    scene(
+      rows,
+      datto([], [excluded(rows[0], 'NO_CURRENT_DEVICE', 'Person has no current Device.')], 1)
+    );
+
+    const row = await toActions('Holder 1');
+
+    expect(
+      within(row).getByText('1 person selected · 0 linked devices · 0 eligible devices')
+    ).toBeInTheDocument();
+    fireEvent.click(within(row).getByRole('button', { name: 'Why only 0?' }));
+
+    const panel = lastDialog();
+
+    expect(within(panel).getByText('Nothing in this selection can take this action.')).toBeInTheDocument();
+    expect(within(panel).getByText('Person has no current Device.')).toBeInTheDocument();
+    expect(within(panel).getByRole('link', { name: 'Devices' })).toHaveAttribute(
+      'href',
+      '/msp/devices'
+    );
+  });
+
+  it('gives every exclusion its own reason instead of one for all', async () => {
+    const rows = [
+      person('CU-100', 'Holder 1', [machine(1)]),
+      person('CU-101', 'Holder 2', [machine(2)]),
+      person('CU-102', 'Holder 3', [machine(3)]),
+      person('CU-103', 'Holder 4', []),
+    ];
+    scene(
+      rows,
+      datto(
+        [target(rows[0], machine(1))],
+        [
+          excluded(rows[1], 'ALREADY_ACTIVE', 'Service is already active.', machine(2)),
+          excluded(rows[2], 'PENDING_CONFLICT', 'Another request is already changing this service.', machine(3)),
+          excluded(rows[3], 'DEVICE_NOT_ACTIVE', 'This Device is not active.'),
+        ],
+        4
+      )
+    );
+
+    const row = await toActions('Holder 4');
+
+    expect(within(row).getByText(/3 not eligible/)).toBeInTheDocument();
+    fireEvent.click(within(row).getByRole('button', { name: 'Why only 1?' }));
+
+    const panel = lastDialog();
+    const reasons = ['ALREADY_ACTIVE', 'PENDING_CONFLICT', 'DEVICE_NOT_ACTIVE'];
+
+    for (const code of reasons) {
+      expect(within(panel).getByText(code)).toBeInTheDocument();
+    }
+
+    expect(within(panel).getByText('Service is already active.')).toBeInTheDocument();
+    expect(within(panel).getByText('Another request is already changing this service.')).toBeInTheDocument();
+    expect(within(panel).getByText('This Device is not active.')).toBeInTheDocument();
+    expect(within(panel).getByText('KAK-LT-002 · SN: SN-002')).toBeInTheDocument();
+  });
+
+  it('adds only the targets the server confirmed, exclusions and all', async () => {
+    const rows = kakivu();
+    scene(
+      rows,
+      datto(
+        rows.slice(0, 22).map((row, index) => target(row, machine(index + 1))),
+        rows.slice(22).map((row) => excluded(row, 'NO_CURRENT_DEVICE', 'Person has no current Device.')),
+        24
+      )
+    );
+
+    const row = await toActions('NAWAZDDINE (Stolen PC)');
+    fireEvent.click(within(row).getByRole('button', { name: 'Why only 22?' }));
+    fireEvent.click(within(lastDialog()).getByRole('button', { name: 'Done' }));
+    fireEvent.click(within(row).getByRole('button', { name: 'Add · 22' }));
+    fireEvent.click(within(lastDialog()).getByRole('button', { name: 'Add action' }));
+
+    const payload = await toReviewAndSubmit();
+
+    expect(payload.action_groups).toHaveLength(1);
+    expect(payload.action_groups[0].targets).toHaveLength(22);
+    expect(payload.action_groups[0].exclusions.map((row) => row.full_name)).toEqual([
+      'Firdosh Samnani',
+      'NAWAZDDINE (Stolen PC)',
+    ]);
+  });
+});
+
+/**
+ * Putting a half-written request aside.
+ *
+ * A draft is somebody's work in progress: it saves with the people chosen and nothing done
+ * to them yet, it is confirmed only once the server says which document it wrote, and a
+ * refusal leaves every answer on the page where it was.
+ */
+describe('saving a draft', () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  const stored = (name: string) =>
+    ({
+      ...(savedDraft({ alice: 'Existing', brice: 'Existing' }) as unknown as Record<string, unknown>),
+      name,
+      subjects: [
+        {
+          subject_key: 'user:CU-001',
+          kind: 'existing',
+          client_user: 'CU-001',
+          requested_client_user: null,
+          full_name: 'Alice Ndom',
+          department: 'Purchasing',
+          email: 'alice@aci.cm',
+          username: null,
+          external_employee_id: null,
+          start_date: null,
+          added_via: 'Existing',
+          selection_label: null,
+        },
+      ],
+    }) as never;
+
+  /** the address as the router holds it, which is where a draft's name has to land */
+  const Address = () => <span data-testid="address">{useLocation().search}</span>;
+
+  const open = () =>
+    render(
+      <QueryClientProvider client={client()}>
+        <MemoryRouter initialEntries={['/msp/requests/new']}>
+          <NewServiceRequest />
+          <Address />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+  const url = () =>
+    new URLSearchParams(screen.getByTestId('address').textContent ?? '').get('draft');
+
+  it('saves a draft that names a person and no action at all', async () => {
+    setUp();
+    vi.mocked(portal.saveRequestDraft).mockResolvedValue(stored('SR-2026-01826'));
+    show();
+    await addAlice();
+
+    const save = screen.getByRole('button', { name: /Save draft/ });
+
+    expect(save, 'a person is enough to put the page aside').toBeEnabled();
+    fireEvent.click(save);
+
+    await waitFor(() => expect(portal.saveRequestDraft).toHaveBeenCalled());
+
+    const sent = vi.mocked(portal.saveRequestDraft).mock.calls[0][0];
+
+    expect(sent.action_groups).toEqual([]);
+    expect(sent.subjects).toHaveLength(1);
+    expect(sent.name).toBeUndefined();
+  });
+
+  it('confirms the save with the name the server gave back, never before', async () => {
+    setUp();
+    let release: (value: never) => void = () => {};
+    vi.mocked(portal.saveRequestDraft).mockImplementation(
+      () => new Promise((resolve) => { release = resolve; })
+    );
+    vi.mocked(portal.getRequest).mockResolvedValue(stored('SR-2026-01826'));
+    open();
+    await addAlice();
+    fireEvent.click(screen.getByRole('button', { name: /Save draft/ }));
+
+    expect(await screen.findByRole('button', { name: /Saving…/ })).toBeDisabled();
+    expect(screen.queryByText(/Draft saved/)).not.toBeInTheDocument();
+
+    release(stored('SR-2026-01826'));
+
+    expect(await screen.findByText('Draft saved — SR-2026-01826')).toBeInTheDocument();
+  });
+
+  it('puts the draft it wrote in the address, so a reload comes back to it', async () => {
+    setUp();
+    vi.mocked(portal.saveRequestDraft).mockResolvedValue(stored('SR-2026-01826'));
+    vi.mocked(portal.getRequest).mockResolvedValue(stored('SR-2026-01826'));
+    open();
+    await addAlice();
+
+    expect(url()).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Save draft/ }));
+
+    await screen.findByText('Draft saved — SR-2026-01826');
+
+    expect(url()).toBe('SR-2026-01826');
+  });
+
+  it('saves over the same document the second time, and the third', async () => {
+    setUp();
+    vi.mocked(portal.saveRequestDraft).mockResolvedValue(stored('SR-2026-01826'));
+    vi.mocked(portal.getRequest).mockResolvedValue(stored('SR-2026-01826'));
+    open();
+    await addAlice();
+
+    for (let round = 0; round < 3; round += 1) {
+      fireEvent.click(await screen.findByRole('button', { name: /Save draft/ }));
+      await screen.findByText('Draft saved — SR-2026-01826');
+    }
+
+    const names = vi.mocked(portal.saveRequestDraft).mock.calls.map((call) => call[0].name);
+
+    expect(names).toEqual([undefined, 'SR-2026-01826', 'SR-2026-01826']);
+  });
+
+  it('says a refused save was refused, and keeps everything that was entered', async () => {
+    setUp();
+    vi.mocked(portal.saveRequestDraft).mockRejectedValue(
+      new FrappeError('This person no longer belongs to this company.', 417, 'VALIDATION_ERROR')
+    );
+    open();
+    await addAlice();
+    fireEvent.click(screen.getByRole('button', { name: /Save draft/ }));
+
+    expect(await screen.findByText('Draft was not saved')).toBeInTheDocument();
+    expect(
+      screen.getByText('This person no longer belongs to this company.')
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Nothing you entered has been lost/)).toBeInTheDocument();
+    expect(screen.queryByText(/Draft saved —/)).not.toBeInTheDocument();
+    expect(screen.getByText('Alice Ndom'), 'the person stays on the page').toBeInTheDocument();
+    expect(url(), 'and the address is not moved to a draft nobody wrote').toBeNull();
+  });
+
+  it('never submits the request while putting it aside', async () => {
+    setUp();
+    vi.mocked(portal.saveRequestDraft).mockResolvedValue(stored('SR-2026-01826'));
+    show();
+    await addAlice();
+    fireEvent.click(screen.getByRole('button', { name: /Save draft/ }));
+
+    await screen.findByText('Draft saved — SR-2026-01826');
+
+    expect(portal.createRequest).not.toHaveBeenCalled();
+    expect(portal.updateRequest).not.toHaveBeenCalled();
   });
 });

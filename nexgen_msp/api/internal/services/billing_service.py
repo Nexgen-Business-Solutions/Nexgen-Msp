@@ -12,6 +12,7 @@ from nexgen_msp.api.internal.services.contract_service import ContractService
 from nexgen_msp.api.internal.services.service_definition_service import (
     ServiceDefinitionService,
 )
+from nexgen_msp.api.internal.services.billing import accounting, money
 from nexgen_msp.utils import erpnext_bridge, permissions
 from nexgen_msp.utils import intervals as coverage_intervals
 from nexgen_msp.utils.catalogue import BILLING_UOM
@@ -1865,30 +1866,14 @@ class BillingService:
         return {"name": name, "customer": customer, "billing_period_end": str(period or "")}
 
     @staticmethod
-    def cancel(name=None):
-        BillingService._guard_admin()
+    def cancel(name=None, reason=None):
+        """Cancel a run, and with it the document it posted.
 
-        if not frappe.db.exists("MSP Billing Run", name):
-            raise NotFoundError(f"Billing Run {name} not found.", "NOT_FOUND")
-
-        doc = frappe.get_doc("MSP Billing Run", name)
-
-        if doc.sales_invoice:
-            raise ValidationError(
-                f"This run carries invoice {doc.sales_invoice}. Cancel or delete that "
-                "invoice first — dropping the run would leave it orphaned.",
-                "INVALID_TRANSITION",
-            )
-
-        if doc.docstatus == 1:
-            doc.cancel()
-        else:
-            doc.status = "Cancelled"
-            doc.save()
-
-        frappe.db.commit()
-
-        return BillingService.get_run(name)
+        The accounting side of this is `billing.accounting`: it is the only place entitled to
+        cancel a document of ours in ERPNext, and it does it in the same transaction as the
+        run so the two can never disagree.
+        """
+        return accounting.cancel_run(name=name, reason=reason)
 
     @staticmethod
     def exchange_preview(name=None):
@@ -2330,23 +2315,8 @@ class BillingService:
                 "INVALID_TRANSITION",
             )
 
-        order = doc.sales_order
-
-        doc.db_set("sales_invoice", None)
-        doc.db_set("sales_order", None)
+        accounting.drop_draft(doc)
         doc.db_set("status", "Approved")
-
-        frappe.delete_doc("Sales Invoice", invoice.name, ignore_permissions=True)
-
-        # the order exists only to carry this invoice, so it goes with it
-        if order and frappe.db.exists("Sales Order", order):
-            order_doc = frappe.get_doc("Sales Order", order)
-
-            if order_doc.docstatus == 1:
-                order_doc.cancel()
-
-            frappe.delete_doc("Sales Order", order, ignore_permissions=True)
-
         frappe.db.commit()
 
         return BillingService.get_run(name)
@@ -2606,11 +2576,9 @@ class BillingService:
                 else []
             )
 
-        posted = (
-            frappe.db.get_value("Sales Invoice", doc.sales_invoice, "docstatus") == 1
-            if doc.sales_invoice
-            else False
-        )
+        # what the ledger says about the document, and whether the run still agrees with it
+        found = accounting.state_of(doc.as_dict())
+        posted = found["invoice_docstatus"] == 1
 
         # a run drawn before the identity was frozen has nothing to read back, and the
         # records as they stand are the closest thing to what it was billed to
@@ -2654,7 +2622,14 @@ class BillingService:
             "billing_period_end": doc.billing_period_end,
             "cutoff_datetime": doc.cutoff_datetime,
             "currency": doc.currency,
+            # the run's own frozen calculation, before taxes, exactly as it was drawn
             "total_amount": doc.total_amount,
+            # the same figure pointed the way it has to be read: a credit deducts
+            "signed_total_amount": money.signed(
+                doc.total_amount, bool(doc.credit_note_of or doc.standalone_credit)
+            ),
+            # the run's calculation beside the document's own totals, on the same basis
+            "reconciliation": BillingService._reconciliation(doc, found),
             "exception_count": doc.exception_count,
             "prepared_by": frappe.db.get_value("User", doc.prepared_by, "full_name")
             if doc.prepared_by
@@ -2669,6 +2644,12 @@ class BillingService:
             if doc.sales_invoice
             else None,
             "invoice_submitted": posted,
+            "invoice_docstatus": found["invoice_docstatus"],
+            "accounting_state": found["accounting_state"],
+            # a document somebody amended: shown so the replacement can be found, never
+            # followed, because moving a run onto another document is a decision
+            "invoice_amended_to": found.get("invoice_amended_to"),
+            "accounting_mismatch": found["mismatch"],
             # a charge this application never raised, written down so it can be credited
             "reconstructed": bool(doc.reconstructed),
             "coverage_evidence": doc.coverage_evidence,
@@ -2709,11 +2690,57 @@ class BillingService:
             and not doc.sales_invoice
             # nothing to reopen: it records a charge that already went out
             and not doc.reconstructed,
-            "can_cancel": doc.status not in ("Invoiced", "Cancelled")
-            and not doc.sales_invoice,
+            # a posted run is cancellable here, and only here: the document it carries is
+            # cancelled in the same operation, which is why ERPNext refuses to cancel it alone
+            "can_cancel": not accounting.blocker_of(doc.as_dict(), found),
+            "cancel_blocked": accounting.blocker_of(doc.as_dict(), found),
+            "can_reconcile": bool(found["mismatch"]),
+            "cancellation": accounting.cancellation_of(doc.name),
             "can_submit_invoice": bool(doc.sales_invoice) and not posted,
         }
 
+
+    @staticmethod
+    def _reconciliation(doc, found):
+        """The run's frozen calculation beside what its document actually says.
+
+        Two different things are compared on purpose, and only on the one basis where the
+        comparison means something: the run's amount is what MSP worked out before taxes, so
+        it is read against the document's net total, and the taxes and the amount owed are
+        said separately rather than folded in. A figure somebody corrected by hand in ERPNext
+        shows up here as a difference; it never rewrites what the run was drawn on.
+        """
+        if not doc.sales_invoice or found["invoice_docstatus"] is None:
+            return None
+
+        card = frappe.db.get_value(
+            "Sales Invoice",
+            doc.sales_invoice,
+            ["currency", "net_total", "total_taxes_and_charges", "grand_total", "rounded_total",
+             "disable_rounded_total", "is_return"],
+            as_dict=True,
+        )
+
+        if not card:
+            return None
+
+        credit = bool(frappe.utils.cint(card.is_return))
+        payable = card.rounded_total if (card.rounded_total and not card.disable_rounded_total) else card.grand_total
+        run_amount = money.signed(doc.total_amount, bool(doc.credit_note_of or doc.standalone_credit))
+        net_total = money.signed(card.net_total, credit)
+        difference = flt(net_total - run_amount, 2)
+
+        return {
+            "currency": card.currency,
+            "run_amount": run_amount,
+            "net_total": net_total,
+            "taxes": flt(card.total_taxes_and_charges, 2),
+            "grand_total": money.signed(payable, credit),
+            "difference": difference,
+            # the two were worked out from the same lines, so any gap is somebody's edit
+            "material": abs(difference) > 0.005,
+            "basis": "Run amount and net total are both before taxes.",
+        }
 
     @staticmethod
     def _accounting_gaps(company):
@@ -2814,8 +2841,9 @@ class BillingService:
 
         erpnext_bridge.submit(invoice)
 
-        doc.db_set("status", "Invoiced")
-        BillingService._recompute_last_billed(doc.customer)
+        # posting it fired the document event, which is where a run becomes posted whichever
+        # side posted it; saying it again here changes nothing and keeps this path honest
+        accounting.mark_posted(doc.name)
         frappe.db.commit()
 
         # whoever was chosen on the way in, checked against this customer's own addresses;
@@ -2888,16 +2916,9 @@ class BillingService:
                 if not known or covered > known:
                     bucket[key] = covered
 
-        for user, covered in per_user.items():
-            frappe.db.set_value(
-                "MSP Client User", user, "last_billed_on", covered, update_modified=False
-            )
-
-        for device, covered in per_device.items():
-            frappe.db.set_value(
-                "MSP Managed Device", device, "last_billed_on", covered, update_modified=False
-            )
-
+        # everyone and every machine this customer was ever billed for is restated, not
+        # only the ones still billed today: a run that was cancelled or credited back in
+        # full has to roll its mark back rather than leave the last one standing
         touched = frappe.db.sql_list(
             """
             select distinct brl.managed_device
@@ -2931,7 +2952,10 @@ class BillingService:
 
         for user in billed_users:
             frappe.db.set_value(
-                "MSP Client User", user, "covered_until", per_user.get(user), update_modified=False
+                "MSP Client User",
+                user,
+                {"last_billed_on": per_user.get(user), "covered_until": per_user.get(user)},
+                update_modified=False,
             )
 
     @staticmethod

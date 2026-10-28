@@ -324,7 +324,7 @@ export default function Billing() {
                         <strong className="text-slate-800">
                           {action.amount === null
                             ? '—'
-                            : `${action.amount < 0 ? '−' : ''}${money(action.amount, action.currency)}`}
+                            : money(action.amount, action.currency)}
                         </strong>
                       </Td>
                       <Td>
@@ -543,6 +543,11 @@ const RunRow = ({
       <div className="flex items-center gap-1.5">
         <Pill tone={statusTone(row.status)}>{row.status}</Pill>
         {row.disputed && <Pill tone="red">Disputed</Pill>}
+        {row.needs_reconciliation && (
+          <Pill tone="amber" title="This run and ERPNext do not agree. Open it to reconcile.">
+            Out of sync
+          </Pill>
+        )}
       </div>
     </Td>
     <Td align="right">
@@ -594,7 +599,6 @@ const InvoiceRow = ({
       <span className="block text-[11px] text-slate-400">Due {day(row.due_date)}</span>
     </Td>
     <Td align="right" className="font-bold tabular-nums text-slate-800">
-      {row.is_return ? '−' : ''}
       {money(row.amount, row.currency)}
     </Td>
     <Td align="right" className="tabular-nums">
