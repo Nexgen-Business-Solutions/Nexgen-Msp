@@ -45,6 +45,13 @@ class TestInvoiceMailReachesOneNamedContact(MSPTestCase):
         self.assertIn("MSP Invoice Issued", live_source(BillingService._notify_customer))
         self.assertTrue(frappe.db.exists("Email Template", "MSP Invoice Issued"))
 
+    def test_the_notice_prints_what_the_run_came_to_and_not_a_rounded_figure(self):
+        """The same rule as the mail somebody sends by hand: the currency sets the decimals."""
+        source = live_source(BillingService._notify_customer)
+
+        self.assertIn("fmt_money", source, "the figure is formatted at the currency's precision")
+        self.assertNotIn(":,.0f", source, "a total rounded to the unit is not the amount")
+
     def test_only_the_posting_of_an_invoice_writes_to_the_customer(self):
         callers = [
             name

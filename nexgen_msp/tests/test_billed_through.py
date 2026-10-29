@@ -176,3 +176,33 @@ class TestTheMachineOfAServiceIsTheOneItNames(BilledThroughCase):
 
         self.assertEqual(row["device"], device)
         self.assertEqual(row["hostname"], frappe.db.get_value("MSP Managed Device", device, "hostname"))
+
+
+class TestWhenTheMoneyWasAskedForAndWhatItCovers(BilledThroughCase):
+    """The two marks on a person answer two questions, and posting sets them apart.
+
+    Both used to be written with the coverage, so a quarter posted in October and covering
+    November had the person's file announce a billing on a day still to come.
+    """
+
+    def marks(self):
+        return frappe.db.get_value(
+            "MSP Client User", self.john, ["covered_until", "last_billed_on"], as_dict=True
+        )
+
+    def test_the_day_of_the_invoice_is_not_the_day_the_coverage_reaches(self):
+        self.posted()
+        held = self.marks()
+
+        self.assertEqual(str(held.covered_until), str(self.billed()))
+        self.assertEqual(str(held.last_billed_on), frappe.utils.today())
+        self.assertNotEqual(
+            str(held.last_billed_on), str(held.covered_until), "the two say different things"
+        )
+
+    def test_a_charge_given_back_in_full_leaves_neither_mark_standing(self):
+        self.credit_back(self.posted())
+        held = self.marks()
+
+        self.assertIsNone(held.covered_until, "money returned covers nothing")
+        self.assertIsNone(held.last_billed_on, "and no billing stands behind it")

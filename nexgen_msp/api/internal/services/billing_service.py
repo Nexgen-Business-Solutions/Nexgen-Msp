@@ -1155,8 +1155,14 @@ class BillingService:
                         "or crediting these days."
                     )
                 elif owed_at_all and not segments:
+                    held = coverage_intervals.span(begins, ends)
                     covered_to_day = max(
-                        (last for _first, last in blocked), default=None
+                        (
+                            last
+                            for first, last in blocked
+                            if coverage_intervals.intersect([(first, last)], held)
+                        ),
+                        default=None,
                     )
                     exception_code = "Already Covered"
                     exception_detail = (
@@ -2854,6 +2860,10 @@ class BillingService:
         A credit note carries negative months against the same assignment and period, so a
         period fully credited back nets to zero and stops counting as billed. Nothing needs
         to be undone: the runs themselves are the record.
+
+        `charged_on` is the day the money was asked for, which is not the day the coverage
+        reaches: a quarter posted in October covers November. A run whose document has been
+        cancelled in the ledger has charged nothing, so it carries no such day.
         """
         return frappe.db.sql(
             """
@@ -2864,9 +2874,12 @@ class BillingService:
                 br.billing_period_start as period_start,
                 br.billing_period_end as period_end,
                 max(coalesce(brl.covered_to, br.billing_period_end)) as covered_to,
+                max(si.posting_date) as charged_on,
                 sum(brl.billable_months) as net_months
             from `tabMSP Billing Run Line` brl
             join `tabMSP Billing Run` br on br.name = brl.parent
+            left join `tabSales Invoice` si
+                on si.name = br.sales_invoice and si.docstatus = 1
             where br.customer = %(customer)s and br.status = 'Invoiced'
               -- a credit of its own answers no charge of ours, so it nets nothing off one
               and ifnull(br.standalone_credit, 0) = 0
@@ -2884,6 +2897,12 @@ class BillingService:
         Called whenever an invoice or a credit note is posted, so crediting someone back
         rolls their date to the period before rather than leaving a mark that no longer
         corresponds to money owed.
+
+        Two marks are written and they answer different questions. `covered_until` is the
+        last day paid for, which is what every billing decision reads. `last_billed_on` is
+        the day the invoice carrying it was posted — billed in advance, that day comes
+        before the coverage it buys, and writing the coverage into both is what had a
+        screen announce a billing on a day still to come.
         """
         rows = BillingService.net_billed_periods(customer)
 
@@ -2891,14 +2910,21 @@ class BillingService:
         # over it: `checkpoint` reads the runs for what the runs charged, so a period
         # credited back in full stops counting without the mark being touched at all
 
-        # how far each person and each machine is billed to, credits already netted off
+        # how far each person and each machine is billed to, credits already netted off,
+        # and the day the latest of that money was asked for
         per_device = {}
         per_user = {}
+        charged_device = {}
+        charged_user = {}
 
         for row in rows:
             covered = getdate(row.covered_to or row.period_end)
+            charged = getdate(row.charged_on) if row.charged_on else None
 
-            for bucket, key in ((per_device, row.managed_device), (per_user, row.client_user)):
+            for bucket, asked, key in (
+                (per_device, charged_device, row.managed_device),
+                (per_user, charged_user, row.client_user),
+            ):
                 if not key:
                     continue
 
@@ -2906,6 +2932,11 @@ class BillingService:
 
                 if not known or covered > known:
                     bucket[key] = covered
+
+                last = asked.get(key)
+
+                if charged and (not last or charged > last):
+                    asked[key] = charged
 
         # everyone and every machine this customer was ever billed for is restated, not
         # only the ones still billed today: a run that was cancelled or credited back in
@@ -2925,7 +2956,7 @@ class BillingService:
                 "MSP Managed Device",
                 device,
                 {
-                    "last_billed_on": per_device.get(device),
+                    "last_billed_on": charged_device.get(device),
                     "covered_until": per_device.get(device),
                 },
                 update_modified=False,
@@ -2945,7 +2976,7 @@ class BillingService:
             frappe.db.set_value(
                 "MSP Client User",
                 user,
-                {"last_billed_on": per_user.get(user), "covered_until": per_user.get(user)},
+                {"last_billed_on": charged_user.get(user), "covered_until": per_user.get(user)},
                 update_modified=False,
             )
 
@@ -3130,14 +3161,17 @@ class BillingService:
         period = BillingService._period_label(doc)
         currency = doc.currency or ""
 
+        # the currency decides how many decimals the figure has, here as in the mail somebody
+        # sends by hand: a 23.48 that reads 23 is not the amount the run came to
+        money = lambda amount: frappe.utils.fmt_money(amount, currency=currency or None)
         rows = [
             (
                 frappe.db.get_value("Item", service_item, "item_name") or service_item,
-                f"{flt(bucket['amount'], 2):,.0f} {currency}".replace(",", " "),
+                money(bucket["amount"]),
             )
             for (service_item, _rate, _discount), bucket in grouped.items()
         ]
-        rows.append(("Total", f"{flt(doc.total_amount, 2):,.0f} {currency}".replace(",", " ")))
+        rows.append(("Total", money(doc.total_amount)))
 
         notifications.send(
             "MSP Invoice Issued",

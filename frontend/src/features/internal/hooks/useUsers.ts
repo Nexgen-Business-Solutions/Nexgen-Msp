@@ -222,7 +222,9 @@ export const useUpdateClientUser = () => {
     mutationFn: internal.updateClientUser,
     onSuccess: (detail) => {
       queryClient.setQueryData(userKeys.detail(detail.user.name), detail);
-      queryClient.invalidateQueries({ queryKey: [...userKeys.all, 'list'] });
+      // the device register prints the holder's name as the record has it, so renaming
+      // somebody moves their machines' rows too
+      forgetWhatThePersonMoved(queryClient);
     },
   });
 };

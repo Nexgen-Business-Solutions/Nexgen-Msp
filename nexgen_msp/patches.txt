@@ -49,3 +49,4 @@ nexgen_msp.patches.withdraw_stale_approvers
 nexgen_msp.patches.billing_contact_field
 nexgen_msp.patches.administrator_reads_accounts
 nexgen_msp.patches.normalize_managed_device_macs
+nexgen_msp.patches.restate_billing_day

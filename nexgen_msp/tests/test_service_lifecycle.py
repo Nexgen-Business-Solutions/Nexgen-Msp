@@ -145,7 +145,11 @@ class TestServiceLifecycle(MSPTestCase):
         return frappe.get_doc("MSP Service Assignment", assignment)
 
     def invoice(self, assignment, period_start, period_end):
-        """A run the customer has already been sent, in the only shape _billed_to reads."""
+        """A run the customer has already been sent: a period really billed, not one approved.
+
+        Freezing a run is not invoicing it, and only what was posted counts as billed, so the
+        run is left reading `Invoiced` — which is what "behind an invoice" means.
+        """
         run = frappe.get_doc(
             {
                 "doctype": "MSP Billing Run",
@@ -169,6 +173,8 @@ class TestServiceLifecycle(MSPTestCase):
             }
         ).insert(ignore_permissions=True)
         run.submit()
+        # `before_submit` writes `Approved`; what this fixture stands for is the next step
+        frappe.db.set_value("MSP Billing Run", run.name, "status", "Invoiced")
         frappe.db.commit()
 
         return run.name

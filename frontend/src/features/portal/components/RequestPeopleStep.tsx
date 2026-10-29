@@ -548,7 +548,7 @@ const RequestPeopleStep: React.FC<{ builder: Builder }> = ({ builder }) => {
           <thead className="bg-slate-50">
             <tr>
               <Th>Person</Th>
-              <Th>Last billed</Th>
+              <Th>Billed up to</Th>
               <Th>Devices</Th>
               <Th>Current services</Th>
               <Th />

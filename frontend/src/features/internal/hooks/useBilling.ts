@@ -74,7 +74,13 @@ export const useRunAction = () => {
       internal.runBillingAction(variables.action, variables.name, variables.extra),
     // posting, cancelling and reconciling all move what the other billing reads depend on —
     // the history, the invoice lists and the figures — so the whole family is re-read
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: billingKeys.all }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: billingKeys.all });
+      // cancelling restates how far every person and machine of the customer is billed,
+      // and those dates are read on their own pages rather than on the run's
+      queryClient.invalidateQueries({ queryKey: ['internal', 'users'] });
+      queryClient.invalidateQueries({ queryKey: ['internal', 'devices'] });
+    },
   });
 };
 

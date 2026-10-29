@@ -62,7 +62,7 @@ describe('the columns an export comes out with', () => {
 
     expect(tick('Since', 'Per service')).not.toBeChecked();
     fireEvent.click(tick('Since', 'Per service'));
-    fireEvent.click(tick('Last billed on', 'Per service'));
+    fireEvent.click(tick('Billed up to', 'Per service'));
     exportNow();
     await waitFor(() => expect(onExport).toHaveBeenCalled());
 

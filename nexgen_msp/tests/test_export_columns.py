@@ -82,7 +82,7 @@ class TestOneBlockPerService(MSPTestCase):
         self.assertIn(first, labels)
         self.assertEqual(
             labels[labels.index(first) : labels.index(first) + 3],
-            [first, f"{first} · Since", f"{first} · Last billed on"],
+            [first, f"{first} · Since", f"{first} · Billed up to"],
         )
         # their machine's service is theirs to read too: three services, three blocks
         self.assertEqual(len(columns), 9)

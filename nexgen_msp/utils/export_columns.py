@@ -23,7 +23,7 @@ SERVICE_FIELDS = [
     ("holder_name", "Held by"),
     ("effective_start_date", "Since"),
     ("effective_end_date", "Ended on"),
-    ("last_billed_on", "Last billed on"),
+    ("last_billed_on", "Billed up to"),
     ("billing_status", "Billing status"),
     ("source_request", "Request"),
 ]

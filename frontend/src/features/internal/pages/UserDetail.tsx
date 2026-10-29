@@ -262,7 +262,7 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
                 <Th>Target</Th>
                 <Th>Started</Th>
                 <Th>Ended</Th>
-                {seesBilling && <Th>Last billed</Th>}
+                {seesBilling && <Th>Billed up to</Th>}
                 {seesBilling && <Th>Billing</Th>}
                 <Th>Status</Th>
                 <Th />

@@ -35,7 +35,7 @@ const SERVICE_FIELDS: ExportColumn[] = [
   { key: 'holder_name', label: 'Held by', section: 'Per service' },
   { key: 'effective_start_date', label: 'Since', section: 'Per service' },
   { key: 'effective_end_date', label: 'Ended on', section: 'Per service' },
-  { key: 'last_billed_on', label: 'Last billed on', section: 'Per service' },
+  { key: 'last_billed_on', label: 'Billed up to', section: 'Per service' },
   { key: 'billing_status', label: 'Billing status', section: 'Per service' },
   { key: 'source_request', label: 'Request', section: 'Per service' },
 ];

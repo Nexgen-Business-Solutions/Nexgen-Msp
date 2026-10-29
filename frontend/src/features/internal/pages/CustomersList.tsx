@@ -8,7 +8,7 @@ import StatusBadge from '@/shared/components/StatusBadge';
 import { useContractList } from '../hooks/useContracts';
 import CustomerModal from '../components/CustomerModal';
 
-const COLUMNS = ['Customer', 'Contract', 'Frequency', 'Billable services', 'Rates set', 'Last billed', 'Status', ''];
+const COLUMNS = ['Customer', 'Contract', 'Frequency', 'Billable services', 'Rates set', 'Billed up to', 'Status', ''];
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
 

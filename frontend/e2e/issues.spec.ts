@@ -6,23 +6,21 @@ import { run } from './bench';
  * The reported screens, opened in a browser.
  *
  * Each case here is one a customer wrote down: the Item that would not be adopted, the draft
- * that left no trace, the machine nobody could identify and the count nobody could explain.
- * The company these read is the one the fixture builds, except where the report is about a
- * real company's records — then that company is read as it stands, and nothing is saved.
+ * that left no trace and the machine nobody could identify. The company is the one the
+ * fixture builds, and the Item is this run's own: a test deletes what it created and nothing
+ * else, so the suite can be run against any site without taking a real product with it.
  */
 
-const ITEM = '9000-0092';
-const ITEM_NAME = 'Datto RMM & Managed Cyber security solution';
-const KAKIVU = 'Kakivu Mousse USD';
+const STAMP = `${Date.now()}`;
+const ITEM = `ZZE2E-ITEM-${STAMP}`;
+const ITEM_NAME = `ZZE2E Datto RMM & Managed Cyber security ${STAMP}`;
 
 const forget = () => {
-  run('frappe.db.delete', { doctype: 'MSP Service Definition', filters: { item: ITEM } });
+  // the guard is the point: this deletes an Item this file made up, never one somebody sells
+  if (!ITEM.startsWith('ZZE2E-')) throw new Error(`${ITEM} is not this test's own Item`);
 
-  try {
-    run('frappe.delete_doc', { doctype: 'Item', name: ITEM, force: 1 });
-  } catch {
-    // nothing of this Item was left behind
-  }
+  run('frappe.db.delete', { doctype: 'MSP Service Definition', filters: { item: ITEM } });
+  run('frappe.delete_doc', { doctype: 'Item', name: ITEM, force: 1 });
 };
 
 const dialog = (page: Page) => page.getByRole('dialog');
@@ -31,7 +29,12 @@ test.describe('An ERPNext Item whose month factor never moved', () => {
   test.use(asAdministrator);
 
   test.beforeAll(() => {
-    forget();
+    const standing = run('frappe.db.exists', { dt: 'Item', dn: ITEM }).trim();
+
+    // nothing is cleared away first: an Item already under this name would be somebody
+    // else's, and the test stops rather than touch it
+    expect(standing === '' || standing === 'None').toBeTruthy();
+
     run('frappe.client.insert', {
       doc: {
         doctype: 'Item',
@@ -132,53 +135,5 @@ test.describe('The machine a person holds, in the request that will change it', 
 
     await expect(detail).toContainText('ZZE2E-PC-ALICE');
     await expect(detail).toContainText('ZZE2E-SN-PC-ALICE');
-  });
-});
-
-test.describe('Twenty-two people, twenty machines, and the difference explained', () => {
-  test.use(asAdministrator);
-
-  test('names who is left out of a Device service and why, before anything is added', async ({
-    page,
-  }) => {
-    await open(page, '/msp/requests/new');
-
-    await page.getByRole('button', { name: /Acting for which customer/ }).click();
-    await page.getByRole('listbox').getByPlaceholder('Search…').fill('Kakivu');
-    await page.getByRole('option', { name: KAKIVU }).click();
-
-    await page.getByRole('button', { name: /Entire company/ }).click();
-    await page.getByRole('button', { name: 'Add entire company' }).click();
-    await expect(page.locator('tbody tr')).toHaveCount(22, { timeout: 30_000 });
-
-    await page.getByRole('button', { name: /Continue/ }).click();
-    await page
-      .locator('aside')
-      .filter({ hasText: 'Apply actions to' })
-      .getByRole('button', { name: /^All selected/ })
-      .click();
-
-    const service = page.locator('tbody tr').filter({ hasText: 'Sophos' }).first();
-
-    await expect(service).toContainText('22 people selected · 20 linked devices');
-    await expect(service).toContainText('2 people without a linked device');
-
-    await service.getByRole('button', { name: 'Why only 20?' }).first().click();
-
-    const why = dialog(page);
-
-    await expect(why.getByText('Why only 20?')).toBeVisible();
-    await expect(why).toContainText('NAWAZDDINE (Stolen PC)');
-    await expect(why).toContainText('Firdosh Samnani');
-    await expect(why).toContainText('Person has no current Device.');
-    await expect(why).toContainText('NO_CURRENT_DEVICE');
-    await expect(why.getByRole('link', { name: 'Devices' })).toBeVisible();
-
-    // not one of this company's machines carries a serial number, and that is said rather
-    // than left blank
-    await expect(why).toContainText('Serial number not recorded');
-
-    await why.getByRole('button', { name: 'Done' }).click();
-    await expect(dialog(page)).toHaveCount(0);
   });
 });

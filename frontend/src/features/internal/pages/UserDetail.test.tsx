@@ -276,10 +276,10 @@ describe('what is theirs and what the machine carries', () => {
     expect(screen.queryByRole('button', { name: /request a device/i })).not.toBeInTheDocument();
   });
 
-  it('shows when each service was last billed rather than its quantity', async () => {
+  it('shows how far each service is billed rather than its quantity', async () => {
     await renderPage(detail());
 
-    expect(screen.getByText('Last billed')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Billed up to' })).toBeInTheDocument();
     expect(screen.queryByText('Quantity')).not.toBeInTheDocument();
   });
 });
