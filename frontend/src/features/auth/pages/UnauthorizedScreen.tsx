@@ -13,7 +13,7 @@ import { logout } from '@/lib/api/client';
 import { AppLogo } from '@/shared/components/appLogo';
 import { useSession } from '@/shared/hooks/useSession';
 import { REASONS, forgetRefusal, rememberedRefusal, type Refusal } from '@/router/unauthorized';
-import { isInternal, landingFor } from '../landing';
+import { isInternal, landingFor, stillRefused } from '../landing';
 
 const HEADER = 'Access denied';
 const FALLBACK =
@@ -82,11 +82,10 @@ export default function UnauthorizedScreen() {
 
       const fresh = answer.data;
       const next = landingFor(fresh);
-      // the entry verdict decides only where entry is what is being asked for. An account
-      // whose home is the desk holds no role of ours and is not going to
-      const asksForMsp = !fresh.login_destination || isInternal(next.path);
 
-      if (next.code || (asksForMsp && fresh.access?.ok === false)) {
+      // the same question the guard on this route asks, so the two cannot disagree about
+      // whether the refusal still stands
+      if (stillRefused(fresh)) {
         setTrouble('Still refused. Nothing has changed yet.');
         return;
       }

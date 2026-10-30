@@ -51,6 +51,16 @@ class NexgenLoginRule(Document):
 				title=_("Unknown destination"),
 			)
 
+		if routes.is_desk(route) and not cint(self.desk_access):
+			frappe.throw(
+				_(
+					"This rule sends people to the desk with its desk access left shut, which"
+					" would refuse every account it decides for. Open the desk access, or"
+					" send them somewhere else."
+				),
+				title=_("Contradictory destination"),
+			)
+
 		self.home_route = route
 
 	def validate_priority(self):

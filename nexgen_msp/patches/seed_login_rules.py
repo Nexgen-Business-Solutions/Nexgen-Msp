@@ -42,8 +42,10 @@ The one exception is this patch's own earlier output. An earlier version made tw
 for all of our people and one for the desk, and neither carried the desk box because it did
 not exist yet. Left standing, that desk rule now shuts the desk to every account whose only
 home it is, and the combined rule ties with the two that replace it. So a rule matching that
-earlier shape **to the letter** is cleared away and rebuilt; one differing by a single field
-or line is left alone, and the simulation below then reports whoever it strands.
+earlier shape **to the letter** is stood down — renamed aside and switched off, never
+deleted, so its history, its shares and anything referring to it survive and an operator can
+read or restore it. One differing by a single field or line is not touched at all, and the
+simulation below then reports whoever it strands.
 
 **It refuses to finish quietly.** Two gates. The role the desk rule is built on has to
 exist, because without it every System User of every other application would be left with
@@ -153,8 +155,17 @@ SUPERSEDED = {
 }
 
 
+STOOD_DOWN = "{0} (superseded)"
+
+
 def supersede_the_two_rule_shape():
-	"""Clear away the two rules this patch used to create, where nobody has touched them."""
+	"""Stand down the two rules this patch used to create, where nobody has touched them.
+
+	Renamed and switched off rather than removed. A migration that deletes a document is a
+	migration that can lose something it never looked at — a share, a note, the version
+	history — and the only thing actually needed here is for the old rule to stop deciding
+	and to stop holding a name the new ones need.
+	"""
 	for name, shape in SUPERSEDED.items():
 		if not frappe.db.exists(RULE, name):
 			continue
@@ -173,8 +184,16 @@ def supersede_the_two_rule_shape():
 		}
 
 		if found == {**shape, "users": sorted(shape["users"])}:
-			frappe.delete_doc(RULE, name, force=True, ignore_permissions=True)
-			print(f"  {name}: this patch's earlier two-rule shape, rebuilt below")
+			aside = STOOD_DOWN.format(name)
+
+			if frappe.db.exists(RULE, aside):
+				print(f"  {name}: already stood down once as {aside}, left alone")
+				continue
+
+			# switched off before the rename, so it stops deciding even if the rename fails
+			frappe.db.set_value(RULE, name, "enabled", 0, update_modified=False)
+			frappe.rename_doc(RULE, name, aside, force=True, show_alert=False)
+			print(f"  {name}: this patch's earlier shape, switched off and kept as {aside}")
 		else:
 			# either already in its current shape, or edited since. Neither is this patch's
 			# earlier output, and neither is this patch's to clear away

@@ -290,8 +290,16 @@ class TestADestinationIsNeverAPermission(LoginRuleCase):
         self.assertFalse(verdict["success"])
         self.assertEqual(verdict["error"], "MSP_ACCESS_DENIED")
 
+    def test_a_desk_destination_with_the_box_shut_cannot_be_saved(self):
+        """A rule that would refuse every account it decides for is not a rule."""
+        with self.assertRaises(frappe.ValidationError):
+            self.make_rule("Shut", roles=[self.role], route="/desk", priority=HIGH, desk=0)
+
     def test_a_rule_without_the_desk_box_cannot_send_anybody_to_the_desk(self):
-        self.make_rule("Shut", roles=[self.role], route="/desk", priority=HIGH, desk=0)
+        """Still refused at the resolution, for data written before the save said no."""
+        rule = self.make_rule("Shut", roles=[self.role], route="/desk", priority=HIGH, desk=1)
+        frappe.db.set_value(RULE, rule, "desk_access", 0, update_modified=False)
+        frappe.db.commit()
 
         verdict = LoginRuleService.resolve_for_user(self.technician)
 
@@ -337,8 +345,13 @@ class TestWhatMayBeWrittenInARule(LoginRuleCase):
         "https://evil.example.com",
         "javascript:alert(1)",
         "/msp/../app",
+        "/msp/./app",
         "/msp\\app",
         "/msp%2f..%2fapp",
+        # the escape that walks a directory up once a browser resolves it, which the
+        # segment check never saw because the segment was spelled %2e%2e
+        "/msp/%2e%2e/desk",
+        "/msp/%2E%2E/desk",
         "/msp?next=/app",
         "/msp#fragment",
         "/api/method/frappe.ping",
@@ -416,7 +429,9 @@ class TestTheRulesTheMigrationSeeded(LoginRuleCase):
             "Frappe Desk": ("/desk", 10, 1, ["Desk User"]),
         }
 
-        self.assertEqual(sorted(frappe.get_all(RULE, pluck="name")), sorted(expected))
+        # present and correct, not alone: an administrator may add an application of their
+        # own, and that is the point of the feature
+        self.assertFalse(set(expected) - set(frappe.get_all(RULE, pluck="name")))
 
         for name, (route, priority, desk, roles) in expected.items():
             doc = frappe.get_doc(RULE, name)
@@ -758,18 +773,24 @@ class TestTheSwitchIsAWayBack(RequestContextMixin, LoginRuleCase):
         self.assertTrue(LoginRuleService.desk_reachable(self.sysadmin))
         self.assertIsNone(self.sent_from("/desk", self.sysadmin))
 
-    def test_switched_off_a_rule_cannot_shut_a_desk_anybody_had(self):
-        """Even the portal rule, whose box is deliberately shut, decides nothing now."""
-        self.routing(False)
-        frappe.db.set_value("User", self.manager, "user_type", "System User")
-        frappe.clear_cache(user=self.manager)
+    def test_switched_off_a_rule_cannot_shut_a_desk_frappe_grants(self):
+        """The one thing the switch exists for: undoing a rule that shut somebody out.
 
-        try:
-            self.assertTrue(LoginRuleService.desk_reachable(self.manager))
-            self.assertIsNone(self.sent_from("/desk", self.manager))
-        finally:
-            frappe.db.set_value("User", self.manager, "user_type", "Website User")
-            frappe.clear_cache(user=self.manager)
+        The account is not one of a customer's — that restriction is permanent and the
+        switch does not reach it. It is a desk account whose winning rule leaves the desk
+        shut, which is the mistake an incident would be made of.
+        """
+        role = self.make_role("Sb", desk_access=1)
+        employee = self.make_plain_account("sz", roles=[role])
+        self.make_rule("Shut them out", roles=[role], priority=HIGH, desk=0)
+
+        self.routing(True)
+        self.assertFalse(LoginRuleService.desk_reachable(employee))
+        self.assertEqual(self.sent_from("/desk", employee), "/msp")
+
+        self.routing(False)
+        self.assertTrue(LoginRuleService.desk_reachable(employee))
+        self.assertIsNone(self.sent_from("/desk", employee))
 
     def test_switched_on_the_rule_decides_again(self):
         self.routing(True)
@@ -813,13 +834,19 @@ class TestTheMigrationReplacesItsOwnEarlierShape(LoginRuleCase):
         super().tearDown()
 
     def write_the_old_shape(self):
+        """Exactly what a site that ran the two-rule version has in its database.
+
+        The desk rule of that version carried no desk access, which the save now refuses —
+        it had no such field to carry. So the field is written underneath validation, which
+        is the state the migration actually has to deal with.
+        """
         for name, shape in self.patch.SUPERSEDED.items():
             doc = frappe.new_doc(RULE)
             doc.name = name
             doc.home_route = shape["home_route"]
             doc.priority = shape["priority"]
             doc.enabled = shape["enabled"]
-            doc.desk_access = shape["desk_access"]
+            doc.desk_access = 1
 
             for role in shape["roles"]:
                 doc.append("applicable_roles", {"role": role})
@@ -828,6 +855,9 @@ class TestTheMigrationReplacesItsOwnEarlierShape(LoginRuleCase):
                 doc.append("applicable_users", {"user": user, "default": default})
 
             doc.insert(ignore_permissions=True)
+            frappe.db.set_value(
+                RULE, name, "desk_access", shape["desk_access"], update_modified=False
+            )
 
         frappe.db.commit()
 
@@ -841,6 +871,34 @@ class TestTheMigrationReplacesItsOwnEarlierShape(LoginRuleCase):
             ["Frappe Desk", "Nexgen MSP Internal", "Nexgen MSP Portal"],
         )
         self.assertEqual(frappe.db.get_value(RULE, "Frappe Desk", "desk_access"), 1)
+
+    def test_the_earlier_rules_are_kept_rather_than_deleted(self):
+        """Switched off and renamed aside, so nothing attached to them is lost."""
+        self.write_the_old_shape()
+
+        self.patch.execute()
+
+        for name in self.patch.SUPERSEDED:
+            aside = self.patch.STOOD_DOWN.format(name)
+
+            self.assertTrue(frappe.db.exists(RULE, aside), aside)
+            self.assertEqual(frappe.db.get_value(RULE, aside, "enabled"), 0, aside)
+
+    def test_running_it_a_second_time_stands_nothing_down_twice(self):
+        self.write_the_old_shape()
+        self.patch.execute()
+
+        before = sorted(frappe.get_all(RULE, pluck="name"))
+        stamps = {
+            name: frappe.db.get_value(RULE, name, "modified") for name in before
+        }
+
+        self.patch.execute()
+
+        self.assertEqual(sorted(frappe.get_all(RULE, pluck="name")), before)
+        self.assertEqual(
+            {name: frappe.db.get_value(RULE, name, "modified") for name in before}, stamps
+        )
 
     def test_a_rule_somebody_has_edited_since_is_left_exactly_as_it_is(self):
         """Not this patch's output any more, so not this patch's to clear away."""
@@ -870,3 +928,53 @@ class TestTheMigrationReplacesItsOwnEarlierShape(LoginRuleCase):
         entries = [line for line in lines if line.startswith("nexgen_msp.patches.seed_login_rules")]
 
         self.assertEqual(entries, ["nexgen_msp.patches.seed_login_rules #three_rules"])
+
+
+class TestAPortalAccountIsNeverInTheDesk(RequestContextMixin, LoginRuleCase):
+    """The restriction asked for is permanent, so nothing may lift it.
+
+    Not a box on a rule, and not an account type somebody changed by hand. A portal role on
+    a System User is a mistake to be corrected; the desk must not read it as a way in.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.acme = self.make_customer(self.tag)
+        self.manager = self.make_account(
+            "customer", "MSP Customer Manager", self.acme, suffix=f"pd{self.tag[:3]}"
+        )
+        self.rule = self.make_rule(
+            "Portal with the desk open", roles=["MSP Customer Manager"], priority=HIGH, desk=1
+        )
+        frappe.db.set_value("User", self.manager, "user_type", "System User")
+        frappe.clear_cache(user=self.manager)
+
+    def tearDown(self):
+        frappe.db.set_value("User", self.manager, "user_type", "Website User")
+        frappe.clear_cache(user=self.manager)
+        super().tearDown()
+
+    def test_the_box_cannot_open_the_desk_to_a_customer_account(self):
+        self.assertEqual(frappe.db.get_value("User", self.manager, "user_type"), "System User")
+        self.assertTrue(LoginRuleService.desk_allowed(self.manager), "the rule does open it")
+
+        self.assertFalse(LoginRuleService.desk_reachable(self.manager))
+
+    def test_the_guard_turns_them_away_from_every_desk_address(self):
+        for path in ("/app", "/desk", "/apps", "/app/user"):
+            self.at(path)
+            frappe.set_user(self.manager)
+
+            try:
+                with self.assertRaises(gatekeeper.SeeOther, msg=path):
+                    gatekeeper.guard()
+            finally:
+                frappe.set_user("Administrator")
+
+    def test_the_screen_does_not_offer_them_a_door_either(self):
+        frappe.set_user(self.manager)
+
+        try:
+            self.assertFalse(SessionService.get_session_context()["can_open_desk"])
+        finally:
+            frappe.set_user("Administrator")

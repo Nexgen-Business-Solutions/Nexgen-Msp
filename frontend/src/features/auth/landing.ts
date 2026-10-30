@@ -19,6 +19,22 @@ const unsafe = (path: string) =>
   });
 
 /**
+ * Whether a path climbs out of wherever it appears to be.
+ *
+ * `/msp/../desk` begins with `/msp/` and is `/desk` by the time a browser has resolved it,
+ * and `%2e%2e` is the same trick with the segment check stepped around. Only the part
+ * before a query or a fragment is read: an escape is ordinary inside a query string.
+ */
+const climbs = (path: string) => {
+  const route = path.split(/[?#]/)[0];
+
+  return (
+    /%(2e|2f|5c|25)/i.test(route) ||
+    route.split('/').some((segment) => segment === '.' || segment === '..')
+  );
+};
+
+/**
  * A requested route, kept only when it belongs to the destination that was granted.
  *
  * `redirect-to` is navigation data, never a permission. A route of another family is
@@ -29,7 +45,9 @@ export const keepRequested = (requested: unknown, destination: string) => {
 
   const path = requested.trim();
 
-  if (!path.startsWith('/') || path.startsWith('//') || unsafe(path)) return destination;
+  if (!path.startsWith('/') || path.startsWith('//') || unsafe(path) || climbs(path)) {
+    return destination;
+  }
 
   const belongs =
     path === destination || ['/', '?', '#'].some((edge) => path.startsWith(`${destination}${edge}`));
@@ -57,3 +75,24 @@ export const landingFor = (
 /** Whether a path is inside this application, and so reachable without leaving the page. */
 export const isInternal = (path: string) =>
   path === APPLICATION || path.startsWith(`${APPLICATION}/`) || path.startsWith(`${APPLICATION}?`);
+
+/**
+ * Whether this session is still being refused somewhere it is actually trying to go.
+ *
+ * Two refusals exist and they are not the same question. A destination that will not resolve
+ * is a refusal wherever the account was headed. Being kept out of this application is only a
+ * refusal if this application is where it was headed — an account whose home is the desk
+ * holds no role of ours and never will, and holding it on a denial screen for that would be
+ * telling it off for something that is not its problem.
+ *
+ * Asked in one place so that the screen and the guard cannot disagree about it.
+ */
+export const stillRefused = (session?: SessionContext | null) => {
+  const landing = landingFor(session);
+
+  if (landing.code) return true;
+
+  const asksForMsp = !session?.login_destination || isInternal(landing.path);
+
+  return asksForMsp && session?.access?.ok === false;
+};

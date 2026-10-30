@@ -115,6 +115,13 @@ class LoginRuleService:
         if access.is_administrator(user):
             return True
 
+        # a customer's person is never in the desk. The restriction is permanent, so it is
+        # not something a box on a rule can lift and not something an account type can
+        # wander into: a portal role that ended up on a System User is a mistake to be
+        # corrected, never a way in
+        if access.roles(user).intersection(access.CUSTOMER_ROLES):
+            return False
+
         # Frappe admits only a System User, and no rule of ours changes that
         if not routes.can_enter_desk(user):
             return False

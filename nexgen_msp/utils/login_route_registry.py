@@ -45,11 +45,11 @@ MACHINE = ("/api", "/assets", "/files", "/private", "/socket.io", "/.well-known"
 # control characters and the backslash, which some clients read as a separator
 UNSAFE = re.compile(r"[\x00-\x1f\x7f\\]")
 
-# a separator smuggled past the segment check, and the escape that rebuilds one
-ENCODED = re.compile(r"%2f|%5c|%25", re.IGNORECASE)
-
-# a scheme, a query or a fragment: none of them belong in a stored destination
-FOREIGN = (":", "?", "#")
+# a scheme, a query, a fragment, and any percent escape at all. A stored destination is a
+# plain local path, so nothing here needs escaping — and an escape is exactly how a segment
+# the check below rejects gets smuggled past it. `%2e%2e` read as a stored route, and the
+# browser then resolved it a directory up
+FOREIGN = (":", "?", "#", "%")
 
 
 def can_enter_msp(user=None):
@@ -106,7 +106,7 @@ def normalize(route):
     if not path or not path.startswith("/") or path.startswith("//"):
         return None, INVALID_ROUTE
 
-    if UNSAFE.search(path) or ENCODED.search(path):
+    if UNSAFE.search(path):
         return None, INVALID_ROUTE
 
     if any(token in path for token in FOREIGN):
