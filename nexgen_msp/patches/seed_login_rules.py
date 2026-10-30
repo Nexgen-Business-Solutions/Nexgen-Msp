@@ -116,6 +116,17 @@ SEEDS = (
 
 
 def execute():
+	apply()
+
+	frappe.db.commit()
+
+
+def apply():
+	"""Everything the migration does, up to but not including the commit.
+
+	Separated so that it can be run inside a transaction and undone — the only honest way
+	to exercise a migration against a site whose real configuration must survive the test.
+	"""
 	preflight()
 
 	supersede_the_two_rule_shape()
@@ -123,12 +134,10 @@ def execute():
 	for seed in SEEDS:
 		_seed(seed)
 
-	# simulated before the commit, so a regression leaves the site exactly as it was
+	# simulated before the caller commits, so a regression leaves the site exactly as it was
 	postflight()
 
 	route_by_rules()
-
-	frappe.db.commit()
 
 
 # what the first version of this patch created, exactly. Anything differing from this by a
@@ -165,6 +174,12 @@ def supersede_the_two_rule_shape():
 	migration that can lose something it never looked at — a share, a note, the version
 	history — and the only thing actually needed here is for the old rule to stop deciding
 	and to stop holding a name the new ones need.
+
+	Its direct claims go too, and that part is not optional. A direct default outranks every
+	role and is read even on a rule that is switched off, by design: it is an explicit block.
+	Left standing, the Administrator line of the old rule would answer for Administrator
+	with `RULE_DISABLED` for ever, and the rule meant to replace it would step aside because
+	the account already looked claimed. The line is kept, with its claim released.
 	"""
 	for name, shape in SUPERSEDED.items():
 		if not frappe.db.exists(RULE, name):
@@ -192,6 +207,14 @@ def supersede_the_two_rule_shape():
 
 			# switched off before the rename, so it stops deciding even if the rename fails
 			frappe.db.set_value(RULE, name, "enabled", 0, update_modified=False)
+			frappe.db.sql(
+				"""
+				update `tabNexgen Login Applicable User`
+				set `default` = 0
+				where parenttype = %s and parent = %s
+				""",
+				(RULE, name),
+			)
 			frappe.rename_doc(RULE, name, aside, force=True, show_alert=False)
 			print(f"  {name}: this patch's earlier shape, switched off and kept as {aside}")
 		else:

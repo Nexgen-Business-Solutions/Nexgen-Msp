@@ -786,7 +786,10 @@ class TestTheSwitchIsAWayBack(RequestContextMixin, LoginRuleCase):
 
         self.routing(True)
         self.assertFalse(LoginRuleService.desk_reachable(employee))
-        self.assertEqual(self.sent_from("/desk", employee), "/msp")
+        # its winning rule points at an application it holds no role for, so it has no
+        # home either: the front door is the only honest answer
+        self.assertIsNone(LoginRuleService.home_for(employee))
+        self.assertEqual(self.sent_from("/desk", employee), "/")
 
         self.routing(False)
         self.assertTrue(LoginRuleService.desk_reachable(employee))
@@ -805,33 +808,47 @@ class TestTheMigrationReplacesItsOwnEarlierShape(LoginRuleCase):
     The first version made one rule for all of our people and one for the desk, and neither
     carried the desk box. Left standing on a site that already ran it, the desk rule would
     now refuse the desk to every account whose only home it is.
+
+    The scenario needs the rule namespace to itself, and the site's own rules are not
+    something a test may take away — not even briefly, and certainly not across an
+    interruption. So everything here happens inside a savepoint and is undone by rolling
+    back to it: the patch is run through `apply`, which stops short of the commit, and
+    nothing in this class ever commits. A run killed halfway leaves the site as it was,
+    because nothing was ever written outside the transaction.
     """
 
     OLD_MSP = "Nexgen MSP"
     OLD_DESK = "Frappe Desk"
+    SAVEPOINT = "zztest_login_rules"
 
     def setUp(self):
         super().setUp()
         from nexgen_msp.patches import seed_login_rules
 
         self.patch = seed_login_rules
-        self.live = {}
 
-        for name in frappe.get_all(RULE, pluck="name"):
-            self.live[name] = frappe.get_doc(RULE, name).as_dict()
+        frappe.db.savepoint(self.SAVEPOINT)
+        self.undone = False
+
+        # counted and named one at a time, and undone by the rollback rather than by a
+        # restore that could itself be interrupted
+        self.live = frappe.get_all(RULE, pluck="name")
+
+        for name in self.live:
             frappe.delete_doc(RULE, name, force=True, ignore_permissions=True)
-
-        frappe.db.commit()
 
     def tearDown(self):
-        for name in frappe.get_all(RULE, pluck="name"):
-            frappe.delete_doc(RULE, name, force=True, ignore_permissions=True)
-
-        for kept in self.live.values():
-            frappe.get_doc(kept).insert(ignore_permissions=True)
-
-        frappe.db.commit()
+        self.undo()
         super().tearDown()
+
+    def undo(self):
+        if not self.undone:
+            frappe.db.rollback(save_point=self.SAVEPOINT)
+            self.undone = True
+
+    def migrate(self):
+        """The migration itself, without the commit that would make it permanent."""
+        self.patch.apply()
 
     def write_the_old_shape(self):
         """Exactly what a site that ran the two-rule version has in its database.
@@ -859,24 +876,26 @@ class TestTheMigrationReplacesItsOwnEarlierShape(LoginRuleCase):
                 RULE, name, "desk_access", shape["desk_access"], update_modified=False
             )
 
-        frappe.db.commit()
-
     def test_the_earlier_two_rules_are_replaced_by_the_three(self):
         self.write_the_old_shape()
 
-        self.patch.execute()
+        self.migrate()
 
-        self.assertEqual(
-            sorted(frappe.get_all(RULE, pluck="name")),
-            ["Frappe Desk", "Nexgen MSP Internal", "Nexgen MSP Portal"],
-        )
+        live = sorted(frappe.get_all(RULE, filters={"enabled": 1}, pluck="name"))
+
+        # the three decide; the two they replaced are still on file, switched off
+        self.assertEqual(live, ["Frappe Desk", "Nexgen MSP Internal", "Nexgen MSP Portal"])
         self.assertEqual(frappe.db.get_value(RULE, "Frappe Desk", "desk_access"), 1)
+        self.assertEqual(
+            sorted(frappe.get_all(RULE, filters={"enabled": 0}, pluck="name")),
+            ["Frappe Desk (superseded)", "Nexgen MSP (superseded)"],
+        )
 
     def test_the_earlier_rules_are_kept_rather_than_deleted(self):
         """Switched off and renamed aside, so nothing attached to them is lost."""
         self.write_the_old_shape()
 
-        self.patch.execute()
+        self.migrate()
 
         for name in self.patch.SUPERSEDED:
             aside = self.patch.STOOD_DOWN.format(name)
@@ -884,16 +903,26 @@ class TestTheMigrationReplacesItsOwnEarlierShape(LoginRuleCase):
             self.assertTrue(frappe.db.exists(RULE, aside), aside)
             self.assertEqual(frappe.db.get_value(RULE, aside, "enabled"), 0, aside)
 
+            # the lines are kept, their claim on an account is not: a direct default is
+            # read even on a switched-off rule, and would answer for that account for ever
+            kept = frappe.get_doc(RULE, aside)
+            self.assertFalse([row for row in kept.applicable_users if row.get("default")], aside)
+
+        # and the account that line spoke for is answered by the rule meant to replace it
+        verdict = LoginRuleService.resolve_for_user("Administrator")
+        self.assertEqual(verdict["rule"], "Nexgen MSP Internal")
+        self.assertEqual(verdict["path"], "/msp")
+
     def test_running_it_a_second_time_stands_nothing_down_twice(self):
         self.write_the_old_shape()
-        self.patch.execute()
+        self.migrate()
 
         before = sorted(frappe.get_all(RULE, pluck="name"))
         stamps = {
             name: frappe.db.get_value(RULE, name, "modified") for name in before
         }
 
-        self.patch.execute()
+        self.migrate()
 
         self.assertEqual(sorted(frappe.get_all(RULE, pluck="name")), before)
         self.assertEqual(
@@ -904,12 +933,11 @@ class TestTheMigrationReplacesItsOwnEarlierShape(LoginRuleCase):
         """Not this patch's output any more, so not this patch's to clear away."""
         self.write_the_old_shape()
         frappe.db.set_value(RULE, self.OLD_MSP, "notes", "somebody was here")
-        frappe.db.commit()
 
         # the edited rule now ties with the two that replace it, which the simulation
         # reports rather than resolving
         with self.assertRaises(frappe.ValidationError):
-            self.patch.execute()
+            self.migrate()
 
         self.assertTrue(frappe.db.exists(RULE, self.OLD_MSP))
         self.assertEqual(
