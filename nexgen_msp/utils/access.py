@@ -149,6 +149,87 @@ def may_reach(customer, user=None):
     return bool(customer) and customer in allowed_customers(user)
 
 
+# ------------------------------------------------------------------ may they enter at all
+NOT_SIGNED_IN = "NOT_SIGNED_IN"
+NO_ROLE = "NO_MSP_ROLE"
+NO_CUSTOMER = "NO_CUSTOMER_PERMISSION"
+CONFLICTING_ROLES = "CONFLICTING_ROLES"
+
+# who has somewhere to go in the desk. A plain Frappe administration role runs the site
+# without selling anything, so it opens the desk and nothing of ours
+DESK_ROLES = (COMMERCIAL_ROLE, SYSTEM_ROLE)
+
+
+def may_open_desk(user=None):
+    """Whether offering this account the Frappe desk leads anywhere."""
+    user = _who(user)
+
+    return is_administrator(user) or bool(roles(user).intersection(DESK_ROLES))
+
+
+def entry(user=None):
+    """Whether this account may enter the application at all, and what to say when it cannot.
+
+    A signed-in account is not an authorised one. Three states used to pass straight through
+    to a screen the account could not read a single row of: one holding no role of ours, one
+    belonging to a company it has no permission for, and one holding both sides at once. The
+    first and the third were the same hole — neither read as a customer's person nor as one
+    of ours, so the application fell through to the staff side and refused every call it then
+    made.
+
+    The order matters. Holding both sides is said first, because it is the state that must
+    never be resolved by guessing: it is a setup somebody has to undo, not a narrower kind of
+    access. What this returns is a verdict, not an exception — the client needs it to show a
+    report, and the services below still refuse on their own.
+    """
+    user = _who(user)
+
+    def refused(code, message):
+        return {"ok": False, "code": code, "message": message}
+
+    if not user or user == "Guest":
+        return refused(NOT_SIGNED_IN, "You are not signed in.")
+
+    if is_administrator(user):
+        return {"ok": True, "code": None, "message": None}
+
+    held = roles(user)
+    staff_side = bool(held.intersection(STAFF_ROLES))
+    # either proof of belonging to a company counts here, exactly as `is_customer_account`
+    # reads them: somebody half set up is still a customer's person
+    customer_side = bool(
+        held.intersection(CUSTOMER_ROLES) or declared_customers(user) or permitted_customers(user)
+    )
+
+    if staff_side and customer_side:
+        return refused(
+            CONFLICTING_ROLES,
+            "This account holds both a Nexgen role and a customer's access. One account "
+            "cannot be both, and which it is cannot be guessed. Ask an administrator to "
+            "leave only the access this account is meant to have.",
+        )
+
+    if customer_side:
+        if not allowed_customers(user):
+            return refused(
+                NO_CUSTOMER,
+                "This account reaches no company. Being named as a company's contact and "
+                "holding the matching permission are both required, and one of the two is "
+                "missing. Ask an administrator to restore it.",
+            )
+
+        return {"ok": True, "code": None, "message": None}
+
+    if staff_side:
+        return {"ok": True, "code": None, "message": None}
+
+    return refused(
+        NO_ROLE,
+        "This account holds no Nexgen MSP role. Ask an administrator to give it the access "
+        "it needs.",
+    )
+
+
 def refuse(customer=None):
     """One refusal for a company that is not theirs and for one that does not exist.
 

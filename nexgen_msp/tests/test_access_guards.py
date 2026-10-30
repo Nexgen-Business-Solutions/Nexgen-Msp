@@ -284,3 +284,124 @@ class TestRawDocumentBoundary(MSPTestCase):
                     f"{user} / {doctype}",
                 )
                 self.assertIsNone(access.raw_msp_query_condition(user))
+
+
+class TestWhoMayEnterAtAll(MSPTestCase):
+    """The verdict the route guard applies, and the three states that used to slip past it.
+
+    Signed in was taken for allowed in, so an account holding no role of ours, one belonging
+    to a company it has no permission for, and one holding both sides at once all reached the
+    application and were then refused by every call it made. The first and the last read as
+    neither side, so the layout fell through to the staff screens.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.tag = frappe.generate_hash(length=6)
+        self.acme = self.make_customer(self.tag)
+        self.manager = self.make_account(
+            "customer", "MSP Customer Manager", self.acme, suffix=f"ea{self.tag[:3]}"
+        )
+        self.technician = self.make_account(
+            "internal", "MSP Technician", suffix=f"et{self.tag[:3]}"
+        )
+
+    def unpermit(self, user):
+        for row in frappe.get_all("User Permission", filters={"user": user}, pluck="name"):
+            frappe.delete_doc("User Permission", row, force=True, ignore_permissions=True)
+
+        frappe.db.commit()
+        frappe.clear_cache(user=user)
+
+    def give(self, user, role):
+        doc = frappe.get_doc("User", user)
+        doc.append("roles", {"role": role})
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        frappe.clear_cache(user=user)
+
+    def strip(self, user):
+        doc = frappe.get_doc("User", user)
+        doc.roles = [row for row in doc.roles if not row.role.startswith("MSP ")]
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        frappe.clear_cache(user=user)
+
+    def code_for(self, user):
+        return access.entry(user)["code"]
+
+    def test_our_own_people_and_a_company_person_both_get_in(self):
+        for user in (self.technician, self.manager, "Administrator"):
+            self.assertTrue(access.entry(user)["ok"], user)
+            self.assertIsNone(self.code_for(user), user)
+
+    def test_the_builtin_administrator_is_not_read_as_holding_both_sides(self):
+        """It carries every role on this site, customer ones included, and still runs it."""
+        self.assertIn("MSP Customer Manager", access.roles("Administrator"))
+        self.assertTrue(access.entry("Administrator")["ok"])
+
+    def test_an_account_with_no_role_of_ours_is_refused_rather_than_shown_our_screens(self):
+        self.strip(self.technician)
+
+        self.assertEqual(self.code_for(self.technician), access.NO_ROLE)
+
+    def test_a_company_person_whose_permission_is_gone_is_refused_by_name(self):
+        self.unpermit(self.manager)
+
+        self.assertEqual(access.allowed_customers(self.manager), [], "reaches no company")
+        self.assertEqual(self.code_for(self.manager), access.NO_CUSTOMER)
+
+    def test_holding_both_sides_is_named_as_the_conflict_it_is(self):
+        self.give(self.manager, "MSP Technician")
+
+        self.assertEqual(self.code_for(self.manager), access.CONFLICTING_ROLES)
+
+    def test_the_conflict_is_said_before_the_missing_permission(self):
+        """Both apply at once, and the one somebody has to undo is the one worth saying."""
+        self.give(self.manager, "MSP Technician")
+        self.unpermit(self.manager)
+
+        self.assertEqual(self.code_for(self.manager), access.CONFLICTING_ROLES)
+
+    def test_a_company_binding_on_one_of_ours_is_the_same_conflict(self):
+        """Read the other way round: the staff role came first and the binding was added."""
+        from nexgen_msp.utils import permissions
+
+        permissions.ensure_customer_contact(frappe.get_doc("User", self.technician), self.acme)
+        frappe.db.commit()
+        frappe.clear_cache(user=self.technician)
+
+        self.assertEqual(self.code_for(self.technician), access.CONFLICTING_ROLES)
+
+    def test_a_signed_out_caller_is_told_that_and_not_blamed_for_a_role(self):
+        self.assertEqual(self.code_for("Guest"), access.NOT_SIGNED_IN)
+
+    def test_every_refusal_carries_something_to_read(self):
+        self.unpermit(self.manager)
+        self.strip(self.technician)
+
+        for user in ("Guest", self.manager, self.technician):
+            verdict = access.entry(user)
+
+            self.assertFalse(verdict["ok"], user)
+            self.assertTrue(verdict["code"], user)
+            self.assertTrue(verdict["message"], user)
+
+    def test_the_desk_is_offered_only_to_those_it_opens_for(self):
+        admin = self.make_account("internal", "MSP System Admin", suffix=f"ed{self.tag[:3]}")
+
+        self.assertTrue(access.may_open_desk("Administrator"))
+        self.assertTrue(access.may_open_desk(admin))
+        self.assertFalse(access.may_open_desk(self.technician))
+        self.assertFalse(access.may_open_desk(self.manager))
+
+        self.give(self.technician, access.SYSTEM_ROLE)
+        self.assertTrue(access.may_open_desk(self.technician), "a System Manager has a desk")
+
+    def test_a_system_manager_with_no_msp_role_is_still_refused_the_application(self):
+        """The desk is theirs; ours is not. The two answers are separate on purpose."""
+        self.strip(self.technician)
+        self.give(self.technician, access.SYSTEM_ROLE)
+
+        self.assertEqual(self.code_for(self.technician), access.NO_ROLE)
+        self.assertTrue(access.may_open_desk(self.technician))

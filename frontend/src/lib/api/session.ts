@@ -2,6 +2,13 @@ import { get } from './client';
 
 const BASE = 'nexgen_msp.api.core.endpoints.v1';
 
+/** Whether this account may be in the application at all, decided by `access.entry`. */
+export type AccessVerdict = {
+  ok: boolean;
+  code: string | null;
+  message: string | null;
+};
+
 export type SessionContext = {
   user: string;
   authenticated: boolean;
@@ -19,6 +26,8 @@ export type SessionContext = {
   is_portal_user?: boolean;
   can_see_invoices?: boolean;
   is_internal_user?: boolean;
+  access?: AccessVerdict;
+  can_open_desk?: boolean;
 };
 
 /** A password-authenticated session is not an application session until its 2FA gate passed. */

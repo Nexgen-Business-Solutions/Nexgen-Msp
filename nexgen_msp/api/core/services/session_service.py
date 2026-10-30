@@ -1,6 +1,6 @@
 import frappe
 
-from nexgen_msp.utils import permissions
+from nexgen_msp.utils import access, permissions
 
 INTERNAL_ROLES = (
     "MSP System Admin",
@@ -17,7 +17,14 @@ class SessionService:
         user = frappe.session.user
 
         if user == "Guest":
-            return {"user": "Guest", "authenticated": False, "roles": [], "customers": []}
+            return {
+                "user": "Guest",
+                "authenticated": False,
+                "roles": [],
+                "customers": [],
+                "access": access.entry(user),
+                "can_open_desk": False,
+            }
 
         roles = frappe.get_roles()
         customers = permissions.get_allowed_customers(user) if user != "Administrator" else []
@@ -55,6 +62,10 @@ class SessionService:
             "customer": here,
             "is_portal_user": is_portal and not is_internal,
             "is_internal_user": is_internal,
+            # whether this account may be in the application at all, decided in one place
+            # and merely applied by the route guard
+            "access": access.entry(user),
+            "can_open_desk": access.may_open_desk(user),
             "can_see_invoices": permissions.may_see_invoices(user),
             # the second factor, and the deadline it is bound to: the client
             # counts down to the moment Frappe drops the session and a fresh

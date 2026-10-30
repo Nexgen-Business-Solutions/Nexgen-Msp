@@ -5,6 +5,9 @@ import ResetPassword from '@/features/auth/pages/ResetPassword';
 import AppLayout from '@/shared/layout/AppLayout';
 import AuthGuard from './guards/AuthGuard';
 import GuestGuard from './guards/GuestGuard';
+import AccessGuard from './guards/AccessGuard';
+import UnauthorizedGuard from './guards/UnauthorizedGuard';
+import UnauthorizedScreen from '@/features/auth/pages/UnauthorizedScreen';
 import RoleHome from './RoleHome';
 import PortalUsers from '@/features/portal/pages/PortalUsers';
 import PortalDevices from '@/features/portal/pages/PortalDevices';
@@ -57,10 +60,24 @@ export const router = createBrowserRouter([
     element: <ResetPassword />,
   },
   {
+    // the denial screen sits outside the layout and outside `AccessGuard`: it is what a
+    // refusal lands on, so guarding it with the rule that refused would never settle
+    path: '/msp/unauthorized',
+    element: (
+      <AuthGuard>
+        <UnauthorizedGuard>
+          <UnauthorizedScreen />
+        </UnauthorizedGuard>
+      </AuthGuard>
+    ),
+  },
+  {
     path: '/msp',
     element: (
       <AuthGuard>
-        <AppLayout />
+        <AccessGuard>
+          <AppLayout />
+        </AccessGuard>
       </AuthGuard>
     ),
     children: [
