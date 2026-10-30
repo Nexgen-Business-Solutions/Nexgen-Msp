@@ -5,7 +5,8 @@
  "engine": "InnoDB",
  "field_order": [
   "portal_url",
-  "customer_session_timeout"
+  "customer_session_timeout",
+  "route_login_by_rules"
  ],
  "fields": [
   {
@@ -20,6 +21,12 @@
    "label": "Customer Session Timeout",
    "options": "\n1 hour\n2 hours\n4 hours\n8 hours\n1 day\n3 days\n7 days",
    "default": "8 hours"
+  },
+  {
+   "default": "1",
+   "fieldname": "route_login_by_rules",
+   "fieldtype": "Check",
+   "label": "Route Login By Rules"
   }
  ],
  "issingle": 1,

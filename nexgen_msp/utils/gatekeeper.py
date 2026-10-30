@@ -9,8 +9,9 @@ DESK_PREFIXES = ("/app", "/desk", "/apps")
 # session cookie and the calls the page makes back to its own origin
 MACHINE_PREFIXES = ("/api/", "/assets/", "/files/", "/private/", "/socket.io", "/.well-known/")
 
-# anyone without a desk seat is sent back to the front door
-HOME = "/"
+# where somebody of ours is sent when they land on the desk: the application they work in,
+# not the site's front door
+HOME = "/msp"
 
 APP_METHOD_PREFIXES = (
 	"/api/method/nexgen_msp.",
@@ -120,8 +121,26 @@ def require_two_factor(*args, **kwargs):
 		)
 
 
+def _is_ours(user):
+	"""Whether this account belongs to this application rather than merely to this site.
+
+	Read off the roles, never off the account type. Some of our own technicians are kept as
+	Website Users on purpose, and plenty of Website Users belong to other applications
+	entirely and have nothing to do with us.
+	"""
+	from nexgen_msp.utils import access
+
+	return bool(set(frappe.get_roles(user)).intersection(access.CUSTOMER_ROLES + access.STAFF_ROLES))
+
+
 def guard(*args, **kwargs):
-	"""Send an invited user who lands on the desk back to the application.
+	"""Send one of our own people who lands on the desk back to the application.
+
+	Only our own. This used to turn away every Website User on the site, which was the right
+	answer while this was the only application here and the wrong one as soon as it was not:
+	somebody else's portal account was being pushed off their own pages. Whoever is not ours
+	falls through to Frappe, which refuses a Website User the desk on its own account — so
+	narrowing this opens nothing.
 
 	Nobody is ever moved between hostnames. Frappe writes its session cookie without a
 	Domain, so it belongs to the host that issued it: carrying someone across to the portal
@@ -138,7 +157,10 @@ def guard(*args, **kwargs):
 	if not user or user == "Guest":
 		return
 
-	is_website_user = (frappe.session.data or {}).get("user_type") == "Website User"
+	is_system_user = (frappe.session.data or {}).get("user_type") == "System User"
 
-	if is_website_user and _wants_desk(request.path):
+	if is_system_user or not _wants_desk(request.path):
+		return
+
+	if _is_ours(user):
 		raise SeeOther(HOME)

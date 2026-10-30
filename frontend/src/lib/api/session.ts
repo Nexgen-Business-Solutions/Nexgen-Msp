@@ -9,6 +9,21 @@ export type AccessVerdict = {
   message: string | null;
 };
 
+/**
+ * Where this account is sent after signing in, decided by `LoginRuleService`.
+ *
+ * Absent while the site still routes the old way, which is what the server switch turns off.
+ * A successful destination has already been authorised server-side; it is never a permission
+ * the client may grant itself.
+ */
+export type LoginDestination = {
+  success: boolean;
+  rule: string | null;
+  source: string | null;
+  path: string | null;
+  error: string | null;
+};
+
 export type SessionContext = {
   user: string;
   authenticated: boolean;
@@ -27,6 +42,7 @@ export type SessionContext = {
   can_see_invoices?: boolean;
   is_internal_user?: boolean;
   access?: AccessVerdict;
+  login_destination?: LoginDestination | null;
   can_open_desk?: boolean;
 };
 

@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import * as client from '@/lib/api/client';
 import * as session from '@/lib/api/session';
 import type { SessionContext } from '@/lib/api/session';
 import AccessGuard from './AccessGuard';
@@ -40,6 +41,20 @@ const asSession = (over: Partial<SessionContext> = {}): SessionContext => ({
 const refused = (code: string, message: string) =>
   asSession({ access: { ok: false, code, message } });
 
+const sentTo = (path: string) =>
+  asSession({
+    roles: ['MSP Technician'],
+    access: { ok: true, code: null, message: null },
+    login_destination: { success: true, rule: 'Frappe Desk', source: 'role', path, error: null },
+  });
+
+const noHome = (error: string) =>
+  asSession({
+    roles: ['MSP Technician'],
+    access: { ok: true, code: null, message: null },
+    login_destination: { success: false, rule: null, source: null, path: null, error },
+  });
+
 const screenAt = (entry: string) =>
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
@@ -69,6 +84,7 @@ const screenAt = (entry: string) =>
 beforeEach(() => {
   sessionStorage.clear();
   vi.mocked(session.getSessionContext).mockReset();
+  vi.mocked(client.logout).mockReset().mockResolvedValue({});
 });
 
 afterEach(() => {
@@ -171,5 +187,93 @@ describe('the denial screen is a report on a decision', () => {
     await screen.findByText('Dashboard');
 
     await waitFor(() => expect(sessionStorage.getItem('msp_unauth_code')).toBeNull());
+  });
+});
+
+describe('a refused account is told where it does belong', () => {
+  it('offers the home the server authorised, and not the page that refused it', async () => {
+    sessionStorage.setItem('msp_unauth_code', 'MSP_ACCESS_DENIED');
+    vi.mocked(session.getSessionContext).mockResolvedValue(sentTo('/desk'));
+
+    screenAt('/msp/unauthorized');
+    await screen.findByText('Access denied');
+
+    expect(screen.getByRole('link', { name: /go to my home/i })).toHaveAttribute('href', '/desk');
+  });
+
+  it('offers no home when the server authorised none', async () => {
+    sessionStorage.setItem('msp_unauth_code', 'NO_LOGIN_RULE');
+    vi.mocked(session.getSessionContext).mockResolvedValue(noHome('NO_LOGIN_RULE'));
+
+    screenAt('/msp/unauthorized');
+    await screen.findByText('Access denied');
+
+    expect(screen.queryByRole('link', { name: /go to my home/i })).not.toBeInTheDocument();
+  });
+
+  it('offers no home while the site is not routing by rules at all', async () => {
+    sessionStorage.setItem('msp_unauth_code', 'NO_MSP_ROLE');
+    vi.mocked(session.getSessionContext).mockResolvedValue(refused('NO_MSP_ROLE', 'No role.'));
+
+    screenAt('/msp/unauthorized');
+    await screen.findByText('Access denied');
+
+    expect(screen.queryByRole('link', { name: /go to my home/i })).not.toBeInTheDocument();
+  });
+
+  it('reads out a refusal that came from the login rules', async () => {
+    sessionStorage.setItem('msp_unauth_code', 'NO_LOGIN_RULE');
+    vi.mocked(session.getSessionContext).mockResolvedValue(noHome('NO_LOGIN_RULE'));
+
+    screenAt('/msp/unauthorized');
+    await screen.findByText('Access denied');
+
+    expect(screen.getByText('NO_LOGIN_RULE')).toBeInTheDocument();
+    expect(screen.getByText(/nothing says where this account belongs/i)).toBeInTheDocument();
+  });
+});
+
+describe('the two ways off the denial screen', () => {
+  it('waits for a fresh answer and stays put when it is still a refusal', async () => {
+    sessionStorage.setItem('msp_unauth_code', 'NO_MSP_ROLE');
+    vi.mocked(session.getSessionContext).mockResolvedValue(refused('NO_MSP_ROLE', 'No role.'));
+
+    screenAt('/msp/unauthorized');
+    await screen.findByText('Access denied');
+
+    fireEvent.click(screen.getByRole('button', { name: /try again/i }));
+
+    expect(await screen.findByText(/still refused/i)).toBeInTheDocument();
+    expect(screen.queryByText('Dashboard')).not.toBeInTheDocument();
+  });
+
+  it('leaves once the administrator has put it right', async () => {
+    sessionStorage.setItem('msp_unauth_code', 'NO_MSP_ROLE');
+    vi.mocked(session.getSessionContext)
+      .mockResolvedValueOnce(refused('NO_MSP_ROLE', 'No role.'))
+      .mockResolvedValue(
+        asSession({ roles: ['MSP Technician'], access: { ok: true, code: null, message: null } })
+      );
+
+    screenAt('/msp/unauthorized');
+    await screen.findByText('Access denied');
+
+    fireEvent.click(screen.getByRole('button', { name: /try again/i }));
+
+    expect(await screen.findByText('Dashboard')).toBeInTheDocument();
+  });
+
+  it('does not claim a sign-out that the network refused', async () => {
+    sessionStorage.setItem('msp_unauth_code', 'NO_MSP_ROLE');
+    vi.mocked(session.getSessionContext).mockResolvedValue(refused('NO_MSP_ROLE', 'No role.'));
+    vi.mocked(client.logout).mockRejectedValue(new Error('offline'));
+
+    screenAt('/msp/unauthorized');
+    await screen.findByText('Access denied');
+
+    fireEvent.click(screen.getByRole('button', { name: /sign out/i }));
+
+    expect(await screen.findByText(/you may still be signed in/i)).toBeInTheDocument();
+    expect(screen.getByText('Access denied')).toBeInTheDocument();
   });
 });

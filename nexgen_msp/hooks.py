@@ -87,16 +87,17 @@ after_migrate = [
 	"nexgen_msp.utils.permissions.reconcile_all_customer_permissions",
 ]
 
-# Each item in the list will be shown as an app in the apps page
-# add_to_apps_screen = [
-# 	{
-# 		"name": "nexgen_msp",
-# 		"logo": "/assets/nexgen_msp/logo.png",
-# 		"title": "Nexgen MSP",
-# 		"route": "/nexgen_msp",
-# 		"has_permission": "nexgen_msp.api.permission.has_app_permission"
-# 	}
-# ]
+# Shown on the apps screen only to an account this application would actually let in. The
+# check is the entry policy itself: a configured destination is not a reason to show a door
+add_to_apps_screen = [
+	{
+		"name": "nexgen_msp",
+		"logo": "/assets/nexgen_msp/images/nexgen-icon.png",
+		"title": "Nexgen MSP",
+		"route": "/msp",
+		"has_permission": "nexgen_msp.utils.app_visibility.can_show_msp_app",
+	}
+]
 
 # Includes in <head>
 # ------------------

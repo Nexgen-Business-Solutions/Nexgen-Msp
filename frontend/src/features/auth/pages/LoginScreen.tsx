@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, Navigate, useLocation } from 'react-router-dom';
 import {
   AlertCircleIcon,
@@ -8,11 +8,13 @@ import {
 } from 'lucide-react';
 import { FrappeError } from '@/lib/api/client';
 import { completeLogin, preLogin } from '@/lib/api/auth2fa';
-import { mayEnterApplication } from '@/lib/api/session';
+import { getSessionContext, mayEnterApplication } from '@/lib/api/session';
 import { AppLogo } from '@/shared/components/appLogo';
+import LoadingScreen from '@/shared/components/LoadingScreen';
 import { useSession } from '@/shared/hooks/useSession';
+import { rememberRefusal } from '@/router/unauthorized';
 import { errorMessageFor } from '../signInRefusals';
-import { safeMspRedirect } from '../authRedirect';
+import { isInternal, landingFor } from '../landing';
 import TwoFactorChallenge from '../components/TwoFactorChallenge';
 import TwoFactorSetup from '../components/TwoFactorSetup';
 
@@ -26,7 +28,8 @@ const FORM_DESCRIPTION =
 export default function LoginScreen() {
   const location = useLocation();
   // someone already signed in lands here when they are turned away from the desk; showing
-  // them a login form would be absurd, so they go straight to the application
+  // them a login form would be absurd, so they go wherever they belong — which is decided
+  // the same way as after a fresh sign-in, and is not always this application
   const session = useSession();
   const [credentials, setCredentials] = useState({ username: '', password: '' });
   const [showPassword, setShowPassword] = useState(false);
@@ -39,12 +42,23 @@ export default function LoginScreen() {
   const sent = useRef('');
   const [notice, setNotice] = useState('');
 
-  if (mayEnterApplication(session.data)) return <Navigate to="/msp" replace />;
+  const requested =
+    new URLSearchParams(location.search).get('redirect-to') ||
+    (location.state as { from?: string } | null)?.from;
 
-  const params = new URLSearchParams(location.search);
-  const from = safeMspRedirect(
-    params.get('redirect-to') || (location.state as { from?: string } | null)?.from
-  );
+  const landing = mayEnterApplication(session.data) ? landingFor(session.data, requested) : null;
+  const leaving = Boolean(landing && !isInternal(landing.path));
+
+  // a destination outside this application is a document navigation, not a route change
+  useEffect(() => {
+    if (landing && leaving) window.location.replace(landing.path);
+  }, [landing, leaving]);
+
+  if (landing) {
+    if (leaving) return <LoadingScreen message="Taking you to your home…" />;
+
+    return <Navigate to={landing.path} replace state={{ code: landing.code }} />;
+  }
 
   const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = event.target;
@@ -95,7 +109,15 @@ export default function LoginScreen() {
         otp: code,
         username: credentials.username.trim(),
       });
-      window.location.assign(from);
+
+      // asked for directly rather than read from the query cache: a context fetched before
+      // this login would decide where to go using the previous account's verdict
+      const next = landingFor(await getSessionContext(), requested);
+
+      // the reason has to survive a document navigation, which drops router state
+      if (next.code) rememberRefusal({ code: next.code });
+
+      window.location.assign(next.path);
     } catch (err) {
       setError(errorMessageFor(err));
 

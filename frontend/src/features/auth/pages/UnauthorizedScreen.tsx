@@ -1,12 +1,19 @@
 import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { LayoutDashboardIcon, LogOutIcon, RotateCcwIcon, ShieldAlertIcon } from 'lucide-react';
+import {
+  AlertCircleIcon,
+  HomeIcon,
+  LayoutDashboardIcon,
+  LogOutIcon,
+  RotateCcwIcon,
+  ShieldAlertIcon,
+} from 'lucide-react';
 import { logout } from '@/lib/api/client';
 import { AppLogo } from '@/shared/components/appLogo';
 import { useSession } from '@/shared/hooks/useSession';
-import { sessionKeys } from '@/shared/hooks/useSession';
-import { forgetRefusal, rememberedRefusal, type Refusal } from '@/router/unauthorized';
+import { REASONS, forgetRefusal, rememberedRefusal, type Refusal } from '@/router/unauthorized';
+import { isInternal, landingFor } from '../landing';
 
 const HEADER = 'Access denied';
 const FALLBACK =
@@ -22,32 +29,74 @@ export default function UnauthorizedScreen() {
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { data: session } = useSession();
-  const [leaving, setLeaving] = useState(false);
+  const { data: session, refetch } = useSession();
+  const [busy, setBusy] = useState<'' | 'retry' | 'signout'>('');
+  const [trouble, setTrouble] = useState('');
 
   const carried = (location.state as Refusal | null) ?? {};
   const held = rememberedRefusal();
   // the live verdict first: an administrator may have put this right since the redirect
-  const said = session?.access?.ok === false ? session.access : null;
-  const code = said?.code || carried.code || held.code || '';
-  const message = said?.message || carried.message || held.message || FALLBACK;
+  const refusedEntry = session?.access?.ok === false ? session.access : null;
+  const refusedHome =
+    session?.login_destination && !session.login_destination.success
+      ? session.login_destination
+      : null;
+  const live = refusedEntry?.code || refusedHome?.error || '';
+  const code = live || carried.code || held.code || '';
+  const message =
+    refusedEntry?.message || carried.message || held.message || REASONS[code] || FALLBACK;
+
+  // only a home the server has already authorised, and never the page that just refused us.
+  // Read off the destination itself rather than off the landing: with no destination at all
+  // the landing is this application, and offering that to an account it has just turned away
+  // is a round trip back to here
+  const authorised = session?.login_destination?.success ? session.login_destination.path : '';
+  const elsewhere = authorised && authorised !== location.pathname ? authorised : '';
 
   /** Ask the server again rather than replaying the answer that refused. */
-  const tryAgain = () => {
+  const tryAgain = async () => {
+    setBusy('retry');
+    setTrouble('');
     forgetRefusal();
-    queryClient.invalidateQueries({ queryKey: sessionKeys.context });
-    navigate('/msp', { replace: true });
+
+    try {
+      // decided on the answer, not before it: a navigation now would be made on the
+      // verdict that sent us here, and land straight back
+      const { data: fresh } = await refetch();
+      const next = landingFor(fresh);
+
+      // both questions again, not one: navigating on a destination while entry is still
+      // refused would only be sent straight back here by the route guard
+      if (fresh?.access?.ok === false || next.code) {
+        setTrouble('Still refused. Nothing has changed yet.');
+        return;
+      }
+
+      if (isInternal(next.path)) navigate(next.path, { replace: true });
+      else window.location.replace(next.path);
+    } catch {
+      setTrouble('We could not reach the server. Try again in a moment.');
+    } finally {
+      setBusy('');
+    }
   };
 
   const signOut = async () => {
-    setLeaving(true);
+    setBusy('signout');
+    setTrouble('');
+
     try {
       await logout();
-    } finally {
-      forgetRefusal();
-      queryClient.clear();
-      navigate('/msp/login', { replace: true });
+    } catch {
+      // the session may well still be open, so saying "signed out" would be a lie
+      setTrouble('Signing out failed, so you may still be signed in. Try again.');
+      setBusy('');
+      return;
     }
+
+    forgetRefusal();
+    queryClient.clear();
+    navigate('/msp/login', { replace: true });
   };
 
   return (
@@ -72,10 +121,27 @@ export default function UnauthorizedScreen() {
 
         <div className="grid border-t border-slate-100 sm:grid-cols-[1fr_15rem]">
           <section className="space-y-3 p-7 sm:border-r sm:border-slate-100">
-            <button type="button" onClick={tryAgain} className={primary}>
+            {trouble && (
+              <div
+                role="alert"
+                className="flex items-start gap-2.5 rounded-lg border border-amber-100 bg-amber-50 p-3 text-amber-800"
+              >
+                <AlertCircleIcon className="mt-0.5 h-4 w-4 shrink-0" />
+                <span className="text-sm font-medium">{trouble}</span>
+              </div>
+            )}
+
+            <button type="button" onClick={tryAgain} disabled={Boolean(busy)} className={primary}>
               <RotateCcwIcon className="h-4 w-4" />
-              Try again
+              {busy === 'retry' ? 'Checking…' : 'Try again'}
             </button>
+
+            {elsewhere && (
+              <a href={elsewhere} className={secondary}>
+                <HomeIcon className="h-4 w-4" />
+                Go to my home
+              </a>
+            )}
 
             {session?.can_open_desk && (
               <a href="/app" className={secondary}>
@@ -84,9 +150,14 @@ export default function UnauthorizedScreen() {
               </a>
             )}
 
-            <button type="button" onClick={signOut} disabled={leaving} className={secondary}>
+            <button
+              type="button"
+              onClick={signOut}
+              disabled={Boolean(busy)}
+              className={secondary}
+            >
               <LogOutIcon className="h-4 w-4" />
-              {leaving ? 'Signing out…' : 'Sign out'}
+              {busy === 'signout' ? 'Signing out…' : 'Sign out'}
             </button>
           </section>
 

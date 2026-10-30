@@ -16,7 +16,11 @@
  "name": "Nexgen MSP",
  "owner": "Administrator",
  "restrict_removal": 0,
- "roles": [],
+ "roles": [
+  {
+   "role": "MSP System Admin"
+  }
+ ],
  "standard": 1,
  "logo_url": "/assets/nexgen_msp/images/nexgen-icon.png"
 }
