@@ -28,6 +28,7 @@ how an account ends up somewhere nobody chose.
 import frappe
 from frappe.utils import cint
 
+from nexgen_msp.utils import access
 from nexgen_msp.utils import login_route_registry as routes
 
 RULE = "Nexgen Login Rule"
@@ -87,11 +88,43 @@ class LoginRuleService:
 
     @staticmethod
     def routing_enabled():
-        """Whether this site hands the login over to the rules at all."""
+        """Whether this site hands the login over to the rules at all.
+
+        Off, nothing here decides anything: the destination is left out of the session and
+        the desk guard goes back to the rule it applied before there were any. A switch
+        that only half took effect would not be a way back.
+        """
         try:
             return bool(frappe.db.get_single_value("MSP Portal Settings", ROUTING_FLAG))
         except Exception:
             return False
+
+    @staticmethod
+    def desk_reachable(user=None):
+        """Whether this account can actually get into the desk.
+
+        Both halves, because either alone misleads: the rule has to open the door, and
+        Frappe has to be willing to let them through it. Asked in exactly one place so that
+        a screen cannot offer a door the request guard will shut — which is what happened
+        while the screen read the roles and the guard read the rule.
+
+        While the switch is off this is the question it was before the rules existed.
+        """
+        user = user or frappe.session.user
+
+        if access.is_administrator(user):
+            return True
+
+        # Frappe admits only a System User, and no rule of ours changes that
+        if not routes.can_enter_desk(user):
+            return False
+
+        # while the switch is off that is the whole question, exactly as it was before any
+        # rule existed: a seat gets you in, and the absence of one does not
+        if not LoginRuleService.routing_enabled():
+            return True
+
+        return LoginRuleService.desk_allowed(user)
 
     # ------------------------------------------------------------------ the order itself
     @staticmethod

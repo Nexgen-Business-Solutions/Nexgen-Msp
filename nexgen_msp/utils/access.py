@@ -155,17 +155,6 @@ NO_ROLE = "NO_MSP_ROLE"
 NO_CUSTOMER = "NO_CUSTOMER_PERMISSION"
 CONFLICTING_ROLES = "CONFLICTING_ROLES"
 
-# who has somewhere to go in the desk. A plain Frappe administration role runs the site
-# without selling anything, so it opens the desk and nothing of ours
-DESK_ROLES = (COMMERCIAL_ROLE, SYSTEM_ROLE)
-
-
-def may_open_desk(user=None):
-    """Whether offering this account the Frappe desk leads anywhere."""
-    user = _who(user)
-
-    return is_administrator(user) or bool(roles(user).intersection(DESK_ROLES))
-
 
 def entry(user=None):
     """Whether this account may enter the application at all, and what to say when it cannot.

@@ -33,10 +33,17 @@ moves somebody without anybody editing a rule.
 
 Nothing here touches a User, a role, a contact, a permission or any commercial record.
 
-**It cannot overwrite.** A rule already carrying one of these two names is left exactly as
-it is, including its lines — an administrator's own wiring is not something a migration gets
+**It cannot overwrite.** A rule already carrying one of these names is left exactly as it
+is, including its lines — an administrator's own wiring is not something a migration gets
 to correct, and a replay must add nothing. The Administrator line is therefore written only
 by the save that creates the rule.
+
+The one exception is this patch's own earlier output. An earlier version made two rules, one
+for all of our people and one for the desk, and neither carried the desk box because it did
+not exist yet. Left standing, that desk rule now shuts the desk to every account whose only
+home it is, and the combined rule ties with the two that replace it. So a rule matching that
+earlier shape **to the letter** is cleared away and rebuilt; one differing by a single field
+or line is left alone, and the simulation below then reports whoever it strands.
 
 **It refuses to finish quietly.** Two gates. The role the desk rule is built on has to
 exist, because without it every System User of every other application would be left with
@@ -51,6 +58,7 @@ turns back off, without deleting a rule or an assignment.
 """
 
 import frappe
+from frappe.utils import cint
 
 from nexgen_msp.api.core.services.login_rule_service import LoginRuleService
 from nexgen_msp.utils import login_route_registry as routes
@@ -108,6 +116,8 @@ SEEDS = (
 def execute():
 	preflight()
 
+	supersede_the_two_rule_shape()
+
 	for seed in SEEDS:
 		_seed(seed)
 
@@ -117,6 +127,56 @@ def execute():
 	route_by_rules()
 
 	frappe.db.commit()
+
+
+# what the first version of this patch created, exactly. Anything differing from this by a
+# single field or line is somebody's own work and is never touched
+SUPERSEDED = {
+	"Nexgen MSP": {
+		"home_route": routes.MSP,
+		"priority": 100,
+		"enabled": 1,
+		"desk_access": 0,
+		"notes": "",
+		"roles": sorted(PORTAL_ROLES + INTERNAL_ROLES),
+		"users": [(ADMINISTRATOR, 1)],
+	},
+	DESK_RULE: {
+		"home_route": routes.DESK,
+		"priority": 10,
+		"enabled": 1,
+		"desk_access": 0,
+		"notes": "",
+		"roles": [DESK_ROLE],
+		"users": [],
+	},
+}
+
+
+def supersede_the_two_rule_shape():
+	"""Clear away the two rules this patch used to create, where nobody has touched them."""
+	for name, shape in SUPERSEDED.items():
+		if not frappe.db.exists(RULE, name):
+			continue
+
+		doc = frappe.get_doc(RULE, name)
+		found = {
+			"home_route": doc.home_route,
+			"priority": cint(doc.priority),
+			"enabled": cint(doc.enabled),
+			"desk_access": cint(doc.desk_access),
+			# a note somebody left on it is an edit like any other, and this promises not to
+			# touch a rule that differs by anything at all
+			"notes": (doc.notes or "").strip(),
+			"roles": sorted(row.role for row in doc.applicable_roles),
+			"users": sorted((row.user, cint(row.get("default"))) for row in doc.applicable_users),
+		}
+
+		if found == {**shape, "users": sorted(shape["users"])}:
+			frappe.delete_doc(RULE, name, force=True, ignore_permissions=True)
+			print(f"  {name}: this patch's earlier two-rule shape, rebuilt below")
+		else:
+			print(f"  {name}: edited since it was created, left exactly as it is")
 
 
 def route_by_rules():

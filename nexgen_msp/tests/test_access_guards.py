@@ -399,21 +399,9 @@ class TestWhoMayEnterAtAll(MSPTestCase):
             self.assertTrue(verdict["code"], user)
             self.assertTrue(verdict["message"], user)
 
-    def test_the_desk_is_offered_only_to_those_it_opens_for(self):
-        admin = self.make_account("internal", "MSP System Admin", suffix=f"ed{self.tag[:3]}")
-
-        self.assertTrue(access.may_open_desk("Administrator"))
-        self.assertTrue(access.may_open_desk(admin))
-        self.assertFalse(access.may_open_desk(self.technician))
-        self.assertFalse(access.may_open_desk(self.manager))
-
-        self.give(self.technician, access.SYSTEM_ROLE)
-        self.assertTrue(access.may_open_desk(self.technician), "a System Manager has a desk")
-
     def test_a_system_manager_with_no_msp_role_is_still_refused_the_application(self):
         """The desk is theirs; ours is not. The two answers are separate on purpose."""
         self.strip(self.technician)
         self.give(self.technician, access.SYSTEM_ROLE)
 
         self.assertEqual(self.code_for(self.technician), access.NO_ROLE)
-        self.assertTrue(access.may_open_desk(self.technician))

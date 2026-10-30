@@ -26,6 +26,7 @@ INTERNAL_ROLES = (
 class SessionService:
     @staticmethod
     def get_session_context():
+        from nexgen_msp.api.core.services.login_rule_service import LoginRuleService
         from nexgen_msp.api.two_factor.services.two_factor_service import TwoFactorService
 
         user = frappe.session.user
@@ -83,7 +84,9 @@ class SessionService:
             # a destination, which is not a permission: the two are asked separately and the
             # client applies the first only after the second has let it in
             "login_destination": login_destination(user),
-            "can_open_desk": access.may_open_desk(user),
+            # the same question the request guard asks, so the denial screen cannot offer a
+            # door that guard will shut
+            "can_open_desk": LoginRuleService.desk_reachable(user),
             "can_see_invoices": permissions.may_see_invoices(user),
             # the second factor, and the deadline it is bound to: the client
             # counts down to the moment Frappe drops the session and a fresh

@@ -129,11 +129,15 @@ def guard(*args, **kwargs):
 	each account goes where its own rule says it belongs, and only an account the rules give
 	no home at all falls back to the front door.
 
-	Two reasons to be turned away, and both are checked because either alone leaves a hole.
-	A rule without the desk box shuts the door however Frappe feels about the account; and
-	Frappe admits only a System User, so anybody else is going nowhere here whatever their
-	rule says — our own technicians are Website Users on purpose, and being shown Frappe's
-	refusal page is worse for them than being taken home.
+Whether an account can get in at all is one question, asked in one place, so that the
+	screen offering the door and the request shutting it cannot disagree. It is both halves
+	at once: the rule has to open the door, and Frappe has to be willing to let them through
+	it — our own technicians are Website Users on purpose, and being shown Frappe's refusal
+	page is worse for them than being taken home.
+
+	While the routing switch is off, so is all of this: the guard goes back to turning away
+	whoever has no desk seat, which is what it did before there were rules. A switch that
+	left the desk decided by rules would not be a way back from a bad one.
 
 	The builtin Administrator always passes. It is the account that has to be able to reach
 	the desk and correct a rule that shut everybody out, including itself.
@@ -154,14 +158,11 @@ def guard(*args, **kwargs):
 		return
 
 	from nexgen_msp.api.core.services.login_rule_service import LoginRuleService
-	from nexgen_msp.utils import access
 
-	if access.is_administrator(user):
+	if LoginRuleService.desk_reachable(user):
 		return
 
-	is_system_user = (frappe.session.data or {}).get("user_type") == "System User"
-
-	if is_system_user and LoginRuleService.desk_allowed(user):
-		return
+	if not LoginRuleService.routing_enabled():
+		raise SeeOther(HOME)
 
 	raise SeeOther(LoginRuleService.home_for(user) or HOME)

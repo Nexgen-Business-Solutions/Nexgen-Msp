@@ -604,7 +604,8 @@ class TestWhoIsSentOffTheDesk(RequestContextMixin, LoginRuleCase):
     def test_a_rule_without_the_desk_box_shuts_the_door(self):
         """The portal rule leaves it shut, so a manager never reaches the desk."""
         self.assertFalse(LoginRuleService.desk_allowed(self.manager))
-        self.assertEqual(self.sent_from("/desk", self.manager, "System User"), "/msp")
+        self.assertFalse(LoginRuleService.desk_reachable(self.manager))
+        self.assertEqual(self.sent_from("/desk", self.manager), "/msp")
 
     def test_an_account_the_rules_give_no_home_falls_back_to_the_front_door(self):
         self.assertIsNone(LoginRuleService.home_for(self.stranger))
@@ -613,7 +614,8 @@ class TestWhoIsSentOffTheDesk(RequestContextMixin, LoginRuleCase):
     def test_a_desk_account_of_ours_keeps_the_desk_it_already_had(self):
         """An MSP System Admin is a System User and the internal rule opens the door."""
         self.assertTrue(LoginRuleService.desk_allowed(self.sysadmin))
-        self.assertIsNone(self.sent_from("/desk", self.sysadmin, "System User"))
+        self.assertTrue(LoginRuleService.desk_reachable(self.sysadmin))
+        self.assertIsNone(self.sent_from("/desk", self.sysadmin))
 
     def test_the_box_is_not_a_seat(self):
         """The same rule opens the door for a technician, and Frappe still says no."""
@@ -665,3 +667,206 @@ class TestWhoSeesTheApplicationInFrappe(LoginRuleCase):
 
             self.assertTrue(roles, f"{doctype} is visible to everybody")
             self.assertNotIn("Desk User", roles, doctype)
+
+
+class TestTheScreenAndTheGuardAgreeAboutTheDesk(LoginRuleCase):
+    """One question, asked once.
+
+    The denial screen read the roles and the request guard read the rule, so the screen
+    could offer a door the guard would shut the moment it was used.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.acme = self.make_customer(self.tag)
+        self.manager = self.make_account(
+            "customer", "MSP Customer Manager", self.acme, suffix=f"dq{self.tag[:3]}"
+        )
+        self.sysadmin = self.make_account(
+            "internal", "MSP System Admin", suffix=f"dr{self.tag[:3]}"
+        )
+
+    def offered_to(self, user):
+        frappe.set_user(user)
+
+        try:
+            return SessionService.get_session_context()["can_open_desk"]
+        finally:
+            frappe.set_user("Administrator")
+
+    def test_the_screen_offers_the_desk_to_exactly_whoever_the_guard_lets_in(self):
+        for user in (self.manager, self.sysadmin, "Administrator"):
+            self.assertEqual(
+                self.offered_to(user), LoginRuleService.desk_reachable(user), user
+            )
+
+    def test_a_website_account_is_never_offered_the_desk_however_it_is_routed(self):
+        """The box opens a door; it does not hand out a seat Frappe has not given."""
+        self.assertFalse(self.offered_to(self.manager))
+
+    def test_our_own_administrators_are_still_offered_it(self):
+        self.assertTrue(self.offered_to(self.sysadmin))
+
+
+class TestTheSwitchIsAWayBack(RequestContextMixin, LoginRuleCase):
+    """Turning the routing off has to undo all of it, not some of it.
+
+    A switch that left the desk decided by rules would be no use against a bad rule, which
+    is the one thing it exists for.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.acme = self.make_customer(self.tag)
+        self.manager = self.make_account(
+            "customer", "MSP Customer Manager", self.acme, suffix=f"sw{self.tag[:3]}"
+        )
+        self.sysadmin = self.make_account(
+            "internal", "MSP System Admin", suffix=f"sx{self.tag[:3]}"
+        )
+        self.kept = frappe.db.get_single_value("MSP Portal Settings", ROUTING_FLAG)
+
+    def tearDown(self):
+        frappe.db.set_single_value("MSP Portal Settings", ROUTING_FLAG, self.kept)
+        frappe.db.commit()
+        super().tearDown()
+
+    def routing(self, on):
+        frappe.db.set_single_value("MSP Portal Settings", ROUTING_FLAG, 1 if on else 0)
+        frappe.db.commit()
+
+    def sent_from(self, path, user):
+        self.at(path)
+        frappe.set_user(user)
+
+        try:
+            gatekeeper.guard()
+        except gatekeeper.SeeOther as moved:
+            return moved.new_url
+        finally:
+            frappe.set_user("Administrator")
+
+        return None
+
+    def test_switched_off_the_desk_goes_back_to_what_frappe_says(self):
+        """A seat gets you in and the absence of one sends you to the front door."""
+        self.routing(False)
+
+        self.assertFalse(LoginRuleService.desk_reachable(self.manager))
+        self.assertEqual(self.sent_from("/desk", self.manager), "/")
+
+        self.assertTrue(LoginRuleService.desk_reachable(self.sysadmin))
+        self.assertIsNone(self.sent_from("/desk", self.sysadmin))
+
+    def test_switched_off_a_rule_cannot_shut_a_desk_anybody_had(self):
+        """Even the portal rule, whose box is deliberately shut, decides nothing now."""
+        self.routing(False)
+        frappe.db.set_value("User", self.manager, "user_type", "System User")
+        frappe.clear_cache(user=self.manager)
+
+        try:
+            self.assertTrue(LoginRuleService.desk_reachable(self.manager))
+            self.assertIsNone(self.sent_from("/desk", self.manager))
+        finally:
+            frappe.db.set_value("User", self.manager, "user_type", "Website User")
+            frappe.clear_cache(user=self.manager)
+
+    def test_switched_on_the_rule_decides_again(self):
+        self.routing(True)
+
+        self.assertFalse(LoginRuleService.desk_reachable(self.manager))
+        self.assertEqual(self.sent_from("/desk", self.manager), "/msp")
+
+
+class TestTheMigrationReplacesItsOwnEarlierShape(LoginRuleCase):
+    """A patch whose output changed has to clear away what it wrote the first time.
+
+    The first version made one rule for all of our people and one for the desk, and neither
+    carried the desk box. Left standing on a site that already ran it, the desk rule would
+    now refuse the desk to every account whose only home it is.
+    """
+
+    OLD_MSP = "Nexgen MSP"
+    OLD_DESK = "Frappe Desk"
+
+    def setUp(self):
+        super().setUp()
+        from nexgen_msp.patches import seed_login_rules
+
+        self.patch = seed_login_rules
+        self.live = {}
+
+        for name in frappe.get_all(RULE, pluck="name"):
+            self.live[name] = frappe.get_doc(RULE, name).as_dict()
+            frappe.delete_doc(RULE, name, force=True, ignore_permissions=True)
+
+        frappe.db.commit()
+
+    def tearDown(self):
+        for name in frappe.get_all(RULE, pluck="name"):
+            frappe.delete_doc(RULE, name, force=True, ignore_permissions=True)
+
+        for kept in self.live.values():
+            frappe.get_doc(kept).insert(ignore_permissions=True)
+
+        frappe.db.commit()
+        super().tearDown()
+
+    def write_the_old_shape(self):
+        for name, shape in self.patch.SUPERSEDED.items():
+            doc = frappe.new_doc(RULE)
+            doc.name = name
+            doc.home_route = shape["home_route"]
+            doc.priority = shape["priority"]
+            doc.enabled = shape["enabled"]
+            doc.desk_access = shape["desk_access"]
+
+            for role in shape["roles"]:
+                doc.append("applicable_roles", {"role": role})
+
+            for user, default in shape["users"]:
+                doc.append("applicable_users", {"user": user, "default": default})
+
+            doc.insert(ignore_permissions=True)
+
+        frappe.db.commit()
+
+    def test_the_earlier_two_rules_are_replaced_by_the_three(self):
+        self.write_the_old_shape()
+
+        self.patch.execute()
+
+        self.assertEqual(
+            sorted(frappe.get_all(RULE, pluck="name")),
+            ["Frappe Desk", "Nexgen MSP Internal", "Nexgen MSP Portal"],
+        )
+        self.assertEqual(frappe.db.get_value(RULE, "Frappe Desk", "desk_access"), 1)
+
+    def test_a_rule_somebody_has_edited_since_is_left_exactly_as_it_is(self):
+        """Not this patch's output any more, so not this patch's to clear away."""
+        self.write_the_old_shape()
+        frappe.db.set_value(RULE, self.OLD_MSP, "notes", "somebody was here")
+        frappe.db.commit()
+
+        # the edited rule now ties with the two that replace it, which the simulation
+        # reports rather than resolving
+        with self.assertRaises(frappe.ValidationError):
+            self.patch.execute()
+
+        self.assertTrue(frappe.db.exists(RULE, self.OLD_MSP))
+        self.assertEqual(
+            frappe.db.get_value(RULE, self.OLD_MSP, "notes"), "somebody was here"
+        )
+
+    def test_the_patch_is_registered_again_so_a_site_that_ran_it_runs_it_once_more(self):
+        lines = [
+            line.strip()
+            for line in (
+                frappe.get_app_path("nexgen_msp", "..", "nexgen_msp", "patches.txt")
+                and open(frappe.get_app_path("nexgen_msp", "patches.txt")).read().splitlines()
+            )
+        ]
+        entries = [line for line in lines if line.startswith("nexgen_msp.patches.seed_login_rules")]
+
+        self.assertEqual(len(entries), 2, entries)
+        self.assertNotEqual(entries[0], entries[1], "a repeated line never runs twice")
