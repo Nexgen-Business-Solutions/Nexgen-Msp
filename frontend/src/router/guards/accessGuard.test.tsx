@@ -62,10 +62,10 @@ const noHome = (error: string) =>
     login_destination: { success: false, rule: null, source: null, path: null, error },
   });
 
-const screenAt = (entry: string) =>
+const screenAt = (entry: string, state?: Record<string, unknown>) =>
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <MemoryRouter initialEntries={[entry]}>
+      <MemoryRouter initialEntries={[state ? { pathname: entry, state } : entry]}>
         <Routes>
           <Route
             path="/msp"
@@ -199,13 +199,31 @@ describe('the denial screen is a report on a decision', () => {
 
 describe('a refused account is told where it does belong', () => {
   it('offers the home the server authorised, and not the page that refused it', async () => {
-    sessionStorage.setItem('msp_unauth_code', 'NO_MSP_ROLE');
     vi.mocked(session.getSessionContext).mockResolvedValue(refusedWithHome('/desk'));
 
-    screenAt('/msp/unauthorized');
+    // turned away from an application screen a moment ago, which router state is what says
+    screenAt('/msp/unauthorized', { code: 'NO_MSP_ROLE', from: '/msp' });
     await screen.findByText('Access denied');
 
     expect(screen.getByRole('link', { name: /go to my home/i })).toHaveAttribute('href', '/desk');
+  });
+
+  it('does not hold somebody on a reload when the refusal was never about their home', async () => {
+    sessionStorage.setItem('msp_unauth_code', 'NO_MSP_ROLE');
+    vi.mocked(session.getSessionContext).mockResolvedValue(refusedWithHome('/desk'));
+
+    const replace = vi.fn();
+    const kept = window.location;
+    Object.defineProperty(window, 'location', { configurable: true, value: { ...kept, replace } });
+
+    try {
+      // no router state: this is a reload of the address, not a refusal being reported
+      screenAt('/msp/unauthorized');
+
+      await waitFor(() => expect(replace).toHaveBeenCalledWith('/desk'));
+    } finally {
+      Object.defineProperty(window, 'location', { configurable: true, value: kept });
+    }
   });
 
   it('sends somebody whose refusal has been lifted to their home instead of a wall', async () => {
