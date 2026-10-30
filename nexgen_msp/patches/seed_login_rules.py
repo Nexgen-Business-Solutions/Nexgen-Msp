@@ -176,7 +176,9 @@ def supersede_the_two_rule_shape():
 			frappe.delete_doc(RULE, name, force=True, ignore_permissions=True)
 			print(f"  {name}: this patch's earlier two-rule shape, rebuilt below")
 		else:
-			print(f"  {name}: edited since it was created, left exactly as it is")
+			# either already in its current shape, or edited since. Neither is this patch's
+			# earlier output, and neither is this patch's to clear away
+			print(f"  {name}: not the earlier shape, left exactly as it is")
 
 
 def route_by_rules():

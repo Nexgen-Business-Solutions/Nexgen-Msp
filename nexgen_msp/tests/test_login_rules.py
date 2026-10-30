@@ -858,15 +858,15 @@ class TestTheMigrationReplacesItsOwnEarlierShape(LoginRuleCase):
             frappe.db.get_value(RULE, self.OLD_MSP, "notes"), "somebody was here"
         )
 
-    def test_the_patch_is_registered_again_so_a_site_that_ran_it_runs_it_once_more(self):
-        lines = [
-            line.strip()
-            for line in (
-                frappe.get_app_path("nexgen_msp", "..", "nexgen_msp", "patches.txt")
-                and open(frappe.get_app_path("nexgen_msp", "patches.txt")).read().splitlines()
-            )
-        ]
+    def test_it_is_registered_under_a_name_a_site_has_not_already_recorded(self):
+        """Frappe keys a patch on the whole line, so a changed patch needs a changed line.
+
+        A site that ran the two-rule version has the bare module path in its Patch Log and
+        would never run it again, which would leave it with a desk rule that shuts the desk.
+        """
+        with open(frappe.get_app_path("nexgen_msp", "patches.txt")) as handle:
+            lines = [line.strip() for line in handle]
+
         entries = [line for line in lines if line.startswith("nexgen_msp.patches.seed_login_rules")]
 
-        self.assertEqual(len(entries), 2, entries)
-        self.assertNotEqual(entries[0], entries[1], "a repeated line never runs twice")
+        self.assertEqual(entries, ["nexgen_msp.patches.seed_login_rules #three_rules"])
