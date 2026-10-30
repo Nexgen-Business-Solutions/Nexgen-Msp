@@ -41,6 +41,13 @@ const asSession = (over: Partial<SessionContext> = {}): SessionContext => ({
 const refused = (code: string, message: string) =>
   asSession({ access: { ok: false, code, message } });
 
+/** Refused the application, but with a home of its own elsewhere — a desk account on /msp. */
+const refusedWithHome = (path: string) =>
+  asSession({
+    access: { ok: false, code: 'NO_MSP_ROLE', message: 'This account holds no Nexgen MSP role.' },
+    login_destination: { success: true, rule: 'Frappe Desk', source: 'role', path, error: null },
+  });
+
 const sentTo = (path: string) =>
   asSession({
     roles: ['MSP Technician'],
@@ -192,13 +199,110 @@ describe('the denial screen is a report on a decision', () => {
 
 describe('a refused account is told where it does belong', () => {
   it('offers the home the server authorised, and not the page that refused it', async () => {
-    sessionStorage.setItem('msp_unauth_code', 'MSP_ACCESS_DENIED');
-    vi.mocked(session.getSessionContext).mockResolvedValue(sentTo('/desk'));
+    sessionStorage.setItem('msp_unauth_code', 'NO_MSP_ROLE');
+    vi.mocked(session.getSessionContext).mockResolvedValue(refusedWithHome('/desk'));
 
     screenAt('/msp/unauthorized');
     await screen.findByText('Access denied');
 
     expect(screen.getByRole('link', { name: /go to my home/i })).toHaveAttribute('href', '/desk');
+  });
+
+  it('sends somebody whose refusal has been lifted to their home instead of a wall', async () => {
+    sessionStorage.setItem('msp_unauth_code', 'NO_MSP_ROLE');
+    sessionStorage.setItem('msp_unauth_message', 'No role.');
+    vi.mocked(session.getSessionContext).mockResolvedValue(sentTo('/msp'));
+
+    screenAt('/msp/unauthorized');
+
+    expect(await screen.findByText('Dashboard')).toBeInTheDocument();
+    expect(screen.queryByText('Access denied')).not.toBeInTheDocument();
+    await waitFor(() => expect(sessionStorage.getItem('msp_unauth_code')).toBeNull());
+  });
+
+  it('names what is missing rather than a role the account was never going to hold', async () => {
+    sessionStorage.setItem('msp_unauth_code', 'NO_MSP_ROLE');
+    vi.mocked(session.getSessionContext).mockResolvedValue(
+      asSession({
+        access: { ok: false, code: 'NO_MSP_ROLE', message: 'No role.' },
+        login_destination: {
+          success: false,
+          rule: null,
+          source: null,
+          path: null,
+          error: 'NO_LOGIN_RULE',
+        },
+      })
+    );
+
+    screenAt('/msp/unauthorized');
+    await screen.findByText('Access denied');
+
+    expect(screen.getByText('NO_LOGIN_RULE')).toBeInTheDocument();
+    expect(screen.queryByText('NO_MSP_ROLE')).not.toBeInTheDocument();
+  });
+
+  it('keeps the entry reason when the destination only restates it', async () => {
+    sessionStorage.setItem('msp_unauth_code', 'CONFLICTING_ROLES');
+    vi.mocked(session.getSessionContext).mockResolvedValue(
+      asSession({
+        access: { ok: false, code: 'CONFLICTING_ROLES', message: 'Both sides at once.' },
+        login_destination: {
+          success: false,
+          rule: null,
+          source: null,
+          path: null,
+          error: 'MSP_ACCESS_DENIED',
+        },
+      })
+    );
+
+    screenAt('/msp/unauthorized');
+    await screen.findByText('Access denied');
+
+    expect(screen.getByText('CONFLICTING_ROLES')).toBeInTheDocument();
+    expect(screen.getByText('Both sides at once.')).toBeInTheDocument();
+  });
+
+  it('sends a non-MSP account to its own home once a rule gives it one', async () => {
+    sessionStorage.setItem('msp_unauth_code', 'NO_LOGIN_RULE');
+    vi.mocked(session.getSessionContext)
+      .mockResolvedValueOnce(noHome('NO_LOGIN_RULE'))
+      .mockResolvedValue(refusedWithHome('/desk'));
+
+    const replace = vi.fn();
+    const kept = window.location;
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...kept, replace },
+    });
+
+    try {
+      screenAt('/msp/unauthorized');
+      await screen.findByText('Access denied');
+
+      fireEvent.click(screen.getByRole('button', { name: /try again/i }));
+
+      // the MSP verdict is still a refusal, and it is not the question being asked
+      await waitFor(() => expect(replace).toHaveBeenCalledWith('/desk'));
+    } finally {
+      Object.defineProperty(window, 'location', { configurable: true, value: kept });
+    }
+  });
+
+  it('stays put when the server could not be reached at all', async () => {
+    sessionStorage.setItem('msp_unauth_code', 'NO_MSP_ROLE');
+    vi.mocked(session.getSessionContext)
+      .mockResolvedValueOnce(refused('NO_MSP_ROLE', 'No role.'))
+      .mockRejectedValue(new Error('offline'));
+
+    screenAt('/msp/unauthorized');
+    await screen.findByText('Access denied');
+
+    fireEvent.click(screen.getByRole('button', { name: /try again/i }));
+
+    expect(await screen.findByText(/could not reach the server/i)).toBeInTheDocument();
+    expect(screen.getByText('Access denied')).toBeInTheDocument();
   });
 
   it('offers no home when the server authorised none', async () => {

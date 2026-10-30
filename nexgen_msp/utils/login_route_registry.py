@@ -83,6 +83,11 @@ DESTINATIONS = {
 }
 
 
+def is_desk(route):
+    """Whether a route leads to the Frappe desk, under any of the names it answers to."""
+    return registered(route) in (DESK, "/app", "/apps")
+
+
 def _is_reserved(route):
     return any(
         route == prefix or route.startswith(prefix + "/") for prefix in RESERVED + MACHINE

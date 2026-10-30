@@ -41,10 +41,20 @@ export default function UnauthorizedScreen() {
     session?.login_destination && !session.login_destination.success
       ? session.login_destination
       : null;
-  const live = refusedEntry?.code || refusedHome?.error || '';
+  // the destination's reason comes first, because it names what is actually missing: an
+  // account of another application with no rule was being told it holds no MSP role, which
+  // is true and beside the point. The exception is MSP_ACCESS_DENIED, which only restates
+  // the entry refusal while the entry refusal says why
+  const fromHome =
+    refusedHome?.error && refusedHome.error !== 'MSP_ACCESS_DENIED' ? refusedHome.error : '';
+  const live = fromHome || refusedEntry?.code || refusedHome?.error || '';
   const code = live || carried.code || held.code || '';
   const message =
-    refusedEntry?.message || carried.message || held.message || REASONS[code] || FALLBACK;
+    (code === refusedEntry?.code ? refusedEntry.message : null) ||
+    REASONS[code] ||
+    carried.message ||
+    held.message ||
+    FALLBACK;
 
   // only a home the server has already authorised, and never the page that just refused us.
   // Read off the destination itself rather than off the landing: with no destination at all
@@ -57,20 +67,33 @@ export default function UnauthorizedScreen() {
   const tryAgain = async () => {
     setBusy('retry');
     setTrouble('');
-    forgetRefusal();
 
     try {
       // decided on the answer, not before it: a navigation now would be made on the
       // verdict that sent us here, and land straight back
-      const { data: fresh } = await refetch();
-      const next = landingFor(fresh);
+      const answer = await refetch();
 
-      // both questions again, not one: navigating on a destination while entry is still
-      // refused would only be sent straight back here by the route guard
-      if (fresh?.access?.ok === false || next.code) {
+      // a refetch reports its failure in the result rather than by throwing, and the data
+      // it carries is the stale answer. Navigating on that is navigating on the refusal
+      if (answer.isError || !answer.data?.authenticated) {
+        setTrouble('We could not reach the server. Try again in a moment.');
+        return;
+      }
+
+      const fresh = answer.data;
+      const next = landingFor(fresh);
+      // the entry verdict decides only where entry is what is being asked for. An account
+      // whose home is the desk holds no role of ours and is not going to
+      const asksForMsp = !fresh.login_destination || isInternal(next.path);
+
+      if (next.code || (asksForMsp && fresh.access?.ok === false)) {
         setTrouble('Still refused. Nothing has changed yet.');
         return;
       }
+
+      // forgotten only now: cleared on the way in, a refusal that still stands would be
+      // lost and a reload would show this screen with nothing to report
+      forgetRefusal();
 
       if (isInternal(next.path)) navigate(next.path, { replace: true });
       else window.location.replace(next.path);

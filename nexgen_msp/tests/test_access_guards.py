@@ -330,6 +330,18 @@ class TestWhoMayEnterAtAll(MSPTestCase):
     def code_for(self, user):
         return access.entry(user)["code"]
 
+    def test_a_contact_and_a_permission_are_not_a_role(self):
+        """Being bound to a company says which company, never that the account may be here.
+
+        An account whose role was taken away keeps its contact record and its permission
+        until somebody clears them, and that pair used to be read as enough on its own.
+        """
+        self.strip(self.manager)
+
+        self.assertTrue(access.declared_customers(self.manager) or access.permitted_customers(self.manager))
+        self.assertFalse(access.entry(self.manager)["ok"])
+        self.assertEqual(self.code_for(self.manager), access.NO_ROLE)
+
     def test_our_own_people_and_a_company_person_both_get_in(self):
         for user in (self.technician, self.manager, "Administrator"):
             self.assertTrue(access.entry(user)["ok"], user)

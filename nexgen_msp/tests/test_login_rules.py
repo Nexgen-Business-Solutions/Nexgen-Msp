@@ -15,8 +15,8 @@ assert is still reached when a role is taken away.
 
 import frappe
 
-from nexgen_msp.api.core.services.login_rule_service import LoginRuleService
-from nexgen_msp.api.core.services.session_service import ROUTING_FLAG, SessionService
+from nexgen_msp.api.core.services.login_rule_service import ROUTING_FLAG, LoginRuleService
+from nexgen_msp.api.core.services.session_service import SessionService
 from nexgen_msp.utils import app_visibility, gatekeeper
 from nexgen_msp.utils import login_route_registry as routes
 
@@ -48,12 +48,15 @@ class LoginRuleCase(MSPTestCase):
 
         return self.track("Role", doc.name)
 
-    def make_rule(self, suffix, route="/msp", priority=LOW, enabled=1, roles=(), users=()):
+    def make_rule(
+        self, suffix, route="/msp", priority=LOW, enabled=1, roles=(), users=(), desk=0
+    ):
         doc = frappe.new_doc(RULE)
         doc.name = f"{PREFIX} {suffix} {self.tag}"
         doc.enabled = enabled
         doc.home_route = route
         doc.priority = priority
+        doc.desk_access = desk
 
         for role in roles:
             doc.append("applicable_roles", {"role": role})
@@ -196,7 +199,9 @@ class TestWhichRuleDecides(LoginRuleCase):
         self.take_away(self.technician, self.role)
 
         # back to the rule the migration seeded, which it still matches as a technician
-        self.assertEqual(LoginRuleService.resolve_for_user(self.technician)["rule"], "Nexgen MSP")
+        self.assertEqual(
+            LoginRuleService.resolve_for_user(self.technician)["rule"], "Nexgen MSP Internal"
+        )
 
 
 class TestADirectExceptionAlwaysWins(LoginRuleCase):
@@ -285,9 +290,17 @@ class TestADestinationIsNeverAPermission(LoginRuleCase):
         self.assertFalse(verdict["success"])
         self.assertEqual(verdict["error"], "MSP_ACCESS_DENIED")
 
-    def test_a_rule_cannot_put_a_website_account_in_the_desk(self):
-        """Our own technicians are kept as Website Users on purpose."""
-        self.make_rule("Desk wish", roles=[self.role], route="/desk", priority=HIGH)
+    def test_a_rule_without_the_desk_box_cannot_send_anybody_to_the_desk(self):
+        self.make_rule("Shut", roles=[self.role], route="/desk", priority=HIGH, desk=0)
+
+        verdict = LoginRuleService.resolve_for_user(self.technician)
+
+        self.assertFalse(verdict["success"])
+        self.assertEqual(verdict["error"], "DESK_ACCESS_DENIED")
+
+    def test_the_box_opens_a_door_and_does_not_hand_out_a_seat(self):
+        """Our own technicians are kept as Website Users on purpose, box or no box."""
+        self.make_rule("Open", roles=[self.role], route="/desk", priority=HIGH, desk=1)
 
         verdict = LoginRuleService.resolve_for_user(self.technician)
 
@@ -296,7 +309,7 @@ class TestADestinationIsNeverAPermission(LoginRuleCase):
 
     def test_a_refused_destination_never_falls_back_to_a_lesser_rule(self):
         """The winning rule is the answer, even when the answer is no."""
-        self.make_rule("Wins and fails", roles=[self.role], route="/desk", priority=HIGH)
+        self.make_rule("Wins and fails", roles=[self.role], route="/desk", priority=HIGH, desk=1)
         self.make_rule("Would have worked", roles=[self.role], route="/msp", priority=LOW)
 
         self.assertEqual(
@@ -396,29 +409,43 @@ class TestWhatMayBeWrittenInARule(LoginRuleCase):
 class TestTheRulesTheMigrationSeeded(LoginRuleCase):
     """What the site already was, written down. Nobody who had a home may have lost it."""
 
-    def test_the_two_rules_exist_as_the_migration_describes_them(self):
-        msp = frappe.get_doc(RULE, "Nexgen MSP")
-        desk = frappe.get_doc(RULE, "Frappe Desk")
+    def test_the_three_rules_exist_as_the_migration_describes_them(self):
+        expected = {
+            "Nexgen MSP Portal": ("/msp", 100, 0, ["MSP Customer Manager", "MSP Customer Operator"]),
+            "Nexgen MSP Internal": ("/msp", 100, 1, ["MSP System Admin", "MSP Technician"]),
+            "Frappe Desk": ("/desk", 10, 1, ["Desk User"]),
+        }
 
-        self.assertEqual((msp.home_route, msp.priority, msp.enabled), ("/msp", 100, 1))
-        self.assertEqual((desk.home_route, desk.priority, desk.enabled), ("/desk", 10, 1))
-        self.assertEqual(
-            sorted(row.role for row in msp.applicable_roles),
-            [
-                "MSP Customer Manager",
-                "MSP Customer Operator",
-                "MSP System Admin",
-                "MSP Technician",
-            ],
+        self.assertEqual(sorted(frappe.get_all(RULE, pluck="name")), sorted(expected))
+
+        for name, (route, priority, desk, roles) in expected.items():
+            doc = frappe.get_doc(RULE, name)
+
+            self.assertEqual(
+                (doc.home_route, doc.priority, doc.enabled, doc.desk_access),
+                (route, priority, 1, desk),
+                name,
+            )
+            self.assertEqual(sorted(row.role for row in doc.applicable_roles), roles, name)
+
+    def test_the_portal_and_the_internal_rules_do_not_tie(self):
+        """Equal priority, but no account holds both sides — and one that did is refused anyway."""
+        manager = self.make_account(
+            "customer", "MSP Customer Manager", self.make_customer(self.tag), suffix=f"lp{self.tag[:3]}"
         )
-        self.assertEqual([row.role for row in desk.applicable_roles], ["Desk User"])
+        technician = self.make_account("internal", "MSP Technician", suffix=f"li{self.tag[:3]}")
+
+        self.assertEqual(LoginRuleService.resolve_for_user(manager)["rule"], "Nexgen MSP Portal")
+        self.assertEqual(
+            LoginRuleService.resolve_for_user(technician)["rule"], "Nexgen MSP Internal"
+        )
 
     def test_the_builtin_administrator_keeps_the_home_it_has_always_had(self):
         """It holds every role on the site, so its home is named outright."""
         verdict = LoginRuleService.resolve_for_user("Administrator")
 
         self.assertEqual(verdict["path"], "/msp")
-        self.assertEqual(verdict["rule"], "Nexgen MSP")
+        self.assertEqual(verdict["rule"], "Nexgen MSP Internal")
         self.assertEqual(verdict["source"], "direct_user")
 
     def test_our_own_people_land_in_the_application(self):
@@ -427,13 +454,16 @@ class TestTheRulesTheMigrationSeeded(LoginRuleCase):
         verdict = LoginRuleService.resolve_for_user(technician)
 
         self.assertEqual(verdict["path"], "/msp")
-        self.assertEqual(verdict["rule"], "Nexgen MSP")
+        self.assertEqual(verdict["rule"], "Nexgen MSP Internal")
 
     def test_an_administrator_of_ours_lands_here_rather_than_in_the_desk(self):
-        """A System User too, and the MSP rule outranks the desk rule for that reason."""
+        """A System User too, and the internal rule outranks the desk rule for that reason."""
         admin = self.make_account("internal", "MSP System Admin", suffix=f"lz{self.tag[:3]}")
 
-        self.assertEqual(LoginRuleService.resolve_for_user(admin)["rule"], "Nexgen MSP")
+        self.assertEqual(
+            LoginRuleService.resolve_for_user(admin)["rule"], "Nexgen MSP Internal"
+        )
+        self.assertTrue(LoginRuleService.desk_allowed(admin), "must keep the desk it had")
 
     def test_a_system_user_of_another_application_lands_in_the_desk(self):
         role = self.make_role("Sa", desk_access=1)
@@ -496,7 +526,7 @@ class TestTheSessionCarriesTheDestination(LoginRuleCase):
         context = self.context_for(self.technician)
 
         self.assertEqual(context["login_destination"]["path"], "/msp")
-        self.assertEqual(context["login_destination"]["rule"], "Nexgen MSP")
+        self.assertEqual(context["login_destination"]["rule"], "Nexgen MSP Internal")
         self.assertTrue(context["access"]["ok"])
 
     def test_the_verdict_and_the_destination_are_two_separate_answers(self):
@@ -528,13 +558,12 @@ class TestTheSessionCarriesTheDestination(LoginRuleCase):
 
 
 class TestWhoIsSentOffTheDesk(RequestContextMixin, LoginRuleCase):
-    """The desk redirect, and the accounts it must stop reaching for.
+    """The desk redirect: who it turns away, and where each of them is taken.
 
-    It used to move every Website User on the site off the desk, which was the right answer
-    while this was the only application here and the wrong one as soon as it was not:
-    somebody else's portal account was being pushed off pages that are nothing to do with
-    us. Frappe refuses a Website User the desk on its own account, so narrowing this opens
-    nothing.
+    It used to send every Website User to the site's front door — right while this was the
+    only application here, wrong as soon as it was not: somebody else's portal account was
+    pushed off its own pages onto a login screen. Now each account goes to the home its own
+    rule gives it, and only one the rules give no home at all sees the front door.
     """
 
     def setUp(self):
@@ -546,11 +575,17 @@ class TestWhoIsSentOffTheDesk(RequestContextMixin, LoginRuleCase):
         self.technician = self.make_account(
             "internal", "MSP Technician", suffix=f"gt{self.tag[:3]}"
         )
+        self.sysadmin = self.make_account(
+            "internal", "MSP System Admin", suffix=f"ga{self.tag[:3]}"
+        )
         self.stranger = self.make_plain_account("gs")
 
-    def sent_from(self, path, user):
+    def sent_from(self, path, user, user_type=None):
         self.at(path)
         frappe.set_user(user)
+
+        if user_type:
+            frappe.session.data.user_type = user_type
 
         try:
             gatekeeper.guard()
@@ -561,24 +596,34 @@ class TestWhoIsSentOffTheDesk(RequestContextMixin, LoginRuleCase):
 
         return None
 
-    def test_our_own_people_are_sent_to_the_application(self):
+    def test_everybody_turned_away_is_taken_to_their_own_home(self):
         for user in (self.manager, self.technician):
             for path in ("/app", "/desk", "/apps", "/app/user"):
                 self.assertEqual(self.sent_from(path, user), "/msp", f"{user} {path}")
 
-    def test_an_account_of_another_application_is_left_where_it_is(self):
+    def test_a_rule_without_the_desk_box_shuts_the_door(self):
+        """The portal rule leaves it shut, so a manager never reaches the desk."""
+        self.assertFalse(LoginRuleService.desk_allowed(self.manager))
+        self.assertEqual(self.sent_from("/desk", self.manager, "System User"), "/msp")
+
+    def test_an_account_the_rules_give_no_home_falls_back_to_the_front_door(self):
+        self.assertIsNone(LoginRuleService.home_for(self.stranger))
+        self.assertEqual(self.sent_from("/desk", self.stranger), "/")
+
+    def test_a_desk_account_of_ours_keeps_the_desk_it_already_had(self):
+        """An MSP System Admin is a System User and the internal rule opens the door."""
+        self.assertTrue(LoginRuleService.desk_allowed(self.sysadmin))
+        self.assertIsNone(self.sent_from("/desk", self.sysadmin, "System User"))
+
+    def test_the_box_is_not_a_seat(self):
+        """The same rule opens the door for a technician, and Frappe still says no."""
+        self.assertTrue(LoginRuleService.desk_allowed(self.technician))
+        self.assertEqual(self.sent_from("/desk", self.technician), "/msp")
+
+    def test_the_builtin_administrator_always_gets_through(self):
+        """The one account that has to be able to repair a rule that shut everybody out."""
         for path in ("/app", "/desk", "/apps"):
-            self.assertIsNone(self.sent_from(path, self.stranger), path)
-
-    def test_a_desk_account_of_ours_is_not_pushed_out_of_the_desk(self):
-        self.at("/desk")
-        frappe.set_user(self.technician)
-        frappe.session.data.user_type = "System User"
-
-        try:
-            self.assertIsNone(gatekeeper.guard())
-        finally:
-            frappe.set_user("Administrator")
+            self.assertIsNone(self.sent_from(path, "Administrator"), path)
 
     def test_nothing_but_the_desk_is_touched(self):
         for path in ("/msp", "/msp/login", "/"):

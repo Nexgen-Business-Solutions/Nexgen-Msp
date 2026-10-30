@@ -9,9 +9,8 @@ DESK_PREFIXES = ("/app", "/desk", "/apps")
 # session cookie and the calls the page makes back to its own origin
 MACHINE_PREFIXES = ("/api/", "/assets/", "/files/", "/private/", "/socket.io", "/.well-known/")
 
-# where somebody of ours is sent when they land on the desk: the application they work in,
-# not the site's front door
-HOME = "/msp"
+# the front door, for an account the rules give no home of its own
+HOME = "/"
 
 APP_METHOD_PREFIXES = (
 	"/api/method/nexgen_msp.",
@@ -121,26 +120,23 @@ def require_two_factor(*args, **kwargs):
 		)
 
 
-def _is_ours(user):
-	"""Whether this account belongs to this application rather than merely to this site.
-
-	Read off the roles, never off the account type. Some of our own technicians are kept as
-	Website Users on purpose, and plenty of Website Users belong to other applications
-	entirely and have nothing to do with us.
-	"""
-	from nexgen_msp.utils import access
-
-	return bool(set(frappe.get_roles(user)).intersection(access.CUSTOMER_ROLES + access.STAFF_ROLES))
-
-
 def guard(*args, **kwargs):
-	"""Send one of our own people who lands on the desk back to the application.
+	"""Send somebody who lands on the desk without a door to it back to their own home.
 
-	Only our own. This used to turn away every Website User on the site, which was the right
-	answer while this was the only application here and the wrong one as soon as it was not:
-	somebody else's portal account was being pushed off their own pages. Whoever is not ours
-	falls through to Frappe, which refuses a Website User the desk on its own account — so
-	narrowing this opens nothing.
+	It used to send every Website User to the site's front door. That was the right answer
+	while this was the only application here, and the wrong one as soon as it was not:
+	somebody else's portal account was pushed off their own pages onto a login screen. Now
+	each account goes where its own rule says it belongs, and only an account the rules give
+	no home at all falls back to the front door.
+
+	Two reasons to be turned away, and both are checked because either alone leaves a hole.
+	A rule without the desk box shuts the door however Frappe feels about the account; and
+	Frappe admits only a System User, so anybody else is going nowhere here whatever their
+	rule says — our own technicians are Website Users on purpose, and being shown Frappe's
+	refusal page is worse for them than being taken home.
+
+	The builtin Administrator always passes. It is the account that has to be able to reach
+	the desk and correct a rule that shut everybody out, including itself.
 
 	Nobody is ever moved between hostnames. Frappe writes its session cookie without a
 	Domain, so it belongs to the host that issued it: carrying someone across to the portal
@@ -154,13 +150,18 @@ def guard(*args, **kwargs):
 
 	user = frappe.session.user if frappe.session else None
 
-	if not user or user == "Guest":
+	if not user or user == "Guest" or not _wants_desk(request.path):
+		return
+
+	from nexgen_msp.api.core.services.login_rule_service import LoginRuleService
+	from nexgen_msp.utils import access
+
+	if access.is_administrator(user):
 		return
 
 	is_system_user = (frappe.session.data or {}).get("user_type") == "System User"
 
-	if is_system_user or not _wants_desk(request.path):
+	if is_system_user and LoginRuleService.desk_allowed(user):
 		return
 
-	if _is_ours(user):
-		raise SeeOther(HOME)
+	raise SeeOther(LoginRuleService.home_for(user) or HOME)

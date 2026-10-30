@@ -11,6 +11,12 @@ never a permission.** Landing on ``/msp`` still has to get past this application
 verdict, and landing on the desk still has to get past Frappe's; the registry asks both at
 the moment of the answer.
 
+A rule also says whether its accounts may open the Frappe desk. That is a door this routing
+opens or leaves shut; it is not a seat. Frappe still decides who it admits — only a System
+User gets in, and some of our own technicians are deliberately not one — so the box can shut
+the desk to somebody Frappe would let in, and never the other way round. Whoever the box
+shuts out is sent to their own home rather than to the site's front door.
+
 Two things the order protects against. A direct assignment marked default beats every role
 no matter its priority — it is the explicit exception somebody wrote down, so a role rule
 must never quietly take it back, and a direct assignment on a rule that has been switched
@@ -20,6 +26,7 @@ how an account ends up somewhere nobody chose.
 """
 
 import frappe
+from frappe.utils import cint
 
 from nexgen_msp.utils import login_route_registry as routes
 
@@ -40,6 +47,9 @@ BLANKET_ROLES = ("All", "Guest")
 DIRECT = "direct_user"
 BY_ROLE = "role"
 
+# the switch that hands the login over to these rules, and takes it back without deleting one
+ROUTING_FLAG = "route_login_by_rules"
+
 
 def _denied(error):
     return {"success": False, "rule": None, "source": None, "path": None, "error": error}
@@ -50,38 +60,74 @@ class LoginRuleService:
     def resolve_for_user(user=None):
         """The effective rule for this account, with its destination already authorised."""
         user = user or frappe.session.user
+        rule, source, error = LoginRuleService._winning(user)
 
+        if error:
+            return _denied(error)
+
+        return LoginRuleService._authorize(rule, user, source)
+
+    @staticmethod
+    def home_for(user=None):
+        """The authorised home of this account, or nothing where it has none."""
+        verdict = LoginRuleService.resolve_for_user(user)
+
+        return verdict["path"] if verdict["success"] else None
+
+    @staticmethod
+    def desk_allowed(user=None):
+        """Whether this account's rule opens the desk to it.
+
+        A rule that decides nothing opens nothing: an account with no rule, or one caught
+        between two, is not handed the desk by default.
+        """
+        rule, _source, error = LoginRuleService._winning(user or frappe.session.user)
+
+        return bool(rule) and not error and bool(cint(rule.desk_access))
+
+    @staticmethod
+    def routing_enabled():
+        """Whether this site hands the login over to the rules at all."""
+        try:
+            return bool(frappe.db.get_single_value("MSP Portal Settings", ROUTING_FLAG))
+        except Exception:
+            return False
+
+    # ------------------------------------------------------------------ the order itself
+    @staticmethod
+    def _winning(user):
+        """The rule that decides for this account, as (rule, source, refusal)."""
         if not user or user == "Guest":
-            return _denied(NOT_AUTHENTICATED)
+            return None, None, NOT_AUTHENTICATED
 
         if not frappe.db.get_value("User", user, "enabled"):
-            return _denied(USER_DISABLED)
+            return None, None, USER_DISABLED
 
         direct = LoginRuleService._direct_assignments(user)
 
         if len(direct) > 1:
-            return _denied(AMBIGUOUS_DIRECT)
+            return None, None, AMBIGUOUS_DIRECT
 
         if direct:
             rule = direct[0]
 
             if not rule.enabled:
-                return _denied(DISABLED)
+                return None, None, DISABLED
 
-            return LoginRuleService._authorize(rule, user, DIRECT)
+            return rule, DIRECT, None
 
         matched = LoginRuleService._role_matches(user)
 
         if not matched:
-            return _denied(NO_RULE)
+            return None, None, NO_RULE
 
         highest = max(rule.priority or 0 for rule in matched)
         winners = [rule for rule in matched if (rule.priority or 0) == highest]
 
         if len(winners) != 1:
-            return _denied(AMBIGUOUS_ROLE)
+            return None, None, AMBIGUOUS_ROLE
 
-        return LoginRuleService._authorize(winners[0], user, BY_ROLE)
+        return winners[0], BY_ROLE, None
 
     @staticmethod
     def validate_home_route(path, user=None):
@@ -103,7 +149,8 @@ class LoginRuleService:
         """
         return frappe.db.sql(
             """
-            select rule.name as rule, rule.enabled, rule.home_route, rule.priority
+            select rule.name as rule, rule.enabled, rule.home_route, rule.priority,
+                   rule.desk_access
             from `tabNexgen Login Applicable User` line
             join `tabNexgen Login Rule` rule on rule.name = line.parent
             where line.parenttype = %s
@@ -130,7 +177,8 @@ class LoginRuleService:
 
         return frappe.db.sql(
             """
-            select distinct rule.name as rule, rule.enabled, rule.home_route, rule.priority
+            select distinct rule.name as rule, rule.enabled, rule.home_route, rule.priority,
+                   rule.desk_access
             from `tabNexgen Login Applicable Role` line
             join `tabNexgen Login Rule` rule on rule.name = line.parent
             where line.parenttype = %(doctype)s
@@ -143,6 +191,10 @@ class LoginRuleService:
 
     @staticmethod
     def _authorize(rule, user, source):
+        # a rule cannot send anybody to the desk without the box that opens it
+        if routes.is_desk(rule.home_route) and not cint(rule.desk_access):
+            return _denied(routes.DESK_REFUSED)
+
         verdict = routes.authorize(rule.home_route, user)
 
         if not verdict["ok"]:

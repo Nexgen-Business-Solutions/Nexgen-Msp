@@ -210,6 +210,16 @@ def entry(user=None):
         )
 
     if customer_side:
+        # being bound to a company is not a role. A contact record and a permission say
+        # which company an account answers for; they do not say it may be here, and an
+        # account left with both after its role was taken away must not still get in
+        if not held.intersection(CUSTOMER_ROLES):
+            return refused(
+                NO_ROLE,
+                "This account is linked to a company but holds no Nexgen MSP role. Ask an "
+                "administrator to give it the access it needs.",
+            )
+
         if not allowed_customers(user):
             return refused(
                 NO_CUSTOMER,

@@ -40,6 +40,8 @@ export default function LoginScreen() {
   const [step, setStep] = useState<'credentials' | 'code' | 'setup'>('credentials');
   /** the one code already sent for the sign-in in hand, so it is never sent twice */
   const sent = useRef('');
+  /** the one document navigation away from here, so a re-render cannot fire a second */
+  const sentAway = useRef(false);
   const [notice, setNotice] = useState('');
 
   const requested =
@@ -48,11 +50,17 @@ export default function LoginScreen() {
 
   const landing = mayEnterApplication(session.data) ? landingFor(session.data, requested) : null;
   const leaving = Boolean(landing && !isInternal(landing.path));
+  const elsewhere = leaving ? landing?.path : undefined;
 
-  // a destination outside this application is a document navigation, not a route change
+  // a destination outside this application is a document navigation, not a route change.
+  // The guard is a ref rather than the dependency list: `landing` is a fresh object on
+  // every render, and under Strict Mode the effect runs twice in any case
   useEffect(() => {
-    if (landing && leaving) window.location.replace(landing.path);
-  }, [landing, leaving]);
+    if (!elsewhere || sentAway.current) return;
+
+    sentAway.current = true;
+    window.location.replace(elsewhere);
+  }, [elsewhere]);
 
   if (landing) {
     if (leaving) return <LoadingScreen message="Taking you to your home…" />;
@@ -109,15 +117,6 @@ export default function LoginScreen() {
         otp: code,
         username: credentials.username.trim(),
       });
-
-      // asked for directly rather than read from the query cache: a context fetched before
-      // this login would decide where to go using the previous account's verdict
-      const next = landingFor(await getSessionContext(), requested);
-
-      // the reason has to survive a document navigation, which drops router state
-      if (next.code) rememberRefusal({ code: next.code });
-
-      window.location.assign(next.path);
     } catch (err) {
       setError(errorMessageFor(err));
 
@@ -129,8 +128,26 @@ export default function LoginScreen() {
       ) {
         backToCredentials();
       }
-    } finally {
+
       setLoginLoading(false);
+      return;
+    }
+
+    // past this point the session exists and the code is spent, so nothing here may be
+    // reported as the code having failed: that would leave a signed-in account staring at
+    // a form whose token is gone and whose code cannot be sent twice
+    try {
+      // asked for directly rather than read from the query cache: a context fetched before
+      // this login would decide where to go using the previous account's verdict
+      const next = landingFor(await getSessionContext(), requested);
+
+      // the reason has to survive a document navigation, which drops router state
+      if (next.code) rememberRefusal({ code: next.code });
+
+      window.location.assign(next.path);
+    } catch {
+      // signed in, but we could not ask where to go. The application decides again on load
+      window.location.assign('/msp');
     }
   };
 

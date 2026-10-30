@@ -6,16 +6,30 @@ destination explicit, and this writes the two that describe the site as it alrea
 not one document per person, two documents naming roles, so that giving or taking a role
 moves somebody without anybody editing a rule.
 
-  Nexgen MSP   /msp, priority 100, the four MSP roles. Higher than the desk on purpose: one
-               of our administrators is a System User too, and must keep landing here
-               without losing the desk access they already have.
+  Nexgen MSP Portal    /msp, priority 100, the two customer roles. The people at our
+                       customers, who read their own company and nothing else.
 
-  Frappe Desk  /desk, priority 10, the `Desk User` role Frappe hands every System User. It
-               is what carries the people of other applications home instead of here.
+  Nexgen MSP Internal  /msp with the desk door open, priority 100, the two roles of our own
+                       people. Split from the portal rule so that one population can be
+                       moved without the other. Equal priority is not a tie here: an account
+                       holds one side or the other, and one holding both is already refused
+                       entry outright — being told two rules disagree is the right answer
+                       for it.
 
-  Administrator is named directly, as its own default. It holds every role on the site, so
-  it matches both rules; its home has always been /msp and that is written down rather than
-  arrived at.
+  Frappe Desk          /desk, priority 10, the `Desk User` role Frappe hands every System
+                       User. It is what carries the people of other applications home
+                       instead of here. Lower than the two above on purpose: one of our
+                       administrators is a System User too, and must keep landing in the
+                       application rather than in the desk.
+
+  Administrator is named directly on the internal rule, as its own default. It holds every
+  role on the site, so it matches all three; its home has always been /msp and that is
+  written down rather than arrived at.
+
+  The desk door is open on the internal rule as well as on the desk rule, because our own
+  administrators already reach the desk and must not lose it. It opens nothing for the
+  technicians who share that rule: Frappe admits only a System User, so they are taken home
+  instead — which is what the box is for, rather than a seat.
 
 Nothing here touches a User, a role, a contact, a permission or any commercial record.
 
@@ -24,9 +38,13 @@ it is, including its lines — an administrator's own wiring is not something a 
 to correct, and a replay must add nothing. The Administrator line is therefore written only
 by the save that creates the rule.
 
-**It refuses to finish quietly.** Before committing, the resolution of every enabled account
-is simulated: any account allowed into this application today that would not land on /msp
-stops the migration with the list, because the alternative is a deployment that locks people
+**It refuses to finish quietly.** Two gates. The role the desk rule is built on has to
+exist, because without it every System User of every other application would be left with
+no home at all — and a missing role is a site this patch has not been written for, not
+something to work around. Then, before committing, the resolution of every enabled account
+is simulated in both directions: any account allowed into this application today that would
+not land on /msp, and any desk account of another application that would not land on the
+desk, stops the migration with the list, because the alternative is a deployment that locks people
 out of the only place they have ever worked. Only once that simulation is clean does it throw
 the switch that makes the login read these rules at all — and that switch is what an incident
 turns back off, without deleting a rule or an assignment.
@@ -43,17 +61,17 @@ LINE = "Nexgen Login Applicable User"
 # the switch the login reads, thrown only once the postflight is clean
 ROUTING_FLAG = "route_login_by_rules"
 
-MSP_RULE = "Nexgen MSP"
+PORTAL_RULE = "Nexgen MSP Portal"
+INTERNAL_RULE = "Nexgen MSP Internal"
 DESK_RULE = "Frappe Desk"
 
 ADMINISTRATOR = "Administrator"
 
-MSP_ROLES = (
-	"MSP Customer Manager",
-	"MSP Customer Operator",
-	"MSP Technician",
-	"MSP System Admin",
-)
+# the people at our customers
+PORTAL_ROLES = ("MSP Customer Manager", "MSP Customer Operator")
+
+# our own
+INTERNAL_ROLES = ("MSP Technician", "MSP System Admin")
 
 # Frappe's own automatic role for a System User, which is how the desk rule reaches the
 # people of every other application without naming any of them
@@ -61,11 +79,20 @@ DESK_ROLE = "Desk User"
 
 SEEDS = (
 	{
-		"rule": MSP_RULE,
+		"rule": PORTAL_RULE,
 		"home_route": routes.MSP,
 		"priority": 100,
-		"roles": MSP_ROLES,
+		"roles": PORTAL_ROLES,
+		"direct": None,
+		"desk": 0,
+	},
+	{
+		"rule": INTERNAL_RULE,
+		"home_route": routes.MSP,
+		"priority": 100,
+		"roles": INTERNAL_ROLES,
 		"direct": ADMINISTRATOR,
+		"desk": 1,
 	},
 	{
 		"rule": DESK_RULE,
@@ -73,6 +100,7 @@ SEEDS = (
 		"priority": 10,
 		"roles": (DESK_ROLE,),
 		"direct": None,
+		"desk": 1,
 	},
 )
 
@@ -108,9 +136,18 @@ def preflight():
 	print("Login rules — preflight")
 	print(f"  frappe {frappe.__version__}, desk at {routes.DESK}")
 
-	for role in MSP_ROLES + (DESK_ROLE,):
+	for role in PORTAL_ROLES + INTERNAL_ROLES + (DESK_ROLE,):
 		present = bool(frappe.db.exists("Role", role))
 		print(f"  role {role:24} {'present' if present else 'MISSING'}")
+
+	# the desk rule is the only home the people of every other application have. Seeding it
+	# without its role would leave them with none, so this is where the migration stops
+	if not frappe.db.exists("Role", DESK_ROLE):
+		frappe.throw(
+			f"The role {DESK_ROLE} does not exist on this site, so no rule can carry the"
+			" accounts of other applications to the desk. This framework version does not"
+			" match what the login rules were written for; nothing has been changed."
+		)
 
 	accounts = frappe.get_all("User", filters={"enabled": 1}, pluck="name")
 	print(f"  enabled accounts: {len(accounts)}")
@@ -159,6 +196,7 @@ def _seed(seed):
 	doc.enabled = 1
 	doc.home_route = seed["home_route"]
 	doc.priority = seed["priority"]
+	doc.desk_access = seed["desk"]
 
 	for role in roles:
 		doc.append("applicable_roles", {"role": role})
@@ -171,6 +209,7 @@ def _seed(seed):
 	print(
 		f"  {seed['rule']}: created, {seed['home_route']} at priority {seed['priority']},"
 		f" {len(roles)} role(s){', ' + direct + ' direct' if direct else ''}"
+		f"{', desk open' if seed['desk'] else ''}"
 	)
 
 
@@ -206,20 +245,29 @@ def postflight():
 		where = verdict["path"] if verdict["success"] else verdict["error"]
 		landings[where] = landings.get(where, 0) + 1
 
-		if routes.can_enter_msp(user) and verdict.get("path") != routes.MSP:
-			lost.append((user, where))
+		if routes.can_enter_msp(user):
+			if verdict.get("path") != routes.MSP:
+				lost.append((user, where, "is allowed into Nexgen MSP"))
+
+			continue
+
+		# a desk account of another application: the desk rule is what carries it home, and
+		# a site where it does not is a site this migration must not switch over
+		if routes.can_enter_desk(user) and verdict.get("path") != routes.DESK:
+			lost.append((user, where, "works in the desk and holds no role of ours"))
 
 	for where, count in sorted(landings.items(), key=lambda pair: -pair[1]):
 		print(f"  {count:4} -> {where}")
 
 	if not lost:
 		print("  every account allowed into Nexgen MSP still lands there")
+		print("  every desk account of another application lands in the desk")
 		return
 
-	for user, where in lost:
-		print(f"  REGRESSION {user} is allowed into Nexgen MSP but resolves to {where}")
+	for user, where, why in lost:
+		print(f"  REGRESSION {user} {why} but resolves to {where}")
 
 	frappe.throw(
-		f"{len(lost)} account(s) allowed into Nexgen MSP would no longer land there."
-		" The rules have not been saved. Resolve the accounts listed above first."
+		f"{len(lost)} account(s) would no longer land where they work today. The rules have"
+		" not been saved. Resolve the accounts listed above first."
 	)

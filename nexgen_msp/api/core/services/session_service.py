@@ -2,24 +2,16 @@ import frappe
 
 from nexgen_msp.utils import access, permissions
 
-# the switch that lets the historical routing be restored without deleting a single rule.
-# Off, the context carries no destination and the client lands where it always did
-ROUTING_FLAG = "route_login_by_rules"
-
-
 def login_destination(user):
     """Where this account is sent after signing in, when the site routes by rules.
 
     Left out entirely while the switch is off, so the client falls back to the application
     rather than to a destination nobody has validated yet.
     """
-    try:
-        if not frappe.db.get_single_value("MSP Portal Settings", ROUTING_FLAG):
-            return None
-    except Exception:
-        return None
-
     from nexgen_msp.api.core.services.login_rule_service import LoginRuleService
+
+    if not LoginRuleService.routing_enabled():
+        return None
 
     return LoginRuleService.resolve_for_user(user)
 
