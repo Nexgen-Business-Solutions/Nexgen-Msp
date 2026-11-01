@@ -68,7 +68,7 @@ const screenAt = (entry: string, state?: Record<string, unknown>) =>
       <MemoryRouter initialEntries={[state ? { pathname: entry, state } : entry]}>
         <Routes>
           <Route
-            path="/msp"
+            path="/msp/*"
             element={
               <AccessGuard>
                 <div>Dashboard</div>
@@ -397,5 +397,45 @@ describe('the two ways off the denial screen', () => {
 
     expect(await screen.findByText(/you may still be signed in/i)).toBeInTheDocument();
     expect(screen.getByText('Access denied')).toBeInTheDocument();
+  });
+});
+
+
+describe('an existing Desk destination precedes the MSP entry refusal', () => {
+  it.each(['/msp', '/msp/devices/guessed-id'])('leaves %s for /app without rendering data or denial', async (path) => {
+    vi.mocked(session.getSessionContext).mockResolvedValue({
+      ...refusedWithHome('/app'),
+      access: { ok: false, code: 'CONFLICTING_ROLES', message: 'Both sides.' },
+      can_open_desk: true,
+    });
+    const replace = vi.fn();
+    const kept = window.location;
+    Object.defineProperty(window, 'location', { configurable: true, value: { ...kept, replace } });
+    try {
+      screenAt(path);
+      await waitFor(() => expect(replace).toHaveBeenCalledWith('/app'));
+      expect(replace).toHaveBeenCalledTimes(1);
+      expect(screen.queryByText('Dashboard')).not.toBeInTheDocument();
+      expect(screen.queryByText('Access denied')).not.toBeInTheDocument();
+    } finally {
+      Object.defineProperty(window, 'location', { configurable: true, value: kept });
+    }
+  });
+});
+
+
+describe('Desk navigation still requires authentication and two-factor verification', () => {
+  it.each([{ authenticated: false }, { two_factor_passed: false }])('does not redirect an incomplete session %j', async (over) => {
+    vi.mocked(session.getSessionContext).mockResolvedValue({ ...refusedWithHome('/app'), ...over });
+    const replace = vi.fn();
+    const kept = window.location;
+    Object.defineProperty(window, 'location', { configurable: true, value: { ...kept, replace } });
+    try {
+      screenAt('/msp');
+      await screen.findByText('Access denied');
+      expect(replace).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(window, 'location', { configurable: true, value: kept });
+    }
   });
 });

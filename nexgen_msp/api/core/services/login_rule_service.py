@@ -90,8 +90,8 @@ class LoginRuleService:
     def routing_enabled():
         """Whether this site hands the login over to the rules at all.
 
-        Off, nothing here decides anything: the destination is left out of the session and
-        the desk guard goes back to the rule it applied before there were any. A switch
+        Off, optional login rules decide nothing: existing Desk access still selects /app
+        and the Desk guard goes back to Frappe eligibility. A switch
         that only half took effect would not be a way back.
         """
         try:
@@ -112,19 +112,13 @@ class LoginRuleService:
         """
         user = user or frappe.session.user
 
-        if access.is_administrator(user):
-            return True
-
-        # a customer's person is never in the desk. The restriction is permanent, so it is
-        # not something a box on a rule can lift and not something an account type can
-        # wander into: a portal role that ended up on a System User is a mistake to be
-        # corrected, never a way in
-        if access.roles(user).intersection(access.CUSTOMER_ROLES):
-            return False
-
-        # Frappe admits only a System User, and no rule of ours changes that
+        # Frappe's canonical User Type check, including an enabled account, is the
+        # seat. Customer roles and links neither grant nor revoke that existing seat.
         if not routes.can_enter_desk(user):
             return False
+
+        if access.is_administrator(user):
+            return True
 
         # while the switch is off that is the whole question, exactly as it was before any
         # rule existed: a seat gets you in, and the absence of one does not

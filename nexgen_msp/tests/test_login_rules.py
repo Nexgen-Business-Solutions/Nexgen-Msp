@@ -958,11 +958,11 @@ class TestTheMigrationReplacesItsOwnEarlierShape(LoginRuleCase):
         self.assertEqual(entries, ["nexgen_msp.patches.seed_login_rules #three_rules"])
 
 
-class TestAPortalAccountIsNeverInTheDesk(RequestContextMixin, LoginRuleCase):
-    """The restriction asked for is permanent, so nothing may lift it.
+class TestExistingDeskAccessWithCustomerRoles(RequestContextMixin, LoginRuleCase):
+    """An existing System User plus an open Desk rule retains its Desk seat.
 
-    Not a box on a rule, and not an account type somebody changed by hand. A portal role on
-    a System User is a mistake to be corrected; the desk must not read it as a way in.
+    These fixture-only account changes model existing access; production routing does
+    not change the account type, roles, permissions or links.
     """
 
     def setUp(self):
@@ -982,27 +982,28 @@ class TestAPortalAccountIsNeverInTheDesk(RequestContextMixin, LoginRuleCase):
         frappe.clear_cache(user=self.manager)
         super().tearDown()
 
-    def test_the_box_cannot_open_the_desk_to_a_customer_account(self):
+    def test_a_customer_role_does_not_revoke_an_existing_desk_seat(self):
         self.assertEqual(frappe.db.get_value("User", self.manager, "user_type"), "System User")
         self.assertTrue(LoginRuleService.desk_allowed(self.manager), "the rule does open it")
 
-        self.assertFalse(LoginRuleService.desk_reachable(self.manager))
+        self.assertTrue(LoginRuleService.desk_reachable(self.manager))
 
-    def test_the_guard_turns_them_away_from_every_desk_address(self):
+    def test_the_guard_preserves_existing_access_at_every_desk_address(self):
         for path in ("/app", "/desk", "/apps", "/app/user"):
             self.at(path)
             frappe.set_user(self.manager)
 
             try:
-                with self.assertRaises(gatekeeper.SeeOther, msg=path):
-                    gatekeeper.guard()
+                gatekeeper.guard()
             finally:
                 frappe.set_user("Administrator")
 
-    def test_the_screen_does_not_offer_them_a_door_either(self):
+    def test_the_session_offers_the_existing_desk_and_lands_on_app(self):
         frappe.set_user(self.manager)
 
         try:
-            self.assertFalse(SessionService.get_session_context()["can_open_desk"])
+            context = SessionService.get_session_context()
+            self.assertTrue(context["can_open_desk"])
+            self.assertEqual(context["login_destination"]["path"], "/app")
         finally:
             frappe.set_user("Administrator")

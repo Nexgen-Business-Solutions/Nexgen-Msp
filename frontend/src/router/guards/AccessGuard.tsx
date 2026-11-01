@@ -1,7 +1,9 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import LoadingScreen from '@/shared/components/LoadingScreen';
 import { useSession } from '@/shared/hooks/useSession';
+import { mayEnterApplication } from '@/lib/api/session';
+import { isInternal, landingFor } from '@/features/auth/landing';
 import {
   UNAUTHORIZED_PATH,
   forgetRefusal,
@@ -24,6 +26,21 @@ import {
 export default function AccessGuard({ children }: { children: ReactNode }) {
   const location = useLocation();
   const { data: session, isLoading } = useSession();
+  const sentAway = useRef(false);
+  const landing = landingFor(session);
+  // This is navigation to a server-authorized home, before the MSP-only verdict.
+  // AuthGuard normally enforces the session gate; keep it explicit for this effect too.
+  const elsewhere = !isLoading && mayEnterApplication(session) && !landing.code &&
+    !isInternal(landing.path) ? landing.path : '';
+
+  useEffect(() => {
+    if (!elsewhere || sentAway.current) return;
+
+    sentAway.current = true;
+    forgetRefusal();
+    window.location.replace(elsewhere);
+  }, [elsewhere]);
+
   const verdict = session?.access;
   const refused = Boolean(verdict && !verdict.ok);
 
@@ -33,6 +50,8 @@ export default function AccessGuard({ children }: { children: ReactNode }) {
   }, [verdict?.ok]);
 
   if (isLoading) return <LoadingScreen message="Checking your access…" />;
+
+  if (elsewhere) return <LoadingScreen message="Taking you to your home…" />;
 
   if (refused) {
     rememberRefusal({ code: verdict?.code, message: verdict?.message });

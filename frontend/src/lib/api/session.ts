@@ -12,7 +12,7 @@ export type AccessVerdict = {
 /**
  * Where this account is sent after signing in, decided by `LoginRuleService`.
  *
- * Absent while the site still routes the old way, which is what the server switch turns off.
+ * Existing Desk access always selects /app; other destinations use the optional login rules.
  * A successful destination has already been authorised server-side; it is never a permission
  * the client may grant itself.
  */

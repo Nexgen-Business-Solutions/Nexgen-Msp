@@ -3,12 +3,15 @@ import frappe
 from nexgen_msp.utils import access, permissions
 
 def login_destination(user):
-    """Where this account is sent after signing in, when the site routes by rules.
+    """Navigation only: an existing Desk seat wins before the MSP entry verdict.
 
-    Left out entirely while the switch is off, so the client falls back to the application
-    rather than to a destination nobody has validated yet.
+    The configured Desk restriction still applies. This adds no portal capabilities
+    and leaves the endpoint authorization policy untouched.
     """
     from nexgen_msp.api.core.services.login_rule_service import LoginRuleService
+
+    if LoginRuleService.desk_reachable(user):
+        return {"success": True, "rule": None, "source": "desk_access", "path": "/app", "error": None}
 
     if not LoginRuleService.routing_enabled():
         return None
@@ -31,15 +34,19 @@ class SessionService:
 
         user = frappe.session.user
 
-        if user == "Guest":
+        enabled = user != "Guest" and bool(frappe.db.get_value("User", user, "enabled"))
+
+        if not enabled:
             return {
-                "user": "Guest",
+                "user": user,
                 "authenticated": False,
                 "roles": [],
                 "customers": [],
-                "access": access.entry(user),
+                "access": access.entry(user) if user == "Guest" else {
+                    "ok": False, "code": "USER_DISABLED", "message": "This account is disabled."
+                },
                 "can_open_desk": False,
-                "login_destination": login_destination(user),
+                "login_destination": None,
             }
 
         roles = frappe.get_roles()
@@ -82,7 +89,7 @@ class SessionService:
             # and merely applied by the route guard
             "access": access.entry(user),
             # a destination, which is not a permission: the two are asked separately and the
-            # client applies the first only after the second has let it in
+            # client applies an external home before the MSP-only entry verdict
             "login_destination": login_destination(user),
             # the same question the request guard asks, so the denial screen cannot offer a
             # door that guard will shut

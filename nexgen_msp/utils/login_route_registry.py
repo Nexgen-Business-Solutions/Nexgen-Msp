@@ -67,7 +67,7 @@ def can_enter_desk(user=None):
 
     user = user or frappe.session.user
 
-    if not user or user == "Guest":
+    if not user or user == "Guest" or not frappe.db.get_value("User", user, "enabled"):
         return False
 
     return bool(is_system_user(user))
