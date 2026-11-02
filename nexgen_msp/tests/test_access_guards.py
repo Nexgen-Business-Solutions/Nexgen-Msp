@@ -375,7 +375,7 @@ class TestWhoMayEnterAtAll(MSPTestCase):
 
         self.assertEqual(self.code_for(self.manager), access.CONFLICTING_ROLES)
 
-    def test_a_company_binding_on_one_of_ours_is_the_same_conflict(self):
+    def test_a_website_staff_account_with_customer_binding_is_still_a_conflict(self):
         """Read the other way round: the staff role came first and the binding was added."""
         from nexgen_msp.utils import permissions
 

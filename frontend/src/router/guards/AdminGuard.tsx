@@ -14,7 +14,7 @@ export default function AdminGuard({ children }: { children: ReactNode }) {
     );
   }
 
-  if (!isAdmin(session?.roles)) return <Navigate to="/msp" replace />;
+  if (session?.scoped_msp || !isAdmin(session?.roles)) return <Navigate to="/msp" replace />;
 
   return <>{children}</>;
 }

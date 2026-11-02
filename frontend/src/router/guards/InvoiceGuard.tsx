@@ -22,6 +22,8 @@ export default function InvoiceGuard({ children }: { children: ReactNode }) {
     );
   }
 
+  if (session?.scoped_msp) return <Navigate to="/msp" replace />;
+
   if (!isPortalOnly(session?.roles)) {
     // an administrator has a billing screen of their own; anyone else on our side has none,
     // and bouncing them through it would only redirect them a second time

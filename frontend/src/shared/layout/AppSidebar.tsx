@@ -8,7 +8,7 @@ const SidebarNav: React.FC<{ onNavigate?: () => void }> = ({ onNavigate }) => {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { data: session } = useSession();
-  const sections = getSectionsForRoles(session?.roles);
+  const sections = getSectionsForRoles(session?.scoped_msp ? ['MSP Customer Operator'] : session?.roles);
 
   const go = (path: string) => {
     navigate(path);

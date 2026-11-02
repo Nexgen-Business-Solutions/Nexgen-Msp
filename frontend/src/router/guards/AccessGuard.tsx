@@ -1,9 +1,7 @@
-import { useEffect, useRef, type ReactNode } from 'react';
-import { Navigate, useLocation } from 'react-router-dom';
+import { useEffect, type ReactNode } from 'react';
+import { Link, Navigate, useLocation } from 'react-router-dom';
 import LoadingScreen from '@/shared/components/LoadingScreen';
 import { useSession } from '@/shared/hooks/useSession';
-import { mayEnterApplication } from '@/lib/api/session';
-import { isInternal, landingFor } from '@/features/auth/landing';
 import {
   UNAUTHORIZED_PATH,
   forgetRefusal,
@@ -26,21 +24,6 @@ import {
 export default function AccessGuard({ children }: { children: ReactNode }) {
   const location = useLocation();
   const { data: session, isLoading } = useSession();
-  const sentAway = useRef(false);
-  const landing = landingFor(session);
-  // This is navigation to a server-authorized home, before the MSP-only verdict.
-  // AuthGuard normally enforces the session gate; keep it explicit for this effect too.
-  const elsewhere = !isLoading && mayEnterApplication(session) && !landing.code &&
-    !isInternal(landing.path) ? landing.path : '';
-
-  useEffect(() => {
-    if (!elsewhere || sentAway.current) return;
-
-    sentAway.current = true;
-    forgetRefusal();
-    window.location.replace(elsewhere);
-  }, [elsewhere]);
-
   const verdict = session?.access;
   const refused = Boolean(verdict && !verdict.ok);
 
@@ -50,8 +33,6 @@ export default function AccessGuard({ children }: { children: ReactNode }) {
   }, [verdict?.ok]);
 
   if (isLoading) return <LoadingScreen message="Checking your access…" />;
-
-  if (elsewhere) return <LoadingScreen message="Taking you to your home…" />;
 
   if (refused) {
     rememberRefusal({ code: verdict?.code, message: verdict?.message });
@@ -69,5 +50,21 @@ export default function AccessGuard({ children }: { children: ReactNode }) {
     );
   }
 
+  const path = location.pathname.replace(/\/+$/, '');
+  const scopedResource = path === '/msp/services' || (
+    /^\/msp\/(users|devices|requests)(\/[^/]+)?$/.test(path) && path !== '/msp/requests/new'
+  );
+  if (session?.scoped_msp && (!scopedResource || !session.customers.length)) {
+    return <main className="mx-auto max-w-3xl space-y-5 p-8">
+      <h1 className="text-2xl font-semibold">Your MSP access</h1>
+      <p>Your customer access remains limited to the companies below. Use Desk for your existing staff tools.</p>
+      {session.customers.length ? <>
+        <ul>{session.customers.map((customer) => <li key={customer}>{customer}</li>)}</ul>
+        <nav className="flex flex-wrap gap-4">{['users', 'devices', 'services', 'requests'].map((page) =>
+          <Link key={page} to={`/msp/${page}`}>{page[0].toUpperCase() + page.slice(1)}</Link>)}</nav>
+      </> : <p>No customer data is available: a matching Contact and Customer User Permission are required.</p>}
+      {session.can_open_desk && <a href="/app">Open Desk</a>}
+    </main>;
+  }
   return <>{children}</>;
 }

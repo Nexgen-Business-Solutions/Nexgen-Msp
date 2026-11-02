@@ -108,17 +108,30 @@ def is_customer_account(user=None):
     return bool(declared_customers(user) or permitted_customers(user))
 
 
-def is_staff(user=None):
-    """One of ours, who serves every company rather than belonging to one."""
+def has_staff_desk_authority(user=None):
+    """An explicit MSP staff role and existing Desk authority; never a customer role."""
     user = _who(user)
+    held = roles(user)
+    if not held.intersection(STAFF_ROLES) or held.intersection(CUSTOMER_ROLES):
+        return False
+    from nexgen_msp.api.core.services.login_rule_service import LoginRuleService
+    return LoginRuleService.desk_reachable(user)
 
+
+def is_staff(user=None):
+    """Global staff authority excludes customer permissions and mixed role families."""
+    user = _who(user)
     if is_administrator(user):
         return True
+    held = roles(user)
+    return bool(held.intersection(STAFF_ROLES)) and not (
+        held.intersection(CUSTOMER_ROLES) or is_customer_account(user)
+    )
 
-    if is_customer_account(user):
-        return False
 
-    return bool(roles(user).intersection(STAFF_ROLES))
+def is_scoped_staff(user=None):
+    """Staff allowed a bounded MSP view, with no global or financial authority."""
+    return is_customer_account(user) and has_staff_desk_authority(user)
 
 
 # ------------------------------------------------------------------ which companies
@@ -139,7 +152,7 @@ def allowed_customers(user=None):
     if declared or permitted:
         return sorted(declared.intersection(permitted))
 
-    if roles(user).intersection(STAFF_ROLES):
+    if is_staff(user):
         return sorted(frappe.db.get_all("Customer", pluck="name"))
 
     return []
@@ -190,13 +203,17 @@ def entry(user=None):
         held.intersection(CUSTOMER_ROLES) or declared_customers(user) or permitted_customers(user)
     )
 
-    if staff_side and customer_side:
+    scoped = staff_side and customer_side and is_scoped_staff(user)
+    if staff_side and customer_side and not scoped:
         return refused(
             CONFLICTING_ROLES,
             "This account holds both a Nexgen role and a customer's access. One account "
             "cannot be both, and which it is cannot be guessed. Ask an administrator to "
             "leave only the access this account is meant to have.",
         )
+
+    if scoped:
+        return {"ok": True, "code": None, "message": None}
 
     if customer_side:
         # being bound to a company is not a role. A contact record and a permission say
@@ -271,10 +288,7 @@ def resolve_customer(customer=None, user=None):
 
 # ------------------------------------------------------------------ what they may do
 def _commercial(user=None):
-    if is_customer_account(user):
-        return False
-
-    return is_administrator(user) or COMMERCIAL_ROLE in roles(user)
+    return is_administrator(user) or (is_staff(user) and COMMERCIAL_ROLE in roles(user))
 
 
 def can_view_all_customers(user=None):

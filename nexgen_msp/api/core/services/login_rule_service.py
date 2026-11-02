@@ -113,7 +113,7 @@ class LoginRuleService:
         user = user or frappe.session.user
 
         # Frappe's canonical User Type check, including an enabled account, is the
-        # seat. Customer roles and links neither grant nor revoke that existing seat.
+        # seat. Portal customer roles are excluded by the same check.
         if not routes.can_enter_desk(user):
             return False
 

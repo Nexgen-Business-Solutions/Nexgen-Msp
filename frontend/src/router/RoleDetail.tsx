@@ -20,5 +20,5 @@ export default function RoleDetail({
     );
   }
 
-  return isPortalOnly(session?.roles) ? portal : internal;
+  return (session?.scoped_msp || isPortalOnly(session?.roles)) ? portal : internal;
 }

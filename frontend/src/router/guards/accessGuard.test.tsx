@@ -401,41 +401,35 @@ describe('the two ways off the denial screen', () => {
 });
 
 
-describe('an existing Desk destination precedes the MSP entry refusal', () => {
-  it.each(['/msp', '/msp/devices/guessed-id'])('leaves %s for /app without rendering data or denial', async (path) => {
-    vi.mocked(session.getSessionContext).mockResolvedValue({
-      ...refusedWithHome('/app'),
-      access: { ok: false, code: 'CONFLICTING_ROLES', message: 'Both sides.' },
-      can_open_desk: true,
-    });
-    const replace = vi.fn();
-    const kept = window.location;
-    Object.defineProperty(window, 'location', { configurable: true, value: { ...kept, replace } });
-    try {
-      screenAt(path);
-      await waitFor(() => expect(replace).toHaveBeenCalledWith('/app'));
-      expect(replace).toHaveBeenCalledTimes(1);
-      expect(screen.queryByText('Dashboard')).not.toBeInTheDocument();
-      expect(screen.queryByText('Access denied')).not.toBeInTheDocument();
-    } finally {
-      Object.defineProperty(window, 'location', { configurable: true, value: kept });
-    }
+describe('deliberate MSP navigation is separate from login home', () => {
+  it.each(['/msp', '/msp/devices/guessed-id'])('lets authorized Desk staff open %s', async (path) => {
+    vi.mocked(session.getSessionContext).mockResolvedValue(sentTo('/app'));
+    screenAt(path);
+    expect(await screen.findByText('Dashboard')).toBeInTheDocument();
+  });
+  it('does not let a Desk home bypass the MSP refusal', async () => {
+    vi.mocked(session.getSessionContext).mockResolvedValue(refusedWithHome('/app'));
+    screenAt('/msp');
+    expect(await screen.findByText('Access denied')).toBeInTheDocument();
+    expect(screen.queryByText('Dashboard')).not.toBeInTheDocument();
   });
 });
 
-
-describe('Desk navigation still requires authentication and two-factor verification', () => {
-  it.each([{ authenticated: false }, { two_factor_passed: false }])('does not redirect an incomplete session %j', async (over) => {
-    vi.mocked(session.getSessionContext).mockResolvedValue({ ...refusedWithHome('/app'), ...over });
-    const replace = vi.fn();
-    const kept = window.location;
-    Object.defineProperty(window, 'location', { configurable: true, value: { ...kept, replace } });
-    try {
-      screenAt('/msp');
-      await screen.findByText('Access denied');
-      expect(replace).not.toHaveBeenCalled();
-    } finally {
-      Object.defineProperty(window, 'location', { configurable: true, value: kept });
-    }
+describe('customer-associated Desk staff have a scoped home', () => {
+  it.each(['/msp', '/msp/customers/other-company', '/msp/services/detail', '/msp/services/old-link'])('opens %s without an internal screen', async (path) => {
+    vi.mocked(session.getSessionContext).mockResolvedValue({
+      ...sentTo('/app'), scoped_msp: true, customers: ['Allowed company'], can_open_desk: true,
+    });
+    screenAt(path);
+    expect(await screen.findByText('Allowed company')).toBeInTheDocument();
+    expect(screen.queryByText('Dashboard')).not.toBeInTheDocument();
+    expect(screen.queryByText('other-company')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open Desk' })).toHaveAttribute('href', '/app');
+  });
+  it('explains an empty scope without attempting to load customer data', async () => {
+    vi.mocked(session.getSessionContext).mockResolvedValue({ ...sentTo('/app'), scoped_msp: true });
+    screenAt('/msp');
+    expect(await screen.findByText(/No customer data is available/)).toBeInTheDocument();
+    expect(screen.queryByText('Dashboard')).not.toBeInTheDocument();
   });
 });

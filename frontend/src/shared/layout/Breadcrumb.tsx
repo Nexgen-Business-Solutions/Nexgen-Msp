@@ -11,8 +11,8 @@ const Breadcrumb: React.FC = () => {
   const { data: session } = useSession();
   const { heading } = usePageHeading();
 
-  const navItems = getNavForRoles(session?.roles);
-  const current = findNavItem(pathname, getPagesForRoles(session?.roles));
+  const navItems = getNavForRoles(session?.scoped_msp ? ['MSP Customer Operator'] : session?.roles);
+  const current = findNavItem(pathname, getPagesForRoles(session?.scoped_msp ? ['MSP Customer Operator'] : session?.roles));
   const home = navItems[0];
   const isHome = current.id === home?.id;
 

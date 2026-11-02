@@ -64,12 +64,17 @@ class TestDeskLanding(LoginRuleCase):
                 self.routing(enabled)
                 with self.subTest(binding=kind, routing=enabled):
                     ctx = self.context(self.staff)
-                    self.assertTrue(ctx['can_open_desk'])
-                    self.assertEqual(ctx['login_destination']['path'], '/app')
-                    self.assertTrue(ctx['login_destination']['success'])
-                    # MSP's narrower endpoint authority still refuses mixed identity.
-                    if kind != 'none':
+                    if kind == 'customer_role':
+                        self.assertFalse(ctx['can_open_desk'])
                         self.assertEqual(ctx['access']['code'], access.CONFLICTING_ROLES)
+                    else:
+                        self.assertTrue(ctx['can_open_desk'])
+                        self.assertEqual(ctx['login_destination']['path'], '/app')
+                        self.assertTrue(ctx['access']['ok'])
+                        self.assertEqual(ctx['is_internal_user'], kind == 'none')
+                        self.assertEqual(ctx['scoped_msp'], kind in ('permission', 'contact'))
+                        from nexgen_msp.utils.app_visibility import can_show_msp_app
+                        self.assertTrue(can_show_msp_app(self.staff))
                     self.assertEqual(before, self.snapshot(self.staff))
             if kind in ('permission', 'customer_role'):
                 self.assertFalse(access.is_staff(self.staff))

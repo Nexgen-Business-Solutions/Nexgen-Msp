@@ -2,7 +2,7 @@ import frappe
 
 from nexgen_msp.utils.meta import select_options
 
-from nexgen_msp.utils import permissions, request_targets
+from nexgen_msp.utils import access, permissions, request_targets
 from nexgen_msp.utils.assignments import OPEN_ASSIGNMENT_STATUSES
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 from nexgen_msp.utils.mac_address import REFUSAL as MAC_REFUSAL, canonical_or_none
@@ -110,9 +110,7 @@ class RequestService:
 
     @staticmethod
     def _guard_internal():
-        if permissions.is_customer_contact() or not RequestService._roles().intersection(
-            TECHNICIAN_ROLES
-        ):
+        if not access.is_staff():
             raise ValidationError(
                 "This workspace is reserved for Nexgen staff.", "PERMISSION_DENIED", 403
             )

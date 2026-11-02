@@ -30,7 +30,8 @@ def guard_can_manage_access():
         return
 
     roles = set(frappe.get_roles())
-    if not roles.intersection(MANAGE_ACCESS_ROLES):
+    if (not roles.intersection(MANAGE_ACCESS_ROLES) or roles.intersection(CUSTOMER_ROLES)
+            or is_customer_contact()):
         raise ValidationError(
             "You are not allowed to manage portal access.", "PERMISSION_DENIED", 403
         )
@@ -53,7 +54,9 @@ def may_see_invoices(user=None):
     """
     user = user or frappe.session.user
 
-    return CUSTOMER_OPERATOR_ROLE not in set(frappe.get_roles(user))
+    from nexgen_msp.utils import access
+
+    return not access.is_scoped_staff(user) and CUSTOMER_OPERATOR_ROLE not in set(frappe.get_roles(user))
 
 
 def family_of(role):

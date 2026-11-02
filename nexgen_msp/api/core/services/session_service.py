@@ -60,9 +60,7 @@ class SessionService:
         )
 
         is_portal = bool(set(roles).intersection(permissions.CUSTOMER_ROLES))
-        is_internal = any(role in roles for role in INTERNAL_ROLES) and not (
-            permissions.is_customer_contact(user)
-        )
+        is_internal = access.is_staff(user)
 
         profile = permissions.contact_profile(user, customers)
 
@@ -85,11 +83,12 @@ class SessionService:
             "customer": here,
             "is_portal_user": is_portal and not is_internal,
             "is_internal_user": is_internal,
+            "scoped_msp": access.is_scoped_staff(user),
             # whether this account may be in the application at all, decided in one place
             # and merely applied by the route guard
             "access": access.entry(user),
             # a destination, which is not a permission: the two are asked separately and the
-            # client applies an external home before the MSP-only entry verdict
+            # login screen applies the home; deliberate MSP navigation asks access.entry
             "login_destination": login_destination(user),
             # the same question the request guard asks, so the denial screen cannot offer a
             # door that guard will shut

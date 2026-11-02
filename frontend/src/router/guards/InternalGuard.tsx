@@ -14,7 +14,7 @@ export default function InternalGuard({ children }: { children: ReactNode }) {
     );
   }
 
-  if (isPortalOnly(session?.roles)) return <Navigate to="/msp" replace />;
+  if (session?.scoped_msp || isPortalOnly(session?.roles)) return <Navigate to="/msp" replace />;
 
   return <>{children}</>;
 }
