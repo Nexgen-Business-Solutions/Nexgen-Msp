@@ -1,3 +1,4 @@
+import { useScopedWorkspace } from '@/shared/layout/useScopedWorkspace';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, PencilLine } from 'lucide-react';
 import { RequestApprovalBar, RequestPresentation } from '@/shared/request';
@@ -6,6 +7,7 @@ import { useDecideRequest, usePortalRequestPresentation, useServiceRequest } fro
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
 
 export default function PortalRequestDetail() {
+  const scoped = useScopedWorkspace();
   const { name = '' } = useParams();
   const decide = useDecideRequest();
   const navigate = useNavigate();
@@ -40,7 +42,7 @@ export default function PortalRequestDetail() {
           <p className="text-xs text-slate-500">Reviewed by Nexgen on {fmtDate(data.reviewed_on)}</p>
         )}
 
-        {data.status === 'Rejected' && (
+        {data.status === 'Rejected' && !scoped && (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4">
             <p className="text-sm text-slate-700">
               This request was declined. You can correct it and send it again as a new request.
@@ -81,7 +83,7 @@ export default function PortalRequestDetail() {
         presentation={presentation.data}
         mode={deciding ? 'customer_approval' : 'portal_detail'}
         headerActions={
-          data.can_edit ? (
+          data.can_edit && !scoped ? (
             <button
               type="button"
               onClick={() => navigate(`/msp/requests/new?edit=${encodeURIComponent(data.name)}`)}

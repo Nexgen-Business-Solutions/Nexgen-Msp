@@ -1,3 +1,4 @@
+import { useScopedWorkspace } from '@/shared/layout/useScopedWorkspace';
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Eye, FilePlus2, UserCheck, UserX, Users } from 'lucide-react';
@@ -18,12 +19,13 @@ import { usePortalFilters } from '../store/usePortalFilters';
 const EMPTY: FilterState = { status: '', service: '' };
 
 export default function PortalUsers() {
+  const scoped = useScopedWorkspace();
   const [picking, setPicking] = useState(false);
   const [choosingColumns, setChoosingColumns] = useState(false);
   // what this person chose to see, kept in their browser
   const [shown, setShown] = useState(() => loadChoice(PORTAL_USER_LIST).columns);
   const rights = useMyApprovalRights();
-  const canSubmit = rights.data?.can_submit !== false;
+  const canSubmit = !scoped && rights.data?.can_submit !== false;
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const [filters, setFilters] = useState<FilterState>({

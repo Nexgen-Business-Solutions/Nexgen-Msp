@@ -254,7 +254,7 @@ export default function DeviceDetail({ portal = false }: { portal?: boolean } = 
               )}
 
               {/* a customer asks; nothing on the machine moves until Nexgen carries it out */}
-              {portal &&
+              {portal && !session?.scoped_msp &&
                 (askable ?? [])
                   .filter((operation): operation is { code: CustomerOperation; label: string } =>
                     operation.code in CUSTOMER_ICON

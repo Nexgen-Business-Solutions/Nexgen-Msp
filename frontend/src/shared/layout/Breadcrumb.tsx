@@ -2,7 +2,7 @@ import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
 import { useSession } from '@/shared/hooks/useSession';
-import { findNavItem, getNavForRoles, getPagesForRoles } from './navigation';
+import { findNavItem, getPagesForRoles, scopedStaffSections } from './navigation';
 import { usePageHeading } from './pageHeading';
 
 const Breadcrumb: React.FC = () => {
@@ -11,9 +11,11 @@ const Breadcrumb: React.FC = () => {
   const { data: session } = useSession();
   const { heading } = usePageHeading();
 
-  const navItems = getNavForRoles(session?.scoped_msp ? ['MSP Customer Operator'] : session?.roles);
-  const current = findNavItem(pathname, getPagesForRoles(session?.scoped_msp ? ['MSP Customer Operator'] : session?.roles));
-  const home = navItems[0];
+  const pages = session?.scoped_msp
+    ? scopedStaffSections.flatMap((section) => section.items)
+    : getPagesForRoles(session?.roles);
+  const current = findNavItem(pathname, pages);
+  const home = pages[0];
   const isHome = current.id === home?.id;
 
   return (

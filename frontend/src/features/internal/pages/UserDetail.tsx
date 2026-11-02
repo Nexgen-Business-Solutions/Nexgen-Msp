@@ -207,7 +207,7 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
         isAdmin={isAdmin}
         readOnly={portal}
         actions={
-          portal && mayAsk ? (
+          portal && !session?.scoped_msp && mayAsk ? (
             <button
               type="button"
               onClick={() => navigate(`/msp/requests/new?client_user=${encodeURIComponent(user.name)}`)}

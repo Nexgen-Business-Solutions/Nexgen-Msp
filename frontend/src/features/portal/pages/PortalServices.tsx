@@ -1,3 +1,4 @@
+import { useScopedWorkspace } from '@/shared/layout/useScopedWorkspace';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FilePlus2, Layers, Package, Search, Users } from 'lucide-react';
@@ -38,8 +39,9 @@ const VIEWS = [
  * would make the history unreadable the moment the last assignment closed.
  */
 export default function PortalServices() {
+  const scoped = useScopedWorkspace();
   const rights = useMyApprovalRights();
-  const canSubmit = rights.data?.can_submit === true;
+  const canSubmit = !scoped && rights.data?.can_submit === true;
   const navigate = useNavigate();
   const portfolio = useServicePortfolio();
   const [search, setSearch] = useState('');

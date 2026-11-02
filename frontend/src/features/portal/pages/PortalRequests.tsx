@@ -1,3 +1,4 @@
+import { useScopedWorkspace } from '@/shared/layout/useScopedWorkspace';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Eye, FilePlus2, ShieldCheck } from 'lucide-react';
@@ -18,6 +19,7 @@ const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) :
 const EMPTY: FilterState = { status: '', priority: '', request_type: '' };
 
 export default function PortalRequests() {
+  const scoped = useScopedWorkspace();
   const navigate = useNavigate();
   const options = usePortalRequestOptions();
   const rights = useMyApprovalRights();
@@ -127,7 +129,7 @@ export default function PortalRequests() {
           setStart(0);
         }}
         action={
-          rights.data?.can_submit !== true
+          scoped || rights.data?.can_submit !== true
             ? undefined
             : { label: 'New request', icon: FilePlus2, onClick: () => navigate('/msp/requests/new') }
         }
@@ -136,7 +138,7 @@ export default function PortalRequests() {
           <tr
             key={row.name}
             onClick={() => navigate(
-                      row.status === 'Draft'
+                      row.status === 'Draft' && !scoped
                         ? `/msp/requests/new?draft=${encodeURIComponent(row.name)}`
                         : `/msp/requests/${row.name}`
                     )}
@@ -165,7 +167,7 @@ export default function PortalRequests() {
                       label: 'View request',
                       icon: Eye,
                       onClick: () => navigate(
-                      row.status === 'Draft'
+                      row.status === 'Draft' && !scoped
                         ? `/msp/requests/new?draft=${encodeURIComponent(row.name)}`
                         : `/msp/requests/${row.name}`
                     ),

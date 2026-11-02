@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import * as portal from '@/lib/api/portal';
+import { usePortalFilters } from '@/features/portal/store/usePortalFilters';
 import * as client from '@/lib/api/client';
 import * as session from '@/lib/api/session';
 import type { SessionContext } from '@/lib/api/session';
 import AccessGuard from './AccessGuard';
+import AppLayout from '@/shared/layout/AppLayout';
 import UnauthorizedGuard from './UnauthorizedGuard';
 import UnauthorizedScreen from '@/features/auth/pages/UnauthorizedScreen';
 
@@ -416,20 +419,61 @@ describe('deliberate MSP navigation is separate from login home', () => {
 });
 
 describe('customer-associated Desk staff have a scoped home', () => {
-  it.each(['/msp', '/msp/customers/other-company', '/msp/services/detail', '/msp/services/old-link'])('opens %s without an internal screen', async (path) => {
-    vi.mocked(session.getSessionContext).mockResolvedValue({
-      ...sentTo('/app'), scoped_msp: true, customers: ['Allowed company'], can_open_desk: true,
+  let summary: import('vitest').MockInstance<typeof portal.getSummary>;
+  beforeEach(() => {
+    usePortalFilters.getState().setCustomer('Stale customer');
+    summary = vi.spyOn(portal, 'getSummary').mockResolvedValue({
+      customer: 'A', client_users: 2, active_client_users: 2, disabled_client_users: 0,
+      devices: 3, active_devices: 3, retired_devices: 0, service_assignments: 1,
+      active_services: 1, open_requests: 4, awaiting_approval: 0, catalogue_size: 1,
     });
-    screenAt(path);
-    expect(await screen.findByText('Allowed company')).toBeInTheDocument();
-    expect(screen.queryByText('Dashboard')).not.toBeInTheDocument();
-    expect(screen.queryByText('other-company')).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Open Desk' })).toHaveAttribute('href', '/app');
   });
-  it('explains an empty scope without attempting to load customer data', async () => {
+  afterEach(() => summary.mockRestore());
+
+  const workspaceAt = (entry: string) => render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <RouterProvider router={createMemoryRouter([{
+        path: '/msp', element: <AccessGuard><AppLayout /></AccessGuard>, children: [
+          { index: true, handle: { scopedView: 'home' }, element: <div>Unscoped dashboard</div> },
+          { path: 'devices', handle: { scopedView: 'resource' }, element: <div>Resource outlet</div> },
+          { path: 'requests/new', element: <div>New request</div> },
+          { path: '*', element: <div>Resource outlet</div> },
+        ],
+      }], { initialEntries: [entry] })} />
+    </QueryClientProvider>
+  );
+
+  it.each(['/msp', '/msp/services/detail', '/msp/requests/new', '/msp/requests/%6eew'])('opens the staff dashboard from %s', async (path) => {
+    vi.mocked(session.getSessionContext).mockResolvedValue({
+      ...sentTo('/app'), scoped_msp: true, customers: ['Allowed company'],
+    });
+    workspaceAt(path);
+    expect(await screen.findByRole('heading', { name: 'Customer operations' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox')).toHaveValue('Allowed company');
+    expect(screen.queryByText('Resource outlet')).not.toBeInTheDocument();
+    expect(screen.queryByText('Unscoped dashboard')).not.toBeInTheDocument();
+  });
+
+  it('replaces a stale selection and switches only between authorized companies', async () => {
+    vi.mocked(session.getSessionContext).mockResolvedValue({
+      ...sentTo('/app'), scoped_msp: true, customers: ['A', 'B'],
+    });
+    workspaceAt('/msp');
+    const selector = await screen.findByRole('combobox');
+    await waitFor(() => expect(summary).toHaveBeenCalledWith('A', expect.anything()));
+    fireEvent.change(selector, { target: { value: 'B' } });
+    await waitFor(() => expect(summary).toHaveBeenCalledWith('B', expect.anything()));
+    expect(summary.mock.calls.map(([customer]) => customer)).not.toContain('Stale customer');
+    fireEvent.click(screen.getByRole('button', { name: 'Devices' }));
+    expect(await screen.findByText('Resource outlet')).toBeInTheDocument();
+  });
+
+  it('keeps staff navigation with zero customer grants and does not mount a resource', async () => {
     vi.mocked(session.getSessionContext).mockResolvedValue({ ...sentTo('/app'), scoped_msp: true });
-    screenAt('/msp');
-    expect(await screen.findByText(/No customer data is available/)).toBeInTheDocument();
-    expect(screen.queryByText('Dashboard')).not.toBeInTheDocument();
+    workspaceAt('/msp/devices');
+    expect(await screen.findByText(/No customer records are assigned/)).toBeInTheDocument();
+    expect(screen.getByText('Operations')).toBeInTheDocument();
+    expect(summary).not.toHaveBeenCalled();
+    expect(screen.queryByText('Resource outlet')).not.toBeInTheDocument();
   });
 });

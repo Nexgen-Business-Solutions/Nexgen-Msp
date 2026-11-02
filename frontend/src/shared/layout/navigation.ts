@@ -98,6 +98,11 @@ const COMMERCIAL: NavItem[] = [
   { id: 'billing', label: 'Billing', icon: Coins, path: '/msp/billing' },
 ];
 
+export const scopedStaffSections: NavSection[] = [
+  { id: 'top', label: null, items: INTERNAL_NAV.slice(0, 1) },
+  { id: 'operations', label: 'Operations', items: [...OPERATIONS, COMMERCIAL[0]] },
+];
+
 /** The sidebar, grouped. The first entry stands alone above the groups. */
 /** A Customer Operator does everything a Customer Manager does, except the money. */
 const seesInvoices = (roles: string[] = []) => !roles.includes(CUSTOMER_OPERATOR_ROLE);

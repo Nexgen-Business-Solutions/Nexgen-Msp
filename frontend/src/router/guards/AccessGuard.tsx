@@ -1,5 +1,5 @@
 import { useEffect, type ReactNode } from 'react';
-import { Link, Navigate, useLocation } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import LoadingScreen from '@/shared/components/LoadingScreen';
 import { useSession } from '@/shared/hooks/useSession';
 import {
@@ -50,21 +50,5 @@ export default function AccessGuard({ children }: { children: ReactNode }) {
     );
   }
 
-  const path = location.pathname.replace(/\/+$/, '');
-  const scopedResource = path === '/msp/services' || (
-    /^\/msp\/(users|devices|requests)(\/[^/]+)?$/.test(path) && path !== '/msp/requests/new'
-  );
-  if (session?.scoped_msp && (!scopedResource || !session.customers.length)) {
-    return <main className="mx-auto max-w-3xl space-y-5 p-8">
-      <h1 className="text-2xl font-semibold">Your MSP access</h1>
-      <p>Your customer access remains limited to the companies below. Use Desk for your existing staff tools.</p>
-      {session.customers.length ? <>
-        <ul>{session.customers.map((customer) => <li key={customer}>{customer}</li>)}</ul>
-        <nav className="flex flex-wrap gap-4">{['users', 'devices', 'services', 'requests'].map((page) =>
-          <Link key={page} to={`/msp/${page}`}>{page[0].toUpperCase() + page.slice(1)}</Link>)}</nav>
-      </> : <p>No customer data is available: a matching Contact and Customer User Permission are required.</p>}
-      {session.can_open_desk && <a href="/app">Open Desk</a>}
-    </main>;
-  }
   return <>{children}</>;
 }

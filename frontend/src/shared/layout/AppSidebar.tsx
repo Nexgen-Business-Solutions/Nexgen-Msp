@@ -2,13 +2,13 @@ import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { X } from 'lucide-react';
 import { useSession } from '@/shared/hooks/useSession';
-import { getSectionsForRoles } from './navigation';
+import { getSectionsForRoles, scopedStaffSections } from './navigation';
 
 const SidebarNav: React.FC<{ onNavigate?: () => void }> = ({ onNavigate }) => {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { data: session } = useSession();
-  const sections = getSectionsForRoles(session?.scoped_msp ? ['MSP Customer Operator'] : session?.roles);
+  const sections = session?.scoped_msp ? scopedStaffSections : getSectionsForRoles(session?.roles);
 
   const go = (path: string) => {
     navigate(path);

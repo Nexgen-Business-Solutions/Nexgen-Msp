@@ -1,11 +1,14 @@
 import { useMemo, useState } from 'react';
 import { Outlet } from 'react-router-dom';
+import { useSession } from '@/shared/hooks/useSession';
+import ScopedStaffWorkspace from './ScopedStaffWorkspace';
 import AppSidebar from './AppSidebar';
 import AppHeader from './AppHeader';
 import Breadcrumb from './Breadcrumb';
 import { PageHeadingContext, type PageHeading } from './pageHeading';
 
 export default function AppLayout() {
+  const { data: session } = useSession();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [heading, setHeading] = useState<PageHeading>(null);
   const trail = useMemo(() => ({ heading, setHeading }), [heading]);
@@ -18,7 +21,7 @@ export default function AppLayout() {
         <AppSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
         <main className="flex min-w-0 flex-1 flex-col overflow-y-auto">
           <Breadcrumb />
-          <Outlet />
+          {session?.scoped_msp ? <ScopedStaffWorkspace session={session} /> : <Outlet />}
         </main>
       </div>
     </div>

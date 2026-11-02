@@ -81,7 +81,7 @@ export const router = createBrowserRouter([
       </AuthGuard>
     ),
     children: [
-      { index: true, element: <RoleHome /> },
+      { index: true, handle: { scopedView: 'home' }, element: <RoleHome /> },
       {
         path: 'invoices',
         element: (
@@ -101,22 +101,27 @@ export const router = createBrowserRouter([
       { path: 'requests/new', element: <NewServiceRequest /> },
       {
         path: 'requests',
+        handle: { scopedView: 'resource' },
         element: <RoleDetail portal={<PortalRequests />} internal={<RequestsList />} />,
       },
       {
         path: 'users',
+        handle: { scopedView: 'resource' },
         element: <RoleDetail portal={<PortalUsers />} internal={<UsersList />} />,
       },
       {
         path: 'users/:name',
+        handle: { scopedView: 'resource' },
         element: <RoleDetail portal={<UserDetail portal />} internal={<UserDetail />} />,
       },
       {
         path: 'devices',
+        handle: { scopedView: 'resource' },
         element: <RoleDetail portal={<PortalDevices />} internal={<DevicesList />} />,
       },
       {
         path: 'devices/:name',
+        handle: { scopedView: 'resource' },
         element: <RoleDetail portal={<DeviceDetail portal />} internal={<DeviceDetail />} />,
       },
       {
@@ -161,6 +166,7 @@ export const router = createBrowserRouter([
       },
       {
         path: 'services',
+        handle: { scopedView: 'resource' },
         element: (
           <RoleDetail
             portal={<PortalServices />}
@@ -245,6 +251,7 @@ export const router = createBrowserRouter([
       },
       {
         path: 'requests/:name',
+        handle: { scopedView: 'resource' },
         element: <RoleDetail portal={<PortalRequestDetail />} internal={<RequestDetail />} />,
       },
     ],
