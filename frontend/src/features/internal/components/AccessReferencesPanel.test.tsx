@@ -134,19 +134,19 @@ describe('the access references of an account', () => {
     );
   });
 
-  it('offers nothing to settle when the roles themselves conflict', () => {
+  it('explains staff precedence for an account that also represents a customer', () => {
     show(
       access({
-        status: 'ROLE_FAMILY_CONFLICT',
+        status: 'STAFF_WITH_CUSTOMER_ROLE',
         internal_roles: ['MSP Technician'],
-        message: 'This account has both customer and Nexgen staff roles. Remove one role family before access can be reconciled.',
+        message: 'The MSP staff role grants access across customers.',
       })
     );
 
-    expect(screen.getByText('Needs review')).toBeInTheDocument();
+    expect(screen.queryByText('Needs review')).not.toBeInTheDocument();
     expect(
       screen.getByText(
-        'This account has both customer and Nexgen staff roles. Remove one role family before access can be reconciled.'
+        'The MSP staff role grants access across customers.'
       )
     ).toBeInTheDocument();
 

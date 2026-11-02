@@ -123,6 +123,10 @@ const AccessReferencesPanel: React.FC<Props> = ({ email, access, abilities }) =>
         />
       </button>
 
+      {access.status === 'STAFF_WITH_CUSTOMER_ROLE' && (
+        <p className="border-t border-slate-100 px-5 py-3 text-sm text-slate-700">{access.message}</p>
+      )}
+
       {review && (
         <div className="border-t border-slate-100 bg-amber-50/60 px-5 py-3">
           <p className="text-sm font-semibold text-amber-900">Customer access needs review</p>

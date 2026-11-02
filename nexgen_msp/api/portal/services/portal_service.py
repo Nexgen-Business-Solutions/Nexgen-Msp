@@ -3450,14 +3450,6 @@ class PortalService:
         invoices out. Of our own people, only an administrator: a technician has no billing
         screen internally either, and this door must not become the way around that.
         """
-        if permissions.is_internal():
-            if not set(frappe.get_roles()).intersection(permissions.MANAGE_ACCESS_ROLES):
-                raise ValidationError(
-                    "Billing is not part of your access.", "PERMISSION_DENIED", 403
-                )
-
-            return
-
         if not permissions.may_see_invoices():
             raise ValidationError(
                 "Invoices are not part of your access.", "PERMISSION_DENIED", 403

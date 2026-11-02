@@ -76,6 +76,7 @@ class TestDeskLanding(unittest.TestCase):
                 self.assertFalse(self.rules.desk_reachable(user), user)
 
     def test_routing_does_not_widen_customer_scope_or_internal_capabilities(self):
+        self.frappe.get_roles.return_value = ['MSP Customer Manager']
         with patch.object(self.rules, 'routing_enabled', return_value=False), \
              patch.object(self.access, 'declared_customers', return_value={'A', 'B'}), \
              patch.object(self.access, 'permitted_customers', return_value={'A', 'C'}):
@@ -90,84 +91,57 @@ class TestDeskLanding(unittest.TestCase):
                 self.access.resolve_customer('B')
             self.assertEqual(denied.exception.code, 'PERMISSION_DENIED')
 
-    def test_staff_association_preserves_entry_icon_and_scope(self):
-        self.frappe.get_roles.return_value = ['MSP Technician']
-        self.frappe.db.get_single_value.return_value = 0
+    def test_staff_precedence_is_independent_of_membership_and_desk(self):
+        from nexgen_msp.utils import permissions
         from nexgen_msp.utils.app_visibility import can_show_msp_app
-        with patch.object(self.access, 'declared_customers', return_value={'A', 'B'}), \
-             patch.object(self.access, 'permitted_customers', return_value={'A', 'C'}):
-            self.assertTrue(self.access.entry()['ok'])
-            self.assertFalse(self.access.is_staff())
-            self.assertFalse(self.access.can_manage_contracts())
-            self.assertFalse(self.access.has_raw_msp_permission(None))
-            self.assertTrue(can_show_msp_app())
-            self.assertEqual(self.access.allowed_customers(), ['A'])
+        self.frappe.db.get_all.return_value = ['A', 'B']
+        for role in ('MSP System Admin', 'MSP Technician'):
+            for portal_roles in ([], ['MSP Customer Manager'], ['MSP Customer Operator']):
+                for declared, permitted in ((set(), set()), ({'A'}, set()), (set(), {'A'}),
+                                            ({'A'}, {'A'}), ({'A'}, {'B'})):
+                    with self.subTest(role=role, portal=portal_roles, declared=declared, permitted=permitted), \
+                         patch.object(self.access, 'declared_customers', return_value=declared), \
+                         patch.object(self.access, 'permitted_customers', return_value=permitted):
+                        self.frappe.get_roles.return_value = [role] + portal_roles
+                        self.assertTrue(self.access.entry()['ok'])
+                        self.assertTrue(can_show_msp_app())
+                        self.assertEqual(self.access.allowed_customers(), ['A', 'B'])
+                        self.assertEqual(self.access.customer_memberships(), sorted(declared & permitted))
+                        self.assertEqual(self.access.resolve_customer('B'), 'B')
+                        self.assertTrue(self.access.can_execute_requests())
+                        self.assertEqual(self.access.can_manage_contracts(), role == 'MSP System Admin')
+                        self.assertEqual(permissions.may_see_invoices(), role == 'MSP System Admin')
+                        self.assertTrue(self.access.has_raw_msp_permission(None))
+                        self.assertEqual(self.access.can_edit_customer_profile('B'), role == 'MSP System Admin'
+                                         or ('MSP Customer Manager' in portal_roles and 'B' in declared & permitted))
 
-    def test_mixed_staff_login_and_entry_preserve_customer_isolation(self):
-        self.frappe.get_roles.return_value = ['System Manager', 'MSP Technician', 'MSP System Admin',
-                                              'MSP Customer Manager', 'Desk User']
+    def test_default_tie_resolves_without_giving_website_staff_a_desk(self):
+        self.frappe.get_roles.return_value = ['MSP Technician', 'MSP Customer Manager']
         internal = types.SimpleNamespace(rule='Nexgen MSP Internal', priority=100, enabled=1,
                                          desk_access=1, home_route='/msp')
         portal = types.SimpleNamespace(rule='Nexgen MSP Portal', priority=100, enabled=1,
                                        desk_access=0, home_route='/msp')
         with patch.object(self.rules, 'routing_enabled', return_value=True), \
              patch.object(self.rules, '_direct_assignments', return_value=[]), \
-             patch.object(self.rules, '_role_matches', return_value=[portal, internal]), \
-             patch.object(self.access, 'declared_customers', return_value={'A', 'B'}), \
-             patch.object(self.access, 'permitted_customers', return_value={'A'}) as permissions:
+             patch.object(self.rules, '_role_matches', return_value=[portal, internal]):
             self.assertEqual(self.session.login_destination(self.frappe.session.user)['path'], '/app')
-            self.assertTrue(self.access.entry()['ok'])
-            self.assertTrue(self.access.is_scoped_staff())
+            self.system_user.return_value = False
+            self.assertFalse(self.rules.desk_reachable())
+            self.assertEqual(self.session.login_destination(self.frappe.session.user)['path'], '/msp')
+            self.system_user.return_value = True
+            portal.rule = 'Custom portal rule'
+            self.assertFalse(self.rules.desk_reachable())
+
+    def test_removing_staff_role_restores_only_customer_memberships(self):
+        self.frappe.db.get_all.return_value = ['A', 'B']
+        with patch.object(self.access, 'declared_customers', return_value={'A', 'B'}), \
+             patch.object(self.access, 'permitted_customers', return_value={'A', 'C'}):
+            self.assertEqual(self.access.allowed_customers(), ['A', 'B'])
+            self.frappe.get_roles.return_value = ['MSP Customer Manager', 'System Manager']
             self.assertEqual(self.access.allowed_customers(), ['A'])
             with self.assertRaises(self.access.ValidationError):
                 self.access.resolve_customer('B')
-            permissions.return_value = set()
-            self.assertEqual(self.access.allowed_customers(), [])
-            self.assertFalse(self.access.is_staff())
-            self.assertFalse(self.access.can_execute_requests())
             self.assertFalse(self.access.has_raw_msp_permission(None))
-            internal.desk_access = 0
-            self.assertFalse(self.rules.desk_reachable())
-            self.assertFalse(self.access.entry()['ok'])
-            internal.desk_access = 1
-            portal.rule = 'Custom portal rule'
-            self.assertFalse(self.rules.desk_reachable())
-            portal.rule = 'Nexgen MSP Portal'
-            self.system_user.return_value = False
-            self.assertFalse(self.rules.desk_reachable())
-            self.assertFalse(self.access.entry()['ok'])
-
-    def test_website_staff_role_does_not_override_customer_binding(self):
-        self.frappe.get_roles.return_value = ['MSP Technician']
-        self.system_user.return_value = False
-        with patch.object(self.access, 'declared_customers', return_value={'A'}), \
-             patch.object(self.access, 'permitted_customers', return_value={'A'}):
-            self.assertFalse(self.access.is_staff())
-            self.assertEqual(self.access.entry()['code'], 'CONFLICTING_ROLES')
-            self.assertEqual(self.access.allowed_customers(), ['A'])
-
-    def test_unbound_mixed_roles_never_reach_all_customers(self):
-        self.frappe.db.get_all.return_value = ['A', 'B']
-        with patch.object(self.access, 'declared_customers', return_value=set()), \
-             patch.object(self.access, 'permitted_customers', return_value=set()):
+            self.frappe.get_roles.return_value = ['System Manager']
             self.assertEqual(self.access.allowed_customers(), [])
-
-    def test_revoking_last_customer_permission_never_promotes_staff(self):
-        self.frappe.get_roles.return_value = ['MSP System Admin']
-        self.frappe.db.get_single_value.return_value = 0
-        from nexgen_msp.utils import permissions
-        with patch.object(self.access, 'declared_customers', return_value={'A'}), \
-             patch.object(self.access, 'permitted_customers', return_value={'A'}) as permitted:
-            self.assertTrue(self.access.entry()['ok'])
-            self.assertEqual(self.access.allowed_customers(), ['A'])
-            permitted.return_value = set()
-            self.assertTrue(self.access.entry()['ok'])
-            self.assertTrue(self.access.is_scoped_staff())
-            with self.assertRaises(self.access.ValidationError):
-                self.access.resolve_customer('A')
-            self.assertEqual(self.access.allowed_customers(), [])
-            self.assertFalse(self.access.is_staff())
-            self.assertFalse(self.access.has_raw_msp_permission(None))
-            self.assertFalse(permissions.may_see_invoices())
-            with self.assertRaises(permissions.ValidationError):
-                permissions.guard_can_manage_access()
+            self.assertEqual(self.access.entry()['code'], self.access.NO_ROLE)

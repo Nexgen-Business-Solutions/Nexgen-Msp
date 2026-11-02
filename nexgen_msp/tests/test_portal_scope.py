@@ -51,19 +51,17 @@ class TestPortalScope(MSPTestCase):
             with self.assertRaises(ValidationError):
                 self.as_manager(call)
 
-    def test_a_staff_role_does_not_widen_a_contact(self):
-        """The permission on a customer wins over any role handed out by mistake."""
+    def test_msp_admin_can_read_another_customer_from_the_staff_workspace(self):
         user = frappe.get_doc("User", self.manager)
         user.append("roles", {"role": "MSP System Admin"})
         user.save(ignore_permissions=True)
         frappe.db.commit()
         frappe.clear_cache(user=self.manager)
 
-        self.assertFalse(permissions.is_internal(self.manager))
-        self.assertEqual(permissions.get_allowed_customers(self.manager), [self.mine])
-
-        with self.assertRaises(ValidationError):
-            self.as_manager(lambda: UserService.list_users(page_length=5))
+        self.assertTrue(permissions.is_internal(self.manager))
+        self.assertIn(self.theirs, permissions.get_allowed_customers(self.manager))
+        result = self.as_manager(lambda: UserService.list_users(customer=self.theirs))
+        self.assertIn(self.their_person, [row["name"] for row in result["rows"]])
 
     def test_staff_reach_every_customer(self):
         staff = self.make_account("internal", "MSP Technician", suffix="staff")

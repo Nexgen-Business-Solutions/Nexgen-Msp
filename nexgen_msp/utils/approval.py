@@ -131,6 +131,14 @@ def rights_of(customer, user=None):
     if not row:
         return {}
 
+    # Operational access across MSP never permits deciding on behalf of another company.
+    from nexgen_msp.utils import access
+    if access.is_staff(user) and (
+        not access.roles(user).intersection(access.CUSTOMER_ROLES)
+        or customer not in access.customer_memberships(user)
+    ):
+        return {}
+
     return {
         "user": user,
         "department": (row.department or "").strip() or None,

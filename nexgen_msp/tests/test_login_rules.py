@@ -444,7 +444,7 @@ class TestTheRulesTheMigrationSeeded(LoginRuleCase):
             self.assertEqual(sorted(row.role for row in doc.applicable_roles), roles, name)
 
     def test_the_portal_and_the_internal_rules_do_not_tie(self):
-        """Equal priority, but no account holds both sides — and one that did is refused anyway."""
+        """Each single-role identity matches its own default rule."""
         manager = self.make_account(
             "customer", "MSP Customer Manager", self.make_customer(self.tag), suffix=f"lp{self.tag[:3]}"
         )

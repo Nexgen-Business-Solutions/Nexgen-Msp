@@ -30,6 +30,7 @@ describe('what the sidebar offers each role', () => {
     expect(INTERNAL_ROLES).not.toContain(MANAGER);
     expect(INTERNAL_ROLES).toContain(ADMIN);
     expect(INTERNAL_ROLES).toContain(TECH);
+    expect(isPortalOnly([MANAGER, 'System Manager'])).toBe(true);
   });
 
   it('treats only customer roles as portal-only', () => {

@@ -318,14 +318,15 @@ class TestARoleAddedByHand(MSPTestCase):
         frappe.db.commit()
         frappe.clear_cache(user=email)
 
-    def test_an_internal_role_added_by_hand_does_not_make_a_contact_staff(self):
+    def test_assigned_internal_roles_confer_staff_scope(self):
+        other = self.make_customer("Other")
         for role in INTERNAL:
             self.add_role(self.contact, role)
 
-            self.assertFalse(permissions.is_internal(self.contact), role)
-            self.assertEqual(permissions.get_allowed_customers(self.contact), [self.customer], role)
+            self.assertTrue(permissions.is_internal(self.contact), role)
+            self.assertIn(other, permissions.get_allowed_customers(self.contact), role)
 
-    def test_an_internal_role_added_by_hand_does_not_open_our_workspace(self):
+    def test_explicit_msp_admin_can_use_internal_services(self):
         self.add_role(self.contact, "MSP System Admin")
 
         frappe.set_user(self.contact)
@@ -335,8 +336,7 @@ class TestARoleAddedByHand(MSPTestCase):
                 lambda: UserService.list_users(page_length=1),
                 lambda: DeviceService.list_devices(page_length=1),
             ):
-                with self.assertRaises(ValidationError):
-                    call()
+                self.assertIn("rows", call())
         finally:
             frappe.set_user("Administrator")
 

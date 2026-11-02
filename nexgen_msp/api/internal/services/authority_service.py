@@ -3,7 +3,7 @@
 import frappe
 
 from nexgen_msp.api.internal.services.contract_service import ContractService
-from nexgen_msp.utils import approval, permissions
+from nexgen_msp.utils import access, approval, permissions
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 RIGHTS = approval.RIGHTS
@@ -87,7 +87,7 @@ class AuthorityService:
                     # whether the account still answers for this company: a line left over
                     # from a move grants nothing, but it must stay visible, because it is
                     # also what refuses every later save until somebody takes it off
-                    "answers_here": customer in permissions.get_allowed_customers(row.user),
+                    "answers_here": customer in access.customer_memberships(row.user),
                     "status": row.status or "Active",
                     "effective_from": row.effective_from,
                     "effective_to": row.effective_to,
@@ -119,7 +119,7 @@ class AuthorityService:
         if not user or not frappe.db.exists("User", user):
             raise NotFoundError(f"User {user} not found.", "NOT_FOUND")
 
-        customers = permissions.get_allowed_customers(user)
+        customers = access.customer_memberships(user)
         is_customer = bool(set(frappe.get_roles(user)).intersection(permissions.CUSTOMER_ROLES))
         customer = customers[0] if (is_customer and customers) else None
 
@@ -157,7 +157,7 @@ class AuthorityService:
                 "VALIDATION_ERROR",
             )
 
-        customers = permissions.get_allowed_customers(user)
+        customers = access.customer_memberships(user)
 
         if not customers:
             raise ValidationError(

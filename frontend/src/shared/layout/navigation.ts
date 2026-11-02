@@ -35,7 +35,6 @@ export const ADMIN_ROLES = ['MSP System Admin', 'Administrator'];
 export const INTERNAL_ROLES = [
   'MSP System Admin',
   'MSP Technician',
-  'System Manager',
   'Administrator',
 ];
 

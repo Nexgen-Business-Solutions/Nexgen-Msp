@@ -1,11 +1,10 @@
 import frappe
 
 from nexgen_msp.api.internal.services.contract_service import ContractService
-from nexgen_msp.utils import approval, permissions
+from nexgen_msp.utils import access, approval, permissions
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
-# An account belongs to one family or the other, never both. Within each, the most powerful
-# role comes first: what an account *is* is read off the first one it holds.
+# Display the staff role first when the account also represents a customer.
 STAFF_ROLES = permissions.INTERNAL_ROLES
 PORTAL_ROLES = permissions.CUSTOMER_ROLES
 ALL_ROLES = STAFF_ROLES + PORTAL_ROLES
@@ -185,8 +184,6 @@ class TeamService:
 
 		An account answers for one company, so everything below is said in the singular.
 		"""
-		from nexgen_msp.utils import access
-
 		held = set(frappe.get_roles(email))
 		role = next((name for name in ALL_ROLES if name in held), None)
 		company = frappe.db.get_value(
@@ -293,7 +290,7 @@ class TeamService:
 						},
 						{
 							"label": "Read invoices",
-							"allowed": role != permissions.CUSTOMER_OPERATOR_ROLE,
+							"allowed": permissions.may_see_invoices(email),
 							"detail": "The one thing a Customer Operator is kept away from"
 							if role == permissions.CUSTOMER_OPERATOR_ROLE
 							else None,
@@ -396,7 +393,7 @@ class TeamService:
 		if not permissions.is_customer_contact(email):
 			return
 
-		for customer in permissions.get_allowed_customers(email):
+		for customer in access.customer_memberships(email):
 			approval.warn_admins_of_gaps(customer)
 
 	@staticmethod
@@ -542,7 +539,7 @@ class TeamService:
 		}
 
 		if not internal:
-			customers = permissions.get_allowed_customers(user.name)
+			customers = access.customer_memberships(user.name)
 			context["customer"] = customers[0] if customers else ""
 
 		notifications.send(

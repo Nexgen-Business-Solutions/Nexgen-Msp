@@ -160,7 +160,7 @@ class LoginRuleService:
 
         if len(winners) != 1:
             # The two default policies describe different sessions of the same user.
-            # Resolve only this specific tie for existing Desk-authorized MSP staff.
+            # Prefer the staff MSP route. Desk still requires a Frappe Desk seat.
             defaults = {rule.rule: rule for rule in winners}
             if set(defaults) == {"Nexgen MSP Internal", "Nexgen MSP Portal"}:
                 internal = defaults["Nexgen MSP Internal"]
@@ -169,8 +169,7 @@ class LoginRuleService:
                 if (internal.home_route == portal.home_route == routes.MSP
                         and cint(internal.desk_access) and not cint(portal.desk_access)
                         and held.intersection(access.STAFF_ROLES)
-                        and held.intersection(access.CUSTOMER_ROLES)
-                        and routes.can_enter_desk(user)):
+                        and held.intersection(access.CUSTOMER_ROLES)):
                     return internal, BY_ROLE, None
             return None, None, AMBIGUOUS_ROLE
 

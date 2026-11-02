@@ -94,7 +94,7 @@ class TestWhatReconciliationConcludes(AccessCase):
         self.assertEqual(permissions.customer_permissions_of(user), {self.mine, self.theirs})
         self.assertEqual(permissions.customers_from_contacts(user), {self.mine})
 
-    def test_an_account_holding_both_families_is_refused(self):
+    def test_staff_with_a_customer_role_reports_its_current_references(self):
         user = self.account()
         user_doc = frappe.get_doc("User", user)
         user_doc.append("roles", {"role": "MSP Technician"})
@@ -103,8 +103,10 @@ class TestWhatReconciliationConcludes(AccessCase):
 
         outcome = permissions.reconcile_customer_permissions(user)
 
-        self.assertEqual(outcome["status"], permissions.ROLE_FAMILY_CONFLICT)
-        self.assertIn("both customer and Nexgen staff roles", permissions.STATUS_TEXT[outcome["status"]])
+        self.assertEqual(outcome["status"], permissions.STAFF_WITH_CUSTOMER_ROLE)
+        self.assertEqual(outcome["contact_customers"], [self.mine])
+        self.assertEqual(outcome["permission_customers"], [self.mine])
+        self.assertEqual(outcome["added_permissions"], [])
 
     def test_an_account_with_no_customer_role_is_not_reconciled(self):
         tech = self.account(role="MSP Technician", suffix=f"at{self.tag[:3]}")

@@ -1,6 +1,6 @@
 import frappe
 
-from nexgen_msp.utils import permissions
+from nexgen_msp.utils import access, permissions
 from nexgen_msp.utils.approval import AUTHORITY
 
 
@@ -31,7 +31,7 @@ def execute():
 		stale = {
 			user
 			for user in set(users)
-			if customer not in permissions.get_allowed_customers(user)
+			if customer not in access.customer_memberships(user)
 			or not set(frappe.get_roles(user)).intersection(permissions.CUSTOMER_ROLES)
 		}
 

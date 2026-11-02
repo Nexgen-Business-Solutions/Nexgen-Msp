@@ -3305,6 +3305,7 @@ export type AccountAccess = {
     | 'REPAIRED_USER_PERMISSION'
     | 'MISSING_CUSTOMER_REFERENCE'
     | 'CUSTOMER_REFERENCE_CONFLICT'
+    | 'STAFF_WITH_CUSTOMER_ROLE'
     | 'ROLE_FAMILY_CONFLICT'
     | 'NOT_CUSTOMER_ACCOUNT';
   message: string | null;

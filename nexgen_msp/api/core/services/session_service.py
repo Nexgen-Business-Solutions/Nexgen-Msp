@@ -83,7 +83,7 @@ class SessionService:
             "customer": here,
             "is_portal_user": is_portal and not is_internal,
             "is_internal_user": is_internal,
-            "scoped_msp": access.is_scoped_staff(user),
+            "scoped_msp": False,  # Older portal bundles still read this key.
             # whether this account may be in the application at all, decided in one place
             # and merely applied by the route guard
             "access": access.entry(user),

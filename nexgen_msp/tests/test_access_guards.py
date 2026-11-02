@@ -172,7 +172,7 @@ class TestMspAdministrativeAuthority(MSPTestCase):
         finally:
             frappe.set_user("Administrator")
 
-    def test_a_customer_contact_with_an_admin_role_is_still_refused(self):
+    def test_an_explicit_msp_admin_can_manage_contracts_with_a_customer_role(self):
         tag = frappe.generate_hash(length=6)
         customer = self.make_customer(tag)
         manager = self.make_account(
@@ -186,8 +186,7 @@ class TestMspAdministrativeAuthority(MSPTestCase):
 
         frappe.set_user(manager)
         try:
-            with self.assertRaises(ValidationError):
-                ContractService._guard_admin()
+            ContractService._guard_admin()
         finally:
             frappe.set_user("Administrator")
 
@@ -212,7 +211,9 @@ class TestRawDocumentBoundary(MSPTestCase):
             self.assertIn("nexgen_msp.utils.access.has_raw_msp_permission", document_hooks[doctype])
             self.assertIn("nexgen_msp.utils.access.raw_msp_query_condition", query_hooks[doctype])
 
-    def test_customer_contacts_are_refused_even_if_an_internal_role_is_added(self):
+    def test_customer_only_and_mixed_admin_raw_doc_guards(self):
+        self.assertFalse(access.has_raw_msp_permission(None, user=self.manager))
+        self.assertEqual(access.raw_msp_query_condition(self.manager), "1 = 0")
         account = frappe.get_doc("User", self.manager)
         account.append("roles", {"role": "MSP System Admin"})
         account.save(ignore_permissions=True)
@@ -221,10 +222,10 @@ class TestRawDocumentBoundary(MSPTestCase):
 
         for doctype in SENSITIVE_DOCTYPES:
             doc = frappe.get_doc({"doctype": doctype})
-            self.assertFalse(
+            self.assertTrue(
                 access.has_raw_msp_permission(doc, "read", self.manager), doctype
             )
-            self.assertEqual(access.raw_msp_query_condition(self.manager), "1 = 0")
+            self.assertIsNone(access.raw_msp_query_condition(self.manager))
 
     def test_generic_lists_return_no_msp_rows_to_a_customer_contact(self):
         """Nothing of ours reaches a customer account through Frappe's own list API.
@@ -363,19 +364,18 @@ class TestWhoMayEnterAtAll(MSPTestCase):
         self.assertEqual(access.allowed_customers(self.manager), [], "reaches no company")
         self.assertEqual(self.code_for(self.manager), access.NO_CUSTOMER)
 
-    def test_holding_both_sides_is_named_as_the_conflict_it_is(self):
+    def test_explicit_technician_role_takes_precedence_over_customer_role(self):
         self.give(self.manager, "MSP Technician")
 
-        self.assertEqual(self.code_for(self.manager), access.CONFLICTING_ROLES)
+        self.assertTrue(access.entry(self.manager)["ok"])
 
-    def test_the_conflict_is_said_before_the_missing_permission(self):
-        """Both apply at once, and the one somebody has to undo is the one worth saying."""
+    def test_removing_customer_permission_does_not_remove_technician_authority(self):
         self.give(self.manager, "MSP Technician")
         self.unpermit(self.manager)
 
-        self.assertEqual(self.code_for(self.manager), access.CONFLICTING_ROLES)
+        self.assertTrue(access.entry(self.manager)["ok"])
 
-    def test_a_website_staff_account_with_customer_binding_is_still_a_conflict(self):
+    def test_technician_can_enter_msp_with_a_customer_contact(self):
         """Read the other way round: the staff role came first and the binding was added."""
         from nexgen_msp.utils import permissions
 
@@ -383,7 +383,7 @@ class TestWhoMayEnterAtAll(MSPTestCase):
         frappe.db.commit()
         frappe.clear_cache(user=self.technician)
 
-        self.assertEqual(self.code_for(self.technician), access.CONFLICTING_ROLES)
+        self.assertTrue(access.entry(self.technician)["ok"])
 
     def test_a_signed_out_caller_is_told_that_and_not_blamed_for_a_role(self):
         self.assertEqual(self.code_for("Guest"), access.NOT_SIGNED_IN)

@@ -1,18 +1,5 @@
-"""Who an account may act for, and what it is allowed to do. Decided once, here.
-
-Two questions run through the whole application and both used to be answered in a dozen
-places: which companies is this account allowed near, and is it allowed to do this. Every
-copy of an answer is a copy that can drift, so there is one of each and the services ask.
-
-**Reaching a company takes two proofs.** A Contact record naming the account and linked to
-the company is the declaration; a User Permission is the enforcement. An account reaches a
-company only when it holds both. A permission left behind after somebody was moved is not a
-key: without a matching contact it opens nothing.
-
-**A customer's account is never staff.** Whatever roles it also carries — added by hand in
-the desk, or by a mis-click — an account declared as a company's contact belongs to that
-company. The only exception is the builtin Administrator, and it is written out in full
-rather than arrived at through a role.
+"""Explicit MSP staff roles serve all customers. Customer-only accounts need a
+matching Contact and Customer User Permission for each company they can reach.
 """
 
 import frappe
@@ -94,12 +81,7 @@ def permitted_customers(user=None):
 
 
 def is_customer_account(user=None):
-    """Bound to a customer, and therefore never one of ours.
-
-    Either proof on its own makes this true. Somebody halfway through being set up, or
-    halfway through being removed, is still a customer's person and must not fall through
-    into the staff branch while the two records disagree.
-    """
+    """Whether the account has a customer association, independent of its staff role."""
     user = _who(user)
 
     if is_administrator(user) or user == "Guest":
@@ -108,52 +90,23 @@ def is_customer_account(user=None):
     return bool(declared_customers(user) or permitted_customers(user))
 
 
-def has_staff_desk_authority(user=None):
-    """Whether this user already holds both MSP staff and Desk authority."""
-    user = _who(user)
-    if not roles(user).intersection(STAFF_ROLES):
-        return False
-    from nexgen_msp.api.core.services.login_rule_service import LoginRuleService
-    return LoginRuleService.desk_reachable(user)
-
-
 def is_staff(user=None):
-    """Global staff authority excludes customer permissions and mixed role families."""
-    user = _who(user)
-    if is_administrator(user):
-        return True
-    held = roles(user)
-    return bool(held.intersection(STAFF_ROLES)) and not (
-        held.intersection(CUSTOMER_ROLES) or is_customer_account(user)
-    )
+    """An explicit MSP staff role grants operational reach across companies."""
+    return is_administrator(user) or bool(roles(user).intersection(STAFF_ROLES))
 
 
-def is_scoped_staff(user=None):
-    """Staff allowed a bounded MSP view, with no global or financial authority."""
-    bounded = roles(user).intersection(CUSTOMER_ROLES) or is_customer_account(user)
-    return bool(bounded) and has_staff_desk_authority(user)
+def customer_memberships(user=None):
+    """Companies the user represents as a customer, including staff with a second role."""
+    return sorted(declared_customers(user).intersection(permitted_customers(user)))
 
 
-# ------------------------------------------------------------------ which companies
 def allowed_customers(user=None):
-    """Every company this account may act for, in a stable order.
-
-    For one of ours, that is all of them. For a customer's person it is the two proofs
-    agreeing: declared as a contact, and permitted. Neither alone is enough.
-    """
-    user = _who(user)
-
-    if is_administrator(user):
-        return sorted(frappe.db.get_all("Customer", pluck="name"))
-
-    declared = declared_customers(user)
-    permitted = permitted_customers(user)
-
-    if declared or permitted:
-        return sorted(declared.intersection(permitted))
-
+    """Companies the user can work on in MSP."""
     if is_staff(user):
         return sorted(frappe.db.get_all("Customer", pluck="name"))
+
+    if roles(user).intersection(CUSTOMER_ROLES):
+        return customer_memberships(user)
 
     return []
 
@@ -170,20 +123,7 @@ CONFLICTING_ROLES = "CONFLICTING_ROLES"
 
 
 def entry(user=None):
-    """Whether this account may enter the application at all, and what to say when it cannot.
-
-    A signed-in account is not an authorised one. Three states used to pass straight through
-    to a screen the account could not read a single row of: one holding no role of ours, one
-    belonging to a company it has no permission for, and one holding both sides at once. The
-    first and the third were the same hole — neither read as a customer's person nor as one
-    of ours, so the application fell through to the staff side and refused every call it then
-    made.
-
-    The order matters. Holding both sides is said first, because it is the state that must
-    never be resolved by guessing: it is a setup somebody has to undo, not a narrower kind of
-    access. What this returns is a verdict, not an exception — the client needs it to show a
-    report, and the services below still refuse on their own.
-    """
+    """MSP entry is independent of permission to open ERPNext Desk."""
     user = _who(user)
 
     def refused(code, message):
@@ -192,40 +132,10 @@ def entry(user=None):
     if not user or user == "Guest":
         return refused(NOT_SIGNED_IN, "You are not signed in.")
 
-    if is_administrator(user):
+    if is_staff(user):
         return {"ok": True, "code": None, "message": None}
 
-    held = roles(user)
-    staff_side = bool(held.intersection(STAFF_ROLES))
-    # either proof of belonging to a company counts here, exactly as `is_customer_account`
-    # reads them: somebody half set up is still a customer's person
-    customer_side = bool(
-        held.intersection(CUSTOMER_ROLES) or declared_customers(user) or permitted_customers(user)
-    )
-
-    scoped = staff_side and customer_side and is_scoped_staff(user)
-    if staff_side and customer_side and not scoped:
-        return refused(
-            CONFLICTING_ROLES,
-            "This account holds both a Nexgen role and a customer's access. One account "
-            "cannot be both, and which it is cannot be guessed. Ask an administrator to "
-            "leave only the access this account is meant to have.",
-        )
-
-    if scoped:
-        return {"ok": True, "code": None, "message": None}
-
-    if customer_side:
-        # being bound to a company is not a role. A contact record and a permission say
-        # which company an account answers for; they do not say it may be here, and an
-        # account left with both after its role was taken away must not still get in
-        if not held.intersection(CUSTOMER_ROLES):
-            return refused(
-                NO_ROLE,
-                "This account is linked to a company but holds no Nexgen MSP role. Ask an "
-                "administrator to give it the access it needs.",
-            )
-
+    if roles(user).intersection(CUSTOMER_ROLES):
         if not allowed_customers(user):
             return refused(
                 NO_CUSTOMER,
@@ -234,9 +144,6 @@ def entry(user=None):
                 "missing. Ask an administrator to restore it.",
             )
 
-        return {"ok": True, "code": None, "message": None}
-
-    if staff_side:
         return {"ok": True, "code": None, "message": None}
 
     return refused(
@@ -311,8 +218,7 @@ def can_edit_customer_profile(customer=None, user=None):
 
     return (
         "MSP Customer Manager" in roles(user)
-        and is_customer_account(user)
-        and may_reach(customer, user)
+        and customer in customer_memberships(user)
     )
 
 
@@ -399,10 +305,7 @@ def capabilities(user=None):
 def has_raw_msp_permission(doc, ptype=None, user=None, debug=False):
     """Keep MSP records behind the application's scoped service endpoints.
 
-    Customer accounts must not fall through to Frappe's generic document API. That API
-    exposes fields and mutations which the portal deliberately does not. A role added to a
-    customer account by mistake must not widen this answer; ``is_staff`` already applies
-    that rule. The builtin Administrator remains the explicit exception.
+    Customer-only accounts must use endpoints that enforce customer membership.
 
     This hook may only deny a permission already granted by the DocType. Returning true for
     staff therefore preserves the ordinary role checks rather than granting anything new.

@@ -2,10 +2,7 @@ import frappe
 
 from nexgen_msp.utils.errors import ValidationError
 
-# Two families, and an account belongs to exactly one of them. A customer role means the
-# account answers for one company; an internal role means it answers for all of them. An
-# account holding both would be a contradiction the permission model cannot express, so it
-# is refused rather than resolved.
+# Provisioning checks role families separately; runtime MSP access follows staff role precedence.
 CUSTOMER_ROLES = ("MSP Customer Manager", "MSP Customer Operator")
 INTERNAL_ROLES = ("MSP System Admin", "MSP Technician")
 MANAGE_ACCESS_ROLES = ("MSP System Admin", "System Manager")
@@ -30,6 +27,8 @@ def guard_can_manage_access():
         return
 
     roles = set(frappe.get_roles())
+    if "MSP System Admin" in roles:
+        return
     if (not roles.intersection(MANAGE_ACCESS_ROLES) or roles.intersection(CUSTOMER_ROLES)
             or is_customer_contact()):
         raise ValidationError(
@@ -56,7 +55,9 @@ def may_see_invoices(user=None):
 
     from nexgen_msp.utils import access
 
-    return not access.is_scoped_staff(user) and CUSTOMER_OPERATOR_ROLE not in set(frappe.get_roles(user))
+    if access.is_staff(user):
+        return access.can_manage_contracts(user)
+    return CUSTOMER_OPERATOR_ROLE not in set(frappe.get_roles(user))
 
 
 def family_of(role):
@@ -98,7 +99,9 @@ def guard_single_family(user, role):
             "VALIDATION_ERROR",
         )
 
-    if family == "customer" and not get_allowed_customers(user):
+    from nexgen_msp.utils import access
+
+    if family == "customer" and not access.customer_memberships(user):
         raise ValidationError(
             f"{user} is not linked to any customer, so it cannot hold a customer role. "
             "Give it a customer first.",
@@ -107,11 +110,7 @@ def guard_single_family(user, role):
 
 
 def is_customer_contact(user=None):
-    """An account bound to a customer belongs to that customer, whatever else it holds.
-
-    This is the fact a staff role must never override: a contact who is also given an
-    internal role would otherwise reach every customer in the book.
-    """
+    """Whether the account has customer records, independent of its staff access."""
     from nexgen_msp.utils import access
 
     return access.is_customer_account(user)
@@ -129,7 +128,7 @@ def get_allowed_customers(user=None):
 
     Answered in one place, because it decides what every screen and every service may see.
     A customer's person reaches a company only where the contact and the permission agree;
-    our own people hold neither and reach them all.
+    MSP staff reach all companies regardless of their personal affiliations.
     """
     from nexgen_msp.utils import access
 
@@ -326,6 +325,7 @@ REPAIRED_CONTACT_LINK = "REPAIRED_CONTACT_LINK"
 REPAIRED_USER_PERMISSION = "REPAIRED_USER_PERMISSION"
 MISSING_CUSTOMER_REFERENCE = "MISSING_CUSTOMER_REFERENCE"
 CUSTOMER_REFERENCE_CONFLICT = "CUSTOMER_REFERENCE_CONFLICT"
+STAFF_WITH_CUSTOMER_ROLE = "STAFF_WITH_CUSTOMER_ROLE"
 ROLE_FAMILY_CONFLICT = "ROLE_FAMILY_CONFLICT"
 NOT_CUSTOMER_ACCOUNT = "NOT_CUSTOMER_ACCOUNT"
 
@@ -333,9 +333,13 @@ REPAIRED = (REPAIRED_CONTACT_LINK, REPAIRED_USER_PERMISSION)
 NEEDS_REVIEW = (MISSING_CUSTOMER_REFERENCE, CUSTOMER_REFERENCE_CONFLICT, ROLE_FAMILY_CONFLICT)
 
 STATUS_TEXT = {
+    STAFF_WITH_CUSTOMER_ROLE: (
+        "The MSP staff role grants access across customers. Contact links and Customer "
+        "User Permissions identify the companies this account represents as a customer."
+    ),
     ROLE_FAMILY_CONFLICT: (
         "This account has both customer and Nexgen staff roles. "
-        "Remove one role family before access can be reconciled."
+        "Automatic reconciliation is skipped. Review customer references separately."
     ),
     MISSING_CUSTOMER_REFERENCE: (
         "This customer account is not linked to any Customer. "
@@ -386,15 +390,14 @@ def reconcile_customer_permissions(user):
     if not held["customer"]:
         return outcome
 
-    if held["internal"]:
-        outcome["status"] = ROLE_FAMILY_CONFLICT
-
-        return outcome
-
     declared = customers_from_contacts(user)
     permitted = customer_permissions_of(user)
     outcome["contact_customers"] = sorted(declared)
     outcome["permission_customers"] = sorted(permitted)
+
+    if held["internal"]:
+        outcome["status"] = STAFF_WITH_CUSTOMER_ROLE
+        return outcome
 
     if declared and permitted:
         outcome["status"] = HEALTHY if declared == permitted else CUSTOMER_REFERENCE_CONFLICT

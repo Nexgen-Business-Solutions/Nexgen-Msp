@@ -95,8 +95,8 @@ class TestAccountsAndRoles(MSPTestCase):
         self.assertEqual(labels["MSP System Admin"], "Administrator")
         self.assertNotIn("Portal", labels["MSP Customer Manager"])
 
-    def test_a_customer_contact_is_never_treated_as_staff(self):
-        """A staff role handed to a contact by hand must not open the whole book."""
+    def test_technician_role_confers_staff_access_to_a_customer_contact(self):
+        other = self.make_customer("Other")
         customer = self.make_customer()
         contact = self.make_account("customer", "MSP Customer Operator", customer)
 
@@ -106,8 +106,8 @@ class TestAccountsAndRoles(MSPTestCase):
         frappe.db.commit()
         frappe.clear_cache(user=contact)
 
-        self.assertFalse(permissions.is_internal(contact))
-        self.assertEqual(permissions.get_allowed_customers(contact), [customer])
+        self.assertTrue(permissions.is_internal(contact))
+        self.assertIn(other, permissions.get_allowed_customers(contact))
 
 
 class TestThePortalContactsCard(MSPTestCase):

@@ -2,7 +2,7 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
-from nexgen_msp.utils import permissions
+from nexgen_msp.utils import access, permissions
 
 
 class MSPApprovalAuthority(Document):
@@ -28,7 +28,7 @@ class MSPApprovalAuthority(Document):
 		sits and what to do with it: whoever reads it is rarely the person it names.
 		"""
 		for row in self.approvers:
-			allowed = permissions.get_allowed_customers(row.user)
+			allowed = access.customer_memberships(row.user)
 
 			if self.customer not in allowed:
 				who = frappe.bold(row.full_name or row.user)
