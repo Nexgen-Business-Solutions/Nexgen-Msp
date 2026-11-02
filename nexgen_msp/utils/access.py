@@ -109,10 +109,9 @@ def is_customer_account(user=None):
 
 
 def has_staff_desk_authority(user=None):
-    """An explicit MSP staff role and existing Desk authority; never a customer role."""
+    """Whether this user already holds both MSP staff and Desk authority."""
     user = _who(user)
-    held = roles(user)
-    if not held.intersection(STAFF_ROLES) or held.intersection(CUSTOMER_ROLES):
+    if not roles(user).intersection(STAFF_ROLES):
         return False
     from nexgen_msp.api.core.services.login_rule_service import LoginRuleService
     return LoginRuleService.desk_reachable(user)
@@ -131,7 +130,8 @@ def is_staff(user=None):
 
 def is_scoped_staff(user=None):
     """Staff allowed a bounded MSP view, with no global or financial authority."""
-    return is_customer_account(user) and has_staff_desk_authority(user)
+    bounded = roles(user).intersection(CUSTOMER_ROLES) or is_customer_account(user)
+    return bool(bounded) and has_staff_desk_authority(user)
 
 
 # ------------------------------------------------------------------ which companies

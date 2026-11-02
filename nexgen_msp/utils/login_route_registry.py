@@ -70,7 +70,9 @@ def can_enter_desk(user=None):
     if not user or user == "Guest" or not frappe.db.get_value("User", user, "enabled"):
         return False
 
-    if not access.is_administrator(user) and access.roles(user).intersection(access.CUSTOMER_ROLES):
+    held = access.roles(user)
+    if (not access.is_administrator(user) and held.intersection(access.CUSTOMER_ROLES)
+            and not held.intersection(access.STAFF_ROLES)):
         return False
 
     return bool(is_system_user(user))

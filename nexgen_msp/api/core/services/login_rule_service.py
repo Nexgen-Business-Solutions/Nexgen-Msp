@@ -113,7 +113,7 @@ class LoginRuleService:
         user = user or frappe.session.user
 
         # Frappe's canonical User Type check, including an enabled account, is the
-        # seat. Portal customer roles are excluded by the same check.
+        # seat. A customer role alone never grants that seat.
         if not routes.can_enter_desk(user):
             return False
 
@@ -159,6 +159,19 @@ class LoginRuleService:
         winners = [rule for rule in matched if (rule.priority or 0) == highest]
 
         if len(winners) != 1:
+            # The two default policies describe different sessions of the same user.
+            # Resolve only this specific tie for existing Desk-authorized MSP staff.
+            defaults = {rule.rule: rule for rule in winners}
+            if set(defaults) == {"Nexgen MSP Internal", "Nexgen MSP Portal"}:
+                internal = defaults["Nexgen MSP Internal"]
+                portal = defaults["Nexgen MSP Portal"]
+                held = access.roles(user)
+                if (internal.home_route == portal.home_route == routes.MSP
+                        and cint(internal.desk_access) and not cint(portal.desk_access)
+                        and held.intersection(access.STAFF_ROLES)
+                        and held.intersection(access.CUSTOMER_ROLES)
+                        and routes.can_enter_desk(user)):
+                    return internal, BY_ROLE, None
             return None, None, AMBIGUOUS_ROLE
 
         return winners[0], BY_ROLE, None

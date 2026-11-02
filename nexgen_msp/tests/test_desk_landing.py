@@ -64,17 +64,13 @@ class TestDeskLanding(LoginRuleCase):
                 self.routing(enabled)
                 with self.subTest(binding=kind, routing=enabled):
                     ctx = self.context(self.staff)
-                    if kind == 'customer_role':
-                        self.assertFalse(ctx['can_open_desk'])
-                        self.assertEqual(ctx['access']['code'], access.CONFLICTING_ROLES)
-                    else:
-                        self.assertTrue(ctx['can_open_desk'])
-                        self.assertEqual(ctx['login_destination']['path'], '/app')
-                        self.assertTrue(ctx['access']['ok'])
-                        self.assertEqual(ctx['is_internal_user'], kind == 'none')
-                        self.assertEqual(ctx['scoped_msp'], kind in ('permission', 'contact'))
-                        from nexgen_msp.utils.app_visibility import can_show_msp_app
-                        self.assertTrue(can_show_msp_app(self.staff))
+                    self.assertTrue(ctx['can_open_desk'])
+                    self.assertEqual(ctx['login_destination']['path'], '/app')
+                    self.assertTrue(ctx['access']['ok'])
+                    self.assertEqual(ctx['is_internal_user'], kind == 'none')
+                    self.assertEqual(ctx['scoped_msp'], kind != 'none')
+                    from nexgen_msp.utils.app_visibility import can_show_msp_app
+                    self.assertTrue(can_show_msp_app(self.staff))
                     self.assertEqual(before, self.snapshot(self.staff))
             if kind in ('permission', 'customer_role'):
                 self.assertFalse(access.is_staff(self.staff))
@@ -116,23 +112,36 @@ class TestDeskLanding(LoginRuleCase):
     def test_landing_preserves_cross_customer_api_denial_and_exact_scope(self):
         their_person = self.make_person(self.theirs, 'Other company')
         self.routing(False)
-        before = self.snapshot(self.manager)
-        self.context(self.manager)
-        frappe.set_user(self.manager)
-        try:
-            # Direct exported endpoints, bypassing all React guards.
-            for call in (
-                lambda: portal.list_client_users(customer=self.theirs),
-                lambda: portal.get_user_detail(client_user=their_person),
-                lambda: portal.export_client_users(customer=self.theirs),
-            ):
-                denied = call()
-                self.assertFalse(denied['success'], denied)
-                self.assertEqual(denied['code'], 'PERMISSION_DENIED', denied)
-            self.assertEqual(access.allowed_customers(), [self.mine])
-        finally:
-            frappe.set_user('Administrator')
-        self.assertEqual(before, self.snapshot(self.manager))
+        # Mirror the affected System User alongside an ordinary customer Website User.
+        for role in ('System Manager', 'MSP Technician', 'MSP Customer Manager'):
+            self.give(self.staff, role)
+        permissions.ensure_customer_contact(frappe.get_doc('User', self.staff), self.mine)
+        frappe.get_doc({'doctype': 'User Permission', 'user': self.staff,
+                        'allow': 'Customer', 'for_value': self.mine}).insert(ignore_permissions=True)
+        frappe.clear_cache(user=self.staff)
+        for account in (self.manager, self.staff):
+            before = self.snapshot(account)
+            ctx = self.context(account)
+            self.assertTrue(ctx['access']['ok'])
+            self.assertEqual(ctx['can_open_desk'], account == self.staff)
+            self.assertEqual(ctx['scoped_msp'], account == self.staff)
+            frappe.set_user(account)
+            try:
+                # Direct exported endpoints, bypassing all React guards.
+                for call in (
+                    lambda: portal.list_client_users(customer=self.theirs),
+                    lambda: portal.get_user_detail(client_user=their_person),
+                    lambda: portal.export_client_users(customer=self.theirs),
+                    lambda: portal.save_request_draft(customer=self.theirs),
+                ):
+                    denied = call()
+                    self.assertFalse(denied['success'], denied)
+                    self.assertEqual(denied['code'], 'PERMISSION_DENIED', denied)
+                self.assertEqual(access.allowed_customers(), [self.mine])
+                self.assertFalse(access.has_raw_msp_permission(None))
+            finally:
+                frappe.set_user('Administrator')
+            self.assertEqual(before, self.snapshot(account))
 
     def test_multiple_customer_account_keeps_only_its_existing_intersection(self):
         other = self.make_customer(f'DC{self.tag}')

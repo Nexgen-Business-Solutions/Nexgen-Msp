@@ -41,6 +41,7 @@ class TestDeskLanding(unittest.TestCase):
         self.modules.stop()
 
     def test_customer_roles_cannot_use_an_existing_desk_seat(self):
+        self.frappe.get_roles.return_value = ['MSP Customer Manager', 'Desk User']
         with patch.object(self.rules, 'routing_enabled', return_value=False):
             self.assertFalse(self.rules.desk_reachable())
 
@@ -102,14 +103,39 @@ class TestDeskLanding(unittest.TestCase):
             self.assertTrue(can_show_msp_app())
             self.assertEqual(self.access.allowed_customers(), ['A'])
 
-    def test_desk_seat_does_not_resolve_mixed_role_authority(self):
-        with patch.object(self.rules, 'routing_enabled', return_value=False), \
-             patch.object(self.access, 'declared_customers', return_value={'A'}), \
-             patch.object(self.access, 'permitted_customers', return_value={'A'}):
-            self.assertEqual(self.access.entry()['code'], 'CONFLICTING_ROLES')
+    def test_mixed_staff_login_and_entry_preserve_customer_isolation(self):
+        self.frappe.get_roles.return_value = ['System Manager', 'MSP Technician', 'MSP System Admin',
+                                              'MSP Customer Manager', 'Desk User']
+        internal = types.SimpleNamespace(rule='Nexgen MSP Internal', priority=100, enabled=1,
+                                         desk_access=1, home_route='/msp')
+        portal = types.SimpleNamespace(rule='Nexgen MSP Portal', priority=100, enabled=1,
+                                       desk_access=0, home_route='/msp')
+        with patch.object(self.rules, 'routing_enabled', return_value=True), \
+             patch.object(self.rules, '_direct_assignments', return_value=[]), \
+             patch.object(self.rules, '_role_matches', return_value=[portal, internal]), \
+             patch.object(self.access, 'declared_customers', return_value={'A', 'B'}), \
+             patch.object(self.access, 'permitted_customers', return_value={'A'}) as permissions:
+            self.assertEqual(self.session.login_destination(self.frappe.session.user)['path'], '/app')
+            self.assertTrue(self.access.entry()['ok'])
+            self.assertTrue(self.access.is_scoped_staff())
+            self.assertEqual(self.access.allowed_customers(), ['A'])
+            with self.assertRaises(self.access.ValidationError):
+                self.access.resolve_customer('B')
+            permissions.return_value = set()
+            self.assertEqual(self.access.allowed_customers(), [])
             self.assertFalse(self.access.is_staff())
             self.assertFalse(self.access.can_execute_requests())
+            self.assertFalse(self.access.has_raw_msp_permission(None))
+            internal.desk_access = 0
             self.assertFalse(self.rules.desk_reachable())
+            self.assertFalse(self.access.entry()['ok'])
+            internal.desk_access = 1
+            portal.rule = 'Custom portal rule'
+            self.assertFalse(self.rules.desk_reachable())
+            portal.rule = 'Nexgen MSP Portal'
+            self.system_user.return_value = False
+            self.assertFalse(self.rules.desk_reachable())
+            self.assertFalse(self.access.entry()['ok'])
 
     def test_website_staff_role_does_not_override_customer_binding(self):
         self.frappe.get_roles.return_value = ['MSP Technician']
