@@ -73,11 +73,17 @@ class PrintCase(BillingHistoryCase):
         return frappe.get_print("Sales Invoice", name, print_format=FORMAT, no_letterhead=1)
 
     def table(self, html):
-        """The detail table as a reader sees it: its heading row, then one list per line."""
+        """The detail table as a reader sees it: its heading row, then one list per line.
+
+        The heading is found by its first column rather than by its position: a draft or a
+        cancelled document carries a status band above it, which repeats wherever the table
+        breaks across a page and is not a column heading.
+        """
         block = re.search(r'<table class="items grid">(.*?)</table>', html, re.S)
         rows = [cells(row) for row in re.findall(r"<tr[^>]*>(.*?)</tr>", block.group(1), re.S)]
+        heading = next(index for index, row in enumerate(rows) if row and row[0] == COLUMNS[0])
 
-        return rows[0], rows[1:]
+        return rows[heading], rows[heading + 1 :]
 
     def totals(self, html):
         block = re.search(r'<table class="totals">(.*?)</table>', html, re.S)
@@ -281,3 +287,146 @@ class TestOnThePage(PrintCase):
             self.totals(html)["SUBTOTAL"],
             self.money(sum(item.amount for item in doc.items), doc),
         )
+
+
+class TestTheDocumentSaysWhatItIs(PrintCase):
+    """A printed invoice has to carry its own accounting standing.
+
+    The template chose INVOICE or CREDIT NOTE from `is_return` and said nothing at all about
+    `docstatus`, so a draft printed exactly like a payable document. That is not theoretical:
+    this site leaves `allow_print_for_draft` on, which is how a customer ends up holding an
+    unmarked draft. Frappe refuses to print a cancelled document unless the matching setting
+    is turned on, so that side is a precaution rather than a live hole — but the setting is
+    one click away, and a document printed under it must say what it is.
+
+    The standing is written three ways on purpose: a stamp beside the title, a band inside
+    the detail table's head — which a renderer repeats wherever that table breaks across a
+    page — and a light mark behind the page. Each spells the word, so a grey print still
+    says it, and none is dark enough to cover a figure.
+    """
+
+    CANCELLED_SETTING = "allow_print_for_cancelled"
+
+    def setUp(self):
+        super().setUp()
+        self.kept = frappe.db.get_single_value("Print Settings", self.CANCELLED_SETTING)
+
+    def tearDown(self):
+        frappe.db.set_single_value("Print Settings", self.CANCELLED_SETTING, self.kept)
+        frappe.db.commit()
+        super().tearDown()
+
+    def service(self):
+        """One offering per test: a second one would price the same item twice."""
+        if not getattr(self, "_service", None):
+            self._service = self.offering("PSTD")
+
+        return self._service
+
+    def allow_cancelled(self):
+        frappe.db.set_single_value("Print Settings", self.CANCELLED_SETTING, 1)
+        frappe.db.commit()
+
+    def drawn(self, docstatus, is_return=0):
+        """A document at a given standing.
+
+        Only `docstatus` is moved, because only that is what the template reads: posting it
+        for real would write ledger entries that have nothing to do with what is tested here.
+        """
+        doc = self.invoice(
+            [{
+                "item_code": self.service(),
+                "qty": -1 if is_return else 1,
+                "rate": 100.0,
+                "uom": "Month",
+            }],
+            is_return=is_return,
+        )
+
+        if docstatus:
+            frappe.db.set_value(
+                "Sales Invoice", doc.name, "docstatus", docstatus, update_modified=False
+            )
+
+        return self.printed(doc.name)
+
+    def test_a_draft_says_so_beside_its_title(self):
+        printed = text(self.drawn(0))
+
+        self.assertIn("DRAFT", printed)
+        self.assertIn("INVOICE", printed)
+        self.assertNotIn("CANCELLED", printed)
+
+    def test_a_posted_document_carries_no_standing_at_all(self):
+        printed = text(self.drawn(1))
+
+        self.assertNotIn("DRAFT", printed)
+        self.assertNotIn("CANCELLED", printed)
+        self.assertIn("INVOICE", printed)
+
+    def test_frappe_refuses_a_cancelled_document_before_the_template_is_reached(self):
+        """The first guard is the framework's own, and it is left exactly as it is."""
+        frappe.db.set_single_value("Print Settings", self.CANCELLED_SETTING, 0)
+        frappe.db.commit()
+
+        with self.assertRaises(frappe.PermissionError):
+            self.drawn(2)
+
+    def test_a_cancelled_document_printed_under_that_setting_says_it_is_not_payable(self):
+        self.allow_cancelled()
+
+        printed = text(self.drawn(2))
+
+        self.assertIn("CANCELLED", printed)
+        self.assertIn("not a payable document", printed)
+        self.assertNotIn("DRAFT", printed)
+
+    def test_a_credit_note_keeps_its_own_title_and_takes_the_standing_as_well(self):
+        printed = text(self.drawn(0, is_return=1))
+
+        self.assertIn("CREDIT NOTE", printed)
+        self.assertIn("DRAFT", printed)
+
+    def test_the_standing_rides_in_the_table_head_so_every_page_carries_it(self):
+        """A fixed banner is a renderer's whim; a table head is repeated by both of them."""
+        self.allow_cancelled()
+
+        html = self.drawn(2)
+        head = re.search(r'<table class="items grid">\s*<thead>(.*?)</thead>', html, re.S)
+
+        self.assertIsNotNone(head, "the detail table head was not found")
+        self.assertIn("CANCELLED", text(head.group(1)))
+
+    def test_the_standing_is_spelled_out_and_never_left_to_colour(self):
+        self.allow_cancelled()
+
+        for docstatus, word in ((0, "DRAFT"), (2, "CANCELLED")):
+            printed = text(self.drawn(docstatus))
+
+            self.assertGreaterEqual(printed.count(word), 2, word)
+
+    def test_nothing_about_the_money_moves_with_the_standing(self):
+        """The only difference between the three is the standing itself."""
+        self.allow_cancelled()
+        figures = {}
+
+        for docstatus in (0, 1, 2):
+            html = self.drawn(docstatus)
+            heading, rows = self.table(html)
+            figures[docstatus] = (heading, rows, self.totals(html))
+
+        self.assertEqual(figures[0], figures[1])
+        self.assertEqual(figures[1], figures[2])
+
+    def test_the_status_is_read_off_the_document_and_not_inferred(self):
+        """Never from the run, the route or the name: only the Sales Invoice's own field."""
+        source = frappe.get_app_path(
+            "nexgen_msp", "nexgen_msp", "print_format", "nexgen_msp_invoice",
+            "nexgen_msp_invoice.html",
+        )
+
+        with open(source) as handle:
+            template = handle.read()
+
+        self.assertIn("doc.docstatus", template)
+        self.assertNotIn("billing_run", template.lower())

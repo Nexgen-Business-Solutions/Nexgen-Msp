@@ -21,6 +21,10 @@ interface Props {
   searchable?: boolean;
   onSearch?: (query: string) => void;
   footnote?: ReactNode;
+  /** the control is the one a message is complaining about */
+  invalid?: boolean;
+  /** the id of that message, so a screen reader reads it with the control */
+  describedBy?: string;
 }
 
 // past a handful of entries, scrolling to find one stops being reasonable
@@ -37,6 +41,8 @@ const Select: React.FC<Props> = ({
   searchable,
   onSearch,
   footnote,
+  invalid,
+  describedBy,
 }) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -70,7 +76,13 @@ const Select: React.FC<Props> = ({
         type="button"
         title={selected?.label ?? undefined}
         onClick={() => setOpen((prev) => !prev)}
-        className="flex h-10 w-full items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 text-left transition-colors hover:border-slate-300 focus:outline-none focus:ring-4 focus:ring-blue-100"
+        aria-invalid={invalid || undefined}
+        aria-describedby={describedBy}
+        className={`flex h-10 w-full items-center justify-between gap-2 rounded-lg border bg-white px-3 text-left transition-colors focus:outline-none focus:ring-4 ${
+          invalid
+            ? 'border-amber-400 ring-amber-100 hover:border-amber-500 focus:ring-amber-100'
+            : 'border-slate-200 hover:border-slate-300 focus:ring-blue-100'
+        }`}
       >
         <span className="min-w-0">
           {label && <span className="block text-[11px] font-medium text-slate-500">{label}</span>}

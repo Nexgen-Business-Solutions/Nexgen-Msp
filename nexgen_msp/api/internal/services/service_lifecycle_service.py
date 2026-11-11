@@ -27,8 +27,11 @@ from nexgen_msp.utils.device_status import DEPLOYED_STATUSES
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 # where a service can actually be provided: the catalogue may allow either, a period never does
-TARGET_SCOPES = ("User", "Device")
+TARGET_SCOPES = ("User", "Device", "Customer")
 
+# the field that names the target, where there is one. A customer service is held by the
+# company itself: nothing stands between the assignment and the customer it already carries,
+# so there is no third field and none is wanted
 TARGET_FIELD = {"User": "client_user", "Device": "managed_device"}
 
 # a machine takes a new service while it is out in the field or on the shelf, and no later
@@ -498,7 +501,11 @@ class ServiceLifecycleService:
 
     @staticmethod
     def _lock_target(scope, target):
-        doctype = "MSP Client User" if scope == "User" else "MSP Managed Device"
+        doctype = {
+            "User": "MSP Client User",
+            "Device": "MSP Managed Device",
+            "Customer": "Customer",
+        }[scope]
         frappe.db.sql(f"select name from `tab{doctype}` where name = %s for update", target)
 
     @staticmethod
@@ -593,8 +600,8 @@ class ServiceLifecycleService:
 
         if not scope:
             raise ValidationError(
-                f"{item.item_name or item.name} can be sold to a user or to a device; say "
-                "which one.",
+                f"{item.item_name or item.name} can be sold to a user, to a device or to the "
+                "company itself; say which one.",
                 "VALIDATION_ERROR",
             )
 
@@ -614,7 +621,29 @@ class ServiceLifecycleService:
 
     @staticmethod
     def _target(customer, scope, client_user, managed_device):
-        """The person or the machine the service is for: theirs, and able to take it."""
+        """What the service is for: a person, a machine, or the company itself.
+
+        A customer service has no third record to point at. The company is already on the
+        assignment, so the target is that company — which is also what makes it the row to
+        lock, and the row the duplicate check reads.
+        """
+        if scope == "Customer":
+            if client_user or managed_device:
+                raise ValidationError(
+                    "A customer service carries no user and no device.", "VALIDATION_ERROR"
+                )
+
+            company = frappe.db.get_value(
+                "Customer", customer, ["name", "customer_name"], as_dict=True
+            )
+
+            if not company:
+                raise NotFoundError(f"Customer {customer} not found.", "NOT_FOUND")
+
+            company.label = company.customer_name or company.name
+
+            return company
+
         if scope == "User":
             if managed_device:
                 raise ValidationError(
@@ -861,9 +890,13 @@ class ServiceLifecycleService:
             "customer": customer,
             "service_item": service_item,
             "assignment_scope": scope,
-            TARGET_FIELD[scope]: target,
             "operational_status": ("in", OPEN_ASSIGNMENT_STATUSES),
         }
+
+        # a scope with a target field is asked about that target; one without is asked about
+        # the company, which the filters above already name
+        if scope in TARGET_FIELD:
+            filters[TARGET_FIELD[scope]] = target
 
         found = frappe.get_all("MSP Service Assignment", filters=filters, pluck="name", limit=1)
 

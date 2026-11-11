@@ -505,7 +505,19 @@ export default function DeviceDetail({ portal = false }: { portal?: boolean } = 
                   )}
                   {seesBilling && (
                     <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                      {row.last_billed_on ? fmtDate(row.last_billed_on) : 'Never'}
+                      {/* a service only carries a date of its own once a posted run has
+                          covered it. Until then the machine's own coverage is what is known,
+                          and it is said to be that rather than passed off as an invoice */}
+                      {row.last_billed_on ? (
+                        fmtDate(row.last_billed_on)
+                      ) : device.covered_until ? (
+                        <>
+                          {fmtDate(device.covered_until)}
+                          <div className="text-xs text-slate-400">Device coverage</div>
+                        </>
+                      ) : (
+                        'Never'
+                      )}
                     </td>
                   )}
                   <td className="whitespace-nowrap px-4 py-3">

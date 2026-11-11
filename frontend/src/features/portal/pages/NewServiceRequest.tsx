@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertCircle, ArrowLeft, ArrowRight, Check, Info, Save, Trash2 } from 'lucide-react';
 import { FrappeError } from '@/lib/api/client';
@@ -66,6 +66,43 @@ export default function NewServiceRequest() {
       setCustomer(builder.sourceCustomer);
     }
   }, [onBehalf, builder.sourceCustomer, customer, setCustomer]);
+
+  // staff must say who they are acting for before any of the People actions can open: the
+  // dialogs list that company's people, and a subject saved without one belongs to nobody
+  const needsCustomer = onBehalf && !customer;
+  const [askedWithout, setAskedWithout] = useState(false);
+  const selector = useRef<HTMLDivElement>(null);
+
+  const mayOpen = useCallback(() => {
+    if (!needsCustomer) return true;
+
+    setAskedWithout(true);
+    // the answer belongs on the control it is about, for a pointer and for a keyboard alike
+    selector.current?.querySelector('button')?.focus();
+
+    return false;
+  }, [needsCustomer]);
+
+  useEffect(() => {
+    if (customer) setAskedWithout(false);
+  }, [customer]);
+
+  // what was picked for one company must never be sent under another's name
+  const [carriedOver, setCarriedOver] = useState<string | null>(null);
+  const previousCustomer = useRef<string | null>(null);
+
+  useEffect(() => {
+    const was = previousCustomer.current;
+    previousCustomer.current = customer ?? null;
+
+    // a reopened draft settling onto its own company is a restore, not a switch
+    if (!onBehalf || !was || was === customer || customer === builder.sourceCustomer) return;
+
+    if (builder.subjects.length) {
+      builder.subjects.forEach((subject) => builder.removeSubject(subject.key));
+      setCarriedOver(was);
+    }
+  }, [customer, onBehalf, builder]);
 
   // only the accounts the company's authority matrix names may raise; the server refuses too
   if (rights.data?.can_submit === false) {
@@ -220,18 +257,40 @@ export default function NewServiceRequest() {
       />
 
       {onBehalf && (
-        <div className="w-64">
+        <div className="w-64" ref={selector}>
           <Select
             searchable
             className="w-full"
             value={customer ?? ''}
             onChange={setCustomer}
-            placeholder="Acting for which customer"
+            label="Acting for which customer"
+            placeholder="Choose a customer"
+            invalid={askedWithout}
+            describedBy={askedWithout ? 'customer-required' : undefined}
             options={(options.data?.customers ?? []).map((name) => ({
               value: name,
               label: name,
             }))}
           />
+          {askedWithout && (
+            <p
+              id="customer-required"
+              role="alert"
+              className="mt-1.5 text-xs font-medium text-amber-700"
+            >
+              Select a customer first before adding a new user or device.
+            </p>
+          )}
+        </div>
+      )}
+
+      {carriedOver && (
+        <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+          <Info size={16} className="mt-0.5 shrink-0 text-amber-700" />
+          <p className="text-sm text-amber-900">
+            The people picked for {carriedOver} were cleared when you changed customer. Add
+            them again for {customer}.
+          </p>
         </div>
       )}
 
@@ -279,7 +338,7 @@ export default function NewServiceRequest() {
         </p>
       )}
 
-      {!builder.unrestorable && step === 0 && !hasSubjects && (
+      {!builder.unrestorable && step === 0 && !hasSubjects && !needsCustomer && (
         <p className="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm text-amber-900">
           Add at least one person before continuing.
         </p>
@@ -287,7 +346,9 @@ export default function NewServiceRequest() {
 
       {!builder.unrestorable && (
         <>
-          {step === 0 && <RequestPeopleStep builder={builder} />}
+          {step === 0 && (
+            <RequestPeopleStep builder={builder} mayOpen={mayOpen} customer={customer} />
+          )}
           {step === 1 && <RequestActionsStep builder={builder} />}
           {step === 2 && <RequestDetailsStep builder={builder} />}
           {step === 3 && <RequestReviewStep builder={builder} onEditActions={() => setStep(1)} />}

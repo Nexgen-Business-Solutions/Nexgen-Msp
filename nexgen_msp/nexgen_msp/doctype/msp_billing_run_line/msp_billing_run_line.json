@@ -30,6 +30,7 @@
   "covered_to",
   "section_snapshot",
   "service_name_snapshot",
+  "uom_snapshot",
   "user_name_snapshot",
   "email_snapshot",
   "department_snapshot",
@@ -187,6 +188,12 @@
    "fieldname": "service_name_snapshot",
    "fieldtype": "Data",
    "label": "Service Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "uom_snapshot",
+   "fieldtype": "Data",
+   "label": "UOM Snapshot",
    "read_only": 1
   },
   {

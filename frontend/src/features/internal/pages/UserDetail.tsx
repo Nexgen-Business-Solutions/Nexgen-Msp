@@ -326,7 +326,19 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
                   </td>
                   {seesBilling && (
                     <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                      {service.last_billed_on ? fmtDate(service.last_billed_on) : 'Never'}
+                      {/* a service only carries a date of its own once a posted run has
+                          covered it. Until then the person's own coverage is what is known,
+                          and it is said to be that rather than passed off as an invoice */}
+                      {service.last_billed_on ? (
+                        fmtDate(service.last_billed_on)
+                      ) : data.billing.covered_until ? (
+                        <>
+                          {fmtDate(data.billing.covered_until)}
+                          <div className="text-xs text-slate-400">User coverage</div>
+                        </>
+                      ) : (
+                        'Never'
+                      )}
                     </td>
                   )}
                   {seesBilling && (

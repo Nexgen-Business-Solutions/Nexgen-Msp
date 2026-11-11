@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Building2, Laptop, Layers, Plus, UserPlus, X } from 'lucide-react';
 import FieldLabel from '@/shared/components/FieldLabel';
 import Modal from '@/shared/components/Modal';
@@ -453,10 +453,36 @@ const AddCompany: React.FC<{ builder: Builder; onClose: () => void }> = ({ build
  * loading a Department or the whole company all append rows here. Nothing about a person is
  * worked out in the browser — the row is what the server says they hold and run today.
  */
-const RequestPeopleStep: React.FC<{ builder: Builder }> = ({ builder }) => {
+/**
+ * Picking who a request is about.
+ *
+ * Every one of the five ways in asks the same question first, through one guard rather than
+ * five of its own: staff serve every customer, and a dialog opened before one is named has
+ * nothing to show and no company to save against. The guard answers false and says so where
+ * the answer is — beside the selector — rather than opening an empty dialog.
+ */
+const RequestPeopleStep: React.FC<{
+  builder: Builder;
+  /** false keeps the dialog shut; the caller has said why, where it can be acted on */
+  mayOpen?: () => boolean;
+  /** the company in hand, watched so a dialog of the previous one cannot stay open */
+  customer?: string | null;
+}> = ({ builder, mayOpen, customer }) => {
   const [opened, setOpened] = useState<
     'existing' | 'new' | 'device' | 'department' | 'company' | null
   >(null);
+
+  type Dialog = Exclude<typeof opened, null>;
+
+  /** The one door. Nothing here opens a dialog any other way. */
+  const open = (which: Dialog) => {
+    if (mayOpen && !mayOpen()) return;
+
+    setOpened(which);
+  };
+
+  // a dialog left open across a change of company would list the previous one's people
+  useEffect(() => setOpened(null), [customer]);
   const scope = useRequestScope(builder.subjectDrafts);
   const rows = scope.data?.subjects ?? [];
   const byKey = new Map(rows.map((row) => [row.subject_key, row]));
@@ -495,25 +521,25 @@ const RequestPeopleStep: React.FC<{ builder: Builder }> = ({ builder }) => {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={() => setOpened('existing')} className={actionBtn}>
+          <button type="button" onClick={() => open('existing')} className={actionBtn}>
             <Plus size={13} />
             Existing user
           </button>
-          <button type="button" onClick={() => setOpened('device')} className={actionBtn}>
+          <button type="button" onClick={() => open('device')} className={actionBtn}>
             <Laptop size={13} />
             Select Device
           </button>
-          <button type="button" onClick={() => setOpened('new')} className={actionBtn}>
+          <button type="button" onClick={() => open('new')} className={actionBtn}>
             <UserPlus size={13} />
             New user
           </button>
-          <button type="button" onClick={() => setOpened('department')} className={actionBtn}>
+          <button type="button" onClick={() => open('department')} className={actionBtn}>
             <Layers size={13} />
             Department
           </button>
           <button
             type="button"
-            onClick={() => setOpened('company')}
+            onClick={() => open('company')}
             className={`${actionBtn} border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100`}
           >
             <Building2 size={13} />

@@ -1331,6 +1331,7 @@ export type BillingRunLine = {
   last_billed_on: string | null;
   email: string | null;
   quantity: number;
+  uom: string | null;
   billable_days: number;
   period_days: number;
   billable_months: number;

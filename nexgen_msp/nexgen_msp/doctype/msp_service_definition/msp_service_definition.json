@@ -52,7 +52,7 @@
    "in_standard_filter": 1,
    "label": "Service Scope",
    "mandatory_depends_on": "eval:doc.enabled",
-   "options": "\nUser\nDevice\nBoth"
+   "options": "\nUser\nDevice\nBoth\nCustomer"
   },
   {
    "fieldname": "invoice_label",

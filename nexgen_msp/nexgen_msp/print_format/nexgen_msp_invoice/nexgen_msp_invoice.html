@@ -19,6 +19,9 @@
 {%- macro quantity(item) -%}
   {{ "{:.3f}".format(item.qty | float).rstrip("0").rstrip(".") or "0" }}{% if item.uom %} {{ item.uom }}{% endif %}
 {%- endmacro -%}
+{#- what the accounting document actually is, read off its own docstatus and never off the
+    billing run, the route it was asked for or the name it was given -#}
+{%- set standing = "DRAFT" if doc.docstatus == 0 else ("CANCELLED" if doc.docstatus == 2 else "") -%}
 {#- the percentage the line records, which is not deduced from two rounded prices -#}
 {%- macro percentage(item) -%}
   {%- if item.price_list_rate -%}
@@ -27,13 +30,17 @@
 {%- endmacro -%}
 
 <div class="msp-invoice">
+  {%- if standing %}<div class="standing-mark">{{ standing }}</div>{% endif -%}
   <table class="head">
     <tr>
       <td class="issuer">
         <img width="200" src="/assets/nexgen_msp/images/nexgen-logo.png" alt="{{ msp.issuer_name }}" />
       </td>
       
-      <td class="title">{% if doc.is_return %}CREDIT NOTE{% else %}INVOICE{% endif %}</td>
+      <td class="title">
+        {% if doc.is_return %}CREDIT NOTE{% else %}INVOICE{% endif %}
+        {%- if standing %}<div class="standing {{ standing | lower }}">{{ standing }}</div>{% endif -%}
+      </td>
     </tr>
     <tr>
       <td class="address" colspan="3">
@@ -66,6 +73,9 @@
 
   <table class="items grid">
     <thead>
+      {%- if standing %}
+      <tr><th class="standing-band {{ standing | lower }}" colspan="7">{{ standing }} — not a payable document</th></tr>
+      {% endif -%}
       <tr>
         <th class="band desc">DESCRIPTION</th>
         <th class="band center billed">USERS/DEVICES</th>
@@ -211,6 +221,30 @@
   .head .title {
     width: 28%; text-align: right; vertical-align: top;
     font-size: 21pt; font-weight: bold; color: #0e2e4b; letter-spacing: 1px;
+  }
+
+  /* Said three ways on purpose. The stamp carries page one, the band repeats wherever the
+     lines break across a page, and the mark behind them is the belt to that pair of braces.
+     Colour alone never carries it: each one spells the word, so a grey print still says it. */
+  .head .standing {
+    margin-top: 4px; font-size: 12pt; letter-spacing: 2px;
+    border: 2px solid currentColor; border-radius: 3px; padding: 2px 8px; display: inline-block;
+  }
+  .head .standing.draft { color: #9a6700; }
+  .head .standing.cancelled { color: #b42318; }
+
+  .msp-invoice th.standing-band {
+    text-align: center; font-size: 9pt; font-weight: bold; letter-spacing: 1.5px;
+    padding: 4px 7px; color: #ffffff;
+  }
+  .msp-invoice th.standing-band.draft { background: #9a6700; }
+  .msp-invoice th.standing-band.cancelled { background: #b42318; }
+
+  /* light enough that it can never hide a line, a bank detail or a total */
+  .standing-mark {
+    position: fixed; top: 42%; left: 0; right: 0; text-align: center;
+    font-size: 72pt; font-weight: bold; letter-spacing: 8px;
+    color: rgba(180, 35, 24, 0.10); transform: rotate(-24deg);
   }
   .head .address { padding-top: 6px; padding-bottom: 14px; font-size: 8.5pt; font-weight: bold; }
   .head .site { color: #1155cc; text-decoration: none; font-weight: normal; }

@@ -254,7 +254,13 @@ class RequestBuilderService:
         person who does not exist holds nothing, so nothing can be filtered out as already
         had.
         """
-        sellable = ("User", "Both") if scope == "User" else ("Device", "Both")
+        # a scope is sold what the catalogue marks for it, plus what it marks for either.
+        # Customer stands alone: a service the company holds is never also a person's
+        sellable = {
+            "User": ("User", "Both"),
+            "Device": ("Device", "Both"),
+            "Customer": ("Customer",),
+        }.get(scope, ("Device", "Both"))
         offered = []
 
         for item in ServiceDefinitionService.available_rows():

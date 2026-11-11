@@ -25,6 +25,7 @@ const SCOPE_LABEL: Record<string, string> = {
   User: 'User',
   Device: 'Device',
   Both: 'Both',
+  Customer: 'Customer',
 };
 
 const EMPTY: FilterState = { scope: '', status: '', focus: '' };

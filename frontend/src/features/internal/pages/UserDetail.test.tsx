@@ -282,6 +282,51 @@ describe('what is theirs and what the machine carries', () => {
     expect(screen.getByRole('columnheader', { name: 'Billed up to' })).toBeInTheDocument();
     expect(screen.queryByText('Quantity')).not.toBeInTheDocument();
   });
+
+  it('falls back to the person\'s own coverage, and says that is what it is', async () => {
+    // most companies came in through the import, which records coverage against the person
+    // and never as billing run lines. Those services read "Never" while the person above
+    // them read a real date, which is the same screen contradicting itself
+    await renderPage(
+      detail({
+        services: [portfolio({ last_billed_on: null })],
+        billing: { covered_until: '2026-09-30', last_billed_on: null },
+      })
+    );
+
+    const table = screen.getByRole('columnheader', { name: 'Billed up to' }).closest('table');
+
+    expect(within(table as HTMLElement).getByText('2026-09-30')).toBeInTheDocument();
+    expect(within(table as HTMLElement).getByText('User coverage')).toBeInTheDocument();
+    expect(within(table as HTMLElement).queryByText('Never')).not.toBeInTheDocument();
+  });
+
+  it('prefers what a posted run actually covered, with no provenance note', async () => {
+    await renderPage(
+      detail({
+        services: [portfolio({ last_billed_on: '2026-06-30' })],
+        billing: { covered_until: '2026-09-30', last_billed_on: null },
+      })
+    );
+
+    const table = screen.getByRole('columnheader', { name: 'Billed up to' }).closest('table');
+
+    expect(within(table as HTMLElement).getByText('2026-06-30')).toBeInTheDocument();
+    expect(within(table as HTMLElement).queryByText('User coverage')).not.toBeInTheDocument();
+  });
+
+  it('still says Never when nothing anywhere has a date', async () => {
+    await renderPage(
+      detail({
+        services: [portfolio({ last_billed_on: null })],
+        billing: { covered_until: null, last_billed_on: null },
+      })
+    );
+
+    const table = screen.getByRole('columnheader', { name: 'Billed up to' }).closest('table');
+
+    expect(within(table as HTMLElement).getByText('Never')).toBeInTheDocument();
+  });
 });
 
 describe('Nexgen acts directly from here', () => {
