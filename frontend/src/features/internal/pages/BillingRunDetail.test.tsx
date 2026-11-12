@@ -296,3 +296,36 @@ describe('when the run and ERPNext do not agree', () => {
     ).toBeInTheDocument();
   });
 });
+
+describe('a run and a document drawn in two different currencies', () => {
+  /**
+   * The run's own figure was printed with the document's currency, under a note saying the
+   * two could not be compared — and a difference was worked out between them all the same.
+   */
+  it('says each amount in its own money, and subtracts nothing across the two', async () => {
+    vi.mocked(internal.getBillingRunView).mockResolvedValue(
+      view({
+        currency: 'XAF',
+        reconciliation: {
+          currency: 'USD',
+          run_currency: 'XAF',
+          run_amount: 1000,
+          net_total: 1000,
+          taxes: 180,
+          grand_total: 1180,
+          difference: null,
+          currency_mismatch: { run: 'XAF', invoice: 'USD' },
+          item_differences: [],
+          material: true,
+          basis: 'Run amount and net total are both before taxes.',
+        },
+      })
+    );
+    draw();
+
+    expect(await screen.findByText('1,000.00 XAF')).toBeInTheDocument();
+    expect(screen.getByText('1,000.00 USD')).toBeInTheDocument();
+    expect(screen.getByText('Not comparable')).toBeInTheDocument();
+    expect(screen.getByText(/cannot be compared/)).toBeInTheDocument();
+  });
+});

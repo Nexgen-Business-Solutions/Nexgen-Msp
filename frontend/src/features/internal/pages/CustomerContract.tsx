@@ -767,7 +767,7 @@ export default function CustomerContract() {
                       {row.uom ? ` ${row.uom}` : ''}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3">
-                      <StatusBadge status={row.operational_status} />
+                      <StatusBadge value={row.operational_status} />
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-500">
                       {row.billing_status}
@@ -779,7 +779,7 @@ export default function CustomerContract() {
                       <RowActionsMenu
                         actions={[
                           {
-                            label: 'Change quantity',
+                            label: 'Change quantity or rate',
                             icon: Pencil,
                             onClick: () => setChangingHeld(row),
                             disabled: row.operational_status !== 'Active',

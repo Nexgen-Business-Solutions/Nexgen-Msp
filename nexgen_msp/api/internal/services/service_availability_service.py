@@ -275,6 +275,9 @@ class ServiceAvailabilityService:
                 # what the quantity counts: a block of storage is not a month
                 "uom",
                 "effective_start_date",
+                # the terms in force, so a screen changing them can show what they are
+                "agreed_rate",
+                "price_source",
             ],
             order_by="effective_start_date asc",
         )

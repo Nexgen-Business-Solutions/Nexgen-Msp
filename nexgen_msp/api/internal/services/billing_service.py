@@ -2789,18 +2789,24 @@ class BillingService:
             else None
         )
         lines = BillingService._item_differences(doc)
+        # two amounts in two different currencies have no difference to state: the run's
+        # own figure is said in its own money, and nothing is subtracted across the two
+        comparable = not mismatch
 
         return {
             "currency": card.currency,
+            "run_currency": doc.currency,
             "run_amount": run_amount,
             "net_total": net_total,
             "taxes": flt(card.total_taxes_and_charges, 2),
             "grand_total": money.signed(payable, credit),
-            "difference": difference,
+            "difference": difference if comparable else None,
             "currency_mismatch": mismatch,
             "item_differences": lines,
             # the two were worked out from the same lines, so any gap is somebody's edit
-            "material": abs(difference) > 0.005 or bool(mismatch) or bool(lines),
+            "material": (comparable and abs(difference) > 0.005)
+            or bool(mismatch)
+            or bool(lines),
             "basis": "Run amount and net total are both before taxes.",
         }
 

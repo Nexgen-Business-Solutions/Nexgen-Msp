@@ -417,7 +417,10 @@ export default function BillingRunDetail() {
                   rows={[
                     {
                       label: 'Run amount',
-                      value: money(data.reconciliation.run_amount, data.reconciliation.currency),
+                      value: money(
+                        data.reconciliation.run_amount,
+                        data.reconciliation.run_currency ?? data.reconciliation.currency
+                      ),
                     },
                     {
                       label: 'Document net total',
@@ -439,7 +442,9 @@ export default function BillingRunDetail() {
                             data.reconciliation.material ? 'text-amber-700' : 'text-slate-700'
                           }
                         >
-                          {money(data.reconciliation.difference, data.reconciliation.currency)}
+                          {data.reconciliation.difference === null
+                            ? 'Not comparable'
+                            : money(data.reconciliation.difference, data.reconciliation.currency)}
                         </span>
                       ),
                     },
@@ -467,7 +472,7 @@ export default function BillingRunDetail() {
                             ? 'on the run, not on the document'
                             : row.state === 'added'
                               ? 'on the document, not on the run'
-                              : `run says ${row.run_qty} for ${money(row.run_amount, data.reconciliation?.currency)}, document says ${row.invoice_qty} for ${money(row.invoice_amount, data.reconciliation?.currency)}`}
+                              : `run says ${row.run_qty} for ${money(row.run_amount, data.reconciliation?.run_currency ?? data.reconciliation?.currency)}, document says ${row.invoice_qty} for ${money(row.invoice_amount, data.reconciliation?.currency)}`}
                         </li>
                       ))}
                     </ul>

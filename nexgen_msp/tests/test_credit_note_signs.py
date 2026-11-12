@@ -264,6 +264,29 @@ class TestTheTwoAmountsAreNotTheSame(SignCase):
         self.assertLess(view["reconciliation"]["difference"], 0)
         self.assertEqual(view["status"], "Invoiced", "an edited document is still a posted one")
 
+    def test_two_amounts_in_two_currencies_are_never_a_reconciliation(self):
+        """Equal figures in two different monies agree about nothing.
+
+        The difference was still worked out across them, so a document somebody moved to
+        another currency read as perfectly reconciled: 100 − 100 = 0, in neither currency.
+        """
+        run = self.charge()
+        invoice = run_view.run_view(run)["sales_invoice"]
+        ours = frappe.db.get_value(RUN, run, "currency")
+        theirs = "EUR" if ours != "EUR" else "USD"
+
+        frappe.db.set_value(INVOICE, invoice, "currency", theirs, update_modified=False)
+
+        reconciliation = run_view.run_view(run)["reconciliation"]
+
+        self.assertEqual(reconciliation["currency_mismatch"], {"run": ours, "invoice": theirs})
+        self.assertIsNone(
+            reconciliation["difference"], "nothing is subtracted across two currencies"
+        )
+        self.assertEqual(reconciliation["run_currency"], ours)
+        self.assertEqual(reconciliation["currency"], theirs)
+        self.assertTrue(reconciliation["material"])
+
     def test_a_credit_notes_two_amounts_both_read_as_deductions(self):
         note = self.credit(self.charge())
         reconciliation = run_view.run_view(note)["reconciliation"]

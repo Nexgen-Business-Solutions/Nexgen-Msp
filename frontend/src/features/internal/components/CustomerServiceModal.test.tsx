@@ -25,6 +25,8 @@ const storage: ServiceAvailabilityCurrent = {
   quantity: 5,
   uom: 'TB',
   effective_start_date: '2026-01-01',
+  agreed_rate: 42,
+  price_source: 'Manual Override',
 };
 
 const reading = (overrides: Partial<ServiceAvailability> = {}): ServiceAvailability => ({
@@ -118,11 +120,11 @@ describe('CustomerServiceModal', () => {
 
     expect(await screen.findByText('Cloud Storage')).toBeInTheDocument();
     expect(screen.getByText(/Counted in TB/)).toBeInTheDocument();
-    // the quantity it already holds is not a change
-    expect(screen.getByRole('button', { name: /^change quantity$/i })).toBeDisabled();
+    // the quantity and the rate it already holds are not a change
+    expect(screen.getByRole('button', { name: /^save change$/i })).toBeDisabled();
 
     fireEvent.change(screen.getByLabelText('Quantity'), { target: { value: '8' } });
-    fireEvent.click(screen.getByRole('button', { name: /^change quantity$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^save change$/i }));
 
     await waitFor(() =>
       expect(vi.mocked(internal.changeCustomerService).mock.calls[0][0]).toMatchObject({
@@ -132,5 +134,79 @@ describe('CustomerServiceModal', () => {
       })
     );
     expect(internal.assignCustomerService).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The rate was the one term of a company service the screen could not say anything about,
+   * so a price agreed on the telephone had to be written in the Desk.
+   */
+  it('changes the rate on file, with the reason it was agreed at', async () => {
+    open(reading({ current: [storage] }), storage);
+
+    // the rate it is sold at now is what the form opens on
+    expect(await screen.findByLabelText('Agreed rate')).toHaveValue(42);
+
+    fireEvent.change(screen.getByLabelText('Agreed rate'), { target: { value: '36' } });
+    fireEvent.change(await screen.findByLabelText('Why this rate'), {
+      target: { value: 'Renegotiated for the 2027 renewal' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^save change$/i }));
+
+    await waitFor(() =>
+      expect(vi.mocked(internal.changeCustomerService).mock.calls[0][0]).toMatchObject({
+        assignment: 'SA-0001',
+        action: 'Change',
+        quantity: 5,
+        agreed_rate: 36,
+        rate_override_reason: 'Renegotiated for the 2027 renewal',
+      })
+    );
+  });
+
+  it('will not change a rate without saying why', async () => {
+    open(reading({ current: [storage] }), storage);
+
+    fireEvent.change(await screen.findByLabelText('Agreed rate'), { target: { value: '36' } });
+
+    expect(screen.getByRole('button', { name: /^save change$/i })).toBeDisabled();
+    expect(internal.changeCustomerService).not.toHaveBeenCalled();
+  });
+
+  it('leaves the rate alone when only the quantity moves', async () => {
+    open(reading({ current: [storage] }), storage);
+
+    fireEvent.change(await screen.findByLabelText('Quantity'), { target: { value: '8' } });
+    fireEvent.click(screen.getByRole('button', { name: /^save change$/i }));
+
+    await waitFor(() => expect(internal.changeCustomerService).toHaveBeenCalled());
+
+    const sent = vi.mocked(internal.changeCustomerService).mock.calls[0][0];
+
+    // nothing about the rate is sent, so the service keeps the 42 it was agreed at
+    expect(sent).not.toHaveProperty('agreed_rate');
+    expect(sent).not.toHaveProperty('rate_override_reason');
+    expect(screen.queryByLabelText('Why this rate')).not.toBeInTheDocument();
+  });
+
+  it('asks for a reason when a new service is given a rate by hand', async () => {
+    open();
+
+    fireEvent.click(await screen.findByRole('button', { name: /select a service/i }));
+    fireEvent.click(await screen.findByRole('option', { name: /cloud storage/i }));
+    fireEvent.change(screen.getByLabelText('Agreed rate'), { target: { value: '42' } });
+
+    expect(screen.getByRole('button', { name: /^add service$/i })).toBeDisabled();
+
+    fireEvent.change(await screen.findByLabelText('Why this rate'), {
+      target: { value: 'Agreed at signature' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^add service$/i }));
+
+    await waitFor(() =>
+      expect(vi.mocked(internal.assignCustomerService).mock.calls[0][0]).toMatchObject({
+        agreed_rate: 42,
+        rate_override_reason: 'Agreed at signature',
+      })
+    );
   });
 });

@@ -1147,6 +1147,8 @@ def change_customer_service(
     confirm_billed=0,
     quantity=None,
     service_item=None,
+    agreed_rate=None,
+    rate_override_reason=None,
 ):
     return _customers().change_service(
         assignment=assignment,
@@ -1157,6 +1159,8 @@ def change_customer_service(
         confirm_billed=confirm_billed,
         quantity=quantity,
         service_item=service_item,
+        agreed_rate=agreed_rate,
+        rate_override_reason=rate_override_reason,
     )
 
 

@@ -25,6 +25,9 @@ const inputClass =
  * There is no person and no machine to name, so the only thing the form asks beyond the
  * service is how much of it — and that quantity is the whole reason a company line reads
  * "5 TB" rather than "1".
+ *
+ * What it is sold at is asked here too. A rate agreed by hand is the one number Billing
+ * takes literally, so it is never changed silently: the reason is asked with it.
  */
 const CustomerServiceModal: React.FC<Props> = ({
   customer,
@@ -39,12 +42,21 @@ const CustomerServiceModal: React.FC<Props> = ({
 
   const [service, setService] = useState('');
   const [quantity, setQuantity] = useState('1');
+  const [rate, setRate] = useState('');
+  const [reason, setReason] = useState('');
   const [effectiveDate, setEffectiveDate] = useState(today());
   const [notes, setNotes] = useState('');
+
+  const held =
+    changing?.price_source === 'Manual Override' && changing?.agreed_rate != null
+      ? Number(changing.agreed_rate)
+      : null;
 
   useEffect(() => {
     setService(changing?.service_item ?? '');
     setQuantity(String(changing?.quantity ?? 1));
+    setRate(held === null ? '' : String(held));
+    setReason('');
     setEffectiveDate(today());
     setNotes('');
     assign.reset();
@@ -56,11 +68,23 @@ const CustomerServiceModal: React.FC<Props> = ({
   const available = refusal ? [] : (reading?.available ?? []);
   const selected = available.find((item) => item.service_item === service);
   const asked = Number(quantity);
-  const impossible = !Number.isFinite(asked) || asked <= 0;
-  const unchanged = Boolean(changing) && asked === Number(changing?.quantity ?? 0);
+  const wanted = rate.trim() === '' ? null : Number(rate);
+  const repriced = wanted !== null && wanted !== held;
+  const unexplained = repriced && !reason.trim();
+  const impossible =
+    !Number.isFinite(asked) ||
+    asked <= 0 ||
+    (wanted !== null && (!Number.isFinite(wanted) || wanted < 0));
+  const unchanged =
+    Boolean(changing) && asked === Number(changing?.quantity ?? 0) && !repriced;
 
   const submit = async () => {
     try {
+      // a rate that was not touched is not sent: the service keeps the terms it has
+      const priced = repriced
+        ? { agreed_rate: wanted as number, rate_override_reason: reason.trim() }
+        : {};
+
       if (changing) {
         await change.mutateAsync({
           assignment: changing.name,
@@ -68,6 +92,7 @@ const CustomerServiceModal: React.FC<Props> = ({
           quantity: asked,
           effective_date: effectiveDate || undefined,
           notes: notes.trim() || undefined,
+          ...priced,
         });
       } else {
         await assign.mutateAsync({
@@ -76,6 +101,7 @@ const CustomerServiceModal: React.FC<Props> = ({
           quantity: asked,
           effective_date: effectiveDate || undefined,
           notes: notes.trim() || undefined,
+          ...priced,
         });
       }
 
@@ -91,7 +117,7 @@ const CustomerServiceModal: React.FC<Props> = ({
       onClose={onClose}
       icon={Building2}
       tone="emerald"
-      title={changing ? 'Change how much the company holds' : 'Add a service the company holds'}
+      title={changing ? 'Change what the company holds' : 'Add a service the company holds'}
       subtitle={label || customer}
       widthClass="max-w-2xl"
       footer={
@@ -106,13 +132,13 @@ const CustomerServiceModal: React.FC<Props> = ({
           <button
             type="button"
             onClick={submit}
-            disabled={!service || impossible || unchanged || acting.isLoading}
+            disabled={!service || impossible || unchanged || unexplained || acting.isLoading}
             className="flex min-w-[7rem] items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {acting.isLoading ? (
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
             ) : changing ? (
-              'Change quantity'
+              'Save change'
             ) : (
               'Add service'
             )}
@@ -173,6 +199,24 @@ const CustomerServiceModal: React.FC<Props> = ({
           </div>
 
           <div>
+            <FieldLabel>Agreed rate</FieldLabel>
+            <input
+              type="number"
+              min="0"
+              step="any"
+              value={rate}
+              onChange={(event) => setRate(event.target.value)}
+              aria-label="Agreed rate"
+              className={inputClass}
+            />
+            <p className="mt-1 text-xs text-slate-400">
+              {held === null
+                ? 'Leave it empty to sell it at the contract rate.'
+                : `Agreed by hand at ${held}. Leave it as it is to keep that rate.`}
+            </p>
+          </div>
+
+          <div>
             <FieldLabel>Effective date</FieldLabel>
             <input
               type="date"
@@ -183,6 +227,23 @@ const CustomerServiceModal: React.FC<Props> = ({
             />
           </div>
         </div>
+
+        {repriced && (
+          <div>
+            <FieldLabel required>Why this rate</FieldLabel>
+            <input
+              type="text"
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              placeholder="What was agreed, and with whom."
+              aria-label="Why this rate"
+              className={inputClass}
+            />
+            <p className="mt-1 text-xs text-slate-400">
+              Billing takes this rate literally, so the reason is kept with the number.
+            </p>
+          </div>
+        )}
 
         {changing && (
           <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">

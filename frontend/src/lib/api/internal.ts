@@ -1169,6 +1169,9 @@ export type ServiceAvailabilityCurrent = {
   quantity: number;
   uom: string | null;
   effective_start_date: string | null;
+  /** what the period is sold at, and where that number came from */
+  agreed_rate: number | null;
+  price_source: string;
 };
 
 export type ServiceAvailabilityOffer = {
@@ -1215,6 +1218,8 @@ export const changeCustomerService = (payload: {
   notes?: string;
   confirm_billed?: number;
   quantity?: number;
+  agreed_rate?: number;
+  rate_override_reason?: string;
 }) => post<ServiceAvailability>(`${BASE}.change_customer_service`, payload);
 
 export type ContractOptions = {
@@ -1328,11 +1333,14 @@ export type BillingRunRow = {
   /** the run's calculation beside the document's own totals, on the one comparable basis */
   reconciliation: {
     currency: string | null;
+    /** the money the run was drawn in, which its own amount is said in */
+    run_currency: string | null;
     run_amount: number;
     net_total: number;
     taxes: number;
     grand_total: number;
-    difference: number;
+    /** null when the two are in different currencies: there is nothing to subtract */
+    difference: number | null;
     /** the run and its document in two different currencies: never a rounding story */
     currency_mismatch: { run: string | null; invoice: string | null } | null;
     /** the services whose quantity or amount the document no longer agrees with */
@@ -1423,11 +1431,14 @@ export type BillingRunDetail = {
   /** the run's calculation beside the document's own totals, on the one comparable basis */
   reconciliation: {
     currency: string | null;
+    /** the money the run was drawn in, which its own amount is said in */
+    run_currency: string | null;
     run_amount: number;
     net_total: number;
     taxes: number;
     grand_total: number;
-    difference: number;
+    /** null when the two are in different currencies: there is nothing to subtract */
+    difference: number | null;
     /** the run and its document in two different currencies: never a rounding story */
     currency_mismatch: { run: string | null; invoice: string | null } | null;
     /** the services whose quantity or amount the document no longer agrees with */

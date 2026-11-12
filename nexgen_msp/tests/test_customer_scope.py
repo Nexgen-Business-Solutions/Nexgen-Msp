@@ -531,6 +531,103 @@ class TestTheCompanyPageSellsOne(CustomerScopeCase):
         self.assertEqual([flt_round(row.quantity) for row in periods], [5.0, 8.0])
         self.assertEqual(periods[1].operational_status, "Active")
 
+    def held_periods(self):
+        """Every period of the company's retainer, oldest first, with its commercial terms."""
+        rows = frappe.get_all(
+            ASSIGNMENT,
+            filters={"customer": self.customer, "service_item": self.retainer},
+            fields=[
+                "name",
+                "quantity",
+                "agreed_rate",
+                "price_source",
+                "rate_override_reason",
+                "operational_status",
+            ],
+            order_by="effective_start_date asc",
+        )
+
+        for row in rows:
+            self.track(ASSIGNMENT, row.name)
+
+        return rows
+
+    def test_a_disabled_company_is_not_sold_a_service_through_the_api(self):
+        """The catalogue refuses to offer one. The door is not the screen, and must refuse too.
+
+        The reading was the only thing standing in the way, so a direct call to the API
+        opened a new service for a company nobody sells to any more.
+        """
+        frappe.db.set_value("Customer", self.customer, "disabled", 1)
+
+        self.assertIn("disabled", self.reading()["target_reason"] or "")
+
+        with self.assertRaises(ValidationError):
+            self.door().assign_service(
+                customer=self.customer,
+                service_item=self.retainer,
+                effective_date="2026-01-01",
+                quantity=5,
+            )
+
+        self.assertFalse(
+            frappe.get_all(
+                ASSIGNMENT, filters={"customer": self.customer}, pluck="name"
+            ),
+            "nothing was opened behind the refusal",
+        )
+
+    def test_the_change_door_carries_a_new_rate_and_the_reason_for_it(self):
+        held = self.open_one(quantity=5, agreed_rate=42.0, rate_override_reason="Signed at 42")
+
+        self.door().change_service(
+            assignment=held,
+            action="Change",
+            effective_date="2026-03-01",
+            quantity=5,
+            agreed_rate=36.0,
+            rate_override_reason="Renegotiated for the renewal",
+        )
+
+        periods = self.held_periods()
+
+        self.assertEqual([flt_round(row.agreed_rate) for row in periods], [42.0, 36.0])
+        self.assertEqual(periods[1].price_source, "Manual Override")
+        self.assertEqual(periods[1].rate_override_reason, "Renegotiated for the renewal")
+        # the period already invoiced keeps the rate its invoice was drawn on
+        self.assertEqual(periods[0].rate_override_reason, "Signed at 42")
+
+    def test_the_change_door_refuses_a_new_rate_with_no_reason(self):
+        held = self.open_one(quantity=5, agreed_rate=42.0, rate_override_reason="Signed at 42")
+
+        with self.assertRaises(ValidationError):
+            self.door().change_service(
+                assignment=held,
+                action="Change",
+                effective_date="2026-03-01",
+                quantity=5,
+                agreed_rate=36.0,
+            )
+
+        # the running period is untouched: a refused change changes nothing
+        self.assertEqual(
+            frappe.db.get_value(ASSIGNMENT, held, "operational_status"), "Active"
+        )
+        self.assertEqual(len(self.held_periods()), 1)
+
+    def test_a_quantity_change_through_the_door_keeps_the_rate_agreed_by_hand(self):
+        held = self.open_one(quantity=5, agreed_rate=42.0, rate_override_reason="Signed at 42")
+
+        self.door().change_service(
+            assignment=held, action="Change", effective_date="2026-03-01", quantity=8
+        )
+
+        periods = self.held_periods()
+
+        self.assertEqual([flt_round(row.quantity) for row in periods], [5.0, 8.0])
+        self.assertEqual(flt_round(periods[1].agreed_rate), 42.0)
+        self.assertEqual(periods[1].price_source, "Manual Override")
+
 
 class TestWhatTheCustomerSeesOfIt(CustomerScopeCase):
     """A company service is the company's, and belongs to nobody on their register.

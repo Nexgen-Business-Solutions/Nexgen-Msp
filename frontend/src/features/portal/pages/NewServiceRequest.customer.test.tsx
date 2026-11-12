@@ -286,6 +286,50 @@ describe('what was picked for one company never travels to another', () => {
   });
 });
 
+const companyDomain = () => ({
+  customer: 'ACI',
+  selected_subject_count: 0,
+  domains: [
+    {
+      key: 'Company' as const,
+      label: 'The company itself',
+      options: [
+        {
+          object_key: 'ITEM-STORAGE',
+          object_label: 'Cloud Storage',
+          service_scope: 'Customer',
+          current_count: 0,
+          without_count: 1,
+          actions: [
+            {
+              operation_code: 'service.add',
+              operation_label: 'Add',
+              operation_label_snapshot: 'Add Cloud Storage',
+              object_key: 'ITEM-STORAGE',
+              object_label: 'Cloud Storage',
+              targets: [
+                {
+                  subject_key: 'company',
+                  client_user: null,
+                  full_name: 'ACI',
+                  target_scope: 'Customer' as const,
+                  managed_device: null,
+                  device_label: null,
+                  source_service_assignment: null,
+                },
+              ],
+              exclusions: [],
+              applicable_target_count: 1,
+              applicable_subject_count: 1,
+              excluded_subject_count: 0,
+            },
+          ],
+        },
+      ],
+    },
+  ],
+});
+
 describe('a request about the company itself', () => {
   /**
    * A company service names nobody, so such a request has no people in it at all — and the
@@ -308,5 +352,34 @@ describe('a request about the company itself', () => {
     expect(
       screen.getByText(/This request is about the company itself/)
     ).toBeInTheDocument();
+  });
+
+  /**
+   * The acts of a scope were only ever asked for once somebody was selected, so a request
+   * about the company reached this step and found it empty: the service it is entirely
+   * about was never offered. This holds the real hook, not a stand-in for it.
+   */
+  it('offers the company its own services with nobody selected', async () => {
+    vi.mocked(portal.evaluateRequestOperations).mockResolvedValue(companyDomain() as never);
+    renderPage();
+    await chooseCustomer('ACI');
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /about the company itself/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /continue/i }));
+
+    expect(await screen.findByText('The company itself')).toBeInTheDocument();
+    expect(vi.mocked(portal.evaluateRequestOperations).mock.calls[0][0]).toMatchObject({
+      subject_keys: [],
+    });
+
+    fireEvent.change(await screen.findByLabelText('How much of Cloud Storage'), {
+      target: { value: '5' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^add$/i }));
+
+    // the act is on the request now, so the step has something to go on with
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /continue/i })).toBeEnabled()
+    );
   });
 });

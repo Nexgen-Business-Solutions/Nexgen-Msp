@@ -703,6 +703,8 @@ class CustomerService:
         confirm_billed=0,
         quantity=None,
         service_item=None,
+        agreed_rate=None,
+        rate_override_reason=None,
     ):
         """Suspend, resume, change or end a service the company holds.
 
@@ -751,7 +753,12 @@ class CustomerService:
         extra = {"confirm_billed": confirm_billed} if action in ("Suspend", "Resume") else {}
 
         if action == "Change":
-            extra = {"quantity": quantity, "service_item": service_item or None}
+            extra = {
+                "quantity": quantity,
+                "service_item": service_item or None,
+                "agreed_rate": agreed_rate,
+                "rate_override_reason": rate_override_reason,
+            }
 
         acts[action](
             assignment=assignment,

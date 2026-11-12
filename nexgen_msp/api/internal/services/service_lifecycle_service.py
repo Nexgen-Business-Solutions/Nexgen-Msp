@@ -655,13 +655,21 @@ class ServiceLifecycleService:
                 )
 
             company = frappe.db.get_value(
-                "Customer", customer, ["name", "customer_name"], as_dict=True
+                "Customer", customer, ["name", "customer_name", "disabled"], as_dict=True
             )
 
             if not company:
                 raise NotFoundError(f"Customer {customer} not found.", "NOT_FOUND")
 
             company.label = company.customer_name or company.name
+
+            # the catalogue already refuses to offer anything to a disabled company, and the
+            # screen is not the only way in: a direct call has to meet the same answer
+            if frappe.utils.cint(company.disabled):
+                raise ValidationError(
+                    f"{company.label} is disabled and cannot be sold a new service.",
+                    "VALIDATION_ERROR",
+                )
 
             return company
 
