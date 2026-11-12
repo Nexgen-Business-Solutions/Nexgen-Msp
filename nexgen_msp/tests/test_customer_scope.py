@@ -552,6 +552,43 @@ class TestTheCompanyPageSellsOne(CustomerScopeCase):
 
         return rows
 
+    def test_a_prepared_service_the_company_never_got_is_cancelled(self):
+        """A service waiting for setup is dropped, not ended.
+
+        The company page offered End service for one of those, and the engine refused the
+        transition: nothing was ever provided, so there is nothing to stop providing. The
+        act it needed was the one the engine already had, and this door did not list it.
+        """
+        prepared = self.track(
+            ASSIGNMENT,
+            ServiceLifecycleService.create_pending(
+                customer=self.customer,
+                service_item=self.retainer,
+                target_scope="Customer",
+                effective_date="2026-01-01",
+                quantity=5,
+            )["name"],
+        )
+
+        self.door().change_service(assignment=prepared, action="Cancel")
+
+        self.assertEqual(
+            frappe.db.get_value(ASSIGNMENT, prepared, "operational_status"), "Cancelled"
+        )
+
+    def test_a_running_service_is_ended_and_never_cancelled(self):
+        held = self.open_one(quantity=5)
+
+        # the refusal has to be the engine's own — the door used to answer that it had
+        # never heard of the act, which said nothing about the state of this service
+        with self.assertRaisesRegex(ValidationError, "waiting for setup"):
+            self.door().change_service(assignment=held, action="Cancel")
+
+        # and it is still being provided, because a refused act changes nothing
+        self.assertEqual(
+            frappe.db.get_value(ASSIGNMENT, held, "operational_status"), "Active"
+        )
+
     def test_a_disabled_company_is_not_sold_a_service_through_the_api(self):
         """The catalogue refuses to offer one. The door is not the screen, and must refuse too.
 

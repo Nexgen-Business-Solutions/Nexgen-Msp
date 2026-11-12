@@ -22,6 +22,7 @@ import SectionIcon from '@/shared/components/SectionIcon';
 import ConfirmModal from '@/shared/components/ConfirmModal';
 import Modal from '@/shared/components/Modal';
 import RowActionsMenu, { type RowAction } from '@/shared/components/RowActionsMenu';
+import { today } from '@/shared/lib/today';
 import ContractModal from '../components/ContractModal';
 import CustomerModal from '../components/CustomerModal';
 import AuthorityPanel from '../components/AuthorityPanel';
@@ -66,6 +67,33 @@ const AGREEMENT_COLUMNS = [
 ];
 
 const HELD_COLUMNS = ['Service', 'Quantity', 'State', 'Billing', 'Since', ''];
+
+/** What each act does to a service the company holds, said before it is done. */
+const HELD_ACTS = {
+  Suspend: {
+    title: 'Suspend this company service?',
+    description:
+      'It stops being billed from the day you choose, and can be resumed later. The periods '
+      + 'already billed are untouched.',
+    confirmLabel: 'Suspend service',
+    tone: 'warning' as const,
+  },
+  Resume: {
+    title: 'Resume this company service?',
+    description:
+      'It is billed again from the day you choose. The days it stood suspended are not billed.',
+    confirmLabel: 'Resume service',
+    tone: 'warning' as const,
+  },
+  End: {
+    title: 'End this company service?',
+    description:
+      'It stops being billed from the day you choose. The periods already billed are '
+      + 'untouched, and nothing already invoiced changes.',
+    confirmLabel: 'End service',
+    tone: 'danger' as const,
+  },
+};
 
 const PRICING_COLUMNS = [
   'Service',
@@ -127,7 +155,23 @@ export default function CustomerContract() {
   const actOnHeld = useChangeCustomerService(customer);
   const [addingHeld, setAddingHeld] = useState(false);
   const [changingHeld, setChangingHeld] = useState<ServiceAvailabilityCurrent | null>(null);
-  const [endingHeld, setEndingHeld] = useState<ServiceAvailabilityCurrent | null>(null);
+  // suspending, resuming and ending all take effect on a day somebody chooses, and the
+  // same dialog asks for it. Cancelling is none of those: nothing was ever provided
+  const [actingHeld, setActingHeld] = useState<{
+    row: ServiceAvailabilityCurrent;
+    action: 'Suspend' | 'Resume' | 'End';
+  } | null>(null);
+  const [heldOn, setHeldOn] = useState(today());
+  const [cancellingHeld, setCancellingHeld] = useState<ServiceAvailabilityCurrent | null>(null);
+
+  const openHeldAction = (
+    row: ServiceAvailabilityCurrent,
+    action: 'Suspend' | 'Resume' | 'End'
+  ) => {
+    setHeldOn(today());
+    actOnHeld.reset();
+    setActingHeld({ row, action });
+  };
 
   const [contractOpen, setContractOpen] = useState(false);
   const [rateOpen, setRateOpen] = useState(false);
@@ -787,22 +831,29 @@ export default function CustomerContract() {
                           {
                             label: 'Suspend',
                             icon: Pause,
-                            onClick: () =>
-                              actOnHeld.mutate({ assignment: row.name, action: 'Suspend' }),
+                            onClick: () => openHeldAction(row, 'Suspend'),
                             disabled: row.operational_status !== 'Active',
                           },
                           {
                             label: 'Resume',
                             icon: Play,
-                            onClick: () =>
-                              actOnHeld.mutate({ assignment: row.name, action: 'Resume' }),
+                            onClick: () => openHeldAction(row, 'Resume'),
                             disabled: row.operational_status !== 'Suspended',
                           },
                           {
                             label: 'End service',
                             icon: CircleSlash,
                             danger: true,
-                            onClick: () => setEndingHeld(row),
+                            onClick: () => openHeldAction(row, 'End'),
+                            // only a service being provided has provision to stop
+                            disabled: !['Active', 'Suspended'].includes(row.operational_status),
+                          },
+                          {
+                            label: 'Cancel pending service',
+                            icon: Trash2,
+                            danger: true,
+                            onClick: () => setCancellingHeld(row),
+                            disabled: row.operational_status !== 'Pending Setup',
                           },
                         ]}
                       />
@@ -833,23 +884,58 @@ export default function CustomerContract() {
       )}
 
       <ConfirmModal
-        open={Boolean(endingHeld)}
-        tone="danger"
-        title="End this company service?"
-        description={
-          'It stops being billed from the day you choose. The periods already billed are '
-          + 'untouched, and nothing already invoiced changes.'
-        }
-        confirmLabel="End service"
+        open={Boolean(actingHeld)}
+        tone={actingHeld ? HELD_ACTS[actingHeld.action].tone : 'danger'}
+        title={actingHeld ? HELD_ACTS[actingHeld.action].title : ''}
+        description={actingHeld ? HELD_ACTS[actingHeld.action].description : undefined}
+        confirmLabel={actingHeld ? HELD_ACTS[actingHeld.action].confirmLabel : undefined}
         loading={actOnHeld.isLoading}
-        onCancel={() => setEndingHeld(null)}
+        error={actOnHeld.error instanceof Error ? actOnHeld.error.message : null}
+        onCancel={() => setActingHeld(null)}
         onConfirm={async () => {
-          if (!endingHeld) return;
+          if (!actingHeld) return;
           try {
-            await actOnHeld.mutateAsync({ assignment: endingHeld.name, action: 'End' });
-            setEndingHeld(null);
+            await actOnHeld.mutateAsync({
+              assignment: actingHeld.row.name,
+              action: actingHeld.action,
+              effective_date: heldOn || undefined,
+            });
+            setActingHeld(null);
           } catch {
-            // the message shows above the table
+            // the message shows in the dialog
+          }
+        }}
+      >
+        <label className="block text-xs font-medium text-slate-500">
+          Effective date
+          <input
+            type="date"
+            value={heldOn}
+            onChange={(event) => setHeldOn(event.target.value)}
+            className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+          />
+        </label>
+      </ConfirmModal>
+
+      <ConfirmModal
+        open={Boolean(cancellingHeld)}
+        tone="danger"
+        title="Cancel this prepared service?"
+        description={
+          'It was never provided, so nothing was ever billed. The record is dropped, and the '
+          + 'company can be sold the service again.'
+        }
+        confirmLabel="Cancel service"
+        loading={actOnHeld.isLoading}
+        error={actOnHeld.error instanceof Error ? actOnHeld.error.message : null}
+        onCancel={() => setCancellingHeld(null)}
+        onConfirm={async () => {
+          if (!cancellingHeld) return;
+          try {
+            await actOnHeld.mutateAsync({ assignment: cancellingHeld.name, action: 'Cancel' });
+            setCancellingHeld(null);
+          } catch {
+            // the message shows in the dialog
           }
         }}
       />

@@ -706,7 +706,7 @@ class CustomerService:
         agreed_rate=None,
         rate_override_reason=None,
     ):
-        """Suspend, resume, change or end a service the company holds.
+        """Suspend, resume, change, end or cancel a service the company holds.
 
         The act belongs to the lifecycle service. This door reads which company's page to
         show afterwards, and refuses an assignment that is not the company's to begin with:
@@ -726,6 +726,9 @@ class CustomerService:
             "Resume": ServiceLifecycleService.resume,
             "End": ServiceLifecycleService.end,
             "Change": ServiceLifecycleService.change,
+            # a service that was prepared and never provided is dropped, not ended: it was
+            # never billable, so there is no day for it to stop being billed on
+            "Cancel": ServiceLifecycleService.cancel,
         }
 
         if action not in acts:
@@ -760,12 +763,15 @@ class CustomerService:
                 "rate_override_reason": rate_override_reason,
             }
 
-        acts[action](
-            assignment=assignment,
-            effective_date=effective_date,
-            source_request=source_request,
-            notes=notes,
-            **extra,
-        )
+        if action == "Cancel":
+            ServiceLifecycleService.cancel(assignment=assignment, notes=notes)
+        else:
+            acts[action](
+                assignment=assignment,
+                effective_date=effective_date,
+                source_request=source_request,
+                notes=notes,
+                **extra,
+            )
 
         return CustomerService.service_availability(held.customer)

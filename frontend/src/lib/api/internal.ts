@@ -1218,7 +1218,7 @@ export const assignCustomerService = (payload: {
 
 export const changeCustomerService = (payload: {
   assignment: string;
-  action: 'Suspend' | 'Resume' | 'End' | 'Change';
+  action: 'Suspend' | 'Resume' | 'End' | 'Change' | 'Cancel';
   effective_date?: string;
   notes?: string;
   confirm_billed?: number;
