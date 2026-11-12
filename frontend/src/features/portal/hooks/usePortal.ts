@@ -535,7 +535,7 @@ export const useRequestOperations = (
     .map((group) => `${group.group_key}:${group.targets.length}`)
     .join('|');
 
-  return useQuery({
+  const query = useQuery({
     queryKey: [...requestBuilderKeys.all, 'operations', customer, all, scope, asked, machines, editing] as const,
     queryFn: ({ signal }) =>
       portal.evaluateRequestOperations(
@@ -555,6 +555,13 @@ export const useRequestOperations = (
     enabled: subjectKeys.length > 0 || subjects.length === 0,
     keepPreviousData: true,
   });
+
+  // the previous answer is kept while the next one is read, so the step does not blink
+  // between two scopes of the same company. It is another company's answer that must not
+  // be shown: those acts belong to people this request can no longer be about
+  const elsewhere = Boolean(customer) && Boolean(query.data) && query.data?.customer !== customer;
+
+  return elsewhere ? { ...query, data: undefined, isLoading: true } : query;
 };
 
 export const useSelectableClientUsers = (search?: string) => {

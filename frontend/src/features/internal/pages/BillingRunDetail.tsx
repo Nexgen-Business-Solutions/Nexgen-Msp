@@ -472,7 +472,20 @@ export default function BillingRunDetail() {
                             ? 'on the run, not on the document'
                             : row.state === 'added'
                               ? 'on the document, not on the run'
-                              : `run says ${row.run_qty} for ${money(row.run_amount, data.reconciliation?.run_currency ?? data.reconciliation?.currency)}, document says ${row.invoice_qty} for ${money(row.invoice_amount, data.reconciliation?.currency)}`}
+                              : [
+                                  row.run_qty !== row.invoice_qty ||
+                                  row.run_amount !== row.invoice_amount
+                                    ? `run says ${row.run_qty} for ${money(row.run_amount, data.reconciliation?.run_currency ?? data.reconciliation?.currency)}, document says ${row.invoice_qty} for ${money(row.invoice_amount, data.reconciliation?.currency)}`
+                                    : null,
+                                  row.period_moved
+                                    ? 'the line no longer names the period the run covers'
+                                    : null,
+                                  row.unit_changed
+                                    ? 'the line is no longer counted in months'
+                                    : null,
+                                ]
+                                  .filter(Boolean)
+                                  .join(' · ')}
                         </li>
                       ))}
                     </ul>

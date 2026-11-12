@@ -615,6 +615,51 @@ class TestTheCompanyPageSellsOne(CustomerScopeCase):
         )
         self.assertEqual(len(self.held_periods()), 1)
 
+    def test_a_service_priced_off_the_contract_may_be_agreed_at_nothing(self):
+        """Zero is a rate. It was read as no rate at all, and the change refused outright.
+
+        A service billed at the contract rate has no rate of its own on file, so agreeing
+        it at nothing compared zero against zero and answered that nothing would change.
+        """
+        held = self.open_one(quantity=5)
+
+        self.assertEqual(frappe.db.get_value(ASSIGNMENT, held, "price_source"), "Contract")
+
+        self.door().change_service(
+            assignment=held,
+            action="Change",
+            effective_date="2026-03-01",
+            quantity=5,
+            agreed_rate=0,
+            rate_override_reason="Included in the renewal",
+        )
+
+        periods = self.held_periods()
+
+        self.assertEqual(len(periods), 2)
+        self.assertEqual(periods[1].price_source, "Manual Override")
+        self.assertEqual(flt_round(periods[1].agreed_rate), 0.0)
+        # and the period that was billed off the contract still says so
+        self.assertEqual(periods[0].price_source, "Contract")
+
+    def test_a_service_priced_off_the_contract_may_be_agreed_at_a_rate_of_its_own(self):
+        held = self.open_one(quantity=5)
+
+        self.door().change_service(
+            assignment=held,
+            action="Change",
+            effective_date="2026-03-01",
+            quantity=5,
+            agreed_rate=36.0,
+            rate_override_reason="Agreed with the customer",
+        )
+
+        periods = self.held_periods()
+
+        self.assertEqual(len(periods), 2)
+        self.assertEqual(flt_round(periods[1].agreed_rate), 36.0)
+        self.assertEqual(periods[1].price_source, "Manual Override")
+
     def test_a_quantity_change_through_the_door_keeps_the_rate_agreed_by_hand(self):
         held = self.open_one(quantity=5, agreed_rate=42.0, rate_override_reason="Signed at 42")
 

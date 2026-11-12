@@ -329,3 +329,53 @@ describe('a run and a document drawn in two different currencies', () => {
     expect(screen.getByText(/cannot be compared/)).toBeInTheDocument();
   });
 });
+
+describe('a line the document no longer agrees with', () => {
+  /**
+   * A line still billing the right quantity of the right service, moved to another month,
+   * left every total in agreement: the only thing that had changed was the period, and
+   * nothing read it.
+   */
+  it('says the period moved although the quantity and the amount agree', async () => {
+    vi.mocked(internal.getBillingRunView).mockResolvedValue(
+      view({
+        reconciliation: {
+          currency: 'USD',
+          run_currency: 'USD',
+          run_amount: 49.03,
+          net_total: 49.03,
+          taxes: 0,
+          grand_total: 49.03,
+          difference: 0,
+          currency_mismatch: null,
+          item_differences: [
+            {
+              service_item: 'ITEM-NEXTCLOUD',
+              item_name: 'Nextcloud',
+              run_qty: 3,
+              invoice_qty: 3,
+              run_amount: 49.03,
+              invoice_amount: 49.03,
+              difference: 0,
+              period_moved: true,
+              unit_changed: false,
+              state: 'changed',
+            },
+          ],
+          material: true,
+          basis: 'Run amount and net total are both before taxes.',
+        },
+      })
+    );
+    draw();
+
+    expect(
+      await screen.findByText('The document no longer bills what the run was drawn on')
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/the line no longer names the period the run covers/)
+    ).toBeInTheDocument();
+    // and no quantity story is told, because the quantities agree
+    expect(screen.queryByText(/run says 3/)).not.toBeInTheDocument();
+  });
+});

@@ -287,6 +287,71 @@ class TestTheTwoAmountsAreNotTheSame(SignCase):
         self.assertEqual(reconciliation["currency"], theirs)
         self.assertTrue(reconciliation["material"])
 
+    def test_no_money_is_subtracted_per_line_between_two_currencies(self):
+        """The totals stopped being compared across currencies; the lines were still."""
+        run = self.charge()
+        invoice = run_view.run_view(run)["sales_invoice"]
+        ours = frappe.db.get_value(RUN, run, "currency")
+        theirs = "EUR" if ours != "EUR" else "USD"
+        row = frappe.get_all(
+            "Sales Invoice Item", filters={"parent": invoice}, fields=["name", "qty"]
+        )[0]
+
+        frappe.db.set_value(INVOICE, invoice, "currency", theirs, update_modified=False)
+        frappe.db.set_value(
+            "Sales Invoice Item",
+            row.name,
+            "qty",
+            frappe.utils.flt(row.qty) + 1,
+            update_modified=False,
+        )
+
+        lines = run_view.run_view(run)["reconciliation"]["item_differences"]
+
+        self.assertTrue(lines, "the quantity moved, so the line is read")
+        self.assertTrue(any(line["invoice_qty"] != line["run_qty"] for line in lines))
+        self.assertTrue(
+            all(line["difference"] is None for line in lines),
+            "what the line bills is compared, never what it is worth in another money",
+        )
+
+    def test_a_line_moved_to_another_period_is_read_although_the_totals_agree(self):
+        """A line of the right service, in the right quantity, for another month.
+
+        Nothing in the totals moves, so the invoice read as perfectly reconciled while it
+        no longer billed the period the run was drawn for.
+        """
+        run = self.charge()
+        invoice = run_view.run_view(run)["sales_invoice"]
+        row = frappe.get_all(
+            "Sales Invoice Item", filters={"parent": invoice}, fields=["name"]
+        )[0]
+
+        frappe.db.set_value(
+            "Sales Invoice Item",
+            row.name,
+            "description",
+            "January 2027 (2027-01-01 → 2027-01-31)",
+            update_modified=False,
+        )
+
+        reconciliation = run_view.run_view(run)["reconciliation"]
+        moved = [line for line in reconciliation["item_differences"] if line["period_moved"]]
+
+        self.assertTrue(reconciliation["material"])
+        self.assertEqual(reconciliation["difference"], 0.0, "and the totals still agree")
+        self.assertTrue(moved)
+        self.assertEqual(moved[0]["state"], "changed")
+        self.assertEqual(moved[0]["run_qty"], moved[0]["invoice_qty"])
+
+    def test_a_credit_note_reads_as_agreeing_with_its_own_document(self):
+        """A return is held one way up or the other, and that is not an edit of its lines."""
+        note = self.credit(self.charge())
+        reconciliation = run_view.run_view(note)["reconciliation"]
+
+        self.assertEqual(reconciliation["item_differences"], [])
+        self.assertFalse(reconciliation["material"])
+
     def test_a_credit_notes_two_amounts_both_read_as_deductions(self):
         note = self.credit(self.charge())
         reconciliation = run_view.run_view(note)["reconciliation"]

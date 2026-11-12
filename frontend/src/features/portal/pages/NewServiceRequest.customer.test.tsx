@@ -31,6 +31,7 @@ vi.mock('@/lib/api/portal', async (importOriginal) => {
     getDepartmentSelection: vi.fn(),
     getCompanySelection: vi.fn(),
     evaluateRequestScope: vi.fn(),
+    getRequest: vi.fn(),
     evaluateRequestOperations: vi.fn(),
     listSelectableClientUsers: vi.fn(),
     listSelectableDevices: vi.fn(),
@@ -68,12 +69,12 @@ const mvondo = {
 const selectable = { ...ndom, username: null, selectable: true, disabled_reason: null };
 const alsoSelectable = { ...mvondo, username: null, selectable: true, disabled_reason: null };
 
-const renderPage = () => {
+const renderPage = (at = '/msp/requests/new') => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={['/msp/requests/new']}>
+      <MemoryRouter initialEntries={[at]}>
         <Routes>
           <Route path="/msp/requests/new" element={<NewServiceRequest />} />
         </Routes>
@@ -381,5 +382,66 @@ describe('a request about the company itself', () => {
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /continue/i })).toBeEnabled()
     );
+  });
+});
+
+describe('a draft is worked on for the company it was written for', () => {
+  /**
+   * The selector stayed live on a reopened draft, and the two effects behind it answered
+   * each other: changing company cleared everything picked, then the draft's own company
+   * was put back. The request came back to where it started, emptied.
+   */
+  const draft = {
+    name: 'SR-D',
+    customer: 'ACI',
+    request_type: 'Change',
+    status: 'Draft',
+    priority: 'Medium',
+    details: null,
+    requested_date: null,
+    source: 'Portal',
+    creation: '2026-09-28',
+    modified: '2026-09-28',
+    rejection_reason: null,
+    refused_by_customer: false,
+    reviewed_on: null,
+    can_decide: false,
+    can_edit: true,
+    has_approver: true,
+    lines: [],
+    subjects: [
+      {
+        subject_key: 'user:CU-001',
+        kind: 'existing',
+        client_user: 'CU-001',
+        requested_client_user: null,
+        full_name: 'Alice Ndom',
+        department: 'Purchasing',
+        email: 'alice@aci.cm',
+        username: null,
+        external_employee_id: null,
+        start_date: null,
+        added_via: 'Existing',
+        selection_label: null,
+      },
+    ],
+    requested_devices: [],
+    restorable: true,
+    action_groups: [],
+  } as never;
+
+  it('does not offer to act for another company, and says which one it is for', async () => {
+    vi.mocked(portal.getRequest).mockResolvedValue(draft);
+    renderPage('/msp/requests/new?draft=SR-D');
+
+    expect(await screen.findByText('Alice Ndom')).toBeInTheDocument();
+    expect(
+      screen.getByText('This request was written for ACI. Raise a new one to act for another company.')
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /acting for which customer/i })
+    ).not.toBeInTheDocument();
+    // and nothing was cleared, because nothing could be switched
+    expect(screen.queryByText(/were cleared when you changed customer/i)).not.toBeInTheDocument();
   });
 });

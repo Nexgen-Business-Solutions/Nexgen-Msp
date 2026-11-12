@@ -2788,10 +2788,10 @@ class BillingService:
             if doc.currency and card.currency and doc.currency != card.currency
             else None
         )
-        lines = BillingService._item_differences(doc)
         # two amounts in two different currencies have no difference to state: the run's
         # own figure is said in its own money, and nothing is subtracted across the two
         comparable = not mismatch
+        lines = BillingService._item_differences(doc, comparable=comparable)
 
         return {
             "currency": card.currency,
@@ -2811,13 +2811,18 @@ class BillingService:
         }
 
     @staticmethod
-    def _item_differences(doc):
+    def _item_differences(doc, comparable=True):
         """The lines the run worked out, beside the lines the document actually carries.
 
         Read per service, because that is the level the document is edited at: a quantity
         corrected on one line and another one deleted can leave the total untouched, and
         the totals above would then agree about an invoice that no longer bills what the
         run was drawn on.
+
+        The period and the unit are read too. A line still billing the right quantity of the
+        right service for another month is not the line the run drew, and no total says so.
+        A document in another currency has its money left alone: only what it bills is
+        compared, never what it is worth.
         """
         expected = {}
 
@@ -2831,24 +2836,52 @@ class BillingService:
             ours["amount"] += flt(months * net, 2)
 
         carried = {}
+        # the period every line of this run was drawn for, written into the line itself.
+        # A return says its period its own way and a charge from elsewhere says nothing of
+        # ours, so neither is read for one it was never given
+        credit = bool(doc.credit_note_of or doc.standalone_credit)
+        covered = (
+            None
+            if credit or doc.reconstructed
+            else f"({doc.billing_period_start} → {doc.billing_period_end})"
+        )
 
         for row in frappe.get_all(
             "Sales Invoice Item",
             filters={"parent": doc.sales_invoice},
-            fields=["item_code", "qty", "amount"],
+            fields=["item_code", "qty", "amount", "uom", "description"],
         ):
-            theirs = carried.setdefault(row.item_code, {"qty": 0.0, "amount": 0.0})
-            theirs["qty"] += flt(row.qty)
-            theirs["amount"] += flt(row.amount)
+            theirs = carried.setdefault(
+                row.item_code,
+                {"qty": 0.0, "amount": 0.0, "period_moved": False, "unit_changed": False},
+            )
+            # a return is held one way up by one ERPNext and the other way up by another,
+            # and what is compared here is what the line bills, not which way it points
+            theirs["qty"] += abs(flt(row.qty)) if credit else flt(row.qty)
+            theirs["amount"] += abs(flt(row.amount)) if credit else flt(row.amount)
+
+            if covered and covered not in (row.description or ""):
+                theirs["period_moved"] = True
+
+            if row.uom and row.uom != BILLING_UOM:
+                theirs["unit_changed"] = True
 
         differences = []
+        empty = {"qty": 0.0, "amount": 0.0, "period_moved": False, "unit_changed": False}
 
         for service_item in sorted(set(expected) | set(carried)):
-            ours = expected.get(service_item) or {"qty": 0.0, "amount": 0.0}
-            theirs = carried.get(service_item) or {"qty": 0.0, "amount": 0.0}
-            apart = flt(theirs["amount"] - ours["amount"], 2)
+            ours = expected.get(service_item) or empty
+            theirs = carried.get(service_item) or empty
+            apart = flt(theirs["amount"] - ours["amount"], 2) if comparable else None
+            moved = service_item in expected and (
+                theirs["period_moved"] or theirs["unit_changed"]
+            )
 
-            if abs(apart) <= 0.005 and abs(flt(theirs["qty"] - ours["qty"], 3)) <= 0.0005:
+            if (
+                (apart is None or abs(apart) <= 0.005)
+                and abs(flt(theirs["qty"] - ours["qty"], 3)) <= 0.0005
+                and not moved
+            ):
                 continue
 
             differences.append(
@@ -2859,7 +2892,12 @@ class BillingService:
                     "invoice_qty": flt(theirs["qty"], 3),
                     "run_amount": flt(ours["amount"], 2),
                     "invoice_amount": flt(theirs["amount"], 2),
+                    # nothing is subtracted between two currencies
                     "difference": apart,
+                    # the line no longer says the period the run was drawn for
+                    "period_moved": bool(moved and theirs["period_moved"]),
+                    # the line is no longer counted in months
+                    "unit_changed": bool(moved and theirs["unit_changed"]),
                     "state": "missing"
                     if service_item not in carried
                     else "added"

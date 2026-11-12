@@ -1148,7 +1148,12 @@ export type InvoiceItemDifference = {
   invoice_qty: number;
   run_amount: number;
   invoice_amount: number;
-  difference: number;
+  /** null when the run and its document are in different currencies */
+  difference: number | null;
+  /** the line no longer names the period the run was drawn for */
+  period_moved: boolean;
+  /** the line is no longer counted in the months the run bills */
+  unit_changed: boolean;
   state: 'changed' | 'added' | 'missing';
 };
 

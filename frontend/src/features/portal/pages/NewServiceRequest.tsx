@@ -60,7 +60,11 @@ export default function NewServiceRequest() {
   const setCustomer = usePortalFilters((state) => state.setCustomer);
   const options = useUserFilterOptions(onBehalf);
 
-  // a draft reopened by staff is worked on for the company it was written for
+  // a draft reopened by staff is worked on for the company it was written for, and only
+  // for that one: the selector put it back under that company anyway, after everything
+  // picked for it had already been cleared as a switch
+  const writtenFor = onBehalf ? builder.sourceCustomer : null;
+
   useEffect(() => {
     if (onBehalf && builder.sourceCustomer && builder.sourceCustomer !== customer) {
       setCustomer(builder.sourceCustomer);
@@ -270,20 +274,33 @@ export default function NewServiceRequest() {
 
       {onBehalf && (
         <div className="w-64" ref={selector}>
-          <Select
-            searchable
-            className="w-full"
-            value={customer ?? ''}
-            onChange={setCustomer}
-            label="Acting for which customer"
-            placeholder="Choose a customer"
-            invalid={askedWithout}
-            describedBy={askedWithout ? 'customer-required' : undefined}
-            options={(options.data?.customers ?? []).map((name) => ({
-              value: name,
-              label: name,
-            }))}
-          />
+          {writtenFor ? (
+            <>
+              <p className="text-xs font-medium text-slate-500">Acting for which customer</p>
+              <p className="mt-1 flex h-10 items-center text-sm font-semibold text-slate-900">
+                {writtenFor}
+              </p>
+              <p className="text-xs text-slate-400">
+                This request was written for {writtenFor}. Raise a new one to act for another
+                company.
+              </p>
+            </>
+          ) : (
+            <Select
+              searchable
+              className="w-full"
+              value={customer ?? ''}
+              onChange={setCustomer}
+              label="Acting for which customer"
+              placeholder="Choose a customer"
+              invalid={askedWithout}
+              describedBy={askedWithout ? 'customer-required' : undefined}
+              options={(options.data?.customers ?? []).map((name) => ({
+                value: name,
+                label: name,
+              }))}
+            />
+          )}
           {askedWithout && (
             <p
               id="customer-required"

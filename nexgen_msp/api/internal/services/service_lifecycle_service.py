@@ -378,10 +378,16 @@ class ServiceLifecycleService:
         held_over = doc.price_source == "Manual Override" and agreed_rate in (None, "")
         wanted_rate = doc.agreed_rate if held_over else agreed_rate
         wanted_reason = doc.rate_override_reason if held_over else rate_override_reason
+        # where the rate comes from is part of the terms, not only the number: a service
+        # priced off the contract and then agreed at nothing has no rate on file to differ
+        # from, and reading that as "nothing would change" refused the change outright
         repriced = (
             not held_over
             and wanted_rate not in (None, "")
-            and frappe.utils.flt(wanted_rate) != frappe.utils.flt(doc.agreed_rate)
+            and (
+                doc.price_source != "Manual Override"
+                or frappe.utils.flt(wanted_rate) != frappe.utils.flt(doc.agreed_rate)
+            )
         )
 
         if (
