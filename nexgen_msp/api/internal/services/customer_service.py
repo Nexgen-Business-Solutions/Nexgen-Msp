@@ -3,6 +3,7 @@ import frappe
 from nexgen_msp.utils.meta import select_options
 
 from nexgen_msp.api.internal.services.contract_service import ContractService
+from nexgen_msp.api.internal.services.request_service import RequestService
 from nexgen_msp.utils import access
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
@@ -628,3 +629,136 @@ class CustomerService:
         doc.save(ignore_permissions=True)
 
         return doc.name
+
+    # ------------------------------------------------------- services the company holds
+    @staticmethod
+    def service_availability(customer=None):
+        """What the company itself holds and may be sold, read for its own page."""
+        from nexgen_msp.api.internal.services.service_availability_service import (
+            ServiceAvailabilityService,
+        )
+
+        CustomerService._readable(customer)
+
+        return ServiceAvailabilityService.for_customer(customer=customer)
+
+    @staticmethod
+    def assign_service(
+        customer=None,
+        service_item=None,
+        effective_date=None,
+        quantity=None,
+        notes=None,
+        source_request=None,
+        agreed_rate=None,
+        rate_override_reason=None,
+    ):
+        """Open a service the company itself holds, from the company's own page.
+
+        Everything commercial is the lifecycle service's to ask. What this door adds is the
+        one thing its own screen can get wrong: a service the catalogue sells to a person
+        or a machine is not opened against a company because somebody posted it here.
+        """
+        from nexgen_msp.api.internal.services.service_availability_service import SELLABLE_AT
+        from nexgen_msp.api.internal.services.service_lifecycle_service import (
+            ServiceLifecycleService,
+        )
+
+        RequestService._guard_internal()
+        CustomerService._readable(customer)
+
+        if not service_item:
+            raise ValidationError("service_item is required.", "VALIDATION_ERROR")
+
+        declared = RequestService._service_scope(service_item)
+
+        if declared not in SELLABLE_AT["Customer"]:
+            raise ValidationError(
+                f"{service_item} is sold to a {str(declared or 'target').lower()}, not to a "
+                "company. Open it on the person or the machine that holds it.",
+                "VALIDATION_ERROR",
+            )
+
+        ServiceLifecycleService.activate(
+            customer=customer,
+            service_item=service_item,
+            target_scope="Customer",
+            effective_date=effective_date,
+            quantity=quantity if quantity is not None else 1,
+            source_request=source_request,
+            notes=notes,
+            agreed_rate=agreed_rate,
+            rate_override_reason=rate_override_reason,
+        )
+
+        return CustomerService.service_availability(customer)
+
+    @staticmethod
+    def change_service(
+        assignment=None,
+        action=None,
+        effective_date=None,
+        notes=None,
+        source_request=None,
+        confirm_billed=0,
+        quantity=None,
+        service_item=None,
+    ):
+        """Suspend, resume, change or end a service the company holds.
+
+        The act belongs to the lifecycle service. This door reads which company's page to
+        show afterwards, and refuses an assignment that is not the company's to begin with:
+        the screen must not become a second way to act on somebody's own service.
+        """
+        from nexgen_msp.api.internal.services.service_lifecycle_service import (
+            ServiceLifecycleService,
+        )
+
+        RequestService._guard_internal()
+
+        if not assignment or not action:
+            raise ValidationError("assignment and action are required.", "VALIDATION_ERROR")
+
+        acts = {
+            "Suspend": ServiceLifecycleService.suspend,
+            "Resume": ServiceLifecycleService.resume,
+            "End": ServiceLifecycleService.end,
+            "Change": ServiceLifecycleService.change,
+        }
+
+        if action not in acts:
+            raise ValidationError(f"Unknown action '{action}'.", "VALIDATION_ERROR")
+
+        held = frappe.db.get_value(
+            "MSP Service Assignment",
+            assignment,
+            ["name", "customer", "assignment_scope"],
+            as_dict=True,
+        )
+
+        if not held:
+            raise NotFoundError(f"Service Assignment {assignment} not found.", "NOT_FOUND")
+
+        if held.assignment_scope != "Customer":
+            raise ValidationError(
+                f"{assignment} belongs to a {held.assignment_scope.lower()}, not to the "
+                "company. Act on it from that page.",
+                "VALIDATION_ERROR",
+            )
+
+        CustomerService._readable(held.customer)
+
+        extra = {"confirm_billed": confirm_billed} if action in ("Suspend", "Resume") else {}
+
+        if action == "Change":
+            extra = {"quantity": quantity, "service_item": service_item or None}
+
+        acts[action](
+            assignment=assignment,
+            effective_date=effective_date,
+            source_request=source_request,
+            notes=notes,
+            **extra,
+        )
+
+        return CustomerService.service_availability(held.customer)

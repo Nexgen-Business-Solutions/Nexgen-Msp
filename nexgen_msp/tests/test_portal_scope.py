@@ -160,13 +160,20 @@ class TestWhereLinksPoint(MSPTestCase):
     def test_nobody_is_redirected_between_hosts(self):
         """The guard moves a website user off the desk, and nothing else."""
         import inspect
+        import re
 
         from nexgen_msp.utils import gatekeeper
 
         source = inspect.getsource(gatekeeper.guard)
 
         self.assertNotIn("portal_origin()", source)
-        self.assertEqual(source.count("SeeOther"), 1)
+        # every way out of the guard is a path on the host the request arrived at: counting
+        # the redirects said that once, and said it wrongly the day a second branch was added
+        for raised in re.findall(r"raise SeeOther\((.+?)\)", source):
+            self.assertNotIn("http", raised)
+            self.assertNotIn("origin", raised)
+
+        self.assertTrue(re.search(r"raise SeeOther\(", source), "the guard redirects nobody")
 
 
 class TestWhatACustomerTakesAway(MSPTestCase):

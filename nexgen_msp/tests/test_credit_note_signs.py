@@ -385,3 +385,115 @@ class TestWhatTheCustomerSees(SignCase):
             frappe.db.get_value(RUN, note, "total_amount"),
             "the stored figure is still said as it is stored",
         )
+
+
+class TestWhatElseTheDocumentCouldDisagreeAbout(SignCase):
+    """Two totals that agree are not two documents that agree.
+
+    The reconciliation compared one number with one number, so an invoice edited into a
+    different currency, or one whose lines were rearranged without moving the total, read
+    as being in perfect order.
+    """
+
+    def drafted(self, back=None):
+        """A frozen run with its invoice drafted: the document, before anybody posts it."""
+        start, end = self.month(back=back) if back else self.month()
+        run = self.drawn(start=start, end=end)
+        BillingService.finalise(run)
+
+        return run, frappe.db.get_value(RUN, run, "sales_invoice")
+
+    def edited(self, invoice, change):
+        doc = frappe.get_doc(INVOICE, invoice)
+        doc.flags.ignore_permissions = True
+        change(doc)
+        doc.save()
+
+        return doc
+
+    def reconciliation(self, run):
+        return run_view.run_view(run)["reconciliation"]
+
+    def test_a_document_nobody_touched_reports_nothing_to_explain(self):
+        run, _ = self.drafted()
+
+        reading = self.reconciliation(run)
+
+        self.assertIsNone(reading["currency_mismatch"])
+        self.assertEqual(reading["item_differences"], [])
+        self.assertFalse(reading["material"])
+
+    def test_a_document_in_another_currency_is_reported_as_a_mismatch(self):
+        run, invoice = self.drafted()
+        drawn_in = frappe.db.get_value(RUN, run, "currency")
+        # written under the validation: ERPNext recalculates a currency change, and what is
+        # under test is a document that already disagrees — which is how old data reaches us
+        frappe.db.set_value(INVOICE, invoice, "currency", "ZZT", update_modified=False)
+
+        reading = self.reconciliation(run)
+
+        self.assertEqual(reading["currency_mismatch"], {"run": drawn_in, "invoice": "ZZT"})
+        self.assertTrue(reading["material"])
+
+    def test_a_line_rearranged_without_moving_the_total_is_still_reported(self):
+        run, invoice = self.drafted()
+        before = self.reconciliation(run)
+
+        self.edited(
+            invoice,
+            lambda doc: (
+                setattr(doc.items[0], "rate", frappe.utils.flt(doc.items[0].rate) / 2),
+                setattr(doc.items[0], "qty", frappe.utils.flt(doc.items[0].qty) * 2),
+            ),
+        )
+        after = self.reconciliation(run)
+        (difference,) = after["item_differences"]
+
+        self.assertEqual(before["item_differences"], [])
+        # the one number the old reading had still agrees
+        self.assertEqual(after["difference"], 0.0)
+        self.assertEqual(difference["service_item"], self.service)
+        self.assertEqual(difference["state"], "changed")
+        self.assertEqual(difference["invoice_qty"], difference["run_qty"] * 2)
+        self.assertTrue(after["material"])
+
+    def test_a_line_deleted_from_the_document_is_reported_as_missing(self):
+        second = self.offering("SGN2")
+        self.running(second, client_user=self.john)
+        run, invoice = self.drafted()
+        dropped = frappe.get_doc(INVOICE, invoice).items[0].item_code
+
+        self.edited(invoice, lambda doc: doc.set("items", doc.items[1:]))
+        reading = self.reconciliation(run)
+
+        self.assertEqual([row["service_item"] for row in reading["item_differences"]], [dropped])
+        self.assertEqual(reading["item_differences"][0]["state"], "missing")
+        self.assertEqual(reading["item_differences"][0]["invoice_qty"], 0.0)
+        self.assertTrue(reading["material"])
+
+    def test_a_line_added_to_the_document_is_reported_as_added(self):
+        extra = self.offering("SGN3")
+        run, invoice = self.drafted()
+
+        self.edited(
+            invoice,
+            lambda doc: doc.append(
+                "items",
+                {
+                    "item_code": extra,
+                    "qty": 1,
+                    "rate": 40,
+                    "uom": "Month",
+                    "conversion_factor": 1,
+                    "income_account": doc.items[0].income_account,
+                },
+            ),
+        )
+        reading = self.reconciliation(run)
+        added = [row for row in reading["item_differences"] if row["service_item"] == extra]
+
+        self.assertEqual(len(added), 1)
+        self.assertEqual(added[0]["state"], "added")
+        self.assertEqual(added[0]["run_qty"], 0.0)
+        self.assertEqual(added[0]["invoice_amount"], 40.0)
+        self.assertTrue(reading["material"])

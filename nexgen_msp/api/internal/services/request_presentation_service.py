@@ -746,15 +746,25 @@ class RequestPresentationService:
             else None
         )
 
+        # a service the company itself holds is nobody's: read as a personal service, the
+        # review screen announced it under a person who does not exist
+        company_only = bool(group["rows"]) and all(
+            row["target_scope"] == "Customer" for row in group["rows"]
+        )
+
         if on_device:
             names = {target["target_label"] for target in targets}
             context = [names.pop() if len(names) == 1 else scope, "Device operation"]
         elif targets and all(row["target_scope"] == "Device" for row in group["rows"]):
             context = [scope, "Device service"]
+        elif company_only:
+            context = [None, "Company service"]
         else:
             context = [scope, "Personal service"]
 
-        if all_requested:
+        if company_only:
+            impact_label = "the company itself"
+        elif all_requested:
             impact_label = _plural(count, "requested Device", "requested Devices")
         elif on_device:
             impact_label = _plural(count, "Device", "Devices")
@@ -832,6 +842,12 @@ class RequestPresentationService:
             label = labels.device(row["managed_device"])
             badge = None
             serial = labels.serial(row["managed_device"])
+            state = None
+        elif row["target_scope"] == "Customer":
+            kind = "customer"
+            label = f"{service} · Company" if service else "The company itself"
+            badge = None
+            serial = None
             state = None
         else:
             kind = "requested_client_user" if row["person_new"] else "client_user"

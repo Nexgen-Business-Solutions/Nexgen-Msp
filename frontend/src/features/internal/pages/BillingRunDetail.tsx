@@ -445,6 +445,35 @@ export default function BillingRunDetail() {
                     },
                   ]}
                 />
+                {data.reconciliation.currency_mismatch && (
+                  <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-[11px] font-medium text-amber-900">
+                    This run was drawn in {data.reconciliation.currency_mismatch.run ?? '—'} and
+                    its document is in {data.reconciliation.currency_mismatch.invoice ?? '—'}.
+                    The two totals are not in the same money and cannot be compared.
+                  </p>
+                )}
+
+                {data.reconciliation.item_differences.length > 0 && (
+                  <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5">
+                    <p className="text-[11px] font-semibold text-amber-900">
+                      The document no longer bills what the run was drawn on
+                    </p>
+                    <ul className="mt-1.5 space-y-1">
+                      {data.reconciliation.item_differences.map((row) => (
+                        <li key={row.service_item} className="text-[11px] text-amber-900">
+                          <span className="font-medium">{row.item_name}</span>
+                          {' — '}
+                          {row.state === 'missing'
+                            ? 'on the run, not on the document'
+                            : row.state === 'added'
+                              ? 'on the document, not on the run'
+                              : `run says ${row.run_qty} for ${money(row.run_amount, data.reconciliation?.currency)}, document says ${row.invoice_qty} for ${money(row.invoice_amount, data.reconciliation?.currency)}`}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
                 <p className="mt-2 text-[11px] text-slate-400">
                   {data.reconciliation.basis}
                   {data.reconciliation.material

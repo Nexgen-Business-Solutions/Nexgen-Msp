@@ -599,6 +599,110 @@ class TestServiceLifecycle(MSPTestCase):
         self.assertEqual(self.reload(replacement["name"]).service_item, premium)
         self.assertEqual(self.reload(replacement["name"]).quantity, 1)
 
+    def test_a_quantity_change_keeps_the_rate_agreed_by_hand(self):
+        """Holding more of something says nothing about what it was agreed to cost."""
+        service = self.offering("LIFEKEEPRATE", rate=None)
+        opened = self.open_service(
+            service,
+            effective_date=self.days_ago(30),
+            quantity=5,
+            agreed_rate=42,
+            rate_override_reason="Agreed with the account manager.",
+        )
+
+        replacement = ServiceLifecycleService.change(
+            assignment=opened["name"], effective_date=self.days_ago(10), quantity=8
+        )
+        self.track("MSP Service Assignment", replacement["name"])
+        new = self.reload(replacement["name"])
+
+        self.assertEqual(new.price_source, "Manual Override")
+        self.assertEqual(frappe.utils.flt(new.agreed_rate), 42.0)
+        self.assertEqual(new.rate_override_reason, "Agreed with the account manager.")
+        self.assertEqual(frappe.utils.flt(new.quantity), 8.0)
+
+    def test_the_rate_carried_over_is_not_invented_where_there_was_none(self):
+        """A service priced off the contract stays priced off the contract."""
+        service = self.offering("LIFEKEEPCONTRACT", rate=30.0)
+        opened = self.open_service(service, effective_date=self.days_ago(30), quantity=2)
+
+        replacement = ServiceLifecycleService.change(
+            assignment=opened["name"], effective_date=self.days_ago(10), quantity=4
+        )
+        self.track("MSP Service Assignment", replacement["name"])
+        new = self.reload(replacement["name"])
+
+        self.assertEqual(new.price_source, "Contract")
+        self.assertFalse(frappe.utils.flt(new.agreed_rate))
+        self.assertFalse(new.rate_override_reason)
+
+    def test_a_change_may_be_given_a_new_agreed_rate(self):
+        service = self.offering("LIFENEWRATE", rate=None)
+        opened = self.open_service(
+            service,
+            effective_date=self.days_ago(30),
+            quantity=5,
+            agreed_rate=42,
+            rate_override_reason="First agreement.",
+        )
+
+        replacement = ServiceLifecycleService.change(
+            assignment=opened["name"],
+            effective_date=self.days_ago(10),
+            agreed_rate=36,
+            rate_override_reason="Renegotiated for the rest of the year.",
+        )
+        self.track("MSP Service Assignment", replacement["name"])
+        old = self.reload(opened["name"])
+        new = self.reload(replacement["name"])
+
+        # the period that has been billed keeps the number it was billed at
+        self.assertEqual(frappe.utils.flt(old.agreed_rate), 42.0)
+        self.assertEqual(frappe.utils.flt(new.agreed_rate), 36.0)
+        self.assertEqual(new.rate_override_reason, "Renegotiated for the rest of the year.")
+        self.assertEqual(frappe.utils.flt(new.quantity), 5.0)
+
+    def test_a_new_rate_with_no_reason_is_refused_and_changes_nothing(self):
+        service = self.offering("LIFERATENOREASON", rate=None)
+        opened = self.open_service(
+            service,
+            effective_date=self.days_ago(30),
+            quantity=5,
+            agreed_rate=42,
+            rate_override_reason="First agreement.",
+        )
+
+        with self.assertRaises(ValidationError):
+            ServiceLifecycleService.change(
+                assignment=opened["name"], effective_date=self.days_ago(10), agreed_rate=36
+            )
+
+        original = self.reload(opened["name"])
+
+        self.assertEqual(original.operational_status, "Active")
+        self.assertIsNone(original.effective_end_date)
+        self.assertEqual(frappe.utils.flt(original.agreed_rate), 42.0)
+
+    def test_changing_nothing_at_all_is_still_refused(self):
+        """A rate that is already the rate is not a change either."""
+        service = self.offering("LIFESAMERATE", rate=None)
+        opened = self.open_service(
+            service,
+            effective_date=self.days_ago(30),
+            quantity=5,
+            agreed_rate=42,
+            rate_override_reason="First agreement.",
+        )
+
+        with self.assertRaises(ValidationError):
+            ServiceLifecycleService.change(
+                assignment=opened["name"],
+                effective_date=self.days_ago(10),
+                quantity=5,
+                agreed_rate=42,
+                rate_override_reason="Same number, written again.",
+            )
+
     def test_an_invalid_replacement_keeps_the_original_service_active(self):
         current = self.offering("LIFEATOMIC")
         unavailable = self.make_service("LIFEWRONGSCOPE", scope="Device")

@@ -336,6 +336,8 @@ class ServiceLifecycleService:
         service_item=None,
         notes=None,
         source_request=None,
+        agreed_rate=None,
+        rate_override_reason=None,
         _commit=True,
         _within_request=None,
     ):
@@ -343,6 +345,11 @@ class ServiceLifecycleService:
 
         The running period is closed the day before and a replacement opens on the day, so
         each invoice keeps reading the terms that were really in force over its days.
+
+        A rate somebody put on the record by hand is one of those terms. Changing how many
+        units are held says nothing about what they were agreed to cost, so the override
+        carries over unless a new one is given — the alternative was a quantity change that
+        quietly re-priced the service off the price list.
         """
         RequestService._guard_internal()
 
@@ -368,8 +375,20 @@ class ServiceLifecycleService:
 
         wanted_item = service_item or doc.service_item
         wanted_quantity = doc.quantity if quantity is None else frappe.utils.flt(quantity)
+        held_over = doc.price_source == "Manual Override" and agreed_rate in (None, "")
+        wanted_rate = doc.agreed_rate if held_over else agreed_rate
+        wanted_reason = doc.rate_override_reason if held_over else rate_override_reason
+        repriced = (
+            not held_over
+            and wanted_rate not in (None, "")
+            and frappe.utils.flt(wanted_rate) != frappe.utils.flt(doc.agreed_rate)
+        )
 
-        if wanted_item == doc.service_item and wanted_quantity == frappe.utils.flt(doc.quantity):
+        if (
+            wanted_item == doc.service_item
+            and wanted_quantity == frappe.utils.flt(doc.quantity)
+            and not repriced
+        ):
             raise ValidationError(
                 "Nothing about this service would change.", "VALIDATION_ERROR"
             )
@@ -404,6 +423,8 @@ class ServiceLifecycleService:
                 quantity=wanted_quantity,
                 source_request=source_request or doc.source_request,
                 notes=notes,
+                agreed_rate=wanted_rate,
+                rate_override_reason=wanted_reason,
                 _commit=False,
                 _within_request=_within_request,
             )

@@ -1276,6 +1276,118 @@ const openingScope = (
 };
 
 /**
+ * What the company itself holds: a retainer, a block of storage, a line.
+ *
+ * It has no row in the people table and never will, so it is not chosen from the rail like
+ * a person: the card stands on its own, and the only thing it asks beyond the act is how
+ * much of it — the one number that makes a company line read "5 TB" rather than "1".
+ */
+const CompanyServices: React.FC<{
+  options: RequestServiceOption[];
+  askedHere: (
+    targets: RequestTarget[],
+    operationCode: string,
+    serviceItem?: string | null
+  ) => number;
+  onAdd: (option: RequestOperationOption, card: RequestServiceOption, quantity: number) => void;
+}> = ({ options, askedHere, onAdd }) => {
+  const [amounts, setAmounts] = useState<Record<string, string>>({});
+
+  return (
+    <section className="mb-5">
+      <div className="mb-2 flex items-baseline justify-between">
+        <p className="text-xs font-semibold text-slate-900">The company itself</p>
+        <span className="text-[10px] text-slate-500">Nobody is named on these</span>
+      </div>
+
+      <div className="overflow-hidden rounded-lg border border-slate-200">
+        <table className="w-full">
+          <thead className="bg-slate-50">
+            <tr>
+              <Th>Service</Th>
+              <Th>How much</Th>
+              <Th align="right">Available actions</Th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {options.map((card) => {
+              const typed = amounts[card.object_key] ?? '1';
+              const quantity = Number(typed);
+              const impossible = !Number.isFinite(quantity) || quantity <= 0;
+
+              return (
+                <tr key={card.object_key}>
+                  <td className="px-3 py-2.5 align-middle">
+                    <p className="text-sm font-semibold text-slate-900">{card.object_label}</p>
+                    <p className="mt-0.5 text-[10px] text-slate-500">
+                      {card.current_count ? 'Already held by the company' : 'Billed to the company'}
+                    </p>
+                  </td>
+                  <td className="px-3 py-2.5 align-middle">
+                    {card.current_count ? (
+                      <p className="text-[11px] text-slate-500">Already running</p>
+                    ) : (
+                      <>
+                        <input
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={typed}
+                          aria-label={`How much of ${card.object_label}`}
+                          onChange={(event) =>
+                            setAmounts((current) => ({
+                              ...current,
+                              [card.object_key]: event.target.value,
+                            }))
+                          }
+                          className="h-8 w-24 rounded-lg border border-slate-200 px-2 text-sm text-slate-900 outline-none focus:border-blue-500"
+                        />
+                        <p className="mt-0.5 text-[10px] text-slate-500">In the unit it is sold in</p>
+                      </>
+                    )}
+                  </td>
+                  <td className="px-3 py-2.5 align-middle">
+                    <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      {card.actions.map((action) => {
+                        const asked = askedHere(
+                          action.targets,
+                          action.operation_code,
+                          card.object_key
+                        );
+                        const adding = action.operation_code === 'service.add';
+
+                        return (
+                          <React.Fragment key={action.operation_code}>
+                            {asked > 0 && (
+                              <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+                                Asked
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              disabled={asked > 0 || (adding && impossible)}
+                              title={asked > 0 ? 'Already asked for in this request' : undefined}
+                              onClick={() => onAdd(action, card, adding ? quantity : 1)}
+                              className={`${adding ? quickPrimary : quickBtn} disabled:cursor-not-allowed disabled:opacity-40`}
+                            >
+                              {action.operation_label}
+                            </button>
+                          </React.Fragment>
+                        );
+                      })}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+};
+
+/**
  * What the customer wants done, for everybody at once, one Department, or one person.
  *
  * The rail chooses the scope; the workspace shows only the acts at least one target in that
@@ -1513,7 +1625,24 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
           )}
 
           {domains.map((domain) =>
-            domain.key === 'Service' ? (
+            domain.key === 'Company' ? (
+              <CompanyServices
+                key={domain.key}
+                options={domain.options}
+                askedHere={askedHere}
+                onAdd={(option, card, quantity) =>
+                  add(
+                    option,
+                    option.targets.map((target) => ({ ...target, requested_quantity: quantity })),
+                    option.exclusions,
+                    // the group is a service group like any other: what makes it the
+                    // company's is the scope of its target, which is where it is read from
+                    'Service',
+                    card.object_key
+                  )
+                }
+              />
+            ) : domain.key === 'Service' ? (
               <section key={domain.key} className="mb-5">
                 <div className="mb-2 flex items-baseline justify-between">
                   <p className="text-xs font-semibold text-slate-900">{domain.label}</p>

@@ -57,7 +57,16 @@ const ndom = {
   lifecycle_status: 'Active',
 };
 
+const mvondo = {
+  name: 'CU-002',
+  full_name: 'Brice Mvondo',
+  email: 'brice@aci.cm',
+  department: 'Purchasing',
+  lifecycle_status: 'Active',
+};
+
 const selectable = { ...ndom, username: null, selectable: true, disabled_reason: null };
+const alsoSelectable = { ...mvondo, username: null, selectable: true, disabled_reason: null };
 
 const renderPage = () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -108,7 +117,9 @@ beforeEach(() => {
     awaiting: 0,
   });
   vi.mocked(portal.searchRequestUsers).mockResolvedValue([ndom]);
-  vi.mocked(portal.listSelectableClientUsers).mockResolvedValue(pageOf([selectable]));
+  vi.mocked(portal.listSelectableClientUsers).mockResolvedValue(
+    pageOf([selectable, alsoSelectable])
+  );
   vi.mocked(portal.listSelectableDevices).mockResolvedValue(pageOf([]));
   vi.mocked(portal.getDepartmentSelection).mockResolvedValue(group('Department', 'Purchasing'));
   vi.mocked(portal.getCompanySelection).mockResolvedValue(group('Company', 'ACI'));
@@ -213,6 +224,47 @@ describe('what was picked for one company never travels to another', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
+  it('clears every person picked, not merely the last one', async () => {
+    // the clearing used to be a loop of single removals, each reading the list it was
+    // rendered with: two people went in and one stayed behind, under the new company
+    renderPage();
+    await chooseCustomer('ACI');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Existing user' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Add Alice Ndom' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Add Brice Mvondo' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    await waitFor(() =>
+      expect(screen.queryByText(/add at least one person/i)).not.toBeInTheDocument()
+    );
+
+    await chooseCustomer('SICG');
+
+    expect(await screen.findByText(/were cleared when you changed customer/i)).toBeInTheDocument();
+    // nothing of the previous company is left on the request
+    expect(await screen.findByText(/add at least one person/i)).toBeInTheDocument();
+  });
+
+  it('leaves nothing behind when the company is changed and changed back', async () => {
+    renderPage();
+    await chooseCustomer('ACI');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Existing user' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Add Alice Ndom' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    await waitFor(() =>
+      expect(screen.queryByText(/add at least one person/i)).not.toBeInTheDocument()
+    );
+
+    await chooseCustomer('SICG');
+    await chooseCustomer('ACI');
+
+    // coming back is a switch like any other: the old selection does not reappear
+    expect(await screen.findByText(/add at least one person/i)).toBeInTheDocument();
+  });
+
   it('clears the people of the previous company and says it did', async () => {
     renderPage();
     await chooseCustomer('ACI');
@@ -231,5 +283,30 @@ describe('what was picked for one company never travels to another', () => {
     expect(await screen.findByText(/were cleared when you changed customer/i)).toBeInTheDocument();
     // and the page is asking again, because nothing is picked for the new company
     expect(await screen.findByText(/add at least one person/i)).toBeInTheDocument();
+  });
+});
+
+describe('a request about the company itself', () => {
+  /**
+   * A company service names nobody, so such a request has no people in it at all — and the
+   * People step would not let anyone past without one.
+   */
+  it('cannot leave the People step until it says it is about the company', async () => {
+    renderPage();
+    await chooseCustomer('ACI');
+
+    const onwards = screen.getByRole('button', { name: /continue/i });
+
+    expect(onwards).toBeDisabled();
+    expect(screen.getByText('Add at least one person before continuing.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /about the company itself/i }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /continue/i })).toBeEnabled()
+    );
+    expect(
+      screen.getByText(/This request is about the company itself/)
+    ).toBeInTheDocument();
   });
 });

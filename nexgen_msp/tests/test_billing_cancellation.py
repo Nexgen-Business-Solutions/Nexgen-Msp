@@ -801,3 +801,49 @@ class TestWhatWasBilledIsKept(CancellationCase):
             frappe.utils.flt(frappe.db.get_value(INVOICE, invoice, "grand_total"), 2),
             frappe.utils.flt(original.total_amount, 2),
         )
+
+
+class TestWhatMayStillBeDoneToTheDocument(CancellationCase):
+    """Only a draft can be submitted or thrown away.
+
+    Both flags asked whether the document was posted, and a cancelled one is not posted
+    either — so a run whose invoice had been cancelled in ERPNext went on offering "Submit
+    invoice" and "Discard draft invoice" for a document that was neither.
+    """
+
+    def actions_on(self, run):
+        card = BillingService.get_run(name=run)
+
+        return card["can_submit_invoice"], card["can_discard_invoice"]
+
+    def test_a_real_draft_may_still_be_submitted_or_thrown_away(self):
+        run = self.approved()
+
+        self.assertEqual(self.docstatus_of(self.invoice_of(run)), 0, "fixture")
+        self.assertEqual(self.actions_on(run), (True, True))
+
+    def test_a_posted_document_offers_neither(self):
+        run = self.posted()
+
+        self.assertEqual(self.docstatus_of(self.invoice_of(run)), 1, "fixture")
+        self.assertEqual(self.actions_on(run), (False, False))
+
+    def test_a_cancelled_document_offers_neither(self):
+        """The state only older data can be in: the guard now refuses to create it.
+
+        Cancelling the document through its own lifecycle is turned away, because a run's
+        invoice is cancelled through the run. So the standing is written underneath that
+        guard — which is exactly how the records this has to cope with came to be.
+        """
+        run = self.posted()
+        invoice = self.invoice_of(run)
+        frappe.db.set_value(INVOICE, invoice, "docstatus", 2, update_modified=False)
+
+        self.assertEqual(self.docstatus_of(invoice), 2, "fixture")
+        self.assertEqual(self.actions_on(run), (False, False))
+
+    def test_a_run_carrying_no_document_offers_neither(self):
+        run = self.approved()
+        frappe.db.set_value(RUN, run, "sales_invoice", None, update_modified=False)
+
+        self.assertEqual(self.actions_on(run), (False, False))

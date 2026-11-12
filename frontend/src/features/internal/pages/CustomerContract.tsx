@@ -8,8 +8,11 @@ import {
   ExternalLink,
   FileText,
   ListChecks,
+  Package,
   Pencil,
+  Play,
   Plus,
+  Pause,
   Trash2,
   TriangleAlert,
   Users,
@@ -23,10 +26,15 @@ import ContractModal from '../components/ContractModal';
 import CustomerModal from '../components/CustomerModal';
 import AuthorityPanel from '../components/AuthorityPanel';
 import BillingContactPanel from '../components/BillingContactPanel';
+import CustomerServiceModal from '../components/CustomerServiceModal';
 import MspContractModal from '../components/MspContractModal';
 import RateModal from '../components/RateModal';
 import { customerDeskUrl } from '@/lib/api/internal';
-import type { ContractRate, MspContractDetail } from '@/lib/api/internal';
+import type {
+  ContractRate,
+  MspContractDetail,
+  ServiceAvailabilityCurrent,
+} from '@/lib/api/internal';
 import { useSetPageHeading } from '@/shared/layout/pageHeading';
 import {
   useContract,
@@ -39,7 +47,11 @@ import {
   useMspContracts,
   useSetMspContractStatus,
 } from '../hooks/useMspContracts';
-import { useCustomerDetails } from '../hooks/useCustomerDetails';
+import {
+  useChangeCustomerService,
+  useCustomerDetails,
+  useCustomerServices,
+} from '../hooks/useCustomerDetails';
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : '—');
 
@@ -52,6 +64,8 @@ const AGREEMENT_COLUMNS = [
   'Runs',
   '',
 ];
+
+const HELD_COLUMNS = ['Service', 'Quantity', 'State', 'Billing', 'Since', ''];
 
 const PRICING_COLUMNS = [
   'Service',
@@ -107,6 +121,13 @@ export default function CustomerContract() {
   const [agreementOpen, setAgreementOpen] = useState(false);
   const [editingAgreement, setEditingAgreement] = useState<string | null>(null);
   const editing = useMspContract(editingAgreement ?? undefined);
+
+  // the services the company itself holds: a retainer, a block of storage, a line
+  const held = useCustomerServices(customer);
+  const actOnHeld = useChangeCustomerService(customer);
+  const [addingHeld, setAddingHeld] = useState(false);
+  const [changingHeld, setChangingHeld] = useState<ServiceAvailabilityCurrent | null>(null);
+  const [endingHeld, setEndingHeld] = useState<ServiceAvailabilityCurrent | null>(null);
 
   const [contractOpen, setContractOpen] = useState(false);
   const [rateOpen, setRateOpen] = useState(false);
@@ -682,6 +703,155 @@ export default function CustomerContract() {
         customer={customer}
         profile={profile}
         onClose={() => setContractOpen(false)}
+      />
+
+      <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+          <div className="flex min-w-0 items-start gap-3">
+            <SectionIcon icon={Package} />
+            <div className="min-w-0">
+              <h2 className="text-base font-semibold text-slate-900">Company services</h2>
+              <p className="mt-0.5 text-sm text-slate-400">
+                What the company itself holds, with nobody behind it. Billed to the company by
+                its own quantity.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAddingHeld(true)}
+            disabled={held.isLoading}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Plus size={15} />
+            Add service
+          </button>
+        </div>
+
+        {held.error instanceof Error && (
+          <p className="px-5 pb-4 text-sm text-red-600">{held.error.message}</p>
+        )}
+
+        {(held.data?.current ?? []).length === 0 ? (
+          <p className="px-5 pb-5 text-sm text-slate-400">
+            {held.isLoading
+              ? 'Loading…'
+              : 'Nothing is held by the company itself. A service for a person or a machine lives on their own page.'}
+          </p>
+        ) : (
+          <div className="overflow-auto px-5 pb-4">
+            <table className="w-full">
+              <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
+                <tr>
+                  {HELD_COLUMNS.map((column, index) => (
+                    <th
+                      key={column || index}
+                      className={`whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 ${
+                        index === 0 ? 'rounded-l-lg' : ''
+                      } ${index === HELD_COLUMNS.length - 1 ? 'rounded-r-lg' : ''}`}
+                    >
+                      {column}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {(held.data?.current ?? []).map((row) => (
+                  <tr key={row.name}>
+                    <td className="px-4 py-3">
+                      <p className="text-sm font-semibold text-slate-900">{row.item_name}</p>
+                      <p className="text-xs text-slate-400">{row.service_item}</p>
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-700">
+                      {row.quantity}
+                      {row.uom ? ` ${row.uom}` : ''}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3">
+                      <StatusBadge status={row.operational_status} />
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-500">
+                      {row.billing_status}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-500">
+                      {fmtDate(row.effective_start_date)}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <RowActionsMenu
+                        actions={[
+                          {
+                            label: 'Change quantity',
+                            icon: Pencil,
+                            onClick: () => setChangingHeld(row),
+                            disabled: row.operational_status !== 'Active',
+                          },
+                          {
+                            label: 'Suspend',
+                            icon: Pause,
+                            onClick: () =>
+                              actOnHeld.mutate({ assignment: row.name, action: 'Suspend' }),
+                            disabled: row.operational_status !== 'Active',
+                          },
+                          {
+                            label: 'Resume',
+                            icon: Play,
+                            onClick: () =>
+                              actOnHeld.mutate({ assignment: row.name, action: 'Resume' }),
+                            disabled: row.operational_status !== 'Suspended',
+                          },
+                          {
+                            label: 'End service',
+                            icon: CircleSlash,
+                            danger: true,
+                            onClick: () => setEndingHeld(row),
+                          },
+                        ]}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {actOnHeld.error instanceof Error && (
+              <p className="pt-2 text-sm font-medium text-red-700">{actOnHeld.error.message}</p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {(addingHeld || changingHeld) && (
+        <CustomerServiceModal
+          customer={customer}
+          label={profileDetails.data?.customer_name || customer}
+          reading={held.data}
+          changing={changingHeld}
+          onClose={() => {
+            setAddingHeld(false);
+            setChangingHeld(null);
+          }}
+        />
+      )}
+
+      <ConfirmModal
+        open={Boolean(endingHeld)}
+        tone="danger"
+        title="End this company service?"
+        description={
+          'It stops being billed from the day you choose. The periods already billed are '
+          + 'untouched, and nothing already invoiced changes.'
+        }
+        confirmLabel="End service"
+        loading={actOnHeld.isLoading}
+        onCancel={() => setEndingHeld(null)}
+        onConfirm={async () => {
+          if (!endingHeld) return;
+          try {
+            await actOnHeld.mutateAsync({ assignment: endingHeld.name, action: 'End' });
+            setEndingHeld(null);
+          } catch {
+            // the message shows above the table
+          }
+        }}
       />
 
       <BillingContactPanel customer={customer} />

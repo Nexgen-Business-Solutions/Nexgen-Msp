@@ -590,6 +590,8 @@ export const useRequestPreview = (payload: Omit<portal.RequestPayload, 'name' | 
   return useQuery({
     queryKey: [...requestBuilderKeys.all, 'preview', customer ?? '', JSON.stringify(payload)] as const,
     queryFn: ({ signal }) => previewRequest({ ...payload, customer: customer || undefined }, signal),
-    enabled: payload.subjects.length > 0,
+    // a request about the company itself has no people in it, and used to sit here
+    // for ever on "Preparing the review…"
+    enabled: payload.subjects.length > 0 || payload.action_groups.length > 0,
   });
 };

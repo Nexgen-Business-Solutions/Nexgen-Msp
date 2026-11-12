@@ -593,6 +593,19 @@ export const useRequestBuilder = (
 
   const removeSubject = (key: string) => dropSubjects(new Set([key]));
 
+  /**
+   * Everything picked for a company, dropped in one go.
+   *
+   * Not a loop over `removeSubject`: each of those reads the subjects it was rendered with,
+   * so N calls in one tick all start from the same list and only the last one survives —
+   * which quietly left most of the previous company's people on the request.
+   */
+  const clearCustomerSelection = () => {
+    setSubjects([]);
+    setRequestedDevices([]);
+    setActionGroups([]);
+  };
+
   const assignGroupsFor = (
     devices: RequestedDeviceDraft[],
     covered: RequestActionGroup[],
@@ -797,8 +810,17 @@ export const useRequestBuilder = (
 
   const canSave =
     !unrestorable && !locked && !edit && (subjects.length > 0 || actionGroups.length > 0);
+  /** A service the company itself holds is asked for with nobody in the request. */
+  const aboutCompany = actionGroups.some((group) =>
+    group.targets.some((target) => target.target_scope === 'Customer')
+  );
+
   const canSend =
-    !unrestorable && !locked && subjects.length > 0 && actionGroups.length > 0 && !reviewNeeded;
+    !unrestorable &&
+    !locked &&
+    (subjects.length > 0 || aboutCompany) &&
+    actionGroups.length > 0 &&
+    !reviewNeeded;
 
   const send = async () => {
     if (!canSend) return null;
@@ -897,9 +919,11 @@ export const useRequestBuilder = (
     addDeviceSubject,
     removeSubject,
     removeSubjectsFor,
+    clearCustomerSelection,
     payload,
     canSave,
     canSend,
+    aboutCompany,
     unrestorable,
     send,
     putAside,

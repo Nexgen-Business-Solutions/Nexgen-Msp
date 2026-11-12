@@ -2085,8 +2085,20 @@ class BillingService:
             if not months:
                 continue
 
+            # a service the company itself holds is sold by its own quantity, so two
+            # successive periods of different sizes are two different things to read on the
+            # invoice. People and machines keep the grouping they have always had
+            period = (
+                row.service_assignment if row.assignment_scope == "Customer" else None
+            )
+
             bucket = grouped.setdefault(
-                (row.service_item, flt(row.unit_rate, 2), flt(row.discount_percent, 2)),
+                (
+                    row.service_item,
+                    flt(row.unit_rate, 2),
+                    flt(row.discount_percent, 2),
+                    period,
+                ),
                 {
                     "months": 0.0,
                     "amount": 0.0,
@@ -2103,7 +2115,7 @@ class BillingService:
             bucket["amount"] += flt(row.amount)
             bucket["targets"] += 1
             bucket["scopes"].add(row.assignment_scope)
-            bucket["units"] += flt(row.quantity or 1)
+            bucket["units"] = flt(row.quantity or 1)
             bucket["uom"] = bucket["uom"] or row.uom_snapshot
             bucket["spans"] += flt(row.billable_months)
 
@@ -2146,7 +2158,7 @@ class BillingService:
         period_label = BillingService._period_label(doc)
         items = []
 
-        for (service_item, rate, discount), bucket in grouped.items():
+        for (service_item, rate, discount, _period), bucket in grouped.items():
             # what the customer reads, which the catalogue name is not always fit for
             item_name = ServiceDefinitionService.label_of(service_item)
 
@@ -2155,11 +2167,7 @@ class BillingService:
             # the description says what the quantity actually is, since the invoice counts
             # the line in months and a block of storage is not a month
             company_only = bucket["scopes"] == {"Customer"}
-            explained = (
-                BillingService._units_billed(bucket)
-                if company_only and bucket["targets"] == 1
-                else ""
-            )
+            explained = BillingService._units_billed(bucket) if company_only else ""
 
             item = {
                 "item_code": service_item,
@@ -2725,7 +2733,10 @@ class BillingService:
             and not doc.standalone_credit,
             "can_resolve_dispute": bool(doc.disputed),
             "dispute_request": doc.dispute_request,
-            "can_discard_invoice": bool(doc.sales_invoice) and not posted,
+            # a draft and a cancelled document are both "not posted", and only one of them
+            # can still be submitted or thrown away. The question is the draft, not the gap
+            "can_discard_invoice": bool(doc.sales_invoice)
+            and found["invoice_docstatus"] == 0,
             "can_reopen": doc.docstatus == 1
             and not doc.sales_invoice
             # nothing to reopen: it records a charge that already went out
@@ -2736,7 +2747,8 @@ class BillingService:
             "cancel_blocked": accounting.blocker_of(doc.as_dict(), found),
             "can_reconcile": bool(found["mismatch"]),
             "cancellation": accounting.cancellation_of(doc.name),
-            "can_submit_invoice": bool(doc.sales_invoice) and not posted,
+            "can_submit_invoice": bool(doc.sales_invoice)
+            and found["invoice_docstatus"] == 0,
         }
 
 
@@ -2769,6 +2781,14 @@ class BillingService:
         run_amount = money.signed(doc.total_amount, bool(doc.credit_note_of or doc.standalone_credit))
         net_total = money.signed(card.net_total, credit)
         difference = flt(net_total - run_amount, 2)
+        # a total that matches says nothing about the currency it is in, nor about which
+        # lines make it up: both can be edited on the document without moving the total
+        mismatch = (
+            {"run": doc.currency, "invoice": card.currency}
+            if doc.currency and card.currency and doc.currency != card.currency
+            else None
+        )
+        lines = BillingService._item_differences(doc)
 
         return {
             "currency": card.currency,
@@ -2777,10 +2797,72 @@ class BillingService:
             "taxes": flt(card.total_taxes_and_charges, 2),
             "grand_total": money.signed(payable, credit),
             "difference": difference,
+            "currency_mismatch": mismatch,
+            "item_differences": lines,
             # the two were worked out from the same lines, so any gap is somebody's edit
-            "material": abs(difference) > 0.005,
+            "material": abs(difference) > 0.005 or bool(mismatch) or bool(lines),
             "basis": "Run amount and net total are both before taxes.",
         }
+
+    @staticmethod
+    def _item_differences(doc):
+        """The lines the run worked out, beside the lines the document actually carries.
+
+        Read per service, because that is the level the document is edited at: a quantity
+        corrected on one line and another one deleted can leave the total untouched, and
+        the totals above would then agree about an invoice that no longer bills what the
+        run was drawn on.
+        """
+        expected = {}
+
+        for (service_item, rate, discount, _period), bucket in BillingService._invoice_groups(
+            doc
+        ).items():
+            net = flt(flt(rate, 2) * (1 - flt(discount) / 100.0), 2)
+            months = flt(bucket["months"], 3)
+            ours = expected.setdefault(service_item, {"qty": 0.0, "amount": 0.0})
+            ours["qty"] += months
+            ours["amount"] += flt(months * net, 2)
+
+        carried = {}
+
+        for row in frappe.get_all(
+            "Sales Invoice Item",
+            filters={"parent": doc.sales_invoice},
+            fields=["item_code", "qty", "amount"],
+        ):
+            theirs = carried.setdefault(row.item_code, {"qty": 0.0, "amount": 0.0})
+            theirs["qty"] += flt(row.qty)
+            theirs["amount"] += flt(row.amount)
+
+        differences = []
+
+        for service_item in sorted(set(expected) | set(carried)):
+            ours = expected.get(service_item) or {"qty": 0.0, "amount": 0.0}
+            theirs = carried.get(service_item) or {"qty": 0.0, "amount": 0.0}
+            apart = flt(theirs["amount"] - ours["amount"], 2)
+
+            if abs(apart) <= 0.005 and abs(flt(theirs["qty"] - ours["qty"], 3)) <= 0.0005:
+                continue
+
+            differences.append(
+                {
+                    "service_item": service_item,
+                    "item_name": ServiceDefinitionService.label_of(service_item),
+                    "run_qty": flt(ours["qty"], 3),
+                    "invoice_qty": flt(theirs["qty"], 3),
+                    "run_amount": flt(ours["amount"], 2),
+                    "invoice_amount": flt(theirs["amount"], 2),
+                    "difference": apart,
+                    "state": "missing"
+                    if service_item not in carried
+                    else "added"
+                    if service_item not in expected
+                    else "changed",
+                }
+            )
+
+        return differences
 
     @staticmethod
     def _accounting_gaps(company):

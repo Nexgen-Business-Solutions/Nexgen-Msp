@@ -1141,8 +1141,19 @@ export const changeUserService = (payload: {
   service_item?: string;
 }) => post<UserDetail>(`${BASE}.change_user_service`, payload);
 
+export type InvoiceItemDifference = {
+  service_item: string;
+  item_name: string;
+  run_qty: number;
+  invoice_qty: number;
+  run_amount: number;
+  invoice_amount: number;
+  difference: number;
+  state: 'changed' | 'added' | 'missing';
+};
+
 export type ServiceAvailabilityTarget = {
-  scope: 'User' | 'Device';
+  scope: 'User' | 'Device' | 'Customer';
   name: string;
   label: string;
   customer: string;
@@ -1156,6 +1167,7 @@ export type ServiceAvailabilityCurrent = {
   operational_status: string;
   billing_status: string;
   quantity: number;
+  uom: string | null;
   effective_start_date: string | null;
 };
 
@@ -1182,6 +1194,28 @@ export const userServiceAvailability = (client_user: string, signal?: AbortSigna
 
 export const deviceServiceAvailability = (managed_device: string, signal?: AbortSignal) =>
   get<ServiceAvailability>(`${BASE}.device_service_availability`, { managed_device }, signal);
+
+export const customerServiceAvailability = (customer: string, signal?: AbortSignal) =>
+  get<ServiceAvailability>(`${BASE}.customer_service_availability`, { customer }, signal);
+
+export const assignCustomerService = (payload: {
+  customer: string;
+  service_item: string;
+  effective_date?: string;
+  quantity?: number;
+  notes?: string;
+  agreed_rate?: number;
+  rate_override_reason?: string;
+}) => post<ServiceAvailability>(`${BASE}.assign_customer_service`, payload);
+
+export const changeCustomerService = (payload: {
+  assignment: string;
+  action: 'Suspend' | 'Resume' | 'End' | 'Change';
+  effective_date?: string;
+  notes?: string;
+  confirm_billed?: number;
+  quantity?: number;
+}) => post<ServiceAvailability>(`${BASE}.change_customer_service`, payload);
 
 export type ContractOptions = {
   contract_statuses: string[];
@@ -1299,6 +1333,10 @@ export type BillingRunRow = {
     taxes: number;
     grand_total: number;
     difference: number;
+    /** the run and its document in two different currencies: never a rounding story */
+    currency_mismatch: { run: string | null; invoice: string | null } | null;
+    /** the services whose quantity or amount the document no longer agrees with */
+    item_differences: InvoiceItemDifference[];
     material: boolean;
     basis: string;
   } | null;
@@ -1390,6 +1428,10 @@ export type BillingRunDetail = {
     taxes: number;
     grand_total: number;
     difference: number;
+    /** the run and its document in two different currencies: never a rounding story */
+    currency_mismatch: { run: string | null; invoice: string | null } | null;
+    /** the services whose quantity or amount the document no longer agrees with */
+    item_differences: InvoiceItemDifference[];
     material: boolean;
     basis: string;
   } | null;

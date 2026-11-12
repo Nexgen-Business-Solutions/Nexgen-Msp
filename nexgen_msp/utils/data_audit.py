@@ -106,15 +106,26 @@ def services():
             where assignment_scope = 'Device' and ifnull(client_user, '') <> ''
             """
         ),
+        "company_scope_carrying_a_target": _count(
+            """
+            select count(*) from `tabMSP Service Assignment`
+            where assignment_scope = 'Customer'
+              and (ifnull(client_user, '') <> '' or ifnull(managed_device, '') <> '')
+            """
+        ),
         "assignments_open_twice_on_one_target": _count(
             """
             select count(*) from (
                 select customer, service_item, assignment_scope,
-                       coalesce(client_user, managed_device) as target
+                       -- the company is its own target: a service it holds names nobody,
+                       -- and counting it by a null target skipped it entirely
+                       coalesce(client_user, managed_device,
+                                case when assignment_scope = 'Customer' then customer end) as target
                 from `tabMSP Service Assignment`
                 where operational_status in ('Active', 'Suspended', 'Pending Setup',
                                              'Suspended')
-                  and coalesce(client_user, managed_device) is not null
+                  and coalesce(client_user, managed_device,
+                               case when assignment_scope = 'Customer' then customer end) is not null
                 group by customer, service_item, assignment_scope, target
                 having count(*) > 1
             ) as doubled

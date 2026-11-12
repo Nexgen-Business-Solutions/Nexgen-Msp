@@ -86,3 +86,35 @@ export const useCreateCustomer = () => {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: customerKeys.all }),
   });
 };
+
+/** The services the company itself holds, and what it may still be sold. */
+export const useCustomerServices = (customer?: string) =>
+  useQuery({
+    queryKey: [...customerKeys.detail(customer || ''), 'services'],
+    queryFn: ({ signal }) => internal.customerServiceAvailability(customer as string, signal),
+    enabled: Boolean(customer),
+  });
+
+export const useAssignCustomerService = (customer: string) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: internal.assignCustomerService,
+    onSuccess: (reading) => {
+      queryClient.setQueryData([...customerKeys.detail(customer), 'services'], reading);
+      queryClient.invalidateQueries({ queryKey: customerKeys.detail(customer) });
+    },
+  });
+};
+
+export const useChangeCustomerService = (customer: string) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: internal.changeCustomerService,
+    onSuccess: (reading) => {
+      queryClient.setQueryData([...customerKeys.detail(customer), 'services'], reading);
+      queryClient.invalidateQueries({ queryKey: customerKeys.detail(customer) });
+    },
+  });
+};

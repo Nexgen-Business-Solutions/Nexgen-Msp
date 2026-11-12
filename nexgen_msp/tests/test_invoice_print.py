@@ -430,3 +430,95 @@ class TestTheDocumentSaysWhatItIs(PrintCase):
 
         self.assertIn("doc.docstatus", template)
         self.assertNotIn("billing_run", template.lower())
+
+
+class TestTheStandingSurvivesTheRenderer(PrintCase):
+    """The file the customer opens, not the HTML we hand to a renderer.
+
+    Nothing here simulates a PDF. On a bench with no renderer installed every test in this
+    class says exactly that and stops: a PDF nobody produced proves nothing about the one
+    the customer receives, and a test that passes by pretending is worse than no test.
+    """
+
+    CANCELLED_SETTING = "allow_print_for_cancelled"
+    RENDERERS = ("wkhtmltopdf", "chromium", "chromium-browser", "google-chrome", "chrome")
+
+    def setUp(self):
+        super().setUp()
+        self.kept = frappe.db.get_single_value("Print Settings", self.CANCELLED_SETTING)
+
+    def tearDown(self):
+        frappe.db.set_single_value("Print Settings", self.CANCELLED_SETTING, self.kept)
+        frappe.db.commit()
+        super().tearDown()
+
+    def renderer(self):
+        """The binary that turns the page into a file, or a stated reason there is none."""
+        from shutil import which
+
+        found = next((binary for binary in self.RENDERERS if which(binary)), None)
+
+        if not found:
+            self.skipTest(
+                "No PDF renderer is installed on this bench "
+                f"({', '.join(self.RENDERERS)}): the printed HTML is covered by the tests "
+                "above, and the PDF itself cannot be produced here."
+            )
+
+        return found
+
+    def document(self, docstatus, is_return=0):
+        doc = self.invoice(
+            [{"item_code": self.offering("PPDF"), "qty": -1 if is_return else 1,
+              "rate": 100.0, "uom": "Month"}],
+            is_return=is_return,
+        )
+
+        if docstatus:
+            frappe.db.set_value(
+                "Sales Invoice", doc.name, "docstatus", docstatus, update_modified=False
+            )
+
+        return doc.name
+
+    def rendered(self, name):
+        from frappe.utils.pdf import get_pdf
+
+        return get_pdf(self.printed(name))
+
+    def words(self, pdf):
+        from io import BytesIO
+
+        from pypdf import PdfReader
+
+        return "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf)).pages)
+
+    def test_the_renderer_produces_a_real_file(self):
+        self.renderer()
+
+        pdf = self.rendered(self.document(0))
+
+        self.assertTrue(pdf.startswith(b"%PDF"), "what came back is not a PDF")
+
+    def test_a_draft_carries_the_word_into_the_file(self):
+        self.renderer()
+
+        self.assertIn("DRAFT", self.words(self.rendered(self.document(0))))
+
+    def test_a_cancelled_document_carries_its_own_word_and_not_the_other(self):
+        self.renderer()
+        frappe.db.set_single_value("Print Settings", self.CANCELLED_SETTING, 1)
+        frappe.db.commit()
+
+        printed = self.words(self.rendered(self.document(2)))
+
+        self.assertIn("CANCELLED", printed)
+        self.assertNotIn("DRAFT", printed)
+
+    def test_a_posted_document_carries_neither(self):
+        self.renderer()
+
+        printed = self.words(self.rendered(self.document(1)))
+
+        self.assertNotIn("DRAFT", printed)
+        self.assertNotIn("CANCELLED", printed)

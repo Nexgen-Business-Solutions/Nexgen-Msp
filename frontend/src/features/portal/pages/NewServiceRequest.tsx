@@ -71,6 +71,7 @@ export default function NewServiceRequest() {
   // dialogs list that company's people, and a subject saved without one belongs to nobody
   const needsCustomer = onBehalf && !customer;
   const [askedWithout, setAskedWithout] = useState(false);
+  const [forCompany, setForCompany] = useState(false);
   const selector = useRef<HTMLDivElement>(null);
 
   const mayOpen = useCallback(() => {
@@ -90,16 +91,25 @@ export default function NewServiceRequest() {
   // what was picked for one company must never be sent under another's name
   const [carriedOver, setCarriedOver] = useState<string | null>(null);
   const previousCustomer = useRef<string | null>(null);
+  /** whether the one restore of a reopened draft has already happened */
+  const restored = useRef(false);
 
   useEffect(() => {
     const was = previousCustomer.current;
     previousCustomer.current = customer ?? null;
 
-    // a reopened draft settling onto its own company is a restore, not a switch
-    if (!onBehalf || !was || was === customer || customer === builder.sourceCustomer) return;
+    if (!onBehalf || !was || was === customer) return;
 
-    if (builder.subjects.length) {
-      builder.subjects.forEach((subject) => builder.removeSubject(subject.key));
+    // a reopened draft settling onto its own company is a restore, not a switch. Only the
+    // first settling is: coming back to that company later is a switch like any other
+    if (customer === builder.sourceCustomer && !restored.current) {
+      restored.current = true;
+
+      return;
+    }
+
+    if (builder.subjects.length || builder.requestedDevices.length || builder.actionGroups.length) {
+      builder.clearCustomerSelection();
       setCarriedOver(was);
     }
   }, [customer, onBehalf, builder]);
@@ -177,7 +187,9 @@ export default function NewServiceRequest() {
 
   const hasSubjects = builder.subjects.length > 0;
   const hasActions = builder.actionGroups.length > 0;
-  const canLeaveStep = [hasSubjects, hasActions, true, builder.canSend][step];
+  // a service the company itself holds names nobody, so such a request has no people in it
+  const aboutCompany = forCompany || builder.aboutCompany;
+  const canLeaveStep = [hasSubjects || aboutCompany, hasActions, true, builder.canSend][step];
   // the stepper counts what the customer has built so far, and says nothing when empty
   const steps = STEPS.map((entry) =>
     entry.key === 'people' && builder.subjects.length
@@ -339,9 +351,26 @@ export default function NewServiceRequest() {
       )}
 
       {!builder.unrestorable && step === 0 && !hasSubjects && !needsCustomer && (
-        <p className="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm text-amber-900">
-          Add at least one person before continuing.
-        </p>
+        <div className="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm text-amber-900">
+          <p>
+            {aboutCompany
+              ? 'This request is about the company itself. Choose what it should hold on the next step.'
+              : 'Add at least one person before continuing.'}
+          </p>
+          <label className="mt-2 inline-flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              checked={aboutCompany}
+              disabled={builder.aboutCompany}
+              onChange={(event) => setForCompany(event.target.checked)}
+              className="h-4 w-4 rounded border-amber-300"
+            />
+            <span className="text-[13px]">
+              This is about the company itself — a retainer, a block of storage, a line. Nobody
+              is named on those.
+            </span>
+          </label>
+        </div>
       )}
 
       {!builder.unrestorable && (
