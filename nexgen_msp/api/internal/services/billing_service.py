@@ -2825,12 +2825,16 @@ class BillingService:
         compared, never what it is worth.
         """
         expected = {}
+        # a credit carries its months one way and the return document carries them the
+        # other, so both are read for what they bill rather than which way they point
+        credit = bool(doc.credit_note_of or doc.standalone_credit)
 
         for (service_item, rate, discount, _period), bucket in BillingService._invoice_groups(
             doc
         ).items():
             net = flt(flt(rate, 2) * (1 - flt(discount) / 100.0), 2)
             months = flt(bucket["months"], 3)
+            months = abs(months) if credit else months
             ours = expected.setdefault(service_item, {"qty": 0.0, "amount": 0.0})
             ours["qty"] += months
             ours["amount"] += flt(months * net, 2)
@@ -2839,7 +2843,6 @@ class BillingService:
         # the period every line of this run was drawn for, written into the line itself.
         # A return says its period its own way and a charge from elsewhere says nothing of
         # ours, so neither is read for one it was never given
-        credit = bool(doc.credit_note_of or doc.standalone_credit)
         covered = (
             None
             if credit or doc.reconstructed
