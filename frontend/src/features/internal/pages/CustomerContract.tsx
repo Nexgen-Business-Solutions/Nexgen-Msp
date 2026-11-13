@@ -876,6 +876,7 @@ export default function CustomerContract() {
           label={profileDetails.data?.customer_name || customer}
           reading={held.data}
           changing={changingHeld}
+          mayPrice={Boolean(profileDetails.data?.can.manage_pricing)}
           onClose={() => {
             setAddingHeld(false);
             setChangingHeld(null);

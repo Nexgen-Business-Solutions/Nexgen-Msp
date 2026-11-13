@@ -13,6 +13,8 @@ type Props = {
   reading?: ServiceAvailability;
   /** The running period whose quantity is being changed; absent means a new service. */
   changing?: ServiceAvailabilityCurrent | null;
+  /** whether this account may put a price on the record by hand; the server refuses too */
+  mayPrice?: boolean;
   onClose: () => void;
 };
 
@@ -34,6 +36,7 @@ const CustomerServiceModal: React.FC<Props> = ({
   label,
   reading,
   changing,
+  mayPrice = false,
   onClose,
 }) => {
   const assign = useAssignCustomerService(customer);
@@ -198,6 +201,7 @@ const CustomerServiceModal: React.FC<Props> = ({
             </p>
           </div>
 
+          {mayPrice && (
           <div>
             <FieldLabel>Agreed rate</FieldLabel>
             <input
@@ -215,6 +219,7 @@ const CustomerServiceModal: React.FC<Props> = ({
                 : `Agreed by hand at ${held}. Leave it as it is to keep that rate.`}
             </p>
           </div>
+          )}
 
           <div>
             <FieldLabel>Effective date</FieldLabel>

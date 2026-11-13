@@ -11,6 +11,8 @@ no target, and two overlapping Customer periods were already refused. What was m
 the way in — the catalogue would not sell one, and the lifecycle had nowhere to put it.
 """
 
+import unittest
+
 import frappe
 
 from nexgen_msp.api.internal.services.billing_service import BillingService
@@ -341,6 +343,51 @@ class TestAskingForOneThroughARequest(CustomerScopeCase):
 
             self.assertNotIn(self.retainer, [row["service_item"] for row in offered], scope)
 
+    def test_a_company_service_is_never_offered_on_a_persons_card(self):
+        """The one door the form actually calls, which the scoped read is not.
+
+        Both tests above ask `_offered` for one scope at a time and are answered correctly.
+        The builder reads the catalogue once for every scope and sorts the cards itself, so
+        a service sold to the company arrived on the people's card — offered to two people
+        who can never hold it.
+        """
+        from nexgen_msp.api.portal.services.request_scope_service import RequestScopeService
+
+        personal = self.make_service(f"PS1{self.tag}", scope="User")
+        self.cover_service(self.customer, personal, rate=10.0)
+        person = self.make_person(self.customer, "Alice")
+        card = frappe.db.get_value(
+            "MSP Client User", person, ["full_name", "department", "email"], as_dict=True
+        )
+
+        options = RequestScopeService.operation_options(
+            customer=self.customer,
+            subjects=[
+                {
+                    "subject_key": f"user:{person}",
+                    "client_user": person,
+                    "full_name": card.full_name,
+                    "department": card.department,
+                    "email": card.email,
+                    "added_via": "Existing",
+                }
+            ],
+        )
+        domains = {domain["key"]: domain for domain in options["domains"]}
+        offered = domains["Service"]["options"]
+
+        self.assertIn(personal, [option["object_key"] for option in offered])
+        self.assertNotIn(self.retainer, [option["object_key"] for option in offered])
+        # and nothing else sold to a company is there either, whatever it is called
+        self.assertEqual(
+            [option["object_key"] for option in offered if option["service_scope"] == "Customer"],
+            [],
+        )
+        # it is offered where it belongs, and only there
+        self.assertIn(
+            self.retainer, [option["object_key"] for option in domains["Company"]["options"]]
+        )
+
     def test_a_person_service_is_still_offered_exactly_as_before(self):
         from nexgen_msp.api.portal.services.request_builder_service import RequestBuilderService
 
@@ -475,6 +522,72 @@ class TestTheCompanyPageSellsOne(CustomerScopeCase):
             )
         )
         self.assertIn("PERMISSION", str(getattr(refused.exception, "code", "PERMISSION")).upper())
+
+    def test_a_technician_may_open_the_service_but_not_price_it(self):
+        """Opening a service is operational. Putting a price on it by hand is not.
+
+        Every internal account could pass a manual rate here, because the door asked only
+        whether the caller was staff — and a manual rate is the one number Billing takes
+        literally, reason on file or not.
+        """
+        technician = self.make_account("internal", "MSP Technician", suffix=f"tk{self.tag[:3]}")
+        frappe.set_user(technician)
+
+        try:
+            with self.assertRaises(Exception) as refused:
+                self.door().assign_service(
+                    customer=self.customer,
+                    service_item=self.retainer,
+                    effective_date="2026-01-01",
+                    quantity=5,
+                    agreed_rate=36.0,
+                    rate_override_reason="Agreed on the telephone",
+                )
+
+            # the same act without a price of its own is theirs to carry out
+            self.door().assign_service(
+                customer=self.customer,
+                service_item=self.retainer,
+                effective_date="2026-01-01",
+                quantity=5,
+            )
+        finally:
+            frappe.set_user("Administrator")
+
+        opened = frappe.get_all(
+            ASSIGNMENT,
+            filters={"customer": self.customer, "service_item": self.retainer},
+            fields=["name", "price_source"],
+        )
+
+        for row in opened:
+            self.track(ASSIGNMENT, row.name)
+
+        self.assertIn("PERMISSION", str(getattr(refused.exception, "code", "")).upper())
+        self.assertEqual(len(opened), 1)
+        self.assertEqual(opened[0].price_source, "Contract")
+
+    def test_an_administrator_may_price_it(self):
+        self.door().assign_service(
+            customer=self.customer,
+            service_item=self.retainer,
+            effective_date="2026-01-01",
+            quantity=5,
+            agreed_rate=36.0,
+            rate_override_reason="Agreed at signature",
+        )
+
+        opened = frappe.get_all(
+            ASSIGNMENT,
+            filters={"customer": self.customer, "service_item": self.retainer},
+            fields=["name", "price_source", "agreed_rate"],
+        )
+
+        for row in opened:
+            self.track(ASSIGNMENT, row.name)
+
+        self.assertEqual(opened[0].price_source, "Manual Override")
+        self.assertEqual(flt_round(opened[0].agreed_rate), 36.0)
 
     def test_customer_assignment_duplicate_rejected(self):
         self.open_one()
@@ -945,6 +1058,43 @@ class TestACompanyPeriodIsBilledOnce(CompanyBillingCase):
 
         self.assertGreater(sum(flt(row.billable_months) for row in self.mine(first)), 0)
         self.assertEqual(sum(flt(row.billable_months) for row in self.mine(again)), 0)
+
+    @unittest.skip(
+        "Reproduction kept, expectation not settled: what a change over days already paid "
+        "for should do — bill nothing, bill the difference, or raise the credit itself — "
+        "is a commercial decision, not a mechanical one."
+    )
+    def test_a_change_after_the_days_were_billed_does_not_bill_them_twice(self):
+        """A quarter paid in advance, then the company takes more of it halfway through.
+
+        The change closes one period and opens another with an identity of its own, and
+        coverage is recorded against the period that was billed. Nothing stops the new one
+        from being drawn over days the customer has already paid for.
+        """
+        start, end = self.month()
+        first = self.opened(quantity=5)
+        self.posted(start, end)
+        middle = frappe.utils.add_days(frappe.utils.getdate(start), 15)
+
+        ServiceLifecycleService.change(
+            assignment=first, effective_date=str(middle), quantity=8
+        )
+        frappe.db.commit()
+
+        for row in frappe.get_all(
+            ASSIGNMENT,
+            filters={"customer": self.customer, "service_item": self.storage},
+            pluck="name",
+        ):
+            self.track(ASSIGNMENT, row)
+
+        rows = self.mine(self.drawn(start=start, end=end))
+
+        self.assertEqual(
+            sum(flt(row.billable_months) for row in rows),
+            0,
+            f"those days are paid for: {[(str(row.covered_from), str(row.covered_to), flt(row.quantity), flt(row.billable_months)) for row in rows]}",
+        )
 
     def test_a_decrease_bills_the_smaller_quantity_for_the_rest_of_the_period(self):
         start, end = self.month()

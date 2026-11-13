@@ -702,6 +702,12 @@ def _service_domain(customer, rows, state):
     catalogue = dict(running)
 
     for item, offer in state["offered"].items():
+        # a service sold to the company has nobody behind it. The catalogue here is read
+        # for every scope at once, so offering it on this card put the company's own
+        # services on the people of the request
+        if offer["scope"] == "Customer":
+            continue
+
         catalogue.setdefault(item, offer["label"])
 
     options = []

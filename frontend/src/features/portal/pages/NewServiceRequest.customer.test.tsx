@@ -68,8 +68,18 @@ const mvondo = {
   lifecycle_status: 'Active',
 };
 
+const sima = {
+  name: 'CU-101',
+  full_name: 'Carine Sima',
+  email: 'carine@sicg.cm',
+  department: 'Logistics',
+  lifecycle_status: 'Active',
+};
+
 const selectable = { ...ndom, username: null, selectable: true, disabled_reason: null };
 const alsoSelectable = { ...mvondo, username: null, selectable: true, disabled_reason: null };
+/** SICG's own people, so a switch of company can be seen rather than assumed. */
+const theirs = { ...sima, username: null, selectable: true, disabled_reason: null };
 
 const renderPage = (at = '/msp/requests/new') => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -120,8 +130,11 @@ beforeEach(() => {
     awaiting: 0,
   });
   vi.mocked(portal.searchRequestUsers).mockResolvedValue([ndom]);
-  vi.mocked(portal.listSelectableClientUsers).mockResolvedValue(
-    pageOf([selectable, alsoSelectable])
+  // each company answers with its own people, which is the whole point of the switch
+  vi.mocked(portal.listSelectableClientUsers).mockImplementation((params) =>
+    Promise.resolve(
+      pageOf(params?.customer === 'SICG' ? [theirs] : [selectable, alsoSelectable]) as never
+    )
   );
   vi.mocked(portal.listSelectableDevices).mockResolvedValue(pageOf([]));
   vi.mocked(portal.getDepartmentSelection).mockResolvedValue(group('Department', 'Purchasing'));
@@ -265,6 +278,23 @@ describe('what was picked for one company never travels to another', () => {
     expect(await screen.findByText(/were cleared when you changed customer/i)).toBeInTheDocument();
     // nothing of the previous company is left on the request
     expect(await screen.findByText(/add at least one person/i)).toBeInTheDocument();
+  });
+
+  it('offers the new company its own people, and none of the previous one\'s', async () => {
+    renderPage();
+    await chooseCustomer('ACI');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Existing user' }));
+    expect(await screen.findByRole('button', { name: 'Add Alice Ndom' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    await chooseCustomer('SICG');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Existing user' }));
+
+    expect(await screen.findByRole('button', { name: 'Add Carine Sima' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add Alice Ndom' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add Brice Mvondo' })).not.toBeInTheDocument();
   });
 
   it('leaves nothing behind when the company is changed and changed back', async () => {

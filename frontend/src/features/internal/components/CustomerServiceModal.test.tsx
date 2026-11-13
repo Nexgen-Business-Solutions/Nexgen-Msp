@@ -43,7 +43,8 @@ const reading = (overrides: Partial<ServiceAvailability> = {}): ServiceAvailabil
 
 const open = (
   data: ServiceAvailability = reading(),
-  changing: ServiceAvailabilityCurrent | null = null
+  changing: ServiceAvailabilityCurrent | null = null,
+  mayPrice = true
 ) => {
   vi.mocked(internal.assignCustomerService).mockResolvedValue(data);
   vi.mocked(internal.changeCustomerService).mockResolvedValue(data);
@@ -59,6 +60,7 @@ const open = (
         label="Nexgen SA"
         reading={data}
         changing={changing}
+        mayPrice={mayPrice}
         onClose={vi.fn()}
       />
     </QueryClientProvider>
@@ -186,6 +188,33 @@ describe('CustomerServiceModal', () => {
     expect(sent).not.toHaveProperty('agreed_rate');
     expect(sent).not.toHaveProperty('rate_override_reason');
     expect(screen.queryByLabelText('Why this rate')).not.toBeInTheDocument();
+  });
+
+  /**
+   * A price put on the record by hand is what Billing takes literally. Opening a service
+   * is operational; pricing it is not, and the server refuses it too.
+   */
+  it('offers no rate at all to an account that may not price', async () => {
+    open(reading({ current: [storage] }), storage, false);
+
+    expect(await screen.findByLabelText('Quantity')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Agreed rate')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Why this rate')).not.toBeInTheDocument();
+  });
+
+  it('sends no rate when that account changes the quantity', async () => {
+    open(reading({ current: [storage] }), storage, false);
+
+    fireEvent.change(await screen.findByLabelText('Quantity'), { target: { value: '8' } });
+    fireEvent.click(screen.getByRole('button', { name: /^save change$/i }));
+
+    await waitFor(() => expect(internal.changeCustomerService).toHaveBeenCalled());
+
+    const sent = vi.mocked(internal.changeCustomerService).mock.calls[0][0];
+
+    expect(sent).not.toHaveProperty('agreed_rate');
+    // and the rate it was agreed at is untouched, because the engine holds it over
+    expect(sent).toMatchObject({ quantity: 8 });
   });
 
   it('asks for a reason when a new service is given a rate by hand', async () => {

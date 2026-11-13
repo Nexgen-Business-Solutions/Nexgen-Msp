@@ -667,6 +667,11 @@ class CustomerService:
         RequestService._guard_internal()
         CustomerService._readable(customer)
 
+        # a price put on the record by hand is what Billing takes literally, so it is the
+        # commercial right that opens it — not the operational one that opens the service
+        if agreed_rate not in (None, ""):
+            access.require("manage_pricing")
+
         if not service_item:
             raise ValidationError("service_item is required.", "VALIDATION_ERROR")
 
@@ -720,6 +725,9 @@ class CustomerService:
 
         if not assignment or not action:
             raise ValidationError("assignment and action are required.", "VALIDATION_ERROR")
+
+        if agreed_rate not in (None, ""):
+            access.require("manage_pricing")
 
         acts = {
             "Suspend": ServiceLifecycleService.suspend,

@@ -1268,7 +1268,9 @@ const openingScope = (
   subjects: RequestSubject[],
   company: { on: boolean; label: string }
 ): Scope => {
-  if (picked && standsIn(picked, rows, company.on)) return picked;
+  // the company can be chosen before anything is asked of it, which is how a service
+  // only it can hold reaches the request at all. A scope somebody just clicked stands
+  if (picked && (picked.type === 'Company' || standsIn(picked, rows, company.on))) return picked;
   if (remembered && standsIn(remembered, rows, company.on)) return remembered;
 
   const byHand = subjects.some(
@@ -1452,6 +1454,12 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
     builder.editing
   );
   const domains = useMemo(() => operations.data?.domains ?? [], [operations.data]);
+  // the company is offered wherever the server has something to sell it, whether or not it
+  // was picked in the People step: an act asked here puts it on the request, exactly as
+  // asking something of a person does. Routing the offer is the point of the filtering
+  const sellsToCompany = domains.some(
+    (domain) => domain.key === 'Company' && domain.options.length > 0
+  );
   const counted = useMemo(() => tally(scoped), [scoped]);
   const departments = [...new Set(rows.map((row) => row.department).filter(Boolean) as string[])];
   const person = scope.type === 'Person' ? scoped[0] : null;
@@ -1537,7 +1545,7 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
         </div>
 
         <div className="max-h-[32rem] overflow-auto pb-2">
-          {builder.aboutCompany && (
+          {(builder.aboutCompany || sellsToCompany) && (
             <>
               <p className="px-4 pb-1 pt-3 text-[9px] font-bold uppercase tracking-wider text-slate-400">
                 Company
@@ -1545,7 +1553,7 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
               <Nav
                 active={scope.type === 'Company'}
                 title={company}
-                hint="The company itself"
+                hint={builder.aboutCompany ? 'The company itself' : 'Not on the request yet'}
                 onClick={() => setScope({ type: 'Company', key: null, label: company })}
               />
             </>
@@ -1670,10 +1678,16 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
 
           {domains
             .filter((domain) =>
-              // the company is chosen on the rail like anybody else, so its services show
-              // where it is selected — and nowhere else
-              scope.type === 'Company' ? domain.key === 'Company' : domain.key !== 'Company'
+              // all selected means all of it: the company's own services are offered there
+              // beside the people's, each on the only target that can hold it. One person
+              // or one department is not the company, and carries none of them
+              scope.type === 'Company'
+                ? domain.key === 'Company'
+                : scope.type === 'All' || domain.key !== 'Company'
             )
+            // the company comes first: it is the one target on this card that is not a
+            // person, and reading it after the people's services buried it
+            .sort((left, right) => (left.key === 'Company' ? -1 : right.key === 'Company' ? 1 : 0))
             .map((domain) =>
             domain.key === 'Company' ? (
               <CompanyServices

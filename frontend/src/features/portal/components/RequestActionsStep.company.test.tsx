@@ -52,7 +52,7 @@ const company = (): RequestOperationDomain => ({
   ],
 });
 
-const builder = (addActionGroup = vi.fn()) =>
+const builder = (addActionGroup = vi.fn(), aboutCompany = true) =>
   ({
     subjects: [],
     subjectDrafts: [],
@@ -63,7 +63,7 @@ const builder = (addActionGroup = vi.fn()) =>
     editing: null,
     draft: null,
     // the company is on the request: it was picked in the People step like anybody else
-    aboutCompany: true,
+    aboutCompany,
     addActionGroup,
   }) as unknown as Builder;
 
@@ -115,5 +115,32 @@ describe('RequestActionsStep, for the company itself', () => {
     // is the card of services, which the server said nothing about
     expect(screen.queryByText('Nobody is named on these')).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/How much of/)).not.toBeInTheDocument();
+  });
+
+  /**
+   * Filtering a company service off the people's card is only half of it: the act has to
+   * be offered to the one target that can hold it. It was simply gone otherwise.
+   *
+   * All selected shows all of it — the company's own services beside the people's — and
+   * each card acts on the only target that can hold what it offers.
+   */
+  it('offers the company under All selected, and asks it of the company itself', () => {
+    operations.data = { domains: [company()] };
+    const added = vi.fn();
+
+    render(<RequestActionsStep builder={builder(added, false)} />);
+
+    // it is offered although nobody put it on the request: the rail says as much
+    expect(screen.getByText('Not on the request yet')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('How much of Cloud Storage'), {
+      target: { value: '2' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^add$/i }));
+
+    // asking something of it is what puts it on the request, as it is for a person
+    expect(added).toHaveBeenCalledTimes(1);
+    expect(added.mock.calls[0][0].targets[0].target_scope).toBe('Customer');
+    expect(added.mock.calls[0][0].targets[0].requested_quantity).toBe(2);
   });
 });
