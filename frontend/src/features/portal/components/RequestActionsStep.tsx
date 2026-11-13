@@ -19,7 +19,7 @@ import RecordLink from '@/shared/components/RecordLink';
 import RequestDeviceSummary from './RequestDeviceSummary';
 import RequestPersonSummary from './RequestPersonSummary';
 import { machinesTaken } from '../machinesTaken';
-import { useRequestOperations, useRequestScope } from '../hooks/usePortal';
+import { usePortalSummary, useRequestOperations, useRequestScope } from '../hooks/usePortal';
 import {
   REVIEW_NEEDED,
   type HolderPerson,
@@ -33,7 +33,11 @@ import RequestNewDeviceModal from './RequestNewDeviceModal';
 import RequestNewPersonModal from './RequestNewPersonModal';
 
 type Builder = ReturnType<typeof useRequestBuilder>;
-type Scope = { type: 'All' | 'Department' | 'Person'; key: string | null; label: string };
+type Scope = {
+  type: 'All' | 'Department' | 'Person' | 'Company';
+  key: string | null;
+  label: string;
+};
 type Machines = {
   deviceTypes: string[];
   subjects: RequestSubject[];
@@ -1248,9 +1252,10 @@ const optionOf = (group: RequestActionGroup, domains: RequestOperationDomain[]) 
 
 const EVERYBODY: Scope = { type: 'All', key: null, label: 'All selected' };
 
-const standsIn = (scope: Scope | null, rows: RequestSubjectRow[]) => {
+const standsIn = (scope: Scope | null, rows: RequestSubjectRow[], onCompany: boolean) => {
   if (!scope) return false;
-  if (scope.type === 'All') return true;
+  if (scope.type === 'Company') return onCompany;
+  if (scope.type === 'All') return rows.length > 0;
   if (scope.type === 'Department') return rows.some((row) => row.department === scope.key);
 
   return rows.some((row) => row.subject_key === scope.key);
@@ -1260,17 +1265,20 @@ const openingScope = (
   picked: Scope | null,
   remembered: Scope | null,
   rows: RequestSubjectRow[],
-  subjects: RequestSubject[]
+  subjects: RequestSubject[],
+  company: { on: boolean; label: string }
 ): Scope => {
-  if (picked && standsIn(picked, rows)) return picked;
-  if (remembered && standsIn(remembered, rows)) return remembered;
+  if (picked && standsIn(picked, rows, company.on)) return picked;
+  if (remembered && standsIn(remembered, rows, company.on)) return remembered;
 
   const byHand = subjects.some(
     (subject) => !subject.selectionOrigin || subject.selectionOrigin === 'Individual'
   );
   const first = rows[0];
 
-  if (!byHand || !first) return EVERYBODY;
+  // a request with nobody in it is about the company, and that is where it opens
+  if (!first) return company.on ? { type: 'Company', key: null, label: company.label } : EVERYBODY;
+  if (!byHand) return EVERYBODY;
 
   return { type: 'Person', key: first.subject_key, label: first.full_name || 'New person' };
 };
@@ -1414,9 +1422,15 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
   const rows = useMemo(() => projection.data?.subjects ?? [], [projection.data]);
   const memory = builder.draft || builder.editing;
   const kept = memory ? `msp.request.scope.${memory}` : null;
+  const figures = usePortalSummary();
+  const company = figures.data?.customer ?? 'The company itself';
   const scope = useMemo(
-    () => openingScope(picked, kept ? recall<Scope>(kept) : null, rows, builder.subjects),
-    [picked, kept, rows, builder.subjects]
+    () =>
+      openingScope(picked, kept ? recall<Scope>(kept) : null, rows, builder.subjects, {
+        on: builder.aboutCompany,
+        label: company,
+      }),
+    [picked, kept, rows, builder.subjects, builder.aboutCompany, company]
   );
   const setScope = (next: Scope) => {
     setPicked(next);
@@ -1481,8 +1495,10 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
         operationLabelSnapshot: option.operation_label_snapshot,
         domain,
         serviceItem: serviceItem ?? null,
-        sourceScopeType: scope.type,
-        sourceScopeKey: scope.key,
+        // the record keeps three provenances and the company is not one of them. What the
+        // group is about is read off the scope of its targets, here as everywhere else
+        sourceScopeType: scope.type === 'Company' ? 'All' : scope.type,
+        sourceScopeKey: scope.type === 'Company' ? null : scope.key,
         sourceScopeLabel: scope.label,
         selectedSubjectCount: scoped.length,
         targets,
@@ -1497,9 +1513,15 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
 
   const review = (group: RequestActionGroup) => {
     setScope(
-      group.sourceScopeType === 'Department'
-        ? { type: 'Department', key: group.sourceScopeKey ?? null, label: group.sourceScopeLabel }
-        : { type: 'All', key: null, label: 'All selected' }
+      group.targets.some((target) => target.target_scope === 'Customer')
+        ? { type: 'Company', key: null, label: company }
+        : group.sourceScopeType === 'Department'
+          ? {
+              type: 'Department',
+              key: group.sourceScopeKey ?? null,
+              label: group.sourceScopeLabel,
+            }
+          : { type: 'All', key: null, label: 'All selected' }
     );
     setReviewing(group.groupKey);
   };
@@ -1515,32 +1537,50 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
         </div>
 
         <div className="max-h-[32rem] overflow-auto pb-2">
-          <p className="px-4 pb-1 pt-3 text-[9px] font-bold uppercase tracking-wider text-slate-400">
-            Groups
-          </p>
-          <Nav
-            active={scope.type === 'All'}
-            title="All selected"
-            hint="Current selection"
-            count={rows.length}
-            onClick={() => setScope({ type: 'All', key: null, label: 'All selected' })}
-          />
-          {departments.map((department) => (
-            <Nav
-              key={department}
-              active={scope.type === 'Department' && scope.key === department}
-              title={department}
-              hint="Department"
-              count={rows.filter((row) => row.department === department).length}
-              onClick={() =>
-                setScope({ type: 'Department', key: department, label: department })
-              }
-            />
-          ))}
+          {builder.aboutCompany && (
+            <>
+              <p className="px-4 pb-1 pt-3 text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                Company
+              </p>
+              <Nav
+                active={scope.type === 'Company'}
+                title={company}
+                hint="The company itself"
+                onClick={() => setScope({ type: 'Company', key: null, label: company })}
+              />
+            </>
+          )}
 
-          <p className="px-4 pb-1 pt-3 text-[9px] font-bold uppercase tracking-wider text-slate-400">
-            People
-          </p>
+          {rows.length > 0 && (
+            <>
+              <p className="px-4 pb-1 pt-3 text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                Groups
+              </p>
+              <Nav
+                active={scope.type === 'All'}
+                title="All selected"
+                hint="Current selection"
+                count={rows.length}
+                onClick={() => setScope({ type: 'All', key: null, label: 'All selected' })}
+              />
+              {departments.map((department) => (
+                <Nav
+                  key={department}
+                  active={scope.type === 'Department' && scope.key === department}
+                  title={department}
+                  hint="Department"
+                  count={rows.filter((row) => row.department === department).length}
+                  onClick={() =>
+                    setScope({ type: 'Department', key: department, label: department })
+                  }
+                />
+              ))}
+
+              <p className="px-4 pb-1 pt-3 text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                People
+              </p>
+            </>
+          )}
           {rows.map((row) => (
             <Nav
               key={row.subject_key}
@@ -1568,7 +1608,9 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
           <div>
             <h3 className="text-base font-semibold text-slate-900">
-              {person ? (
+              {scope.type === 'Company' ? (
+                company
+              ) : person ? (
                 <RecordLink
                   name={person.kind === 'device' ? person.managed_device : person.client_user}
                   kind={person.kind === 'device' ? 'device' : 'user'}
@@ -1582,7 +1624,9 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
               )}
             </h3>
             <p className="mt-0.5 text-xs text-slate-500">
-              {person
+              {scope.type === 'Company'
+                ? 'The company itself · no person and no machine is named on these'
+                : person
                 ? person.kind === 'device'
                   ? `Device · nobody holds it · ${person.current_services.length} current services`
                   : `${person.department || 'No Department'} · ${person.devices.length} Devices · ${person.current_services.length} current services`
@@ -1595,7 +1639,7 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
           {person && person.kind !== 'device' && <RequestPersonSummary person={person} />}
           {person && person.kind === 'device' && <RequestDeviceSummary device={person} />}
 
-          {!person && (
+          {!person && scope.type !== 'Company' && (
             <button
               type="button"
               onClick={() => setReading(true)}
@@ -1624,7 +1668,13 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
             <p className="py-8 text-center text-sm text-slate-500">Reading what can be asked…</p>
           )}
 
-          {domains.map((domain) =>
+          {domains
+            .filter((domain) =>
+              // the company is chosen on the rail like anybody else, so its services show
+              // where it is selected — and nowhere else
+              scope.type === 'Company' ? domain.key === 'Company' : domain.key !== 'Company'
+            )
+            .map((domain) =>
             domain.key === 'Company' ? (
               <CompanyServices
                 key={domain.key}

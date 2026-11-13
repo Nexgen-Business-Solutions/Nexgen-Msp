@@ -9,6 +9,7 @@ const operations = { data: { domains: [] as RequestOperationDomain[] }, isLoadin
 vi.mock('../hooks/usePortal', () => ({
   useRequestScope: () => ({ data: { subjects: [] }, isLoading: false }),
   useRequestOperations: () => operations,
+  usePortalSummary: () => ({ data: { customer: 'Nexgen SA' } }),
 }));
 
 type Builder = ReturnType<typeof useRequestBuilder>;
@@ -61,6 +62,8 @@ const builder = (addActionGroup = vi.fn()) =>
     actionGroups: [],
     editing: null,
     draft: null,
+    // the company is on the request: it was picked in the People step like anybody else
+    aboutCompany: true,
     addActionGroup,
   }) as unknown as Builder;
 
@@ -105,9 +108,12 @@ describe('RequestActionsStep, for the company itself', () => {
     expect(added).not.toHaveBeenCalled();
   });
 
-  it('says nothing about the company when the server offers nothing for it', () => {
+  it('offers no company card when the server offers nothing for it', () => {
     render(<RequestActionsStep builder={builder()} />);
 
-    expect(screen.queryByText('The company itself')).not.toBeInTheDocument();
+    // the rail still carries the company, because the request is about it; what is gone
+    // is the card of services, which the server said nothing about
+    expect(screen.queryByText('Nobody is named on these')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/How much of/)).not.toBeInTheDocument();
   });
 });

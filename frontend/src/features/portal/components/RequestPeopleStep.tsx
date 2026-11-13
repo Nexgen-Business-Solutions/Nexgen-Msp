@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Building2, Laptop, Layers, Plus, UserPlus, X } from 'lucide-react';
+import { Building2, Landmark, Laptop, Layers, Plus, UserPlus, X } from 'lucide-react';
 import FieldLabel from '@/shared/components/FieldLabel';
 import Modal from '@/shared/components/Modal';
 import Select from '@/shared/components/Select';
@@ -11,9 +11,11 @@ import {
   useDepartmentSelection,
   useNewPersonContext,
   usePortalFilterOptions,
+  usePortalSummary,
   useRequestScope,
   useSelectableClientUsers,
   useSelectableDevices,
+  useSubscribedServices,
 } from '../hooks/usePortal';
 import RequestNewDeviceModal from './RequestNewDeviceModal';
 import RequestNewPersonModal from './RequestNewPersonModal';
@@ -483,6 +485,21 @@ const RequestPeopleStep: React.FC<{
 
   // a dialog left open across a change of company would list the previous one's people
   useEffect(() => setOpened(null), [customer]);
+
+  /** The company itself, which is not a dialog: picking it is the whole act. */
+  const takeCompany = () => {
+    if (mayOpen && !mayOpen()) return;
+
+    builder.addCompany();
+  };
+
+  const figures = usePortalSummary();
+  const subscribed = useSubscribedServices();
+  const company = figures.data?.customer ?? customer ?? null;
+  // what the company itself holds, which is every service sold to no person and no machine
+  const held = (subscribed.data?.services ?? []).filter(
+    (service) => service.assignment_scope === 'Customer' && service.active > 0
+  );
   const scope = useRequestScope(builder.subjectDrafts);
   const rows = scope.data?.subjects ?? [];
   const byKey = new Map(rows.map((row) => [row.subject_key, row]));
@@ -545,14 +562,30 @@ const RequestPeopleStep: React.FC<{
             <Building2 size={13} />
             Entire company
           </button>
+          <button
+            type="button"
+            onClick={takeCompany}
+            disabled={builder.aboutCompany}
+            className={`${actionBtn} border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60`}
+          >
+            <Landmark size={13} />
+            Company itself
+          </button>
         </div>
       </div>
 
-      {builder.subjects.length > 0 && (
+      {(builder.subjects.length > 0 || builder.aboutCompany) && (
         <div className="flex flex-wrap items-center gap-1.5 px-5 pt-3">
-          <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700">
-            {builder.subjects.length} people
-          </span>
+          {builder.aboutCompany && (
+            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+              The company itself
+            </span>
+          )}
+          {builder.subjects.length > 0 && (
+            <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700">
+              {builder.subjects.length} people
+            </span>
+          )}
           {departments.map((department) => (
             <span
               key={department}
@@ -581,6 +614,47 @@ const RequestPeopleStep: React.FC<{
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
+            {builder.aboutCompany && (
+              <tr className="bg-emerald-50/30 align-middle">
+                <td className="px-4 py-2.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm font-semibold text-slate-900">
+                      {company || 'The company itself'}
+                    </span>
+                    <span className="rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700">
+                      COMPANY
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-[11px] text-slate-500">
+                    {figures.data
+                      ? `${figures.data.client_users} people · ${figures.data.devices} Devices`
+                      : 'The company itself'}
+                    {' · nobody carries these'}
+                  </p>
+                </td>
+                <td
+                  className="px-4 py-2.5 text-sm text-slate-600"
+                  title="Billing coverage is recorded against each service line, not against the company as a whole."
+                >
+                  —
+                </td>
+                <td className="px-4 py-2.5 text-sm text-slate-500">—</td>
+                <td className="px-4 py-2.5 text-sm">
+                  <Tokens values={held.map((service) => service.item_name)} />
+                </td>
+                <td className="px-4 py-2.5 text-right">
+                  <button
+                    type="button"
+                    aria-label={`Remove ${company || 'the company itself'}`}
+                    onClick={() => builder.removeCompany()}
+                    className="rounded-lg border border-slate-200 p-1.5 text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-700"
+                  >
+                    <X size={14} />
+                  </button>
+                </td>
+              </tr>
+            )}
+
             {builder.subjects.map((subject) => {
               const row = cell(subject);
 
@@ -633,7 +707,7 @@ const RequestPeopleStep: React.FC<{
               );
             })}
 
-            {builder.subjects.length === 0 && (
+            {builder.subjects.length === 0 && !builder.aboutCompany && (
               <tr>
                 <td colSpan={5} className="px-4 py-10 text-center text-sm text-slate-500">
                   Add people to start the request.

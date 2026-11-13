@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as portal from '@/lib/api/portal';
@@ -32,6 +32,8 @@ vi.mock('@/lib/api/portal', async (importOriginal) => {
     getCompanySelection: vi.fn(),
     evaluateRequestScope: vi.fn(),
     getRequest: vi.fn(),
+    getSummary: vi.fn(),
+    listSubscribedServices: vi.fn(),
     evaluateRequestOperations: vi.fn(),
     listSelectableClientUsers: vi.fn(),
     listSelectableDevices: vi.fn(),
@@ -131,6 +133,24 @@ beforeEach(() => {
     available_device_services: [],
   });
   vi.mocked(portal.evaluateRequestScope).mockResolvedValue({ customer: 'ACI', subjects: [] });
+  vi.mocked(portal.getSummary).mockResolvedValue({
+    customer: 'ACI',
+    client_users: 12,
+    devices: 4,
+  } as never);
+  vi.mocked(portal.listSubscribedServices).mockResolvedValue({
+    services: [
+      {
+        service_item: 'ITEM-STORAGE',
+        item_name: 'Cloud Storage',
+        assignment_scope: 'Customer',
+        total: 1,
+        active: 1,
+        ended: 0,
+      },
+    ],
+    count: 1,
+  } as never);
   vi.mocked(portal.evaluateRequestOperations).mockResolvedValue({
     customer: 'ACI',
     selected_subject_count: 0,
@@ -336,7 +356,7 @@ describe('a request about the company itself', () => {
    * A company service names nobody, so such a request has no people in it at all — and the
    * People step would not let anyone past without one.
    */
-  it('cannot leave the People step until it says it is about the company', async () => {
+  it('is added from the same row of buttons as the people and the machines', async () => {
     renderPage();
     await chooseCustomer('ACI');
 
@@ -345,14 +365,34 @@ describe('a request about the company itself', () => {
     expect(onwards).toBeDisabled();
     expect(screen.getByText('Add at least one person before continuing.')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('checkbox', { name: /about the company itself/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Company itself' }));
+
+    // it sits in the same table as everybody else, with what the company holds
+    const row = (await screen.findByText('COMPANY')).closest('tr') as HTMLElement;
+
+    expect(within(row).getByText('ACI')).toBeInTheDocument();
+    expect(await screen.findByText('Cloud Storage')).toBeInTheDocument();
+    expect(
+      within(row).getByText('12 people · 4 Devices · nobody carries these')
+    ).toBeInTheDocument();
 
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /continue/i })).toBeEnabled()
     );
-    expect(
-      screen.getByText(/This request is about the company itself/)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/This request is about the company itself/)).toBeInTheDocument();
+  });
+
+  it('is taken off the request again, like a person', async () => {
+    renderPage();
+    await chooseCustomer('ACI');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Company itself' }));
+    expect(await screen.findByText('COMPANY')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove ACI' }));
+
+    await waitFor(() => expect(screen.queryByText('COMPANY')).not.toBeInTheDocument());
+    expect(screen.getByText('Add at least one person before continuing.')).toBeInTheDocument();
   });
 
   /**
@@ -365,10 +405,11 @@ describe('a request about the company itself', () => {
     renderPage();
     await chooseCustomer('ACI');
 
-    fireEvent.click(screen.getByRole('checkbox', { name: /about the company itself/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Company itself' }));
     fireEvent.click(await screen.findByRole('button', { name: /continue/i }));
 
-    expect(await screen.findByText('The company itself')).toBeInTheDocument();
+    // the company is the scope the step opens on, since nobody else is on the request
+    expect(await screen.findByText('Nobody is named on these')).toBeInTheDocument();
     expect(vi.mocked(portal.evaluateRequestOperations).mock.calls[0][0]).toMatchObject({
       subject_keys: [],
     });

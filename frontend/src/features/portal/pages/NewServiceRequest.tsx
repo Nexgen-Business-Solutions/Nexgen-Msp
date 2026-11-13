@@ -75,7 +75,6 @@ export default function NewServiceRequest() {
   // dialogs list that company's people, and a subject saved without one belongs to nobody
   const needsCustomer = onBehalf && !customer;
   const [askedWithout, setAskedWithout] = useState(false);
-  const [forCompany, setForCompany] = useState(false);
   const selector = useRef<HTMLDivElement>(null);
 
   const mayOpen = useCallback(() => {
@@ -192,7 +191,7 @@ export default function NewServiceRequest() {
   const hasSubjects = builder.subjects.length > 0;
   const hasActions = builder.actionGroups.length > 0;
   // a service the company itself holds names nobody, so such a request has no people in it
-  const aboutCompany = forCompany || builder.aboutCompany;
+  const aboutCompany = builder.aboutCompany;
   const canLeaveStep = [hasSubjects || aboutCompany, hasActions, true, builder.canSend][step];
   // the stepper counts what the customer has built so far, and says nothing when empty
   const steps = STEPS.map((entry) =>
@@ -367,26 +366,19 @@ export default function NewServiceRequest() {
         </p>
       )}
 
-      {!builder.unrestorable && step === 0 && !hasSubjects && !needsCustomer && (
+      {!builder.unrestorable && step === 0 && !hasSubjects && !aboutCompany && !needsCustomer && (
         <div className="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm text-amber-900">
-          <p>
-            {aboutCompany
-              ? 'This request is about the company itself. Choose what it should hold on the next step.'
-              : 'Add at least one person before continuing.'}
+          <p>Add at least one person before continuing.</p>
+          <p className="mt-0.5 text-[13px]">
+            Or add the company itself, for something nobody carries — a retainer, a block of
+            storage, a line.
           </p>
-          <label className="mt-2 inline-flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              checked={aboutCompany}
-              disabled={builder.aboutCompany}
-              onChange={(event) => setForCompany(event.target.checked)}
-              className="h-4 w-4 rounded border-amber-300"
-            />
-            <span className="text-[13px]">
-              This is about the company itself — a retainer, a block of storage, a line. Nobody
-              is named on those.
-            </span>
-          </label>
+        </div>
+      )}
+
+      {!builder.unrestorable && step === 0 && !hasSubjects && aboutCompany && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3 text-sm text-emerald-900">
+          This request is about the company itself. Choose what it should hold on the next step.
         </div>
       )}
 
