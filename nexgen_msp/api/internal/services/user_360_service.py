@@ -207,6 +207,13 @@ class User360Service:
             select sa.name, sa.service_item,
                    coalesce(item.item_name, sa.service_item) as service_name,
                    sa.operational_status, sa.billing_status, sa.quantity,
+                   -- a pause takes effect on its own day, which can be a day to come:
+                   -- the status says Suspended the moment it is recorded, and only this
+                   -- says from when
+                   (select max(pause.suspended_on)
+                      from `tabMSP Service Suspension` pause
+                     where pause.parent = sa.name
+                       and ifnull(pause.resumed_on, '') = '') as suspended_from,
                    sa.effective_start_date, sa.effective_end_date, sa.source_request
             from `tabMSP Service Assignment` sa
             left join `tabItem` item on item.name = sa.service_item
@@ -290,6 +297,10 @@ class User360Service:
         fields = """
             sa.name, sa.service_item, sa.assignment_scope, sa.managed_device,
             sa.operational_status, sa.billing_status, sa.quantity,
+            (select max(pause.suspended_on)
+               from `tabMSP Service Suspension` pause
+              where pause.parent = sa.name
+                and ifnull(pause.resumed_on, '') = '') as suspended_from,
             sa.effective_start_date, sa.effective_end_date, sa.source_request
         """
         rows = []
@@ -383,6 +394,9 @@ class User360Service:
             "association_from": since,
             "association_until": until,
             "operational_status": row.operational_status,
+            # a pause takes effect on its own day, and the status says Suspended from the
+            # moment it is recorded: this is the only thing that says from when
+            "suspended_from": row.get("suspended_from"),
             "billing_status": row.billing_status,
             "quantity": row.quantity,
             "effective_start_date": row.effective_start_date,
@@ -397,6 +411,13 @@ class User360Service:
             select sa.name, sa.service_item,
                    coalesce(item.item_name, sa.service_item) as service_name,
                    sa.operational_status, sa.quantity,
+                   -- a pause takes effect on its own day, which can be a day to come:
+                   -- the status says Suspended the moment it is recorded, and only this
+                   -- says from when
+                   (select max(pause.suspended_on)
+                      from `tabMSP Service Suspension` pause
+                     where pause.parent = sa.name
+                       and ifnull(pause.resumed_on, '') = '') as suspended_from,
                    sa.effective_start_date, sa.effective_end_date, sa.source_request
             from `tabMSP Service Assignment` sa
             left join `tabItem` item on item.name = sa.service_item

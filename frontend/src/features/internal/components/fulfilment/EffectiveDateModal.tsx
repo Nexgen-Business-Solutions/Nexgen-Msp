@@ -20,7 +20,12 @@ type Props = {
   customer?: string | null;
   grouped?: boolean;
   onClose: () => void;
-  onConfirm: (date: string, invoiced: Set<string>, handOver?: HandOver) => void;
+  onConfirm: (
+    date: string,
+    invoiced: Set<string>,
+    handOver?: HandOver,
+    note?: string
+  ) => void;
 };
 
 export type HandOver = { execution_holder: string; override_reason?: string };
@@ -64,6 +69,7 @@ const EffectiveDateModal: React.FC<Props> = ({
 }) => {
   const floor = dayOf(createdOn);
   const [date, setDate] = useState(() => openingDate(cards, requestedDate, floor));
+  const [deviation, setDeviation] = useState('');
   const handing = handOverCard(cards, grouped);
   const requestedHolder = handing?.requested_holder ?? '';
   const [holder, setHolder] = useState(requestedHolder);
@@ -103,17 +109,33 @@ const EffectiveDateModal: React.FC<Props> = ({
 
   const confirm = () => {
     const invoicedNames = new Set(invoiced.map((card) => card.name));
+    const why = moved ? deviation.trim() : undefined;
+
     if (!handing || !changed) {
-      onConfirm(date, invoicedNames);
+      onConfirm(date, invoicedNames, undefined, why);
       return;
     }
-    onConfirm(date, invoicedNames, {
-      execution_holder: holder,
-      ...(needsReason ? { override_reason: reason.trim() } : {}),
-    });
+    onConfirm(
+      date,
+      invoicedNames,
+      {
+        execution_holder: holder,
+        ...(needsReason ? { override_reason: reason.trim() } : {}),
+      },
+      why
+    );
   };
 
   const mixed = datesOf(cards, requestedDate).size > 1;
+  // the day the customer asked for decides what they are billed. Carrying the work out on
+  // another one is allowed and says so on the record, here as on the server
+  const today = format(new Date(), 'yyyy-MM-dd');
+  const moved = cards.some((card) => {
+    // the same reading the dialog already uses: the row's own day, else the request's
+    const asked = String(card.effective_date || requestedDate || '').slice(0, 10);
+
+    return asked ? asked !== date : date < today;
+  });
   const invoiced = cards.filter(
     (card) => Boolean(date && card.current?.billed_to && date <= card.current.billed_to)
   );
@@ -133,7 +155,13 @@ const EffectiveDateModal: React.FC<Props> = ({
           </button>
           <button
             type="button"
-            disabled={!date || (Boolean(floor) && date < floor) || busy || blocked}
+            disabled={
+              !date
+              || (Boolean(floor) && date < floor)
+              || busy
+              || blocked
+              || (moved && !deviation.trim())
+            }
             onClick={confirm}
             className={primaryButton}
           >
@@ -160,6 +188,25 @@ const EffectiveDateModal: React.FC<Props> = ({
         />
         <p className="mt-1 text-[11px] text-slate-500">Billing counts from this date.</p>
       </div>
+
+      {moved && (
+        <div className="mt-3">
+          <FieldLabel required>Why this date</FieldLabel>
+          <input
+            type="text"
+            className={inputClass}
+            value={deviation}
+            onChange={(event) => setDeviation(event.target.value)}
+            placeholder="What was agreed, and with whom."
+            aria-label="Why this date"
+          />
+          <p className="mt-1 text-[11px] text-slate-500">
+            {cards.length > 1
+              ? 'This day is not the one every request asked for; the reason is kept with the work.'
+              : 'This is not the day the request asked for; the reason is kept with the work.'}
+          </p>
+        </div>
+      )}
 
       {handing && (
         <div className="mt-3 space-y-3">

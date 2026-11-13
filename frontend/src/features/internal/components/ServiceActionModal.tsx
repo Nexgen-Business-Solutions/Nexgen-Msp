@@ -162,7 +162,12 @@ const ServiceActionModal: React.FC<Props> = ({
           <button
             type="button"
             onClick={() => submit()}
-            disabled={change.isLoading || (changing && !replacement) || (moved && !notes.trim())}
+            disabled={
+              change.isLoading
+              || !actionDate
+              || (changing && !replacement)
+              || (moved && !notes.trim())
+            }
             className={`flex min-w-[7rem] items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${copy.tone}`}
           >
             {change.isLoading ? (

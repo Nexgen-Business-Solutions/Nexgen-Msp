@@ -2477,13 +2477,23 @@ describe('the effective date is asked before any work is carried out', () => {
     fireEvent.change(field, { target: { value: '' } });
     expect(confirm).toBeDisabled();
     fireEvent.change(field, { target: { value: '2026-10-03' } });
+    // the row asked for the 20th: moving it is allowed, with the reason on the record
+    expect(confirm).toBeDisabled();
+    fireEvent.change(within(dialog).getByLabelText('Why this date'), {
+      target: { value: 'Provisioned on the 3rd' },
+    });
     expect(confirm).toBeEnabled();
     fireEvent.click(confirm);
 
     await waitFor(() =>
       expect(internal.executeWorkOrders).toHaveBeenCalledWith({
         request: 'SR-0001',
-        executions: [{ work_order: 'WO-01', inputs: { effective_date: '2026-10-03' } }],
+        executions: [
+          {
+            work_order: 'WO-01',
+            inputs: { effective_date: '2026-10-03', notes: 'Provisioned on the 3rd' },
+          },
+        ],
       })
     );
   });
@@ -2529,15 +2539,19 @@ describe('the effective date is asked before any work is carried out', () => {
     expect(field).toHaveValue('2026-09-15');
 
     fireEvent.change(field, { target: { value: '2026-10-01' } });
+    // none of the three asked for that day, so the one reason covers the three
+    fireEvent.change(within(dialog).getByLabelText('Why this date'), {
+      target: { value: 'All three provisioned together' },
+    });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Execute 3 ready' }));
 
     await waitFor(() => expect(internal.executeWorkOrders).toHaveBeenCalledTimes(1));
     expect(
       vi.mocked(internal.executeWorkOrders).mock.calls[0][0].executions.map((row) => row.inputs)
     ).toEqual([
-      { effective_date: '2026-10-01' },
-      { effective_date: '2026-10-01' },
-      { effective_date: '2026-10-01' },
+      { effective_date: '2026-10-01', notes: 'All three provisioned together' },
+      { effective_date: '2026-10-01', notes: 'All three provisioned together' },
+      { effective_date: '2026-10-01', notes: 'All three provisioned together' },
     ]);
   });
 
@@ -2622,12 +2636,28 @@ describe('the effective date is asked before any work is carried out', () => {
 
     fireEvent.change(field, { target: { value: '2026-09-30' } });
     expect(within(dialog).getByText(INVOICED)).toBeInTheDocument();
+    fireEvent.change(within(dialog).getByLabelText('Why this date'), {
+      target: { value: 'Closed at the end of the invoiced month' },
+    });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Execute 2 ready' }));
 
     await waitFor(() => expect(internal.executeWorkOrders).toHaveBeenCalledTimes(1));
     expect(vi.mocked(internal.executeWorkOrders).mock.calls[0][0].executions).toEqual([
-      { work_order: 'WO-01', inputs: { effective_date: '2026-09-30', confirm_billed: 1 } },
-      { work_order: 'WO-02', inputs: { effective_date: '2026-09-30' } },
+      {
+        work_order: 'WO-01',
+        inputs: {
+          effective_date: '2026-09-30',
+          notes: 'Closed at the end of the invoiced month',
+          confirm_billed: 1,
+        },
+      },
+      {
+        work_order: 'WO-02',
+        inputs: {
+          effective_date: '2026-09-30',
+          notes: 'Closed at the end of the invoiced month',
+        },
+      },
     ]);
   });
 

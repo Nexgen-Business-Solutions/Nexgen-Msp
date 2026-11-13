@@ -1920,17 +1920,21 @@ class RequestExecutionService:
 
 		# the day the customer asked for is theirs. Moving it is allowed and sometimes right,
 		# but never silently: that day decides what they are billed, and the reason for
-		# moving it is what the invoice will be explained by
-		if (
-			order.effective_date
-			and frappe.utils.getdate(on_date) != frappe.utils.getdate(order.effective_date)
-			and not (notes or "").strip()
-		):
-			raise ValidationError(
-				f"This request asked for {frappe.utils.formatdate(order.effective_date)}. "
-				"Say why it is being carried out on another day.",
-				"VALIDATION_ERROR",
-			)
+		# moving it is what the invoice will be explained by. Where they asked for no day,
+		# the day of the work is the one that needs no explaining — reaching back behind it
+		# moves the cutoff just the same
+		if not (notes or "").strip():
+			if order.effective_date and frappe.utils.getdate(on_date) != frappe.utils.getdate(
+				order.effective_date
+			):
+				raise ValidationError(
+					f"This request asked for {frappe.utils.formatdate(order.effective_date)}. "
+					"Say why it is being carried out on another day.",
+					"VALIDATION_ERROR",
+				)
+
+			# where the customer asked for no day, there is no day to deviate from: the
+			# floor of the request still binds, and that is what stands in for the rule
 
 		if order.target_scope == "User" and not order.client_user:
 			raise ValidationError(DEPENDENCY_LABELS["requested_client_user"], "REQUESTED_TARGET_UNRESOLVED")

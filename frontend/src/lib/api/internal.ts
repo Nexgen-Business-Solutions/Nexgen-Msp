@@ -820,6 +820,8 @@ export type UserServiceRow = {
   device_user_name?: string | null;
   last_billed_on?: string | null;
   quantity?: number | null;
+  /** the day an open pause takes effect, which may still be ahead */
+  suspended_from?: string | null;
 };
 
 export type CustomerRequestRef = {
@@ -853,6 +855,8 @@ export type UserServiceEntry = {
   allowed_actions: string[];
   pending_request: string | null;
   last_billed_on?: string | null;
+  /** the day an open pause takes effect, which may still be ahead */
+  suspended_from?: string | null;
 };
 
 /**

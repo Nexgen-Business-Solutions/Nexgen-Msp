@@ -94,7 +94,7 @@ const Select: React.FC<Props> = ({
               selected ? 'text-slate-700' : 'text-slate-400'
             }`}
           >
-            {selected && protect ? (
+            {selected && protect && selected.value ? (
               <span translate="no" className="notranslate">
                 {selected.label}
               </span>
@@ -165,8 +165,9 @@ const Select: React.FC<Props> = ({
                 >
                   <span className="min-w-0">
                     <span
-                      className={protect ? 'notranslate block' : 'block'}
-                      translate={protect ? 'no' : undefined}
+                      // "Any service" is the interface talking, and that may be translated
+                      className={protect && option.value ? 'notranslate block' : 'block'}
+                      translate={protect && option.value ? 'no' : undefined}
                     >
                       {option.label}
                     </span>

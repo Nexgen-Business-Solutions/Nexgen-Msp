@@ -464,6 +464,23 @@ class UserService:
         return on_date
 
     @staticmethod
+    def _asking_for(source_request, assignment):
+        """The request that asks for an act on this exact service, if the named one does.
+
+        Named alone it would be a way to backdate behind any old request of the customer,
+        so the work it asks for has to name this assignment.
+        """
+        if not source_request or not assignment:
+            return None
+
+        asks = frappe.db.exists(
+            "MSP Work Order",
+            {"request": source_request, "source_service_assignment": assignment},
+        )
+
+        return source_request if asks else None
+
+    @staticmethod
     def _end_date_for(assignment, effective_date, allow_past=False, within_request=None):
         """The day a service stops.
 
@@ -668,6 +685,17 @@ class UserService:
 
         if action == "Change":
             extra = {"quantity": quantity, "service_item": service_item or None}
+
+        # a request that asks for this very service carries its own authority over the day:
+        # the customer named it, and we are often days behind them. Named from this page or
+        # from the work screen makes no difference to the day the service really stopped
+        asked_by = UserService._asking_for(source_request, assignment)
+        wanted = frappe.utils.getdate(effective_date or frappe.utils.today())
+
+        # a request carries authority over a day already gone, never over one to come: this
+        # door still refuses to end a service in the future, request named or not
+        if asked_by and wanted <= frappe.utils.getdate(frappe.utils.today()):
+            extra["_within_request"] = asked_by
 
         acts[action](
             assignment=assignment,

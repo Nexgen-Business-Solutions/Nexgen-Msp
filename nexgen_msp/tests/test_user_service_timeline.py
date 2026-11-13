@@ -289,3 +289,64 @@ class TestUserServiceTimeline(MSPTestCase):
 
         self.assertNotIn(name, [row["name"] for row in reading["personal_services"]["current"]])
         self.assertEqual(reading["summary"]["active_personal_services"], 0)
+
+
+class TestAPauseSaysFromWhen(TestUserServiceTimeline):
+    """Issue #39: a pause takes effect on its own day, which can be a day still to come.
+
+    The record reads Suspended the moment the pause is written, so the page said a service
+    was paused while it was still running and still being billed. The billing itself was
+    never wrong — it reads the pause's own day — but nothing on the page said that day.
+    """
+
+    def asked_by_a_request(self):
+        """A request of this customer, which is the only way a future day is accepted."""
+        doc = frappe.get_doc(
+            {
+                "doctype": "MSP Request",
+                "customer": self.customer,
+                "request_type": "Change",
+                "status": "Submitted",
+                "requester": frappe.session.user,
+            }
+        )
+        doc.flags.ignore_validate = True
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        return self.track("MSP Request", doc.name)
+
+    def test_a_pause_dated_ahead_carries_the_day_it_starts(self):
+        assignment = self.personal()
+        ServiceLifecycleService.suspend(
+            assignment=assignment,
+            effective_date=self.day(20),
+            _within_request=self.asked_by_a_request(),
+        )
+        frappe.db.commit()
+
+        row = self.only(self.alice, assignment)
+
+        self.assertEqual(row["operational_status"], "Suspended")
+        self.assertEqual(frappe.utils.getdate(row["suspended_from"]), self.day(20))
+
+    def test_a_pause_already_in_force_carries_its_day_too(self):
+        assignment = self.personal()
+        ServiceLifecycleService.suspend(assignment=assignment, effective_date=self.day(-5))
+        frappe.db.commit()
+
+        self.assertEqual(
+            frappe.utils.getdate(self.only(self.alice, assignment)["suspended_from"]),
+            self.day(-5),
+        )
+
+    def test_a_service_that_was_resumed_says_nothing_of_its_old_pause(self):
+        assignment = self.personal()
+        ServiceLifecycleService.suspend(assignment=assignment, effective_date=self.day(-20))
+        ServiceLifecycleService.resume(assignment=assignment, effective_date=self.day(-10))
+        frappe.db.commit()
+
+        row = self.only(self.alice, assignment)
+
+        self.assertEqual(row["operational_status"], "Active")
+        self.assertIsNone(row["suspended_from"])

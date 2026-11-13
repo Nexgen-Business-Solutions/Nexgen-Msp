@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import ServiceState from '../components/ServiceState';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -521,7 +522,10 @@ export default function DeviceDetail({ portal = false }: { portal?: boolean } = 
                     </td>
                   )}
                   <td className="whitespace-nowrap px-4 py-3">
-                    <StatusBadge value={row.operational_status} />
+                    <ServiceState
+                      status={row.operational_status}
+                      suspendedFrom={row.suspended_from}
+                    />
                   </td>
                   <td className="whitespace-nowrap px-4 py-3">
                     <div className="flex justify-end">

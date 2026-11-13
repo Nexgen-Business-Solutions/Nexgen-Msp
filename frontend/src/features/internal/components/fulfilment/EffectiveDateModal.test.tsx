@@ -83,9 +83,17 @@ describe('EffectiveDateModal', () => {
     expect(onConfirm).not.toHaveBeenCalled();
 
     fireEvent.change(input, { target: { value: '2026-09-20' } });
+    fireEvent.change(screen.getByLabelText('Why this date'), {
+      target: { value: 'Carried out on the day the work was done' },
+    });
     fireEvent.click(confirm);
 
-    expect(onConfirm).toHaveBeenCalledWith('2026-09-20', new Set());
+    expect(onConfirm).toHaveBeenCalledWith(
+      '2026-09-20',
+      new Set(),
+      undefined,
+      'Carried out on the day the work was done'
+    );
   });
 
   it('carries out a future day chosen in the dialog', () => {
@@ -95,9 +103,20 @@ describe('EffectiveDateModal', () => {
     });
 
     fireEvent.change(input, { target: { value: '2027-01-04' } });
+
+    // the request asked for another day, so the reason goes on the record with it
+    expect(confirm).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Why this date'), {
+      target: { value: 'Agreed with the customer for the renewal' },
+    });
     fireEvent.click(confirm);
 
-    expect(onConfirm).toHaveBeenCalledWith('2027-01-04', new Set());
+    expect(onConfirm).toHaveBeenCalledWith(
+      '2027-01-04',
+      new Set(),
+      undefined,
+      'Agreed with the customer for the renewal'
+    );
   });
 
   it('keeps no floor when the creation day is not known', () => {

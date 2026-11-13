@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import ServiceState from '../components/ServiceState';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, ArrowUpRight, Laptop, Plus } from 'lucide-react';
 import StatusBadge from '@/shared/components/StatusBadge';
@@ -347,7 +348,10 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
                     </td>
                   )}
                   <td className="whitespace-nowrap px-4 py-3">
-                    <StatusBadge value={service.operational_status} />
+                    <ServiceState
+                      status={service.operational_status}
+                      suspendedFrom={service.suspended_from}
+                    />
                   </td>
                   <td className="whitespace-nowrap px-4 py-3">
                     <div className="flex justify-end">

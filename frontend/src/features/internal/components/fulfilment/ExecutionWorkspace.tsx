@@ -150,7 +150,8 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onSaved, onContinue
     summarise: boolean,
     date: string,
     invoiced: Set<string>,
-    handOver?: HandOver
+    handOver?: HandOver,
+    note?: string
   ) => {
     const names = batch.map((card) => card.name);
     setRunning((current) => new Set([...current, ...names]));
@@ -164,6 +165,8 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onSaved, onContinue
           work_order,
           inputs: {
             effective_date: date,
+            // why the work is not being done on the day the request asked for
+            ...(note ? { notes: note } : {}),
             ...(invoiced.has(work_order) ? { confirm_billed: 1 } : {}),
             ...(handOver ?? {}),
           },
@@ -438,8 +441,8 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onSaved, onContinue
           customer={plan.customer}
           grouped={dating.grouped}
           onClose={() => setDating(null)}
-          onConfirm={async (date, invoiced, handOver) => {
-            await run(dating.cards, dating.grouped, date, invoiced, handOver);
+          onConfirm={async (date, invoiced, handOver, note) => {
+            await run(dating.cards, dating.grouped, date, invoiced, handOver, note);
             setDating(null);
           }}
         />

@@ -256,7 +256,38 @@ class TestTheDayTheCustomerAskedForIsTheDayThatCounts(DatedRequestCase):
     honour the date. The floor inside a request is the day the request was raised.
     """
 
+    def asking_for(self, name, when):
+        """The day the customer asked for, as the work order carries it."""
+        order = self.order(name)
+        frappe.db.set_value("MSP Work Order", order, "effective_date", when, update_modified=False)
+
+        return order
+
     def test_a_technician_ends_on_the_day_the_request_asked_for(self):
+        running = self.running(self.personal, started=-60)
+        name = self.started(self.service_line("service.end", assignment=running), created=-5)
+
+        self.do_service(self.asking_for(name, day(-2)), day(-2))
+
+        self.assertEqual(getdate(self.assignment(running).effective_end_date), day(-2))
+
+    def test_another_day_than_the_one_asked_for_is_refused_until_it_is_explained(self):
+        running = self.running(self.personal, started=-60)
+        name = self.started(self.service_line("service.end", assignment=running), created=-5)
+        order = self.asking_for(name, day(-4))
+
+        with self.assertRaises(Refused) as caught:
+            self.do_service(order, day(-2))
+
+        self.assertIn("Say why", caught.exception.message)
+        self.assertEqual(self.assignment(running).operational_status, "Active")
+
+        self.do_service(order, day(-2), notes="Agreed with the customer for the 2nd")
+
+        self.assertEqual(getdate(self.assignment(running).effective_end_date), day(-2))
+
+    def test_a_past_day_is_free_within_the_floor_when_no_day_was_asked_for(self):
+        """Nothing to deviate from, so nothing to explain: the floor is the whole rule."""
         running = self.running(self.personal, started=-60)
         name = self.started(self.service_line("service.end", assignment=running), created=-5)
 
