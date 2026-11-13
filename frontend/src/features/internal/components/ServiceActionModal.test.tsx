@@ -26,7 +26,11 @@ const row = (overrides: Partial<UserServiceRow> = {}): UserServiceRow => ({
   ...overrides,
 });
 
-const open = (action: 'End' | 'Suspend' | 'Change', overrides: Partial<UserServiceRow> = {}) => {
+const open = (
+  action: 'End' | 'Suspend' | 'Change',
+  overrides: Partial<UserServiceRow> = {},
+  requestedDate?: string | null
+) => {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -37,6 +41,7 @@ const open = (action: 'End' | 'Suspend' | 'Change', overrides: Partial<UserServi
         clientUser="CU-1"
         target={{ row: row(overrides), action }}
         requests={[]}
+        requestedDate={requestedDate}
         onClose={() => undefined}
       />
     </QueryClientProvider>
@@ -136,5 +141,67 @@ describe('changing a service directly', () => {
         service_item: 'M365-E5',
       })
     );
+  });
+});
+
+describe('carrying out a request that asked for a day', () => {
+  /**
+   * We are often days behind the customer. The form opened on today whatever the request
+   * said, so a service asked to stop on the 10th stopped on the 12th — and the customer
+   * was billed for the two days we took to get to it.
+   */
+  it('opens on the day the request asked for, not today', () => {
+    const dialog = open('End', {}, '2026-11-10');
+
+    expect(within(dialog).getByDisplayValue('2026-11-10')).toBeInTheDocument();
+    expect(within(dialog).getByText('The date this request asked for (2026-11-10).')).toBeInTheDocument();
+  });
+
+  it('sends that day, not the day the work was done', async () => {
+    const dialog = open('End', {}, '2026-11-10');
+    vi.mocked(internal.changeUserService).mockResolvedValue({} as never);
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Stop service' }));
+
+    await waitFor(() =>
+      expect(vi.mocked(internal.changeUserService).mock.calls[0][0]).toMatchObject({
+        action: 'End',
+        effective_date: '2026-11-10',
+      })
+    );
+  });
+
+  it('says so when somebody moves it off that day', () => {
+    const dialog = open('End', {}, '2026-11-10');
+
+    fireEvent.change(within(dialog).getByDisplayValue('2026-11-10'), {
+      target: { value: '2026-11-12' },
+    });
+
+    expect(
+      within(dialog).getByText('The request asked for 2026-11-10. Say why in the note below.')
+    ).toBeInTheDocument();
+  });
+
+  it('will not move it off that day without a reason', () => {
+    const dialog = open('End', {}, '2026-11-10');
+
+    fireEvent.change(within(dialog).getByDisplayValue('2026-11-10'), {
+      target: { value: '2026-11-12' },
+    });
+
+    expect(within(dialog).getByRole('button', { name: 'Stop service' })).toBeDisabled();
+
+    fireEvent.change(within(dialog).getByPlaceholderText(/Why is this service being stopped/), {
+      target: { value: 'Contractual notice runs to the 12th' },
+    });
+
+    expect(within(dialog).getByRole('button', { name: 'Stop service' })).toBeEnabled();
+  });
+
+  it('opens on today when no request asked for a day', () => {
+    const dialog = open('End');
+
+    expect(within(dialog).queryByText(/this request asked for/)).not.toBeInTheDocument();
   });
 });

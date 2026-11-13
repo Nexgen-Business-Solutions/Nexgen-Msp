@@ -2682,7 +2682,10 @@ class BillingService:
             and not doc.standalone_credit,
             "can_resolve_dispute": bool(doc.disputed),
             "dispute_request": doc.dispute_request,
-            "can_discard_invoice": bool(doc.sales_invoice) and not posted,
+            # a draft and a cancelled document are both "not posted", and only one of them
+            # can still be submitted or thrown away. The question is the draft, not the gap
+            "can_discard_invoice": bool(doc.sales_invoice)
+            and found["invoice_docstatus"] == 0,
             "can_reopen": doc.docstatus == 1
             and not doc.sales_invoice
             # nothing to reopen: it records a charge that already went out
@@ -2693,7 +2696,8 @@ class BillingService:
             "cancel_blocked": accounting.blocker_of(doc.as_dict(), found),
             "can_reconcile": bool(found["mismatch"]),
             "cancellation": accounting.cancellation_of(doc.name),
-            "can_submit_invoice": bool(doc.sales_invoice) and not posted,
+            "can_submit_invoice": bool(doc.sales_invoice)
+            and found["invoice_docstatus"] == 0,
         }
 
 

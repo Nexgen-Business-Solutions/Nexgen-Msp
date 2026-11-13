@@ -13,6 +13,8 @@ export type FilterField =
       kind: 'select';
       options: SelectOption[];
       allLabel?: string;
+      /** the options are names the business owns, which a page translator leaves alone */
+      protect?: boolean;
       /** What "no filter" means for this axis, when it is not the empty string. */
       clearValue?: string;
     }
@@ -336,6 +338,7 @@ const FilterBar: React.FC<Props> = ({
                 key={field.key}
                 searchable
                 label={field.label}
+                protect={field.protect}
                 value={(draft[field.key] as string) ?? ''}
                 onChange={(next) => set({ [field.key]: next })}
                 options={

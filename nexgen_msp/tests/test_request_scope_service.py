@@ -24,6 +24,7 @@ from .base import MSPTestCase
 
 REQUEST = "MSP Request"
 WORK_ORDER = "MSP Work Order"
+ASSIGNMENT = "MSP Service Assignment"
 
 
 class RequestScopeCase(MSPTestCase):
@@ -424,3 +425,75 @@ class TestWhatTheServerDecidesTheBrowserDoesNot(RequestScopeCase):
         self.assertEqual(rows["new:fresh"]["kind"], "new")
         self.assertIsNone(rows["new:fresh"]["requested_client_user"])
         self.assertNotIn("is_new_user", rows["new:fresh"])
+
+
+class TestAServiceAMachineAlreadyRunsIsNotOfferedAgain(RequestScopeCase):
+    """Issue #36: the acts of a running device service, offered to the person who holds it.
+
+    A customer could not ask to pause or stop a service their machine already runs. What
+    the builder answers is read here through the one door the form calls, with the person
+    selected and the machine theirs — the shape the ticket describes.
+    """
+
+    def running_on_a_machine(self):
+        service = self.make_service(f"DS{self.tag[:3]}", scope="Device")
+        self.cover_service(self.customer, service)
+        machine = self.make_device(self.customer, hostname=f"BOX{self.tag[:3]}", holder=self.alice)
+        assignment = ServiceLifecycleService.activate(
+            customer=self.customer,
+            service_item=service,
+            target_scope="Device",
+            managed_device=machine,
+            effective_date=frappe.utils.today(),
+        )["name"]
+        self.track(ASSIGNMENT, assignment)
+
+        return service, machine, assignment
+
+    def offered(self, service):
+        options = self.as_user(
+            self.asker,
+            lambda: RequestScopeService.operation_options(
+                customer=self.customer, subjects=self.subjects(self.alice)
+            ),
+        )
+        services = next(domain for domain in options["domains"] if domain["key"] == "Service")
+        card = next(
+            (option for option in services["options"] if option["object_key"] == service), None
+        )
+
+        self.assertIsNotNone(card, "the service their machine runs is not even listed")
+
+        return {action["operation_code"] for action in card["actions"]}
+
+    def test_suspend_and_end_are_offered_and_add_is_not(self):
+        service, _machine, _assignment = self.running_on_a_machine()
+
+        codes = self.offered(service)
+
+        self.assertIn("service.suspend", codes)
+        self.assertIn("service.end", codes)
+        self.assertNotIn("service.add", codes)
+
+    def test_a_suspended_one_offers_resume_and_end(self):
+        service, _machine, assignment = self.running_on_a_machine()
+        ServiceLifecycleService.suspend(assignment=assignment)
+
+        codes = self.offered(service)
+
+        self.assertIn("service.resume", codes)
+        self.assertIn("service.end", codes)
+        self.assertNotIn("service.add", codes)
+
+    def test_the_state_read_for_a_machine_is_the_machine_s_own(self):
+        """`service_state` answered about the person, who holds no device service at all."""
+        service, machine, _assignment = self.running_on_a_machine()
+
+        state = self.as_user(
+            self.asker,
+            lambda: PortalService.service_state(
+                service_item=service, client_user=self.alice, managed_device=machine
+            ),
+        )
+
+        self.assertTrue(state["held"], "the machine runs it, whoever holds the machine")

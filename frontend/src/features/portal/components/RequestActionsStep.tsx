@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import BusinessText from '@/shared/components/BusinessText';
 import { ArrowRightLeft, Info, Laptop, Layers, PackageOpen, Users, X } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
 import Select from '@/shared/components/Select';
@@ -1534,7 +1535,7 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
                         <tr key={card.object_key}>
                           <td className="px-3 py-2.5 align-middle">
                             <p className="text-sm font-semibold text-slate-900">
-                              {card.object_label}
+                              <BusinessText>{card.object_label}</BusinessText>
                             </p>
                             <p className="mt-0.5 text-[10px] text-slate-500">MSP service</p>
                           </td>

@@ -247,17 +247,30 @@ class TestEveryServiceActOfARequestTakesItsOwnDay(DatedRequestCase):
                 self.withdraw(name)
 
 
-class TestTheRuleForEndingOnAPastDayStillHoldsInsideTheRequest(DatedRequestCase):
-    def test_a_technician_cannot_end_between_the_creation_day_and_today_an_administrator_can(self):
+class TestTheDayTheCustomerAskedForIsTheDayThatCounts(DatedRequestCase):
+    """A request is carried out days after it is raised, and the delay is ours.
+
+    Ending on a past day was the administrator's call, inside a request as well as outside
+    one. So a customer who asked on the 10th to stop a service was billed to the 12th
+    because that is when somebody got to it — and the technician who got to it could not
+    honour the date. The floor inside a request is the day the request was raised.
+    """
+
+    def test_a_technician_ends_on_the_day_the_request_asked_for(self):
         running = self.running(self.personal, started=-60)
         name = self.started(self.service_line("service.end", assignment=running), created=-5)
 
-        self.refused(lambda: self.do_service(self.order(name), day(-2)), ADMIN_ONLY)
-        self.assertEqual(self.assignment(running).operational_status, "Active")
-
-        self.do_service(self.order(name), day(-2), actor=self.admin)
+        self.do_service(self.order(name), day(-2))
 
         self.assertEqual(getdate(self.assignment(running).effective_end_date), day(-2))
+
+    def test_the_day_the_request_was_raised_is_still_the_floor(self):
+        running = self.running(self.personal, started=-60)
+        name = self.started(self.service_line("service.end", assignment=running), created=-5)
+
+        self.refused(lambda: self.do_service(self.order(name), day(-6)), too_early(day(-5)))
+
+        self.assertEqual(self.assignment(running).operational_status, "Active")
 
     def test_a_technician_ends_on_the_creation_day_when_that_day_is_today(self):
         running = self.running(self.personal)

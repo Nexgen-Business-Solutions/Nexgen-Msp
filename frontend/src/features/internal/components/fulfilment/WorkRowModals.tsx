@@ -109,6 +109,7 @@ const WorkRowModals: React.FC<Props> = ({ intent, request, customer, people, onC
           target={serviceTarget}
           requests={requests}
           defaultRequest={request}
+          requestedDate={card.effective_date}
           onClose={onClose}
         />
       )}

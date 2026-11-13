@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import BusinessText from '@/shared/components/BusinessText';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AlertCircle, ArrowLeft, Clock, FileSpreadsheet, Printer, ShieldAlert } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
@@ -183,7 +184,9 @@ export default function PortalInvoiceDetail() {
           className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm"
         >
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-5 py-4">
-            <h2 className="text-base font-semibold text-slate-900">{service.service_name}</h2>
+            <h2 className="text-base font-semibold text-slate-900">
+              <BusinessText>{service.service_name}</BusinessText>
+            </h2>
             <p className="text-sm text-slate-500">
               {service.quantity} billed · {service.months} months ·{' '}
               <span className="font-semibold text-slate-800">

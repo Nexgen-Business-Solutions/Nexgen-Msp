@@ -1,4 +1,5 @@
 import { useScopedWorkspace } from '@/shared/layout/useScopedWorkspace';
+import BusinessText from '@/shared/components/BusinessText';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FilePlus2, Layers, Package, Search, Users } from 'lucide-react';
@@ -169,7 +170,9 @@ export default function PortalServices() {
           return (
             <tr key={row.service_item} className="transition-colors hover:bg-slate-50">
               <td className="px-4 py-3">
-                <p className="text-sm font-semibold text-slate-900">{row.service_name}</p>
+                <p className="text-sm font-semibold text-slate-900">
+                  <BusinessText>{row.service_name}</BusinessText>
+                </p>
                 <p className="text-xs text-slate-400">{row.service_item}</p>
               </td>
               <td className="whitespace-nowrap px-4 py-3">

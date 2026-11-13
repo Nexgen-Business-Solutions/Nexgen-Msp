@@ -472,7 +472,10 @@ class UserService:
         not touched and no credit note is issued: the date records where our own follow-up
         of the service ends, and the next run simply has nothing more to bill for it.
 
-        Backdating is the administrator's call.
+        Backdating is the administrator's call — outside a request. Inside one, the day the
+        customer asked for is the day that counts: we are often days behind them, and making
+        the delay move the billing cutoff charged them for days they had asked to stop. The
+        request's own creation day is the floor, and that is what stands in for the rule.
         """
         end_on = frappe.utils.getdate(effective_date or frappe.utils.today())
         today = frappe.utils.getdate(frappe.utils.today())
@@ -491,7 +494,7 @@ class UserService:
         elif not within_request and end_on > today:
             raise ValidationError("A service cannot be ended in the future.", "VALIDATION_ERROR")
 
-        if end_on < today and not allow_past:
+        if end_on < today and not allow_past and not within_request:
             if not RequestService._roles().intersection(ADMIN_ROLES):
                 raise ValidationError(
                     "Only an administrator can end a service on a past date.",

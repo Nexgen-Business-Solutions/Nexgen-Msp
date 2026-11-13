@@ -3838,12 +3838,15 @@ class PortalService:
         conditions = ["sa.customer = %(customer)s", "sa.service_item = %(service_item)s"]
         values = {"customer": customer, "service_item": service_item}
 
-        if client_user:
-            conditions.append("sa.client_user = %(client_user)s")
-            values["client_user"] = client_user
-        else:
+        # the machine is the target whenever one is named. Asking by the person who holds
+        # it found nothing, because a device service carries no person — and the service
+        # then read as free to add when it was already running on that machine
+        if managed_device:
             conditions.append("sa.managed_device = %(managed_device)s")
             values["managed_device"] = managed_device
+        else:
+            conditions.append("sa.client_user = %(client_user)s")
+            values["client_user"] = client_user
 
         row = frappe.db.sql(
             f"""

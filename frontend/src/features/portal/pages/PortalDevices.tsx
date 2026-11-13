@@ -222,6 +222,7 @@ export default function PortalDevices() {
             label: 'Service',
             kind: 'select',
             allLabel: 'Any service',
+            protect: true,
             options: (services.data?.services ?? []).map((row) => ({
               value: row.service_item,
               label: row.item_name,

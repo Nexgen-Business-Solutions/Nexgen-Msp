@@ -16,6 +16,8 @@ type Props = {
   target: { row: UserServiceRow; action: ServiceAction } | null;
   requests: CustomerRequestRef[];
   defaultRequest?: string;
+  /** the day the request asked for, when this act is carrying one out */
+  requestedDate?: string | null;
   onClose: () => void;
 };
 
@@ -86,14 +88,20 @@ const ServiceActionModal: React.FC<Props> = ({
   target,
   requests,
   defaultRequest,
+  requestedDate,
   onClose,
 }) => {
   const change = useChangeService(clientUser);
-  const [actionDate, setActionDate] = useState(today());
+  // the day the customer asked for, which is the day the act takes effect. We are often
+  // days behind them, and opening on today billed them for the days we took to get to it
+  const asked = requestedDate ? String(requestedDate).slice(0, 10) : null;
+  const [actionDate, setActionDate] = useState(asked ?? today());
   const [notes, setNotes] = useState('');
   const [sourceRequest, setSourceRequest] = useState('');
   const [replacement, setReplacement] = useState('');
 
+  // moving off the day the request asked for is allowed, with the reason on the record
+  const moved = Boolean(asked) && actionDate !== asked;
   const changing = target?.action === 'Change';
   const onDevice = target?.row.assignment_scope === 'Device';
   const userOffers = useUserServiceAvailability(changing && !onDevice ? clientUser : undefined);
@@ -102,7 +110,7 @@ const ServiceActionModal: React.FC<Props> = ({
 
   useEffect(() => {
     if (!target) return;
-    setActionDate(today());
+    setActionDate(asked ?? today());
     setNotes('');
     setSourceRequest(defaultRequest ?? '');
     setReplacement('');
@@ -154,7 +162,7 @@ const ServiceActionModal: React.FC<Props> = ({
           <button
             type="button"
             onClick={() => submit()}
-            disabled={change.isLoading || (changing && !replacement)}
+            disabled={change.isLoading || (changing && !replacement) || (moved && !notes.trim())}
             className={`flex min-w-[7rem] items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${copy.tone}`}
           >
             {change.isLoading ? (
@@ -189,6 +197,13 @@ const ServiceActionModal: React.FC<Props> = ({
             onChange={(event) => setActionDate(event.target.value)}
             className={inputClass}
           />
+          {asked && (
+            <p className="mt-1 text-xs text-slate-500">
+              {actionDate === asked
+                ? `The date this request asked for (${asked}).`
+                : `The request asked for ${asked}. Say why in the note below.`}
+            </p>
+          )}
         </div>
 
         <p className="text-xs leading-relaxed text-slate-500">{copy.hint}</p>

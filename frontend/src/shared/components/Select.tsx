@@ -25,6 +25,8 @@ interface Props {
   invalid?: boolean;
   /** the id of that message, so a screen reader reads it with the control */
   describedBy?: string;
+  /** the options are names the business owns, which a page translator must leave alone */
+  protect?: boolean;
 }
 
 // past a handful of entries, scrolling to find one stops being reasonable
@@ -43,6 +45,7 @@ const Select: React.FC<Props> = ({
   footnote,
   invalid,
   describedBy,
+  protect,
 }) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -91,7 +94,13 @@ const Select: React.FC<Props> = ({
               selected ? 'text-slate-700' : 'text-slate-400'
             }`}
           >
-            {selected?.label ?? placeholder ?? 'Select…'}
+            {selected && protect ? (
+              <span translate="no" className="notranslate">
+                {selected.label}
+              </span>
+            ) : (
+              (selected?.label ?? placeholder ?? 'Select…')
+            )}
           </span>
         </span>
         <ChevronDown
@@ -155,7 +164,12 @@ const Select: React.FC<Props> = ({
                   }`}
                 >
                   <span className="min-w-0">
-                    <span className="block">{option.label}</span>
+                    <span
+                      className={protect ? 'notranslate block' : 'block'}
+                      translate={protect ? 'no' : undefined}
+                    >
+                      {option.label}
+                    </span>
                     {option.description && (
                       <span
                         className={`mt-0.5 block text-xs font-normal leading-snug ${

@@ -1918,6 +1918,20 @@ class RequestExecutionService:
 		doc = frappe.get_doc("MSP Request", order.request)
 		on_date = effective_date or order.effective_date or frappe.utils.today()
 
+		# the day the customer asked for is theirs. Moving it is allowed and sometimes right,
+		# but never silently: that day decides what they are billed, and the reason for
+		# moving it is what the invoice will be explained by
+		if (
+			order.effective_date
+			and frappe.utils.getdate(on_date) != frappe.utils.getdate(order.effective_date)
+			and not (notes or "").strip()
+		):
+			raise ValidationError(
+				f"This request asked for {frappe.utils.formatdate(order.effective_date)}. "
+				"Say why it is being carried out on another day.",
+				"VALIDATION_ERROR",
+			)
+
 		if order.target_scope == "User" and not order.client_user:
 			raise ValidationError(DEPENDENCY_LABELS["requested_client_user"], "REQUESTED_TARGET_UNRESOLVED")
 
