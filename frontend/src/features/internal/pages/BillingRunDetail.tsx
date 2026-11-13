@@ -336,7 +336,6 @@ export default function BillingRunDetail() {
                       key={line.service_assignment}
                       line={line}
                       currency={currency}
-                      customer={data.customer}
                       canDiscount={Boolean(data.can_discount_lines)}
                       canRemove={Boolean(data.can_revalidate)}
                       onDiscount={(percent) =>
@@ -707,7 +706,6 @@ export default function BillingRunDetail() {
 const LineRow = ({
   line,
   currency,
-  customer,
   canDiscount,
   canRemove,
   onDiscount,
@@ -715,14 +713,12 @@ const LineRow = ({
 }: {
   line: BillingRunLine;
   currency: string;
-  customer: string;
   canDiscount: boolean;
   canRemove: boolean;
   onDiscount: (percent: number) => void;
   onRemove: () => void;
 }) => {
-  // who the line is about, and the machine it sits on when that is not the same thing
-  const subject = subjectOf(line, customer);
+  const subject = subjectOf(line);
   const under = line.hostname && line.hostname !== subject ? line.hostname : line.department;
 
   return (
@@ -761,7 +757,6 @@ const LineRow = ({
         {line.quantity !== 1 && (
           <p className="text-[11px] text-slate-400">
             × {line.quantity}
-            {line.uom ? ` ${line.uom}` : ''}
           </p>
         )}
       </Td>

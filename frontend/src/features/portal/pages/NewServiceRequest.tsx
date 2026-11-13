@@ -190,9 +190,7 @@ export default function NewServiceRequest() {
 
   const hasSubjects = builder.subjects.length > 0;
   const hasActions = builder.actionGroups.length > 0;
-  // a service the company itself holds names nobody, so such a request has no people in it
-  const aboutCompany = builder.aboutCompany;
-  const canLeaveStep = [hasSubjects || aboutCompany, hasActions, true, builder.canSend][step];
+  const canLeaveStep = [hasSubjects, hasActions, true, builder.canSend][step];
   // the stepper counts what the customer has built so far, and says nothing when empty
   const steps = STEPS.map((entry) =>
     entry.key === 'people' && builder.subjects.length
@@ -366,19 +364,9 @@ export default function NewServiceRequest() {
         </p>
       )}
 
-      {!builder.unrestorable && step === 0 && !hasSubjects && !aboutCompany && !needsCustomer && (
+      {!builder.unrestorable && step === 0 && !hasSubjects && !needsCustomer && (
         <div className="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm text-amber-900">
-          <p>Add at least one person before continuing.</p>
-          <p className="mt-0.5 text-[13px]">
-            Or add the company itself, for something nobody carries — a retainer, a block of
-            storage, a line.
-          </p>
-        </div>
-      )}
-
-      {!builder.unrestorable && step === 0 && !hasSubjects && aboutCompany && (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3 text-sm text-emerald-900">
-          This request is about the company itself. Choose what it should hold on the next step.
+          Add at least one person before continuing.
         </div>
       )}
 

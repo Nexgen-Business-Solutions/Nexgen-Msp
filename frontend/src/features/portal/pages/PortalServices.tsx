@@ -19,7 +19,6 @@ const SCOPE_LABEL: Record<string, string> = {
   User: 'Per person',
   Device: 'Per machine',
   Both: 'Person or machine',
-  Customer: 'Per customer',
 };
 
 /** A service is in use when something is actually running, not merely because it is on file. */

@@ -19,7 +19,7 @@ import RecordLink from '@/shared/components/RecordLink';
 import RequestDeviceSummary from './RequestDeviceSummary';
 import RequestPersonSummary from './RequestPersonSummary';
 import { machinesTaken } from '../machinesTaken';
-import { usePortalSummary, useRequestOperations, useRequestScope } from '../hooks/usePortal';
+import { useRequestOperations, useRequestScope } from '../hooks/usePortal';
 import {
   REVIEW_NEEDED,
   type HolderPerson,
@@ -33,11 +33,7 @@ import RequestNewDeviceModal from './RequestNewDeviceModal';
 import RequestNewPersonModal from './RequestNewPersonModal';
 
 type Builder = ReturnType<typeof useRequestBuilder>;
-type Scope = {
-  type: 'All' | 'Department' | 'Person' | 'Company';
-  key: string | null;
-  label: string;
-};
+type Scope = { type: 'All' | 'Department' | 'Person'; key: string | null; label: string };
 type Machines = {
   deviceTypes: string[];
   subjects: RequestSubject[];
@@ -1252,10 +1248,9 @@ const optionOf = (group: RequestActionGroup, domains: RequestOperationDomain[]) 
 
 const EVERYBODY: Scope = { type: 'All', key: null, label: 'All selected' };
 
-const standsIn = (scope: Scope | null, rows: RequestSubjectRow[], onCompany: boolean) => {
+const standsIn = (scope: Scope | null, rows: RequestSubjectRow[]) => {
   if (!scope) return false;
-  if (scope.type === 'Company') return onCompany;
-  if (scope.type === 'All') return rows.length > 0;
+  if (scope.type === 'All') return true;
   if (scope.type === 'Department') return rows.some((row) => row.department === scope.key);
 
   return rows.some((row) => row.subject_key === scope.key);
@@ -1265,136 +1260,19 @@ const openingScope = (
   picked: Scope | null,
   remembered: Scope | null,
   rows: RequestSubjectRow[],
-  subjects: RequestSubject[],
-  company: { on: boolean; label: string }
+  subjects: RequestSubject[]
 ): Scope => {
-  // the company can be chosen before anything is asked of it, which is how a service
-  // only it can hold reaches the request at all. A scope somebody just clicked stands
-  if (picked && (picked.type === 'Company' || standsIn(picked, rows, company.on))) return picked;
-  if (remembered && standsIn(remembered, rows, company.on)) return remembered;
+  if (picked && standsIn(picked, rows)) return picked;
+  if (remembered && standsIn(remembered, rows)) return remembered;
 
   const byHand = subjects.some(
     (subject) => !subject.selectionOrigin || subject.selectionOrigin === 'Individual'
   );
   const first = rows[0];
 
-  // a request with nobody in it is about the company, and that is where it opens
-  if (!first) return company.on ? { type: 'Company', key: null, label: company.label } : EVERYBODY;
-  if (!byHand) return EVERYBODY;
+  if (!byHand || !first) return EVERYBODY;
 
   return { type: 'Person', key: first.subject_key, label: first.full_name || 'New person' };
-};
-
-/**
- * What the company itself holds: a retainer, a block of storage, a line.
- *
- * It has no row in the people table and never will, so it is not chosen from the rail like
- * a person: the card stands on its own, and the only thing it asks beyond the act is how
- * much of it — the one number that makes a company line read "5 TB" rather than "1".
- */
-const CompanyServices: React.FC<{
-  options: RequestServiceOption[];
-  askedHere: (
-    targets: RequestTarget[],
-    operationCode: string,
-    serviceItem?: string | null
-  ) => number;
-  onAdd: (option: RequestOperationOption, card: RequestServiceOption, quantity: number) => void;
-}> = ({ options, askedHere, onAdd }) => {
-  const [amounts, setAmounts] = useState<Record<string, string>>({});
-
-  return (
-    <section className="mb-5">
-      <div className="mb-2 flex items-baseline justify-between">
-        <p className="text-xs font-semibold text-slate-900">The company itself</p>
-        <span className="text-[10px] text-slate-500">Nobody is named on these</span>
-      </div>
-
-      <div className="overflow-hidden rounded-lg border border-slate-200">
-        <table className="w-full">
-          <thead className="bg-slate-50">
-            <tr>
-              <Th>Service</Th>
-              <Th>How much</Th>
-              <Th align="right">Available actions</Th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {options.map((card) => {
-              const typed = amounts[card.object_key] ?? '1';
-              const quantity = Number(typed);
-              const impossible = !Number.isFinite(quantity) || quantity <= 0;
-
-              return (
-                <tr key={card.object_key}>
-                  <td className="px-3 py-2.5 align-middle">
-                    <p className="text-sm font-semibold text-slate-900">{card.object_label}</p>
-                    <p className="mt-0.5 text-[10px] text-slate-500">
-                      {card.current_count ? 'Already held by the company' : 'Billed to the company'}
-                    </p>
-                  </td>
-                  <td className="px-3 py-2.5 align-middle">
-                    {card.current_count ? (
-                      <p className="text-[11px] text-slate-500">Already running</p>
-                    ) : (
-                      <>
-                        <input
-                          type="number"
-                          min="0"
-                          step="any"
-                          value={typed}
-                          aria-label={`How much of ${card.object_label}`}
-                          onChange={(event) =>
-                            setAmounts((current) => ({
-                              ...current,
-                              [card.object_key]: event.target.value,
-                            }))
-                          }
-                          className="h-8 w-24 rounded-lg border border-slate-200 px-2 text-sm text-slate-900 outline-none focus:border-blue-500"
-                        />
-                        <p className="mt-0.5 text-[10px] text-slate-500">In the unit it is sold in</p>
-                      </>
-                    )}
-                  </td>
-                  <td className="px-3 py-2.5 align-middle">
-                    <div className="flex flex-wrap items-center justify-end gap-1.5">
-                      {card.actions.map((action) => {
-                        const asked = askedHere(
-                          action.targets,
-                          action.operation_code,
-                          card.object_key
-                        );
-                        const adding = action.operation_code === 'service.add';
-
-                        return (
-                          <React.Fragment key={action.operation_code}>
-                            {asked > 0 && (
-                              <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
-                                Asked
-                              </span>
-                            )}
-                            <button
-                              type="button"
-                              disabled={asked > 0 || (adding && impossible)}
-                              title={asked > 0 ? 'Already asked for in this request' : undefined}
-                              onClick={() => onAdd(action, card, adding ? quantity : 1)}
-                              className={`${adding ? quickPrimary : quickBtn} disabled:cursor-not-allowed disabled:opacity-40`}
-                            >
-                              {action.operation_label}
-                            </button>
-                          </React.Fragment>
-                        );
-                      })}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
 };
 
 /**
@@ -1424,15 +1302,9 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
   const rows = useMemo(() => projection.data?.subjects ?? [], [projection.data]);
   const memory = builder.draft || builder.editing;
   const kept = memory ? `msp.request.scope.${memory}` : null;
-  const figures = usePortalSummary();
-  const company = figures.data?.customer ?? 'The company itself';
   const scope = useMemo(
-    () =>
-      openingScope(picked, kept ? recall<Scope>(kept) : null, rows, builder.subjects, {
-        on: builder.aboutCompany,
-        label: company,
-      }),
-    [picked, kept, rows, builder.subjects, builder.aboutCompany, company]
+    () => openingScope(picked, kept ? recall<Scope>(kept) : null, rows, builder.subjects),
+    [picked, kept, rows, builder.subjects]
   );
   const setScope = (next: Scope) => {
     setPicked(next);
@@ -1454,12 +1326,6 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
     builder.editing
   );
   const domains = useMemo(() => operations.data?.domains ?? [], [operations.data]);
-  // the company is offered wherever the server has something to sell it, whether or not it
-  // was picked in the People step: an act asked here puts it on the request, exactly as
-  // asking something of a person does. Routing the offer is the point of the filtering
-  const sellsToCompany = domains.some(
-    (domain) => domain.key === 'Company' && domain.options.length > 0
-  );
   const counted = useMemo(() => tally(scoped), [scoped]);
   const departments = [...new Set(rows.map((row) => row.department).filter(Boolean) as string[])];
   const person = scope.type === 'Person' ? scoped[0] : null;
@@ -1503,10 +1369,8 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
         operationLabelSnapshot: option.operation_label_snapshot,
         domain,
         serviceItem: serviceItem ?? null,
-        // the record keeps three provenances and the company is not one of them. What the
-        // group is about is read off the scope of its targets, here as everywhere else
-        sourceScopeType: scope.type === 'Company' ? 'All' : scope.type,
-        sourceScopeKey: scope.type === 'Company' ? null : scope.key,
+        sourceScopeType: scope.type,
+        sourceScopeKey: scope.key,
         sourceScopeLabel: scope.label,
         selectedSubjectCount: scoped.length,
         targets,
@@ -1521,15 +1385,9 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
 
   const review = (group: RequestActionGroup) => {
     setScope(
-      group.targets.some((target) => target.target_scope === 'Customer')
-        ? { type: 'Company', key: null, label: company }
-        : group.sourceScopeType === 'Department'
-          ? {
-              type: 'Department',
-              key: group.sourceScopeKey ?? null,
-              label: group.sourceScopeLabel,
-            }
-          : { type: 'All', key: null, label: 'All selected' }
+      group.sourceScopeType === 'Department'
+        ? { type: 'Department', key: group.sourceScopeKey ?? null, label: group.sourceScopeLabel }
+        : { type: 'All', key: null, label: 'All selected' }
     );
     setReviewing(group.groupKey);
   };
@@ -1545,50 +1403,32 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
         </div>
 
         <div className="max-h-[32rem] overflow-auto pb-2">
-          {(builder.aboutCompany || sellsToCompany) && (
-            <>
-              <p className="px-4 pb-1 pt-3 text-[9px] font-bold uppercase tracking-wider text-slate-400">
-                Company
-              </p>
-              <Nav
-                active={scope.type === 'Company'}
-                title={company}
-                hint={builder.aboutCompany ? 'The company itself' : 'Not on the request yet'}
-                onClick={() => setScope({ type: 'Company', key: null, label: company })}
-              />
-            </>
-          )}
+          <p className="px-4 pb-1 pt-3 text-[9px] font-bold uppercase tracking-wider text-slate-400">
+            Groups
+          </p>
+          <Nav
+            active={scope.type === 'All'}
+            title="All selected"
+            hint="Current selection"
+            count={rows.length}
+            onClick={() => setScope({ type: 'All', key: null, label: 'All selected' })}
+          />
+          {departments.map((department) => (
+            <Nav
+              key={department}
+              active={scope.type === 'Department' && scope.key === department}
+              title={department}
+              hint="Department"
+              count={rows.filter((row) => row.department === department).length}
+              onClick={() =>
+                setScope({ type: 'Department', key: department, label: department })
+              }
+            />
+          ))}
 
-          {rows.length > 0 && (
-            <>
-              <p className="px-4 pb-1 pt-3 text-[9px] font-bold uppercase tracking-wider text-slate-400">
-                Groups
-              </p>
-              <Nav
-                active={scope.type === 'All'}
-                title="All selected"
-                hint="Current selection"
-                count={rows.length}
-                onClick={() => setScope({ type: 'All', key: null, label: 'All selected' })}
-              />
-              {departments.map((department) => (
-                <Nav
-                  key={department}
-                  active={scope.type === 'Department' && scope.key === department}
-                  title={department}
-                  hint="Department"
-                  count={rows.filter((row) => row.department === department).length}
-                  onClick={() =>
-                    setScope({ type: 'Department', key: department, label: department })
-                  }
-                />
-              ))}
-
-              <p className="px-4 pb-1 pt-3 text-[9px] font-bold uppercase tracking-wider text-slate-400">
-                People
-              </p>
-            </>
-          )}
+          <p className="px-4 pb-1 pt-3 text-[9px] font-bold uppercase tracking-wider text-slate-400">
+            People
+          </p>
           {rows.map((row) => (
             <Nav
               key={row.subject_key}
@@ -1616,9 +1456,7 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
           <div>
             <h3 className="text-base font-semibold text-slate-900">
-              {scope.type === 'Company' ? (
-                company
-              ) : person ? (
+              {person ? (
                 <RecordLink
                   name={person.kind === 'device' ? person.managed_device : person.client_user}
                   kind={person.kind === 'device' ? 'device' : 'user'}
@@ -1632,9 +1470,7 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
               )}
             </h3>
             <p className="mt-0.5 text-xs text-slate-500">
-              {scope.type === 'Company'
-                ? 'The company itself · no person and no machine is named on these'
-                : person
+              {person
                 ? person.kind === 'device'
                   ? `Device · nobody holds it · ${person.current_services.length} current services`
                   : `${person.department || 'No Department'} · ${person.devices.length} Devices · ${person.current_services.length} current services`
@@ -1647,7 +1483,7 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
           {person && person.kind !== 'device' && <RequestPersonSummary person={person} />}
           {person && person.kind === 'device' && <RequestDeviceSummary device={person} />}
 
-          {!person && scope.type !== 'Company' && (
+          {!person && (
             <button
               type="button"
               onClick={() => setReading(true)}
@@ -1676,37 +1512,8 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
             <p className="py-8 text-center text-sm text-slate-500">Reading what can be asked…</p>
           )}
 
-          {domains
-            .filter((domain) =>
-              // all selected means all of it: the company's own services are offered there
-              // beside the people's, each on the only target that can hold it. One person
-              // or one department is not the company, and carries none of them
-              scope.type === 'Company'
-                ? domain.key === 'Company'
-                : scope.type === 'All' || domain.key !== 'Company'
-            )
-            // the company comes first: it is the one target on this card that is not a
-            // person, and reading it after the people's services buried it
-            .sort((left, right) => (left.key === 'Company' ? -1 : right.key === 'Company' ? 1 : 0))
-            .map((domain) =>
-            domain.key === 'Company' ? (
-              <CompanyServices
-                key={domain.key}
-                options={domain.options}
-                askedHere={askedHere}
-                onAdd={(option, card, quantity) =>
-                  add(
-                    option,
-                    option.targets.map((target) => ({ ...target, requested_quantity: quantity })),
-                    option.exclusions,
-                    // the group is a service group like any other: what makes it the
-                    // company's is the scope of its target, which is where it is read from
-                    'Service',
-                    card.object_key
-                  )
-                }
-              />
-            ) : domain.key === 'Service' ? (
+          {domains.map((domain) =>
+            domain.key === 'Service' ? (
               <section key={domain.key} className="mb-5">
                 <div className="mb-2 flex items-baseline justify-between">
                   <p className="text-xs font-semibold text-slate-900">{domain.label}</p>

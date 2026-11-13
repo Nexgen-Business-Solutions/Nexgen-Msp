@@ -16,12 +16,8 @@ from nexgen_msp.utils import catalogue as items
 
 DEFINITION = "MSP Service Definition"
 
-# what MSP sells a service against. Taken from the catalogue rather than restated: the
-# lists disagreed the moment a third scope was added, and the catalogue is the one that says
-SCOPES = items.MSP_SCOPES
-
-# the same list for the readiness rule, which is built as SQL text
-_SCOPES_SQL = ", ".join(frappe.db.escape(scope) for scope in SCOPES)
+# what MSP sells a service against
+SCOPES = ("User", "Device", "Both")
 
 # the compatibility state a catalogue row is in, most blocking first
 STATUS_PRIORITY = (
@@ -213,7 +209,7 @@ class ServiceDefinitionService:
                 select 1 from `tab{DEFINITION}` {definition_alias}
                 where {definition_alias}.item = {alias}.name
                   and {definition_alias}.enabled = 1
-                  and ifnull({definition_alias}.service_scope, '') in ({_SCOPES_SQL})
+                  and ifnull({definition_alias}.service_scope, '') in ('User', 'Device', 'Both')
             )
             and {alias}.disabled = 0
             and {alias}.is_stock_item = 0

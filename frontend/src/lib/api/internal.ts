@@ -1158,7 +1158,7 @@ export type InvoiceItemDifference = {
 };
 
 export type ServiceAvailabilityTarget = {
-  scope: 'User' | 'Device' | 'Customer';
+  scope: 'User' | 'Device';
   name: string;
   label: string;
   customer: string;
@@ -1172,11 +1172,7 @@ export type ServiceAvailabilityCurrent = {
   operational_status: string;
   billing_status: string;
   quantity: number;
-  uom: string | null;
   effective_start_date: string | null;
-  /** what the period is sold at, and where that number came from */
-  agreed_rate: number | null;
-  price_source: string;
 };
 
 export type ServiceAvailabilityOffer = {
@@ -1202,30 +1198,6 @@ export const userServiceAvailability = (client_user: string, signal?: AbortSigna
 
 export const deviceServiceAvailability = (managed_device: string, signal?: AbortSignal) =>
   get<ServiceAvailability>(`${BASE}.device_service_availability`, { managed_device }, signal);
-
-export const customerServiceAvailability = (customer: string, signal?: AbortSignal) =>
-  get<ServiceAvailability>(`${BASE}.customer_service_availability`, { customer }, signal);
-
-export const assignCustomerService = (payload: {
-  customer: string;
-  service_item: string;
-  effective_date?: string;
-  quantity?: number;
-  notes?: string;
-  agreed_rate?: number;
-  rate_override_reason?: string;
-}) => post<ServiceAvailability>(`${BASE}.assign_customer_service`, payload);
-
-export const changeCustomerService = (payload: {
-  assignment: string;
-  action: 'Suspend' | 'Resume' | 'End' | 'Change' | 'Cancel';
-  effective_date?: string;
-  notes?: string;
-  confirm_billed?: number;
-  quantity?: number;
-  agreed_rate?: number;
-  rate_override_reason?: string;
-}) => post<ServiceAvailability>(`${BASE}.change_customer_service`, payload);
 
 export type ContractOptions = {
   contract_statuses: string[];
@@ -1382,7 +1354,6 @@ export type BillingRunLine = {
   last_billed_on: string | null;
   email: string | null;
   quantity: number;
-  uom: string | null;
   billable_days: number;
   period_days: number;
   billable_months: number;

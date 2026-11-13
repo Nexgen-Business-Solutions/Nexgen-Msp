@@ -13,9 +13,8 @@ import frappe
 # what a billing quantity is counted in; it must allow halves
 BILLING_UOM = "Month"
 
-# where a service can be attached. Customer is the company itself: a retainer, a block of
-# storage, a line nobody holds — billed to the company and tied to no person or machine
-MSP_SCOPES = ("User", "Device", "Both", "Customer")
+# where a service can be attached
+MSP_SCOPES = ("User", "Device", "Both")
 
 # why an Item cannot be used, in the words the screen shows
 BLOCKERS = {
@@ -29,7 +28,7 @@ BLOCKERS = {
 	),
 	"ITEM_NOT_SELLABLE": "This Item is not marked as a sales Item.",
 	"MSP_BILLING_UOM_MISSING": "Month is not configured for this Item.",
-	"INVALID_MSP_SCOPE": "Choose User, Device, Both or Customer as the MSP service scope.",
+	"INVALID_MSP_SCOPE": "Choose User, Device or Both as the MSP service scope.",
 	"MSP_DEFINITION_MISSING": "This Item has no MSP service definition yet.",
 	"MSP_SERVICE_NOT_AVAILABLE": "This service is not available in Nexgen MSP.",
 }

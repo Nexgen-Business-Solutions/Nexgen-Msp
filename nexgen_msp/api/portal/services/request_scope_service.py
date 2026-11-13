@@ -53,9 +53,6 @@ REASON_TEXT = {
 }
 
 SERVICE_CODES = ("service.add", "service.suspend", "service.resume", "service.end")
-
-# what a target about the company itself is grouped under in the builder
-COMPANY_KEY = "company"
 DEVICE_CODES = ("device.transfer", "device.repossess")
 
 # asking for a machine is offered from the people who hold none, so it is built on its own
@@ -109,16 +106,12 @@ class RequestScopeService:
         chosen = set(_parse(subject_keys) or [draft["subject_key"] for draft in drafts])
         scoped = [draft for draft in drafts if draft["subject_key"] in chosen]
 
-        state = _load_state(customer, drafts, editing=request)
-        company = _company_domain(customer, state)
-
-        # a service the company itself holds has no person behind it, so a request about
-        # one is a request with nobody in it. Everything else still needs somebody
-        if not scoped and not company["options"]:
+        if not scoped:
             raise ValidationError(
                 "Add at least one person before continuing.", "VALIDATION_ERROR"
             )
 
+        state = _load_state(customer, drafts, editing=request)
         state["arriving"] = _machines_arriving(
             customer, _parse(action_groups), _parse(requested_devices), drafts
         )
@@ -135,9 +128,6 @@ class RequestScopeService:
 
         if devices["options"]:
             domains.append(devices)
-
-        if company["options"]:
-            domains.append(company)
 
         return {
             "customer": customer,
@@ -462,14 +452,7 @@ def _in_flight(customer, editing=None):
             touched.add(row.source_service_assignment)
 
         if row.action == "Add":
-            target = (
-                row.managed_device
-                if row.target_scope == "Device"
-                # a company line names nobody: what it is about is the company itself
-                else customer
-                if row.target_scope == "Customer"
-                else row.client_user
-            )
+            target = row.managed_device if row.target_scope == "Device" else row.client_user
 
             if target:
                 additions.add((row.requested_service, row.target_scope, target))
@@ -702,12 +685,6 @@ def _service_domain(customer, rows, state):
     catalogue = dict(running)
 
     for item, offer in state["offered"].items():
-        # a service sold to the company has nobody behind it. The catalogue here is read
-        # for every scope at once, so offering it on this card put the company's own
-        # services on the people of the request
-        if offer["scope"] == "Customer":
-            continue
-
         catalogue.setdefault(item, offer["label"])
 
     options = []
@@ -936,144 +913,6 @@ def _sort_service(code, item, scope, row, device, state, available, targets, exc
         return
 
     targets.append(entry)
-
-
-def _company_open(customer):
-    """The periods the company itself has open, by service."""
-    found = {}
-
-    for row in frappe.get_all(
-        "MSP Service Assignment",
-        filters={
-            "customer": customer,
-            "assignment_scope": "Customer",
-            "operational_status": ("in", OPEN_ASSIGNMENT_STATUSES),
-        },
-        fields=["name", "service_item", "operational_status"],
-    ):
-        found[row.service_item] = {
-            "assignment": row.name,
-            "service_item": row.service_item,
-            "status": row.operational_status,
-        }
-
-    return found
-
-
-def _company_entry(label, current, code=None):
-    """The company as a target of its own, or as the reason an act cannot reach it."""
-    entry = {
-        # the company is not a person and has no subject row: the key is what the builder
-        # groups a target under, and the line it becomes carries no subject at all
-        "subject_key": COMPANY_KEY,
-        "client_user": None,
-        "requested_client_user": None,
-        "full_name": label,
-        "department": None,
-        "target_scope": "Customer",
-        "managed_device": None,
-        "device_requirement_key": None,
-        "requested_device": None,
-        "device_label": None,
-        "device_serial_number": None,
-        "source_service_assignment": current["assignment"] if current else None,
-        "current_state": current["status"] if current else None,
-    }
-
-    if code:
-        entry["reason_code"] = code
-        entry["reason"] = REASON_TEXT.get(code, REASON_TEXT["NO_CURRENT_ASSIGNMENT"])
-
-    return entry
-
-
-def _evaluate_company(code, item, customer, label, current, available, state):
-    """Whether this act reaches the company for this service, and why it does not."""
-    targets, exclusions = [], []
-
-    if code == "service.add":
-        if current:
-            exclusions.append(_company_entry(label, current, "ALREADY_ACTIVE"))
-        elif not available:
-            exclusions.append(_company_entry(label, None, "SERVICE_NOT_AVAILABLE"))
-        elif (item, "Customer", customer) in state["in_flight"]["additions"]:
-            exclusions.append(_company_entry(label, None, "PENDING_CONFLICT"))
-        else:
-            targets.append(_company_entry(label, None))
-    elif not current:
-        exclusions.append(_company_entry(label, None, "NO_CURRENT_ASSIGNMENT"))
-    elif current["assignment"] in state["in_flight"]["touched"]:
-        exclusions.append(_company_entry(label, current, "PENDING_CONFLICT"))
-    elif code not in operations.for_service_state(current["status"]):
-        exclusions.append(
-            _company_entry(
-                label, current, "ALREADY_ACTIVE" if code == "service.resume" else "NOT_SUSPENDED"
-            )
-        )
-    else:
-        targets.append(_company_entry(label, current))
-
-    return {
-        "targets": targets,
-        "exclusions": exclusions,
-        "applicable_target_count": len(targets),
-        "applicable_subject_count": len(targets),
-        "excluded_subject_count": 0,
-    }
-
-
-def _company_domain(customer, state):
-    """What the company itself can be asked for: a service with nobody behind it.
-
-    It has no row in the people table, because it is not a person — which is exactly why a
-    company service could not be asked for at all. The card is built against the company's
-    own open periods instead, and every target it carries says it is about the company.
-    """
-    label = frappe.db.get_value("Customer", customer, "customer_name") or customer
-    running = _company_open(customer)
-    catalogue = {
-        item: offer["label"]
-        for item, offer in state["offered"].items()
-        if offer["scope"] == "Customer"
-    }
-
-    for item in running:
-        catalogue.setdefault(item, ServiceDefinitionService.label_of(item))
-
-    options = []
-
-    for item in sorted(catalogue, key=lambda item: (catalogue[item] or item).lower()):
-        current = running.get(item)
-        card = {
-            "object_key": item,
-            "object_label": catalogue[item],
-            "service_scope": "Customer",
-            "current_count": 1 if current else 0,
-            "without_count": 0 if current else 1,
-            "actions": [],
-        }
-
-        for code in SERVICE_CODES:
-            outcome = _evaluate_company(
-                code, item, customer, label, current, item in state["offered"], state
-            )
-
-            if not outcome["applicable_target_count"]:
-                continue
-
-            card["actions"].append(
-                {
-                    "operation_code": code,
-                    "operation_label": SHORT_LABEL[code],
-                    "operation_label_snapshot": f"{SHORT_LABEL[code]} {catalogue[item]}",
-                    **outcome,
-                }
-            )
-
-        if card["actions"]:
-            options.append(card)
-
-    return {"key": "Company", "label": "The company itself", "options": options}
 
 
 def _device_domain(rows, state):

@@ -35,13 +35,6 @@ const SCOPES = [
     label: 'Both',
     description: 'May be assigned either to a managed person or to a managed Device.',
   },
-  {
-    value: 'Customer',
-    label: 'Customer',
-    description:
-      'Held by the company itself, with no person or Device behind it — a retainer, a block '
-      + 'of storage, a line. Billed per customer.',
-  },
 ];
 
 const inputClass =

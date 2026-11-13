@@ -1201,26 +1201,6 @@ class PortalService:
         device = line.get("managed_device")
         future = request_intents.requested_subject_of(line)
 
-        # a service the company itself holds has nobody to name, and naming somebody is how
-        # these used to be recorded: on an account that then read as owning them
-        if scope == "Customer":
-            line["target_scope"] = "Customer"
-            line["subject_key"] = None
-
-            for field in (
-                "client_user",
-                "managed_device",
-                "requested_client_user",
-                "requested_for_user",
-                "requested_for_requested_client_user",
-                "requested_device",
-                "requested_holder",
-                "requested_holder_requested_client_user",
-            ):
-                line[field] = None
-
-            return line
-
         # a machine nobody has registered yet is still a machine: the line stays about the
         # Device, and says the Device is the one still to be prepared
         if line.get("requested_device"):
@@ -1769,15 +1749,7 @@ class PortalService:
             raise ValidationError(request_targets.CROSS_REQUEST, "VALIDATION_ERROR")
         elif subject and not line.get("client_user") and line.get("target_scope") != "Device":
             line["client_user"] = subject.get("client_user")
-        elif (
-            key
-            and not subject
-            and not line.get("client_user")
-            and not key.startswith("user:")
-            # a company line is grouped under the company, which is not a person and has no
-            # subject row. The key is dropped from the line a moment later, with the targets
-            and line.get("target_scope") != "Customer"
-        ):
+        elif key and not subject and not line.get("client_user") and not key.startswith("user:"):
             raise ValidationError(f"{key} is not a person of this request.", "VALIDATION_ERROR")
 
         device_key = line.get("device_requirement_key")
@@ -1873,9 +1845,6 @@ class PortalService:
                         if code == "device.assign" and not is_new
                         else None,
                         "requested_service": group.get("service_item"),
-                        # only a company service is asked for by the unit: everything a
-                        # person or a machine holds is one of it
-                        "requested_quantity": target.get("requested_quantity") or 1,
                         "source_service_assignment": target.get("source_service_assignment"),
                         "requested_holder": target.get("requested_holder"),
                         "requested_holder_subject_key": target.get("requested_holder_subject_key"),

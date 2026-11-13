@@ -20,27 +20,13 @@ from nexgen_msp.api.internal.services.service_lifecycle_service import (
 from nexgen_msp.utils.assignments import OPEN_ASSIGNMENT_STATUSES
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
-# what the catalogue allows to be sold at a given target scope. A company service stands
-# alone: something the company itself holds is never also a person's or a machine's
-SELLABLE_AT = {
-    "User": ("User", "Both"),
-    "Device": ("Device", "Both"),
-    "Customer": ("Customer",),
-}
+# what the catalogue allows to be sold at a given target scope
+SELLABLE_AT = {"User": ("User", "Both"), "Device": ("Device", "Both")}
 
 # and what it plainly does not: a device service is not an option for a person
-NEVER_AT = {
-    "User": ("Device", "Customer"),
-    "Device": ("User", "Customer"),
-    "Customer": ("User", "Device", "Both"),
-}
+NEVER_AT = {"User": "Device", "Device": "User"}
 
-WRONG_SCOPE_REASON = {
-    "User": "User only",
-    "Device": "Device only",
-    "Both": "User or Device only",
-    "Customer": "Company only",
-}
+WRONG_SCOPE_REASON = {"User": "User only", "Device": "Device only"}
 
 
 class ServiceAvailabilityService:
@@ -125,46 +111,6 @@ class ServiceAvailabilityService:
             refusal=refusal,
         )
 
-    @staticmethod
-    def for_customer(customer=None):
-        """What the company itself holds, and what it may be sold next.
-
-        A retainer, a block of storage, a line: a service with no person and no machine
-        behind it. The reading is the same one a person and a machine get — the target is
-        simply the company, and the catalogue's half that needs a target is out of reach.
-        """
-        RequestService._guard_internal()
-
-        return ServiceAvailabilityService.read_customer(customer)
-
-    @staticmethod
-    def read_customer(customer=None):
-        """The company's own reading, for a caller that has established its right to it."""
-        if not customer:
-            raise ValidationError("customer is required.", "VALIDATION_ERROR")
-
-        company = frappe.db.get_value(
-            "Customer", customer, ["name", "customer_name", "disabled"], as_dict=True
-        )
-
-        if not company:
-            raise NotFoundError(f"Customer {customer} not found.", "NOT_FOUND")
-
-        label = company.customer_name or company.name
-        refusal = (
-            f"{label} is disabled and cannot be sold a new service."
-            if frappe.utils.cint(company.disabled)
-            else None
-        )
-
-        return ServiceAvailabilityService._answer(
-            customer=company.name,
-            scope="Customer",
-            target=company.name,
-            label=label,
-            refusal=refusal,
-        )
-
     # --------------------------------------------------------------- what they share
     @staticmethod
     def _answer(customer, scope, target, label, refusal):
@@ -202,9 +148,9 @@ class ServiceAvailabilityService:
             # the catalogue's other half, named for what it is rather than left unexplained
             blocked += [
                 ServiceAvailabilityService._entry(
-                    item, reason=WRONG_SCOPE_REASON[item.service_scope]
+                    item, reason=WRONG_SCOPE_REASON[NEVER_AT[scope]]
                 )
-                for item in ServiceAvailabilityService._catalogue(NEVER_AT[scope])
+                for item in ServiceAvailabilityService._catalogue((NEVER_AT[scope],))
             ]
 
         return {
@@ -253,31 +199,21 @@ class ServiceAvailabilityService:
     @staticmethod
     def _current(customer, scope, target):
         """The periods open on this exact target: this customer, this scope, this one target."""
-        filters = {
-            "customer": customer,
-            "assignment_scope": scope,
-            "operational_status": ("in", OPEN_ASSIGNMENT_STATUSES),
-        }
-
-        # a company service has no target field to match on: the company is the target
-        if scope in TARGET_FIELD:
-            filters[TARGET_FIELD[scope]] = target
-
         rows = frappe.get_all(
             "MSP Service Assignment",
-            filters=filters,
+            filters={
+                "customer": customer,
+                "assignment_scope": scope,
+                TARGET_FIELD[scope]: target,
+                "operational_status": ("in", OPEN_ASSIGNMENT_STATUSES),
+            },
             fields=[
                 "name",
                 "service_item",
                 "operational_status",
                 "billing_status",
                 "quantity",
-                # what the quantity counts: a block of storage is not a month
-                "uom",
                 "effective_start_date",
-                # the terms in force, so a screen changing them can show what they are
-                "agreed_rate",
-                "price_source",
             ],
             order_by="effective_start_date asc",
         )

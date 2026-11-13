@@ -27,11 +27,8 @@ from nexgen_msp.utils.device_status import DEPLOYED_STATUSES
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 # where a service can actually be provided: the catalogue may allow either, a period never does
-TARGET_SCOPES = ("User", "Device", "Customer")
+TARGET_SCOPES = ("User", "Device")
 
-# the field that names the target, where there is one. A customer service is held by the
-# company itself: nothing stands between the assignment and the customer it already carries,
-# so there is no third field and none is wanted
 TARGET_FIELD = {"User": "client_user", "Device": "managed_device"}
 
 # a machine takes a new service while it is out in the field or on the shelf, and no later
@@ -336,8 +333,6 @@ class ServiceLifecycleService:
         service_item=None,
         notes=None,
         source_request=None,
-        agreed_rate=None,
-        rate_override_reason=None,
         _commit=True,
         _within_request=None,
     ):
@@ -345,11 +340,6 @@ class ServiceLifecycleService:
 
         The running period is closed the day before and a replacement opens on the day, so
         each invoice keeps reading the terms that were really in force over its days.
-
-        A rate somebody put on the record by hand is one of those terms. Changing how many
-        units are held says nothing about what they were agreed to cost, so the override
-        carries over unless a new one is given — the alternative was a quantity change that
-        quietly re-priced the service off the price list.
         """
         RequestService._guard_internal()
 
@@ -375,26 +365,8 @@ class ServiceLifecycleService:
 
         wanted_item = service_item or doc.service_item
         wanted_quantity = doc.quantity if quantity is None else frappe.utils.flt(quantity)
-        held_over = doc.price_source == "Manual Override" and agreed_rate in (None, "")
-        wanted_rate = doc.agreed_rate if held_over else agreed_rate
-        wanted_reason = doc.rate_override_reason if held_over else rate_override_reason
-        # where the rate comes from is part of the terms, not only the number: a service
-        # priced off the contract and then agreed at nothing has no rate on file to differ
-        # from, and reading that as "nothing would change" refused the change outright
-        repriced = (
-            not held_over
-            and wanted_rate not in (None, "")
-            and (
-                doc.price_source != "Manual Override"
-                or frappe.utils.flt(wanted_rate) != frappe.utils.flt(doc.agreed_rate)
-            )
-        )
 
-        if (
-            wanted_item == doc.service_item
-            and wanted_quantity == frappe.utils.flt(doc.quantity)
-            and not repriced
-        ):
+        if wanted_item == doc.service_item and wanted_quantity == frappe.utils.flt(doc.quantity):
             raise ValidationError(
                 "Nothing about this service would change.", "VALIDATION_ERROR"
             )
@@ -429,8 +401,6 @@ class ServiceLifecycleService:
                 quantity=wanted_quantity,
                 source_request=source_request or doc.source_request,
                 notes=notes,
-                agreed_rate=wanted_rate,
-                rate_override_reason=wanted_reason,
                 _commit=False,
                 _within_request=_within_request,
             )
@@ -528,11 +498,7 @@ class ServiceLifecycleService:
 
     @staticmethod
     def _lock_target(scope, target):
-        doctype = {
-            "User": "MSP Client User",
-            "Device": "MSP Managed Device",
-            "Customer": "Customer",
-        }[scope]
+        doctype = "MSP Client User" if scope == "User" else "MSP Managed Device"
         frappe.db.sql(f"select name from `tab{doctype}` where name = %s for update", target)
 
     @staticmethod
@@ -627,8 +593,8 @@ class ServiceLifecycleService:
 
         if not scope:
             raise ValidationError(
-                f"{item.item_name or item.name} can be sold to a user, to a device or to the "
-                "company itself; say which one.",
+                f"{item.item_name or item.name} can be sold to a user or to a device; say "
+                "which one.",
                 "VALIDATION_ERROR",
             )
 
@@ -648,37 +614,7 @@ class ServiceLifecycleService:
 
     @staticmethod
     def _target(customer, scope, client_user, managed_device):
-        """What the service is for: a person, a machine, or the company itself.
-
-        A customer service has no third record to point at. The company is already on the
-        assignment, so the target is that company — which is also what makes it the row to
-        lock, and the row the duplicate check reads.
-        """
-        if scope == "Customer":
-            if client_user or managed_device:
-                raise ValidationError(
-                    "A customer service carries no user and no device.", "VALIDATION_ERROR"
-                )
-
-            company = frappe.db.get_value(
-                "Customer", customer, ["name", "customer_name", "disabled"], as_dict=True
-            )
-
-            if not company:
-                raise NotFoundError(f"Customer {customer} not found.", "NOT_FOUND")
-
-            company.label = company.customer_name or company.name
-
-            # the catalogue already refuses to offer anything to a disabled company, and the
-            # screen is not the only way in: a direct call has to meet the same answer
-            if frappe.utils.cint(company.disabled):
-                raise ValidationError(
-                    f"{company.label} is disabled and cannot be sold a new service.",
-                    "VALIDATION_ERROR",
-                )
-
-            return company
-
+        """The person or the machine the service is for: theirs, and able to take it."""
         if scope == "User":
             if managed_device:
                 raise ValidationError(
@@ -925,13 +861,9 @@ class ServiceLifecycleService:
             "customer": customer,
             "service_item": service_item,
             "assignment_scope": scope,
+            TARGET_FIELD[scope]: target,
             "operational_status": ("in", OPEN_ASSIGNMENT_STATUSES),
         }
-
-        # a scope with a target field is asked about that target; one without is asked about
-        # the company, which the filters above already name
-        if scope in TARGET_FIELD:
-            filters[TARGET_FIELD[scope]] = target
 
         found = frappe.get_all("MSP Service Assignment", filters=filters, pluck="name", limit=1)
 

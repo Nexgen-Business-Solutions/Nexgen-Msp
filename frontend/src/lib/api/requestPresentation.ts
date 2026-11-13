@@ -81,7 +81,7 @@ export type RequestTargetPresentation = {
   person_label: string | null;
   person_is_new: boolean;
   target_label: string;
-  target_kind: 'client_user' | 'requested_client_user' | 'managed_device' | 'requested_device' | 'customer';
+  target_kind: 'client_user' | 'requested_client_user' | 'managed_device' | 'requested_device';
   target_name?: string | null;
   device_serial_number?: string | null;
   target_badge: 'NEW' | 'NEW DEVICE' | 'UNRESOLVED' | null;

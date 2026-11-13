@@ -939,7 +939,7 @@ class BillingService:
             f"""
             select
                 sa.name, sa.service_item, sa.assignment_scope, sa.client_user, sa.managed_device,
-                sa.quantity, sa.uom, sa.operational_status, sa.billing_status,
+                sa.quantity, sa.operational_status, sa.billing_status,
                 sa.effective_start_date, sa.effective_end_date,
                 sa.price_source, sa.agreed_rate, sa.rate_override_reason,
                 sa.baseline_covered_from, sa.baseline_covered_to, sa.baseline_state,
@@ -1066,8 +1066,6 @@ class BillingService:
             # five years, the run must say the same thing it says today
             snapshot = {
                 "service_name_snapshot": assignment.service_name,
-                # a quantity means nothing without its unit, and the unit can be renamed
-                "uom_snapshot": assignment.uom,
                 "user_name_snapshot": assignment.user_name,
                 "email_snapshot": assignment.email,
                 "department_snapshot": assignment.department,
@@ -2054,20 +2052,6 @@ class BillingService:
         )
 
     @staticmethod
-    def _units_billed(bucket):
-        """The quantity and the months behind a line the invoice counts only in months."""
-        def trimmed(value):
-            return f"{flt(value):.3f}".rstrip("0").rstrip(".") or "0"
-
-        unit = (bucket["uom"] or "").strip()
-        months = trimmed(bucket["spans"])
-
-        return (
-            f" — {trimmed(bucket['units'])}{' ' + unit if unit else ''}"
-            f" × {months} month{'' if months == '1' else 's'}"
-        )
-
-    @staticmethod
     def _invoice_groups(doc):
         """One invoice line per service and rate: quantity is the number of months billed.
 
@@ -2085,39 +2069,13 @@ class BillingService:
             if not months:
                 continue
 
-            # a service the company itself holds is sold by its own quantity, so two
-            # successive periods of different sizes are two different things to read on the
-            # invoice. People and machines keep the grouping they have always had
-            period = (
-                row.service_assignment if row.assignment_scope == "Customer" else None
-            )
-
             bucket = grouped.setdefault(
-                (
-                    row.service_item,
-                    flt(row.unit_rate, 2),
-                    flt(row.discount_percent, 2),
-                    period,
-                ),
-                {
-                    "months": 0.0,
-                    "amount": 0.0,
-                    "targets": 0,
-                    # what the group is about, and the units behind it: a line billed to the
-                    # company counts no people and no machines, and its quantity is not months
-                    "scopes": set(),
-                    "units": 0.0,
-                    "uom": None,
-                    "spans": 0.0,
-                },
+                (row.service_item, flt(row.unit_rate, 2), flt(row.discount_percent, 2)),
+                {"months": 0.0, "amount": 0.0, "targets": 0},
             )
             bucket["months"] += months
             bucket["amount"] += flt(row.amount)
             bucket["targets"] += 1
-            bucket["scopes"].add(row.assignment_scope)
-            bucket["units"] = flt(row.quantity or 1)
-            bucket["uom"] = bucket["uom"] or row.uom_snapshot
-            bucket["spans"] += flt(row.billable_months)
 
         return grouped
 
@@ -2158,16 +2116,9 @@ class BillingService:
         period_label = BillingService._period_label(doc)
         items = []
 
-        for (service_item, rate, discount, _period), bucket in grouped.items():
+        for (service_item, rate, discount), bucket in grouped.items():
             # what the customer reads, which the catalogue name is not always fit for
             item_name = ServiceDefinitionService.label_of(service_item)
-
-            # a service the company itself holds has nobody behind it. Printing "1" in the
-            # users column would be a headcount nobody has, so the column says nothing — and
-            # the description says what the quantity actually is, since the invoice counts
-            # the line in months and a block of storage is not a month
-            company_only = bucket["scopes"] == {"Customer"}
-            explained = BillingService._units_billed(bucket) if company_only else ""
 
             item = {
                 "item_code": service_item,
@@ -2175,10 +2126,9 @@ class BillingService:
                 "description": (
                     f"{period_label}"
                     f" ({doc.billing_period_start} → {doc.billing_period_end})"
-                    f"{explained}"
                 ),
                 # the headcount behind the line, printed in its own column
-                "msp_billed_count": None if company_only else bucket["targets"],
+                "msp_billed_count": bucket["targets"],
                 "qty": flt(bucket["months"], 3),
                 "uom": BILLING_UOM,
                 "conversion_factor": 1,
@@ -2587,7 +2537,6 @@ class BillingService:
                 brl.name as line, brl.idx, brl.service_assignment, brl.service_item,
                 coalesce(brl.service_name_snapshot, item.item_name, brl.service_item)
                     as service_name,
-                coalesce(brl.uom_snapshot, sa.uom) as uom,
                 brl.assignment_scope, brl.client_user, brl.managed_device,
                 coalesce(brl.user_name_snapshot, legacy_user.full_name) as user_name,
                 coalesce(brl.email_snapshot, legacy_user.email) as email,
@@ -2733,10 +2682,7 @@ class BillingService:
             and not doc.standalone_credit,
             "can_resolve_dispute": bool(doc.disputed),
             "dispute_request": doc.dispute_request,
-            # a draft and a cancelled document are both "not posted", and only one of them
-            # can still be submitted or thrown away. The question is the draft, not the gap
-            "can_discard_invoice": bool(doc.sales_invoice)
-            and found["invoice_docstatus"] == 0,
+            "can_discard_invoice": bool(doc.sales_invoice) and not posted,
             "can_reopen": doc.docstatus == 1
             and not doc.sales_invoice
             # nothing to reopen: it records a charge that already went out
@@ -2747,8 +2693,7 @@ class BillingService:
             "cancel_blocked": accounting.blocker_of(doc.as_dict(), found),
             "can_reconcile": bool(found["mismatch"]),
             "cancellation": accounting.cancellation_of(doc.name),
-            "can_submit_invoice": bool(doc.sales_invoice)
-            and found["invoice_docstatus"] == 0,
+            "can_submit_invoice": bool(doc.sales_invoice) and not posted,
         }
 
 
@@ -2829,7 +2774,7 @@ class BillingService:
         # other, so both are read for what they bill rather than which way they point
         credit = bool(doc.credit_note_of or doc.standalone_credit)
 
-        for (service_item, rate, discount, _period), bucket in BillingService._invoice_groups(
+        for (service_item, rate, discount), bucket in BillingService._invoice_groups(
             doc
         ).items():
             net = flt(flt(rate, 2) * (1 - flt(discount) / 100.0), 2)

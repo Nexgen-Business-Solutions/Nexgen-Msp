@@ -262,9 +262,6 @@ export const useRequestBuilder = (
   edit?: string
 ) => {
   const [subjects, setSubjects] = useState<RequestSubject[]>([]);
-  // the company itself, picked like a person and sitting in the same table. Nothing of it
-  // is sent on its own: what makes a request the company's is the scope of its acts
-  const [onCompany, setOnCompany] = useState(false);
   const [requestedDevices, setRequestedDevices] = useState<RequestedDeviceDraft[]>([]);
   const [actionGroups, setActionGroups] = useState<RequestActionGroup[]>([]);
   const [priority, setPriority] = useState('Medium');
@@ -607,7 +604,6 @@ export const useRequestBuilder = (
     setSubjects([]);
     setRequestedDevices([]);
     setActionGroups([]);
-    setOnCompany(false);
   };
 
   const assignGroupsFor = (
@@ -814,35 +810,8 @@ export const useRequestBuilder = (
 
   const canSave =
     !unrestorable && !locked && !edit && (subjects.length > 0 || actionGroups.length > 0);
-  /**
-   * A service the company itself holds is asked for with nobody in the request.
-   *
-   * A reopened draft needs no flag of its own: its own acts name the company, so they are
-   * what is read. Picking it on a new request says the same thing before any act exists.
-   */
-  const askedOfCompany = actionGroups.some((group) =>
-    group.targets.some((target) => target.target_scope === 'Customer')
-  );
-  const aboutCompany = onCompany || askedOfCompany;
-
-  const addCompany = () => setOnCompany(true);
-
-  const removeCompany = () => {
-    setOnCompany(false);
-    // what was asked of it goes with it: a request keeping those acts is still its request
-    setActionGroups((current) =>
-      current.filter(
-        (group) => !group.targets.some((target) => target.target_scope === 'Customer')
-      )
-    );
-  };
-
   const canSend =
-    !unrestorable &&
-    !locked &&
-    (subjects.length > 0 || aboutCompany) &&
-    actionGroups.length > 0 &&
-    !reviewNeeded;
+    !unrestorable && !locked && subjects.length > 0 && actionGroups.length > 0 && !reviewNeeded;
 
   const send = async () => {
     if (!canSend) return null;
@@ -945,9 +914,6 @@ export const useRequestBuilder = (
     payload,
     canSave,
     canSend,
-    aboutCompany,
-    addCompany,
-    removeCompany,
     unrestorable,
     send,
     putAside,

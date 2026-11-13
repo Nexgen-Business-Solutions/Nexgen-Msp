@@ -938,10 +938,8 @@ export type RequestTarget = {
   requested_client_user?: string | null;
   full_name: string;
   department?: string | null;
-  target_scope: 'User' | 'Device' | 'Customer';
+  target_scope: 'User' | 'Device';
   managed_device: string | null;
-  /** how much of it the company holds: only a company target ever carries one */
-  requested_quantity?: number | null;
   device_requirement_key?: string | null;
   requested_device?: string | null;
   device_label: string | null;
@@ -1007,8 +1005,7 @@ export type RequestServiceOption = {
 
 export type RequestOperationDomain =
   | { key: 'Service'; label: string; options: RequestServiceOption[] }
-  | { key: 'Device'; label: string; options: RequestOperationOption[] }
-  | { key: 'Company'; label: string; options: RequestServiceOption[] };
+  | { key: 'Device'; label: string; options: RequestOperationOption[] };
 
 export type RequestActionGroupDraft = {
   group_key: string;
