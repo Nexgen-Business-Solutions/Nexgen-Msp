@@ -300,8 +300,13 @@ class RequestService:
                 -- the day it reached us, which is not the day it was opened: a request
                 -- waits inside the company until somebody there agrees to it, and a
                 -- draft can sit for a week. Where nobody had to agree, it reached us as
-                -- it was written
-                coalesce(sr.customer_approved_at, sr.creation) as submitted_on,
+                -- it was written — and one that never reached us has no such day at all,
+                -- a refusal by the customer included, which stamps the same field
+                case
+                    when sr.status in ('Draft', 'Awaiting Customer Approval') then null
+                    when ifnull(sr.refused_by_customer, 0) = 1 then null
+                    else coalesce(sr.customer_approved_at, sr.creation)
+                end as submitted_on,
                 sr.modified,
                 (select count(*) from `tabMSP Request Line` srl where srl.parent = sr.name)
                     as line_count,

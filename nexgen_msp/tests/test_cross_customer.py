@@ -237,6 +237,10 @@ class TestWhatAnExplicitStaffRoleOpens(CrossCustomerCase):
     Our own people are sometimes a contact at a customer as well, so the role they were
     deliberately given is what says what they reach. The link no longer narrows it — which
     also means a staff role handed to a contact by mistake hands them every company.
+
+    The application's own door refuses to put both families on one account
+    (`permissions.guard_single_family`, pinned in test_roles). What is read here is the
+    account somebody made that way in the Desk, behind that door.
     """
 
     def test_a_staff_role_reaches_another_company_s_person(self):

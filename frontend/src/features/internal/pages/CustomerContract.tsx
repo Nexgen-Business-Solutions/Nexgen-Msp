@@ -674,7 +674,9 @@ export default function CustomerContract() {
               <span className="text-sm font-medium text-slate-900">
                 <BusinessText>{service.service_name}</BusinessText>
               </span>
-              <span className="text-xs text-slate-500">{service.service_item}</span>
+              <span className="text-xs text-slate-500">
+                <BusinessText>{service.service_item}</BusinessText>
+              </span>
             </li>
           ))}
         </ul>

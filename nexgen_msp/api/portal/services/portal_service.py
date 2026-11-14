@@ -3869,6 +3869,7 @@ class PortalService:
 
         found = None
         held_by = None
+        history = None
 
         for kind, clause, target in asked:
             row = frappe.db.sql(
@@ -3887,9 +3888,22 @@ class PortalService:
                 as_dict=True,
             )
 
-            if row:
+            if not row:
+                continue
+
+            live = row[0].operational_status not in ("Ended", "Cancelled")
+
+            if live:
                 found, held_by = row[0], kind
                 break
+
+            # a machine that ran it once does not answer for the person who runs it now:
+            # what is still live wins, and the past is kept only if nothing else answers
+            if history is None:
+                history = (row[0], kind)
+
+        if found is None and history:
+            found, held_by = history
 
         if not found:
             return {"held": False}

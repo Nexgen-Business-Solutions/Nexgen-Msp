@@ -593,3 +593,40 @@ class TestAServiceAMachineAlreadyRunsIsNotOfferedAgain(RequestScopeCase):
         self.track(WORK_ORDER, order.name)
 
         self.assertIsNone(UserService._asking_for(order.request, running, "End"))
+
+    def test_a_machine_that_ran_it_once_does_not_answer_for_the_person_running_it_now(self):
+        """`Both`, two assignments, one of them over: the live one is the answer."""
+        either = self.make_service(f"BH{self.tag[:3]}", scope="Both")
+        self.cover_service(self.customer, either)
+        machine = self.make_device(self.customer, hostname=f"BHX{self.tag[:3]}", holder=self.alice)
+
+        on_machine = ServiceLifecycleService.activate(
+            customer=self.customer,
+            service_item=either,
+            target_scope="Device",
+            managed_device=machine,
+            effective_date=frappe.utils.add_days(frappe.utils.today(), -60),
+        )["name"]
+        self.track(ASSIGNMENT, on_machine)
+        ServiceLifecycleService.end(
+            assignment=on_machine, effective_date=frappe.utils.add_days(frappe.utils.today(), -30)
+        )
+
+        hers = ServiceLifecycleService.activate(
+            customer=self.customer,
+            service_item=either,
+            target_scope="User",
+            client_user=self.alice,
+            effective_date=frappe.utils.add_days(frappe.utils.today(), -10),
+        )["name"]
+        self.track(ASSIGNMENT, hers)
+
+        state = self.as_user(
+            self.asker,
+            lambda: PortalService.service_state(
+                service_item=either, client_user=self.alice, managed_device=machine
+            ),
+        )
+
+        self.assertTrue(state["live"], "the machine's old spell is not the current answer")
+        self.assertEqual(state["held_by"], "User")

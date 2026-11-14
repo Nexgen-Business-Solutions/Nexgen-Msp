@@ -1319,6 +1319,38 @@ class TestWhenARequestReachedUs(MSPTestCase):
             frappe.utils.get_datetime(frappe.db.get_value(REQUEST, name, "customer_approved_at")),
         )
 
+    def test_a_request_still_waiting_inside_the_company_is_not_in_our_queue(self):
+        """It has not reached us at all, so there is nothing of it to date."""
+        self.grant(self.contact, can_submit=1, can_approve=0)
+        name = self.raised_by_the_contact()
+
+        self.assertEqual(
+            frappe.db.get_value(REQUEST, name, "status"), "Awaiting Customer Approval"
+        )
+        self.assertNotIn(
+            name, [row["name"] for row in RequestService.list_requests(page_length=100)["rows"]]
+        )
+
+    def test_a_request_the_company_refused_is_not_in_our_queue_either(self):
+        """A refusal stamps the same field as an accord, and means the opposite.
+
+        It never reached us, so the queue leaves it out entirely — and the listing refuses
+        to date it even if it were ever shown, since that stamp is the hour it was turned
+        down.
+        """
+        self.grant(self.contact, can_submit=1, can_approve=0)
+        name = self.raised_by_the_contact()
+
+        frappe.db.set_value(
+            REQUEST, name, "customer_approved_at", "2026-11-20 09:30:00", update_modified=False
+        )
+        frappe.db.set_value(REQUEST, name, "refused_by_customer", 1, update_modified=False)
+        frappe.db.set_value(REQUEST, name, "status", "Rejected", update_modified=False)
+
+        self.assertNotIn(
+            name, [row["name"] for row in RequestService.list_requests(page_length=100)["rows"]]
+        )
+
     def test_one_we_raised_ourselves_arrives_when_it_was_written(self):
         out = PortalService.create_request(
             customer=self.customer, request_type="Add", lines=[self.line()]

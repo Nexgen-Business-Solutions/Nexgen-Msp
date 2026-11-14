@@ -202,7 +202,9 @@ const ServiceActionModal: React.FC<Props> = ({
             </p>
           )}
           {target.row.device_user_name && (
-            <p className="mt-1 text-xs text-slate-500">Current holder: {target.row.device_user_name}</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Current holder: <BusinessText>{target.row.device_user_name}</BusinessText>
+            </p>
           )}
         </div>
 
