@@ -50,6 +50,7 @@ REASON_TEXT = {
     "SAME_DEVICE_HOLDER": "This Device is already held by that person.",
     "CROSS_CUSTOMER_TARGET": "One or more selected people no longer belong to this Customer.",
     "NEW_PERSON": "This person does not exist yet and will be prepared during fulfilment.",
+    "CHANGE_ALREADY_DATED": "A change to this service is already set for a day to come.",
 }
 
 SERVICE_CODES = ("service.add", "service.suspend", "service.resume", "service.end")
@@ -442,6 +443,9 @@ def _assignments(customer, people, devices):
         entry["operational_status"] = assignments.status_as_of(
             row.operational_status, row.effective_end_date, pauses.get(row.assignment)
         )
+        # and a service already spoken for is nobody's to act on until that day comes: the
+        # lifecycle reads the record, not the calendar, and would refuse what is offered
+        entry["dated_change"] = entry["operational_status"] != row.operational_status
 
         if row.assignment_scope == "User":
             by_user.setdefault(row.client_user, []).append(entry)
@@ -589,6 +593,9 @@ def _project(draft, state):
                 "label": row["label"],
                 "scope": row["assignment_scope"],
                 "status": row["operational_status"],
+                # a change already set for a day to come: nothing may be asked of it until
+                # that day, and the screen says why rather than offering a refusal
+                "dated_change": row.get("dated_change"),
                 "managed_device": row.get("managed_device"),
             }
             for row in sorted(personal + on_devices, key=lambda row: row["label"])
@@ -690,6 +697,9 @@ def _project_machine(draft, state):
                 "label": row["label"],
                 "scope": row["assignment_scope"],
                 "status": row["operational_status"],
+                # a change already set for a day to come: nothing may be asked of it until
+                # that day, and the screen says why rather than offering a refusal
+                "dated_change": row.get("dated_change"),
                 "managed_device": row.get("managed_device"),
             }
             for row in sorted(running, key=lambda row: row["label"])
@@ -868,6 +878,9 @@ def _running_on(device, item, state):
                 "label": row["label"],
                 "scope": row["assignment_scope"],
                 "status": row["operational_status"],
+                # a change already set for a day to come: nothing may be asked of it until
+                # that day, and the screen says why rather than offering a refusal
+                "dated_change": row.get("dated_change"),
                 "managed_device": row.get("managed_device"),
             }
 
@@ -929,6 +942,13 @@ def _sort_service(code, item, scope, row, device, state, available, targets, exc
 
     if current["assignment"] in state["in_flight"]["touched"]:
         exclusions.append(_exclusion(row, "PENDING_CONFLICT", device))
+
+        return
+
+    # it still holds the service — so nothing may be added onto it — but the change it is
+    # already carrying has not happened yet, and the lifecycle will refuse a second one
+    if current.get("dated_change"):
+        exclusions.append(_exclusion(row, "CHANGE_ALREADY_DATED", device))
 
         return
 

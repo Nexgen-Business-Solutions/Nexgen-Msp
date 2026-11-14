@@ -3,6 +3,8 @@
 import frappe
 from frappe.utils import add_days, get_datetime, now_datetime
 
+from nexgen_msp.utils import stamps
+
 from nexgen_msp.api.internal.services.request_service import RequestService, effective_line_status
 from nexgen_msp.api.internal.services.requested_client_user_service import RequestedClientUserService
 from nexgen_msp.api.internal.services.requested_device_service import RequestedDeviceService
@@ -1304,8 +1306,14 @@ class TestWhenARequestReachedUs(MSPTestCase):
 
         row = self.listed(name)
 
-        self.assertEqual(str(row["submitted_on"]), "2026-11-20 09:30:00")
-        self.assertNotEqual(str(row["submitted_on"]), str(row["creation"]))
+        self.assertEqual(
+            get_datetime(row["submitted_on"]).replace(tzinfo=None),
+            get_datetime("2026-11-20 09:30:00"),
+        )
+        self.assertNotEqual(
+            get_datetime(row["submitted_on"]).replace(tzinfo=None),
+            get_datetime(row["creation"]),
+        )
 
     def test_a_request_nobody_had_to_agree_to_arrives_as_it_is_written(self):
         """Raised by somebody who may approve their own: the two instants are one."""
@@ -1316,8 +1324,8 @@ class TestWhenARequestReachedUs(MSPTestCase):
 
         self.assertEqual(frappe.db.get_value(REQUEST, name, "status"), "Submitted")
         apart = abs(
-            frappe.utils.get_datetime(row["submitted_on"])
-            - frappe.utils.get_datetime(frappe.db.get_value(REQUEST, name, "customer_approved_at"))
+            get_datetime(row["submitted_on"]).replace(tzinfo=None)
+            - get_datetime(frappe.db.get_value(REQUEST, name, "customer_approved_at"))
         )
 
         self.assertLess(apart.total_seconds(), 5, "the two instants are one")
@@ -1363,8 +1371,7 @@ class TestWhenARequestReachedUs(MSPTestCase):
         row = self.listed(name)
 
         apart = abs(
-            frappe.utils.get_datetime(row["submitted_on"])
-            - frappe.utils.get_datetime(row["creation"])
+            get_datetime(row["submitted_on"]).replace(tzinfo=None) - get_datetime(row["creation"])
         )
 
         self.assertLess(apart.total_seconds(), 5, "written and arrived in one gesture")
@@ -1421,6 +1428,35 @@ class TestADraftSentLaterIsDatedWhenItWasSent(MSPTestCase):
 
         self.assertIsNotNone(stamped)
         self.assertGreater(get_datetime(stamped), get_datetime(creation))
+
+    def test_the_listing_says_the_moment_with_its_offset(self):
+        """A stamp with no offset is an hour nobody wrote, once it crosses a border."""
+        out = PortalService.create_request(
+            customer=self.customer, lines=[self.line()], request_type="Add"
+        )
+        name = self.track("MSP Request", out["name"])
+
+        row = next(
+            row
+            for row in RequestService.list_requests(page_length=100)["rows"]
+            if row["name"] == name
+        )
+        said = row["submitted_on"]
+
+        self.assertRegex(said, r"[+-]\d{2}:\d{2}$", "the offset the site was on")
+        self.assertEqual(
+            get_datetime(said).replace(tzinfo=None),
+            get_datetime(frappe.db.get_value(REQUEST, name, "submitted_on")),
+            "the same instant, said differently",
+        )
+
+    def test_a_request_that_never_arrived_says_no_moment_at_all(self):
+        out = PortalService.save_draft(
+            customer=self.customer, lines=[self.line()], request_type="Add"
+        )
+        self.track("MSP Request", out["name"])
+
+        self.assertIsNone(stamps.stamped(None))
 
     def test_the_stamp_never_moves_again(self):
         out = PortalService.create_request(

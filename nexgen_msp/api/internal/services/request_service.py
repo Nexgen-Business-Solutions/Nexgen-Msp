@@ -2,7 +2,7 @@ import frappe
 
 from nexgen_msp.utils.meta import select_options
 
-from nexgen_msp.utils import access, permissions, request_targets
+from nexgen_msp.utils import access, permissions, request_targets, stamps
 from nexgen_msp.utils.assignments import OPEN_ASSIGNMENT_STATUSES
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 from nexgen_msp.utils.mac_address import REFUSAL as MAC_REFUSAL, canonical_or_none
@@ -339,6 +339,10 @@ class RequestService:
             params,
             as_dict=True,
         )
+
+        # with the site's offset on it, so a reader anywhere places the same instant
+        for row in rows:
+            row["submitted_on"] = stamps.stamped(row.get("submitted_on"))
 
         return {
             "rows": rows,
