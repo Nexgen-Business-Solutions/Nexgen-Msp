@@ -1938,3 +1938,110 @@ def execute_work_orders(request=None, executions=None):
 @handle_errors
 def save_required_identifiers(request=None, values=None):
     return _execution().save_required_identifiers(request=request, values=values)
+
+
+# ----------------------------------------------------------------- notification settings
+# Thin doors onto the notification services. Every one of them is administration of our own
+# mail, and every one is guarded inside the service as well: a whitelisted method is a
+# public address, and the React guard in front of it is a courtesy to the user rather than
+# a protection of the data.
+@frappe.whitelist()
+@handle_errors
+def notification_settings_overview(
+    search=None, kind=None, category=None, enabled=None, page=0, page_length=50
+):
+    from nexgen_msp.api.internal.services.notification_settings_service import (
+        NotificationSettingsService,
+    )
+
+    return NotificationSettingsService.overview(
+        search=search,
+        kind=kind,
+        category=category,
+        enabled=enabled,
+        page=page,
+        page_length=page_length,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def notification_rule_detail(rule_key=None):
+    from nexgen_msp.api.internal.services.notification_settings_service import (
+        NotificationSettingsService,
+    )
+
+    return NotificationSettingsService.detail(rule_key)
+
+
+@frappe.whitelist()
+@handle_errors
+def save_notification_rule(rule_key=None, expected_revision=None, changes=None):
+    from nexgen_msp.api.internal.services.notification_settings_service import (
+        NotificationSettingsService,
+    )
+
+    return NotificationSettingsService.save(
+        rule_key=rule_key, expected_revision=expected_revision, changes=changes
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def preview_notification_rule(rule_key=None):
+    from nexgen_msp.api.internal.services.notification_settings_service import (
+        NotificationSettingsService,
+    )
+
+    return NotificationSettingsService.preview(rule_key)
+
+
+@frappe.whitelist()
+@handle_errors
+def test_notification_rule(rule_key=None, recipient=None):
+    from nexgen_msp.api.internal.services.notification_settings_service import (
+        NotificationSettingsService,
+    )
+
+    return NotificationSettingsService.test_send(rule_key, recipient)
+
+
+@frappe.whitelist()
+@handle_errors
+def notification_delivery_history(
+    rule_key=None, status=None, search=None, business_name=None, page=0, page_length=50
+):
+    from nexgen_msp.api.internal.services.notification_dispatch_service import (
+        NotificationDispatchService,
+    )
+
+    return NotificationDispatchService.history(
+        rule_key=rule_key,
+        status=status,
+        search=search,
+        business_name=business_name,
+        page=page,
+        page_length=page_length,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def notification_source_inventory():
+    from nexgen_msp.api.internal.services.notification_sources_service import (
+        NotificationSourcesService,
+    )
+
+    return NotificationSourcesService.inventory()
+
+
+@frappe.whitelist()
+@handle_errors
+def notification_rule_eligibility(rule_key=None, page=0, page_length=50):
+    from nexgen_msp.api.internal.services.notification_reminder_service import (
+        NotificationReminderService,
+    )
+
+    return NotificationReminderService.eligibility(
+        rule_key, page=page, page_length=page_length
+    )

@@ -331,6 +331,16 @@ PROTECTED = tuple(key for key, rule in RULES.items() if rule["protected"])
 CRITICAL = "password_reset"
 
 
+# every managed notification owns its template outright: one template, one rule, so the
+# template a send already names is enough to find the settings that govern it
+BY_TEMPLATE = {found["template_name"]: key for key, found in RULES.items()}
+
+
+def rule_of_template(template_name):
+    """The rule a template belongs to, or nothing when the template is not managed here."""
+    return BY_TEMPLATE.get(template_name)
+
+
 def rule(rule_key):
     """The declaration of one managed notification, or nothing when it is not ours."""
     return RULES.get(rule_key)

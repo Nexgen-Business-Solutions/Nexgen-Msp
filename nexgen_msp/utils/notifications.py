@@ -223,27 +223,68 @@ TEMPLATES = {
 
 
 def ensure_templates():
-    """Create or refresh every template this app sends, so a fresh site is never mute."""
+    """Create every template this app sends, so a fresh site is never mute.
+
+    Create, and nothing else. This used to reassign the subject and the HTML of templates
+    that already existed, which meant every `bench migrate` quietly threw away whatever an
+    administrator had written — their wording, their signature, their translations. A
+    template on the record is theirs from then on, and this walks past it.
+
+    Returns the names it had to create, so a migration can say what it did.
+    """
+    created = []
+
     for name, spec in TEMPLATES.items():
-        html = SHELL.format(
+        if frappe.db.exists("Email Template", name):
+            continue
+
+        doc = frappe.new_doc("Email Template")
+        doc.name = name
+        doc.subject = spec["subject"]
+        doc.use_html = 1
+        doc.response_html = SHELL.format(
+            app_name=APP_NAME,
+            tagline=APP_TAGLINE,
+            body=spec["body"],
+            year="{{ year }}",
+        )
+        doc.insert(ignore_permissions=True)
+        created.append(name)
+
+    if created:
+        frappe.db.commit()
+
+    return created
+
+
+def drifted_templates():
+    """The templates whose stored wording no longer matches the one shipped in the code.
+
+    Read-only, and reported rather than corrected: a difference here is almost always an
+    administrator's own edit, and the whole point of leaving it alone is that nobody can
+    tell the difference between their wording and a stale default without being told.
+    """
+    drifted = []
+
+    for name, spec in TEMPLATES.items():
+        stored = frappe.db.get_value(
+            "Email Template", name, ["subject", "response_html"], as_dict=True
+        )
+
+        if not stored:
+            continue
+
+        shipped = SHELL.format(
             app_name=APP_NAME,
             tagline=APP_TAGLINE,
             body=spec["body"],
             year="{{ year }}",
         )
 
-        if frappe.db.exists("Email Template", name):
-            doc = frappe.get_doc("Email Template", name)
-        else:
-            doc = frappe.new_doc("Email Template")
-            doc.name = name
+        if stored.subject != spec["subject"] or (stored.response_html or "") != shipped:
+            drifted.append(name)
 
-        doc.subject = spec["subject"]
-        doc.use_html = 1
-        doc.response_html = html
-        doc.save(ignore_permissions=True)
-
-    frappe.db.commit()
+    return drifted
 
 
 def render(name, context):
@@ -261,6 +302,67 @@ def render(name, context):
         frappe.render_template(template.subject, context),
         frappe.render_template(template.response_html or template.response, context),
     )
+
+
+def _settings_for(template_name):
+    """How the administrator has configured the notification this template belongs to.
+
+    Asked of the settings on every send rather than once at import: a change made in the
+    screen has to reach the next mail, and a module holding yesterday's answer would keep
+    sending what somebody switched off this morning.
+
+    Returns nothing at all when the notification is not one this application manages, or
+    when the settings cannot be read — a mail that has always gone out keeps going out
+    rather than being lost to a table being momentarily unavailable.
+    """
+    try:
+        from nexgen_msp.api.internal.services import notification_registry as registry
+        from nexgen_msp.api.internal.services.notification_settings_service import (
+            NotificationSettingsService,
+        )
+
+        rule_key = registry.rule_of_template(template_name)
+
+        if not rule_key:
+            return None
+
+        return NotificationSettingsService.effective(rule_key)
+    except Exception:
+        frappe.log_error(
+            title=f"Notification settings unavailable for {template_name}",
+            message=frappe.get_traceback(),
+        )
+
+        return None
+
+
+def _record_refusal(settings, template_name, recipients, reference_doctype, reference_name):
+    """Note that an event produced no mail because the settings said so.
+
+    Written so that "why did nobody get told" has an answer. It must never be the reason a
+    business operation fails, so a failure to write it is swallowed here as well.
+    """
+    try:
+        from nexgen_msp.api.internal.services.notification_settings_service import (
+            NotificationSettingsService,
+        )
+
+        NotificationSettingsService._write_audit(
+            action="Skipped",
+            rule=settings["rule_key"],
+            rule_revision=settings.get("revision"),
+            business_doctype=reference_doctype,
+            business_name=reference_name,
+            recipients=", ".join(recipients)[:500],
+            template_name=template_name,
+            reason_code="rule_disabled",
+            detail="The event happened; this notification is switched off.",
+        )
+    except Exception:
+        frappe.log_error(
+            title=f"Could not record the refusal of {template_name}",
+            message=frappe.get_traceback(),
+        )
 
 
 def send(
@@ -283,6 +385,26 @@ def send(
 
     if not recipients:
         return False
+
+    settings = _settings_for(name)
+
+    if settings and not settings["enabled"]:
+        # the administrator switched this notification off, so the next event stops
+        # producing it. The business operation that triggered it is not affected: it
+        # already happened, and a mail was only ever its consequence
+        _record_refusal(settings, name, recipients, reference_doctype, reference_name)
+
+        return False
+
+    if settings:
+        cc = cc + [
+            address
+            for address in settings["cc"]
+            if address not in recipients and address not in cc
+        ]
+        recipients = recipients + [
+            address for address in settings["extra"] if address not in recipients
+        ]
 
     try:
         subject, message = render(name, context)

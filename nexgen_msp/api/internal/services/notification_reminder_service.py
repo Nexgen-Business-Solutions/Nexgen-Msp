@@ -1,0 +1,490 @@
+"""When a reminder is owed, on whose clock, and when it is owed nothing.
+
+A reminder is not a timer. It is a question asked of a business record — is this still
+waiting? — and the answer has to be read again every time, because the thing it reminds
+about may have been settled an hour ago. Everything here therefore starts from the record
+and ends at an instant in UTC, with the administrator's own timezone applied in between.
+
+Two rules govern the arithmetic, and both exist because of real failures:
+
+A reminder dated before the rule was switched on is not owed. Otherwise enabling a rule
+mails a year of history in one tick, which is the first thing anybody notices and the last
+thing they forgive.
+
+A local time that does not exist, or happens twice, still yields exactly one send. The
+hour a clock skips in spring and repeats in autumn is where a reminder engine quietly
+sends double or nothing at all.
+"""
+
+import frappe
+
+from nexgen_msp.api.internal.services import notification_registry as registry
+from nexgen_msp.api.internal.services.notification_dispatch_service import (
+    NotificationDispatchService,
+)
+from nexgen_msp.api.internal.services.notification_settings_service import (
+    NotificationSettingsService,
+)
+from nexgen_msp.utils import notifications
+
+DISPATCH = "MSP Notification Dispatch"
+
+UNIT_DAYS = {"Hours": 0, "Days": 1, "Weeks": 7}
+
+# why a record is not being reminded about, in words an administrator can act on
+REASONS = {
+    "eligible": "Due now",
+    "not_due": "Not due yet",
+    "max_reached": "The maximum number of reminders has been sent",
+    "resolved": "The record no longer matches the condition",
+    "quiet_hours": "Deferred until the quiet period ends",
+    "before_activation": "Waiting for the first send under the current settings",
+    "disabled": "This reminder is switched off",
+}
+
+BATCH = 200
+
+
+def _zone(name):
+    from zoneinfo import ZoneInfo
+
+    try:
+        return ZoneInfo(name or frappe.utils.get_system_timezone())
+    except Exception:
+        return ZoneInfo("UTC")
+
+
+def _site_zone():
+    return _zone(frappe.utils.get_system_timezone())
+
+
+def _aware(value, zone):
+    """A stored timestamp as an instant, read on the site's clock as Frappe wrote it."""
+    moment = frappe.utils.get_datetime(value)
+
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=_site_zone())
+
+    return moment.astimezone(zone)
+
+
+def _localise(naive, zone):
+    """One real instant for a local wall-clock time, even when the clock lied.
+
+    Spring forward leaves an hour that never happens: a reminder dated inside it is moved
+    to the first instant that does exist. Autumn repeats an hour: the first of the two is
+    taken, always, so a sequence cannot produce the same iteration twice.
+    """
+    attempt = naive.replace(tzinfo=zone, fold=0)
+    round_trip = attempt.astimezone(_zone("UTC")).astimezone(zone)
+
+    if round_trip.replace(tzinfo=None) == naive:
+        return attempt
+
+    # the local time does not exist: walk forward to the first one that does
+    import datetime
+
+    for minutes in range(0, 24 * 60, 15):
+        moved = naive + datetime.timedelta(minutes=minutes)
+        candidate = moved.replace(tzinfo=zone, fold=0)
+
+        if candidate.astimezone(_zone("UTC")).astimezone(zone).replace(tzinfo=None) == moved:
+            return candidate
+
+    return attempt
+
+
+def _add(moment, value, unit, zone):
+    """A calendar offset, applied on the administrator's own clock.
+
+    Three days means the same wall-clock time three days later, not seventy-two hours:
+    those differ by an hour twice a year, and the one people mean is the clock.
+    """
+    import datetime
+
+    value = frappe.utils.cint(value)
+
+    if unit == "Hours":
+        return (moment + datetime.timedelta(hours=value)).astimezone(zone)
+
+    local = moment.astimezone(zone).replace(tzinfo=None)
+    moved = local + datetime.timedelta(days=value * UNIT_DAYS.get(unit, 1))
+
+    return _localise(moved, zone)
+
+
+class NotificationReminderService:
+    # ------------------------------------------------------------------ eligibility
+    @staticmethod
+    def _anchor(adapter, row):
+        for field in adapter.get("anchor_fields", ("creation",)):
+            if row.get(field):
+                return row[field]
+
+        return row.get("creation")
+
+    @staticmethod
+    def _candidates(adapter, limit=None, start=0):
+        fields = ["name", "customer", "requester", "status", "creation"] + [
+            field
+            for field in adapter.get("anchor_fields", ())
+            if field not in ("creation",)
+        ]
+
+        return frappe.get_all(
+            adapter["doctype"],
+            filters=adapter["filters"],
+            fields=sorted(set(fields)),
+            order_by="creation asc",
+            start=start,
+            page_length=limit or BATCH,
+        )
+
+    @staticmethod
+    def _sent_iterations(rule_key, business_name):
+        """How many iterations of this reminder really reached the queue for this record.
+
+        A failed enqueue is not one of them: the maximum counts reminders the customer
+        could have received, not attempts the mail server refused.
+        """
+        found = frappe.db.sql(
+            """
+            select coalesce(max(reminder_iteration), 0) as reached
+            from `tabMSP Notification Dispatch`
+            where rule = %(rule)s
+              and business_name = %(record)s
+              and ifnull(is_test, 0) = 0
+              and status in ('Queued', 'Sent')
+            """,
+            {"rule": rule_key, "record": business_name},
+            as_dict=True,
+        )
+
+        return frappe.utils.cint(found[0].reached) if found else 0
+
+    @staticmethod
+    def _quiet_shift(current, moment, zone):
+        """The first permitted instant at or after this one.
+
+        A quiet period defers a reminder; it never cancels it. A send pushed out of the
+        night goes in the morning, and the iteration is still the same iteration.
+        """
+        if not frappe.utils.cint(current.get("quiet_hours_enabled")):
+            return moment, False
+
+        start = current.get("quiet_start")
+        end = current.get("quiet_end")
+
+        if not start or not end:
+            return moment, False
+
+        import datetime
+
+        local = moment.astimezone(zone)
+        begins = frappe.utils.get_time(start)
+        ends = frappe.utils.get_time(end)
+        clock = local.time()
+        crosses_midnight = begins > ends
+
+        inside = (
+            (clock >= begins or clock < ends) if crosses_midnight else (begins <= clock < ends)
+        )
+
+        if not inside:
+            return moment, False
+
+        day = local.date()
+
+        # the window that ends tomorrow morning is still the window that began last night
+        if crosses_midnight and clock >= begins:
+            day = day + datetime.timedelta(days=1)
+
+        return _localise(datetime.datetime.combine(day, ends), zone), True
+
+    @staticmethod
+    def state_of(rule_key, row, current, adapter, zone, now=None):
+        """Everything known about one record under one rule, and why.
+
+        The reason travels with the answer because "no reminders went out" is a question an
+        administrator will ask, and the engine is the only thing that knows whether that is
+        because nothing was due, because the record was settled, or because somebody
+        switched the rule off.
+        """
+        now = _aware(now or frappe.utils.now(), zone)
+        reached = NotificationReminderService._sent_iterations(rule_key, row.name)
+        maximum = frappe.utils.cint(current.get("max_sends"))
+
+        if reached >= maximum:
+            return {
+                "record": row.name,
+                "iteration": reached,
+                "next_due": None,
+                "reason": "max_reached",
+                "deferred": False,
+            }
+
+        anchor = _aware(NotificationReminderService._anchor(adapter, row), zone)
+        due = _add(
+            anchor,
+            current.get("initial_delay_value"),
+            current.get("initial_delay_unit"),
+            zone,
+        )
+
+        for _ in range(reached):
+            due = _add(
+                due,
+                current.get("repeat_interval_value"),
+                current.get("repeat_interval_unit"),
+                zone,
+            )
+
+        # nothing owed from before the rule said so: this is what keeps enabling a rule
+        # from mailing everything it could have mailed while it was off
+        boundary = current.get("schedule_effective_at")
+
+        if boundary:
+            effective = _aware(boundary, zone)
+
+            if due < effective:
+                due = effective
+
+        due, deferred = NotificationReminderService._quiet_shift(current, due, zone)
+
+        return {
+            "record": row.name,
+            "iteration": reached,
+            "next_due": due,
+            "reason": "eligible"
+            if due <= now
+            else ("quiet_hours" if deferred else "not_due"),
+            "deferred": deferred,
+        }
+
+    # ------------------------------------------------------------------ for the screen
+    @staticmethod
+    def summary(rule_key):
+        """The earliest thing this rule owes, and how many records it is watching."""
+        declared = registry.rule(rule_key) or {}
+
+        if declared.get("kind") != registry.REMINDER:
+            return {"next_due": None, "next_due_label": "On next valid event", "eligible_count": None}
+
+        current = NotificationSettingsService.effective(rule_key)
+
+        if not current["enabled"]:
+            return {"next_due": None, "next_due_label": "Disabled", "eligible_count": 0}
+
+        adapter = registry.condition(declared["condition_key"])
+        zone = _zone(current.get("timezone"))
+        rows = NotificationReminderService._candidates(adapter, limit=BATCH)
+        states = [
+            NotificationReminderService.state_of(rule_key, row, current, adapter, zone)
+            for row in rows
+        ]
+        waiting = [state for state in states if state["next_due"]]
+
+        if not waiting:
+            return {
+                "next_due": None,
+                "next_due_label": "None eligible",
+                "eligible_count": 0,
+                "watched": len(rows),
+            }
+
+        soonest = min(state["next_due"] for state in waiting)
+
+        return {
+            "next_due": soonest.isoformat(),
+            "next_due_label": None,
+            "eligible_count": sum(1 for state in states if state["reason"] == "eligible"),
+            "watched": len(rows),
+        }
+
+    @staticmethod
+    def eligibility(rule_key, page=0, page_length=50):
+        """Record by record, what is owed and why — the drill-down behind one rule."""
+        NotificationSettingsService._guard()
+        declared = registry.require(rule_key)
+
+        if declared["kind"] != registry.REMINDER:
+            return {"rows": [], "total": 0, "note": "An event notification watches no records."}
+
+        current = NotificationSettingsService.effective(rule_key)
+        adapter = registry.condition(declared["condition_key"])
+        zone = _zone(current.get("timezone"))
+        page = max(0, frappe.utils.cint(page))
+        page_length = min(200, max(1, frappe.utils.cint(page_length) or 50))
+        rows = NotificationReminderService._candidates(
+            adapter, limit=page_length, start=page * page_length
+        )
+        out = []
+
+        for row in rows:
+            state = (
+                {"record": row.name, "iteration": 0, "next_due": None, "reason": "disabled"}
+                if not current["enabled"]
+                else NotificationReminderService.state_of(
+                    rule_key, row, current, adapter, zone
+                )
+            )
+            out.append(
+                {
+                    "business_doctype": adapter["doctype"],
+                    "business_name": row.name,
+                    "customer": row.get("customer"),
+                    "status": row.get("status"),
+                    "iteration": state["iteration"],
+                    "max_sends": frappe.utils.cint(current.get("max_sends")),
+                    "next_due": state["next_due"].isoformat() if state["next_due"] else None,
+                    "reason": state["reason"],
+                    "reason_label": REASONS.get(state["reason"], state["reason"]),
+                    "timezone": current.get("timezone"),
+                    "revision": current.get("revision"),
+                }
+            )
+
+        return {
+            "rows": out,
+            "total": frappe.db.count(adapter["doctype"], adapter["filters"]),
+            "page": page,
+            "page_length": page_length,
+        }
+
+    # ------------------------------------------------------------------ the tick
+    @staticmethod
+    def run(limit=BATCH):
+        """Send what is due, for every reminder that is switched on.
+
+        Called by the scheduler often enough for the shortest interval anybody configures.
+        How often it runs is not how often anybody is reminded: the cadence is the rule's,
+        and this only asks whether that cadence has come round.
+        """
+        NotificationSettingsService.seed()
+        sent = skipped = 0
+
+        for rule_key in registry.keys(registry.REMINDER):
+            outcome = NotificationReminderService.run_one(rule_key, limit=limit)
+            sent += outcome["sent"]
+            skipped += outcome["skipped"]
+
+        NotificationDispatchService.reconcile()
+
+        return {"sent": sent, "skipped": skipped}
+
+    @staticmethod
+    def run_one(rule_key, limit=BATCH):
+        declared = registry.require(rule_key)
+        current = NotificationSettingsService.effective(rule_key)
+
+        if not current["enabled"]:
+            return {"sent": 0, "skipped": 0}
+
+        adapter = registry.condition(declared["condition_key"])
+        zone = _zone(current.get("timezone"))
+        sent = skipped = 0
+
+        for row in NotificationReminderService._candidates(adapter, limit=limit):
+            state = NotificationReminderService.state_of(
+                rule_key, row, current, adapter, zone
+            )
+
+            if state["reason"] != "eligible":
+                skipped += 1
+                continue
+
+            outcome = NotificationReminderService._remind(
+                declared, current, adapter, row, state["iteration"] + 1
+            )
+            sent += outcome["sent"]
+            skipped += outcome["skipped"]
+
+        return {"sent": sent, "skipped": skipped}
+
+    @staticmethod
+    def _remind(declared, current, adapter, row, iteration):
+        """One iteration of one reminder, to everybody it is addressed to.
+
+        The record is read again here, whole and fresh: between the moment it was listed as
+        due and this one, somebody may have approved the very request being reminded about.
+        """
+        doc = frappe.get_doc(adapter["doctype"], row.name)
+
+        if not NotificationReminderService._still_waiting(doc, adapter):
+            NotificationSettingsService._write_audit(
+                action="Skipped",
+                rule=declared["rule_key"],
+                rule_revision=current.get("revision"),
+                business_doctype=adapter["doctype"],
+                business_name=doc.name,
+                reason_code="resolved",
+                detail="Settled between being listed as due and being sent.",
+            )
+
+            return {"sent": 0, "skipped": 1}
+
+        audience = current["audience_key"]
+        escalating = frappe.utils.cint(current.get("escalation_after_iteration"))
+
+        if escalating and iteration > escalating and current.get("escalation_audience_key"):
+            audience = current["escalation_audience_key"]
+
+        addresses = registry.resolve_audience(audience, doc)
+        context = NotificationReminderService._context(declared, doc, adapter)
+        sent = skipped = 0
+
+        for address in addresses:
+            outcome = NotificationDispatchService.deliver(
+                declared["rule_key"],
+                address,
+                context={
+                    **context,
+                    "full_name": frappe.db.get_value("User", address, "full_name") or address,
+                },
+                business_doctype=adapter["doctype"],
+                business_name=doc.name,
+                iteration=iteration,
+                occurrence=f"iteration:{iteration}",
+                cc=current.get("cc"),
+            )
+
+            if outcome["status"] == "Queued":
+                sent += 1
+            else:
+                skipped += 1
+
+        return {"sent": sent, "skipped": skipped}
+
+    @staticmethod
+    def _still_waiting(doc, adapter):
+        """Whether the record is, right now, what made it eligible in the first place."""
+        for field, value in adapter["filters"].items():
+            if f"{doc.get(field)}" != f"{value}":
+                return False
+
+        return True
+
+    @staticmethod
+    def _context(declared, doc, adapter):
+        """What the template is given, built the way the existing reminders build it."""
+        if adapter["doctype"] != registry.REQUEST:
+            return {"customer": doc.get("customer"), "link": notifications.portal_url()}
+
+        lines = len(doc.get("lines") or [])
+
+        return {
+            "request": doc.name,
+            "customer": doc.customer,
+            "waiting_since": f"{frappe.utils.format_datetime(doc.creation)}",
+            "summary": notifications.summary_table(
+                [
+                    ("Request", doc.name),
+                    ("Lines", f"{lines}"),
+                    ("Priority", doc.get("priority") or "—"),
+                ]
+            ),
+            "acts": "",
+            "headline": notifications.request_headline(doc),
+            **notifications.request_briefing(doc),
+            "link": notifications.portal_url(f"/requests/{doc.name}"),
+        }

@@ -80,6 +80,7 @@ before_login = ["nexgen_msp.utils.native_login_guard.block_native_login"]
 
 after_migrate = [
 	"nexgen_msp.utils.notifications.ensure_templates",
+	"nexgen_msp.utils.reminders.ensure_rules",
 	"nexgen_msp.utils.currency_setup.ensure_currency_settings",
 	"nexgen_msp.utils.seeds.ensure_seeds",
 	"nexgen_msp.utils.import_mappings.ensure_mappings",
@@ -267,9 +268,12 @@ doc_events = {
 # Scheduled Tasks
 # ---------------
 
+# how often the engine is asked whether anything is due — not how often anybody is
+# reminded. The cadence of a reminder is the administrator's, configured per rule; this
+# only has to come round more often than the shortest interval they can choose
 scheduler_events = {
 	"cron": {
-		"0 */3 * * *": ["nexgen_msp.utils.reminders.every_three_hours"],
+		"*/10 * * * *": ["nexgen_msp.utils.reminders.tick"],
 	},
 }
 
