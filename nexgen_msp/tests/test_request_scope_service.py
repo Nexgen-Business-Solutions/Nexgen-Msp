@@ -497,3 +497,28 @@ class TestAServiceAMachineAlreadyRunsIsNotOfferedAgain(RequestScopeCase):
         )
 
         self.assertTrue(state["held"], "the machine runs it, whoever holds the machine")
+
+    def test_a_personal_service_is_still_found_when_a_machine_is_named_too(self):
+        """The page sends both; what the service is sold against decides where to look.
+
+        Preferring the machine whenever one was named answered about the machine for a
+        service only the person can hold, so a personal service read as free to add.
+        """
+        personal = ServiceLifecycleService.activate(
+            customer=self.customer,
+            service_item=self.service,
+            target_scope="User",
+            client_user=self.alice,
+            effective_date=frappe.utils.today(),
+        )["name"]
+        self.track(ASSIGNMENT, personal)
+        _service, machine, _assignment = self.running_on_a_machine()
+
+        state = self.as_user(
+            self.asker,
+            lambda: PortalService.service_state(
+                service_item=self.service, client_user=self.alice, managed_device=machine
+            ),
+        )
+
+        self.assertTrue(state["held"], "it is theirs, whatever machine was named with it")

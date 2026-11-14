@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import BusinessText from '@/shared/components/BusinessText';
 import { useNavigate } from 'react-router-dom';
 import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
 import ColumnsModal from '@/shared/components/ColumnsModal';
@@ -80,7 +81,7 @@ export default function ServicesList() {
               onClick={() => navigate(`/msp/services/detail?item=${encodeURIComponent(row.name)}`)}
               className="text-sm font-semibold text-slate-900 transition-colors hover:text-blue-700"
             >
-              {row.service_name}
+              <BusinessText>{row.service_name}</BusinessText>
             </button>
             <p className="text-xs text-slate-400">{row.name}</p>
           </td>

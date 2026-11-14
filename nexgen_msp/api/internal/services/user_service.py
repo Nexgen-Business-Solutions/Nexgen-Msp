@@ -21,6 +21,12 @@ LIFECYCLE_STATUSES = ("Pending", "Active", "Disabled", "Archived")
 
 MAX_PAGE_LENGTH = 200
 
+# the work a day may still be taken from: anything finished or abandoned asks for nothing
+OPEN_WORK_STATUSES = ("Open", "Scheduled", "In Progress", "Awaiting Verification", "Blocked")
+
+# the act as the work order names it: a customer asks to Remove, this door calls it End
+ASKED_AS = {"End": "Remove"}
+
 COVERAGE_FILTERS = (
     "no_device",
     "no_personal_service",
@@ -464,21 +470,30 @@ class UserService:
         return on_date
 
     @staticmethod
-    def _asking_for(source_request, assignment):
-        """The request that asks for an act on this exact service, if the named one does.
+    def _asking_for(source_request, assignment, action):
+        """The open work this request has on this exact service, for this exact act.
 
-        Named alone it would be a way to backdate behind any old request of the customer,
-        so the work it asks for has to name this assignment.
+        Named alone a request would be a way to backdate behind any old request of the
+        customer, so what is read is the work itself: still open, on this assignment, and
+        asking for the act being carried out. Anything else carries no authority over the
+        day, and the ordinary rule applies.
         """
-        if not source_request or not assignment:
+        if not source_request or not assignment or not action:
             return None
 
-        asks = frappe.db.exists(
+        found = frappe.get_all(
             "MSP Work Order",
-            {"request": source_request, "source_service_assignment": assignment},
+            filters={
+                "request": source_request,
+                "source_service_assignment": assignment,
+                "action": ASKED_AS.get(action, action),
+                "status": ("in", OPEN_WORK_STATUSES),
+            },
+            fields=["name", "effective_date"],
+            limit=1,
         )
 
-        return source_request if asks else None
+        return found[0] if found else None
 
     @staticmethod
     def _end_date_for(assignment, effective_date, allow_past=False, within_request=None):
@@ -689,13 +704,26 @@ class UserService:
         # a request that asks for this very service carries its own authority over the day:
         # the customer named it, and we are often days behind them. Named from this page or
         # from the work screen makes no difference to the day the service really stopped
-        asked_by = UserService._asking_for(source_request, assignment)
+        asking = UserService._asking_for(source_request, assignment, action)
         wanted = frappe.utils.getdate(effective_date or frappe.utils.today())
 
         # a request carries authority over a day already gone, never over one to come: this
         # door still refuses to end a service in the future, request named or not
-        if asked_by and wanted <= frappe.utils.getdate(frappe.utils.today()):
-            extra["_within_request"] = asked_by
+        if asking and wanted <= frappe.utils.getdate(frappe.utils.today()):
+            # and moving off the day the customer asked for is said out loud here too, or
+            # this door would be the way round the one rule the other door enforces
+            if (
+                asking.effective_date
+                and wanted != frappe.utils.getdate(asking.effective_date)
+                and not (notes or "").strip()
+            ):
+                raise ValidationError(
+                    f"This request asked for {frappe.utils.formatdate(asking.effective_date)}. "
+                    "Say why it is being carried out on another day.",
+                    "VALIDATION_ERROR",
+                )
+
+            extra["_within_request"] = source_request
 
         acts[action](
             assignment=assignment,

@@ -3838,15 +3838,35 @@ class PortalService:
         conditions = ["sa.customer = %(customer)s", "sa.service_item = %(service_item)s"]
         values = {"customer": customer, "service_item": service_item}
 
-        # the machine is the target whenever one is named. Asking by the person who holds
-        # it found nothing, because a device service carries no person — and the service
-        # then read as free to add when it was already running on that machine
-        if managed_device:
-            conditions.append("sa.managed_device = %(managed_device)s")
+        # what the service is sold against decides where to look for it, not which of the
+        # two the caller happened to pass. Reading it off the person found nothing for a
+        # device service, which carries no person; reading it off the machine would lose a
+        # personal service the same way. A service sold at either runs wherever it is found
+        from nexgen_msp.api.internal.services.service_definition_service import (
+            ServiceDefinitionService,
+        )
+
+        scope = ServiceDefinitionService.scope_of(service_item)
+        wanted = []
+
+        if managed_device and scope in ("Device", "Both"):
+            wanted.append("sa.managed_device = %(managed_device)s")
             values["managed_device"] = managed_device
-        else:
-            conditions.append("sa.client_user = %(client_user)s")
+
+        if client_user and scope in ("User", "Both", None):
+            wanted.append("sa.client_user = %(client_user)s")
             values["client_user"] = client_user
+
+        if not wanted:
+            # the one the caller named is the only one left to ask about
+            if managed_device:
+                wanted.append("sa.managed_device = %(managed_device)s")
+                values["managed_device"] = managed_device
+            else:
+                wanted.append("sa.client_user = %(client_user)s")
+                values["client_user"] = client_user
+
+        conditions.append(f"({' or '.join(wanted)})")
 
         row = frappe.db.sql(
             f"""

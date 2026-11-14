@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import BusinessText from '@/shared/components/BusinessText';
 import { AlertCircle, ArrowLeft, Laptop, Package, Search, TriangleAlert } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
 import FieldLabel from '@/shared/components/FieldLabel';
@@ -302,7 +303,9 @@ const ServiceModal: React.FC<Props> = ({ open, onClose, onSaved, item }) => {
                   className="flex w-full flex-col gap-1 px-3 py-2.5 text-left transition-colors hover:bg-slate-50"
                 >
                   <span className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-semibold text-slate-900">{row.item_name}</span>
+                    <span className="text-sm font-semibold text-slate-900">
+                      <BusinessText>{row.item_name}</BusinessText>
+                    </span>
                     <span className="font-mono text-xs text-slate-500">{row.name}</span>
                     <span className="text-xs text-slate-400">{row.item_group}</span>
                   </span>
@@ -333,7 +336,7 @@ const ServiceModal: React.FC<Props> = ({ open, onClose, onSaved, item }) => {
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
             <p className="inline-flex items-center gap-2 text-sm font-semibold text-amber-900">
               <Laptop size={15} />
-              {card.item.item_name}
+              <BusinessText>{card.item.item_name}</BusinessText>
             </p>
             <p className="mt-2 text-sm text-amber-900">
               MSP services must use non-stock Items. Nexgen MSP will not change an existing stock

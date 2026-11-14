@@ -139,6 +139,7 @@ const AddUserServiceModal: React.FC<Props> = ({
             <div>
               <FieldLabel required>Service</FieldLabel>
               <Select
+                protect
                 searchable
                 className="w-full"
                 value={service}

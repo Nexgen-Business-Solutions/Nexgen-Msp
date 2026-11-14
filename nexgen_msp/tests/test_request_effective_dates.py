@@ -85,6 +85,13 @@ class DatedRequestCase(RequestMatrixCase):
             lambda: RequestExecutionService.execute_device_operation(work_order=order, effective_date=str(on)),
         )
 
+    def asking_for(self, name, when):
+        """The day the customer asked for, as the work order carries it."""
+        order = self.order(name)
+        frappe.db.set_value("MSP Work Order", order, "effective_date", when, update_modified=False)
+
+        return order
+
     def refused(self, fn, message):
         with self.assertRaises(Refused) as caught:
             fn()
@@ -255,13 +262,6 @@ class TestTheDayTheCustomerAskedForIsTheDayThatCounts(DatedRequestCase):
     because that is when somebody got to it — and the technician who got to it could not
     honour the date. The floor inside a request is the day the request was raised.
     """
-
-    def asking_for(self, name, when):
-        """The day the customer asked for, as the work order carries it."""
-        order = self.order(name)
-        frappe.db.set_value("MSP Work Order", order, "effective_date", when, update_modified=False)
-
-        return order
 
     def test_a_technician_ends_on_the_day_the_request_asked_for(self):
         running = self.running(self.personal, started=-60)
@@ -721,3 +721,61 @@ class TestTheRequestedDateStartsOnTheCreationDay(RequestedWorkCase):
         doc.save(ignore_permissions=True)
 
         self.assertEqual(frappe.db.get_value(REQUEST, name, "priority"), "High")
+
+
+class TestThePageFollowsTheSameRuleAsTheWorkScreen(DatedRequestCase):
+    """The service's own page carries out the same requests, and must not be the way round.
+
+    Naming the request on that door unlocked the customer's own day, which is right. It
+    also unlocked every other day back to the request's creation, with nothing said: the
+    rule the work screen enforces would have been one door wide.
+    """
+
+    def from_the_page(self, assignment, request, when, **extra):
+        return self.as_user(
+            self.tech,
+            lambda: UserService.change_service(
+                assignment=assignment,
+                action="End",
+                effective_date=str(when),
+                source_request=request,
+                **extra,
+            ),
+        )
+
+    def ending(self):
+        running = self.running(self.personal, started=-60)
+        name = self.started(self.service_line("service.end", assignment=running), created=-5)
+
+        return running, name
+
+    def test_a_technician_ends_on_the_day_the_request_asked_for(self):
+        running, name = self.ending()
+        self.asking_for(name, day(-2))
+
+        self.from_the_page(running, name, day(-2))
+
+        self.assertEqual(getdate(self.assignment(running).effective_end_date), day(-2))
+
+    def test_another_day_is_refused_until_it_is_explained(self):
+        running, name = self.ending()
+        self.asking_for(name, day(-4))
+
+        with self.assertRaises(Refused) as caught:
+            self.from_the_page(running, name, day(-2))
+
+        self.assertIn("Say why", caught.exception.message)
+        self.assertEqual(self.assignment(running).operational_status, "Active")
+
+        self.from_the_page(running, name, day(-2), notes="Agreed with the customer")
+
+        self.assertEqual(getdate(self.assignment(running).effective_end_date), day(-2))
+
+    def test_a_request_that_asks_nothing_of_this_service_carries_no_day(self):
+        """Any old request of the customer would otherwise be a way to backdate."""
+        running, _name = self.ending()
+        other = self.started(self.service_line("service.add"), created=-5)
+
+        self.refused(lambda: self.from_the_page(running, other, day(-2)), ADMIN_ONLY)
+
+        self.assertEqual(self.assignment(running).operational_status, "Active")

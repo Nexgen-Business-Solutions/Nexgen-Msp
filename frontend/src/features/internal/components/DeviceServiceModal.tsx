@@ -134,6 +134,7 @@ const DeviceServiceModal: React.FC<Props> = ({ device, defaultRequest, onClose }
             <div>
               <FieldLabel required>Service</FieldLabel>
               <Select
+                protect
                 searchable
                 className="w-full"
                 value={service}
