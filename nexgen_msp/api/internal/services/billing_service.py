@@ -328,29 +328,61 @@ class BillingService:
         return []
 
     @staticmethod
-    def _unused_after_termination(
-        line, run_start, run_end, method, remaining, ends=None, credited=None
+    def _unused_after_billing(
+        line, run_start, run_end, method, remaining, ends=None, credited=None, pauses=None
     ):
-        """What a line billed in advance owes back because its service stopped early.
+        """What a line billed in advance owes back for days the service was not provided.
 
         Read off the assignment as it stands now, never off the line: the run was drawn
-        before the service ended, so its own snapshot still shows it running. That gap
-        between what was billed and what happened is the whole of this.
+        before any of this happened, so its own snapshot still shows the service running.
+        That gap between what was billed and what happened is the whole of this.
+
+        Two things open such a gap, and only one of them used to be read. A service that
+        stopped owes back the days after it stopped. A service that was paused owes back
+        the days it stood paused — the pause may have been recorded after the invoice went
+        out, and nothing then gives those days back. A pause already known when the line
+        was drawn is not in the days it charged, so it cannot be owed twice.
         """
+        assignment = line["service_assignment"]
         ended = (
-            ends.get(line["service_assignment"])
+            ends.get(assignment)
             if ends is not None
             else frappe.db.get_value(
-                "MSP Service Assignment", line["service_assignment"], "effective_end_date"
+                "MSP Service Assignment", assignment, "effective_end_date"
+            )
+        )
+        stopped = getdate(ended) if ended else None
+        rested = (
+            pauses.get(assignment, [])
+            if pauses is not None
+            else frappe.get_all(
+                "MSP Service Suspension",
+                filters={"parenttype": "MSP Service Assignment", "parent": assignment},
+                fields=["suspended_on", "resumed_on"],
+                order_by="suspended_on asc",
             )
         )
 
-        if not ended:
-            return None
+        # the days of this line the service was not provided over
+        unserved = []
 
-        ended = getdate(ended)
+        if stopped and stopped < getdate(run_end):
+            unserved.append((add_days(stopped, 1), getdate(run_end)))
 
-        if ended >= getdate(run_end):
+        for pause in rested:
+            paused_on = pause.get("suspended_on")
+
+            if not paused_on:
+                continue
+
+            # the day of the resume is served again, so a pause ends the day before it
+            back_on = pause.get("resumed_on")
+            until = add_days(getdate(back_on), -1) if back_on else getdate(run_end)
+
+            if until >= getdate(paused_on):
+                unserved.append((getdate(paused_on), until))
+
+        if not unserved:
             return None
 
         # the days this very line was billed over, never the run's whole period: a line
@@ -358,8 +390,7 @@ class BillingService:
         served = BillingService._billed_stretches(line) or coverage_intervals.span(
             run_start, run_end
         )
-        after = coverage_intervals.span(add_days(ended, 1), getdate(run_end))
-        unused = coverage_intervals.intersect(served, after)
+        unused = coverage_intervals.intersect(served, coverage_intervals.merge(unserved))
         # what has already been given back is not owed a second time: the proposal is what
         # is left, not what was once due
         unused = coverage_intervals.subtract(unused, credited or [])
@@ -377,7 +408,9 @@ class BillingService:
             return None
 
         return {
-            "ended_on": ended,
+            # the day it stopped, where it stopped at all: a pause owes its days back
+            # without the service having ended
+            "ended_on": stopped,
             "unused_from": unused_from,
             "unused_to": unused_to,
             "unused_days": sum((last - first).days + 1 for first, last in unused),
@@ -3813,16 +3846,26 @@ class BillingService:
             )
 
         # a run of several hundred lines used to ask for each end date on its own
+        held = [line["service_assignment"] for line in detail["lines"] if line.get("service_assignment")]
         ends = {
             row.name: row.effective_end_date
             for row in frappe.get_all(
                 "MSP Service Assignment",
-                filters={
-                    "name": ("in", [line["service_assignment"] for line in detail["lines"]] or [""])
-                },
+                filters={"name": ("in", held or [""])},
                 fields=["name", "effective_end_date"],
             )
         }
+        # the pauses recorded against those same services, read once for the whole run:
+        # a pause written after the invoice went out leaves days paid for and not served
+        pauses = {}
+
+        for row in frappe.get_all(
+            "MSP Service Suspension",
+            filters={"parenttype": "MSP Service Assignment", "parent": ("in", held or [""])},
+            fields=["parent", "suspended_on", "resumed_on"],
+            order_by="parent asc, suspended_on asc",
+        ):
+            pauses.setdefault(row.parent, []).append(row)
 
         rows = []
         # the terms the run was drawn under: a credit is cut the same way the charge was,
@@ -3872,7 +3915,7 @@ class BillingService:
                     "remaining_months": remaining,
                     # billed ahead of being served, and the service stopped in between:
                     # what is owed back is proposed, never applied on its own
-                    "owed_back": BillingService._unused_after_termination(
+                    "owed_back": BillingService._unused_after_billing(
                         line,
                         detail["billing_period_start"],
                         detail["billing_period_end"],
@@ -3880,6 +3923,7 @@ class BillingService:
                         remaining,
                         ends,
                         mine_credited,
+                        pauses,
                     )
                     if advance
                     else None,
@@ -5315,7 +5359,7 @@ class BillingService:
             if line["exception_code"]:
                 continue
 
-            back = BillingService._unused_after_termination(
+            back = BillingService._unused_after_billing(
                 line,
                 opens,
                 paid_through,

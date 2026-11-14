@@ -955,10 +955,17 @@ class RequestPresentationService:
         submitted_at = None
 
         if doc.status != "Draft":
-            # the day it reached us. A request from the customer's side waits inside the
-            # company until somebody there agrees to it, so leaving Draft is not arriving
-            submitted_at = doc.customer_approved_at or next(
-                (moment["at"] for moment in moments if moment["from"] == "Draft"), doc.creation
+            # the day it reached us, from the same stamp the list reads. A request from the
+            # customer's side waits inside the company until somebody there agrees to it,
+            # so leaving Draft is not arriving. Older requests have no stamp, and the
+            # transition they left Draft on is the best the record can still say
+            submitted_at = (
+                doc.submitted_on
+                or doc.customer_approved_at
+                or next(
+                    (moment["at"] for moment in moments if moment["from"] == "Draft"),
+                    doc.creation,
+                )
             )
 
         completed_at = None

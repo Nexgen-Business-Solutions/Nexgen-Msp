@@ -784,3 +784,50 @@ class TestThePageFollowsTheSameRuleAsTheWorkScreen(DatedRequestCase):
         self.refused(lambda: self.from_the_page(running, other, day(-2)), ADMIN_ONLY)
 
         self.assertEqual(self.assignment(running).operational_status, "Active")
+
+
+class TestWorkOfARequestThatIsNoLongerLive(DatedRequestCase):
+    """A request that was stopped stops its work with it.
+
+    Cancelling or refusing a request moves the request and decides its lines, and leaves
+    its open work orders exactly where they are. Nothing read the request before carrying
+    one out, so a row left behind could still be done — behind the decision to stop it,
+    and with the request's own authority over the date.
+    """
+
+    def ready(self):
+        running = self.running(self.personal, started=-60)
+        name = self.started(self.service_line("service.end", assignment=running), created=-5)
+
+        return running, name
+
+    def stop(self, name, action="cancel"):
+        self.as_user(
+            self.admin,
+            lambda: RequestService.run_action(name=name, action=action, reason="Not wanted"),
+        )
+
+    def test_the_work_screen_refuses_it(self):
+        running, name = self.ready()
+        order = self.order(name)
+        self.stop(name)
+
+        with self.assertRaises(Refused) as caught:
+            self.do_service(order, day(0))
+
+        self.assertIn("no longer ours", caught.exception.message)
+        self.assertEqual(self.assignment(running).operational_status, "Active")
+
+    def test_the_page_takes_no_date_from_it_either(self):
+        running, name = self.ready()
+        self.asking_for(name, day(-2))
+        self.stop(name)
+
+        self.assertIsNone(UserService._asking_for(name, running, "End"))
+
+    def test_the_work_of_a_live_request_is_still_carried_out(self):
+        running, name = self.ready()
+
+        self.do_service(self.order(name), day(0))
+
+        self.assertEqual(self.assignment(running).operational_status, "Ended")

@@ -305,7 +305,9 @@ class RequestService:
                 case
                     when sr.status in ('Draft', 'Awaiting Customer Approval') then null
                     when ifnull(sr.refused_by_customer, 0) = 1 then null
-                    else coalesce(sr.customer_approved_at, sr.creation)
+                    -- the stamp for everything written since, and for the rest the best
+                    -- the record can still say: the accord that sent it, else its making
+                    else coalesce(sr.submitted_on, sr.customer_approved_at, sr.creation)
                 end as submitted_on,
                 sr.modified,
                 (select count(*) from `tabMSP Request Line` srl where srl.parent = sr.name)

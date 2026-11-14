@@ -1,6 +1,7 @@
 """A request from the customer's side, and what it takes to close it from ours."""
 
 import frappe
+from frappe.utils import add_days, get_datetime, now_datetime
 
 from nexgen_msp.api.internal.services.request_service import RequestService, effective_line_status
 from nexgen_msp.api.internal.services.requested_client_user_service import RequestedClientUserService
@@ -1314,10 +1315,12 @@ class TestWhenARequestReachedUs(MSPTestCase):
         row = self.listed(name)
 
         self.assertEqual(frappe.db.get_value(REQUEST, name, "status"), "Submitted")
-        self.assertEqual(
-            frappe.utils.get_datetime(row["submitted_on"]),
-            frappe.utils.get_datetime(frappe.db.get_value(REQUEST, name, "customer_approved_at")),
+        apart = abs(
+            frappe.utils.get_datetime(row["submitted_on"])
+            - frappe.utils.get_datetime(frappe.db.get_value(REQUEST, name, "customer_approved_at"))
         )
+
+        self.assertLess(apart.total_seconds(), 5, "the two instants are one")
 
     def test_a_request_still_waiting_inside_the_company_is_not_in_our_queue(self):
         """It has not reached us at all, so there is nothing of it to date."""
@@ -1359,7 +1362,78 @@ class TestWhenARequestReachedUs(MSPTestCase):
 
         row = self.listed(name)
 
+        apart = abs(
+            frappe.utils.get_datetime(row["submitted_on"])
+            - frappe.utils.get_datetime(row["creation"])
+        )
+
+        self.assertLess(apart.total_seconds(), 5, "written and arrived in one gesture")
+
+
+class TestADraftSentLaterIsDatedWhenItWasSent(MSPTestCase):
+    """Issue #38: a draft can sit for days before anyone sends it.
+
+    The arrival was read off `creation`, which for a draft is the day somebody started
+    writing it. Our own queue is measured from the day the work landed on us, so the
+    moment it was really sent is stamped once and never moved again.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.customer = self.make_customer()
+        self.person = self.make_person(self.customer, "Asker")
+        self.service = self.make_service("DFT", scope="User")
+
+    def line(self):
+        return {
+            "operation_code": self.operation(),
+            "action": "Add",
+            "target_scope": "User",
+            "client_user": self.person,
+            "requested_service": self.service,
+        }
+
+    def test_a_draft_carries_no_arrival_until_it_is_sent(self):
+        out = PortalService.save_draft(
+            customer=self.customer, lines=[self.line()], request_type="Add"
+        )
+        name = self.track("MSP Request", out["name"])
+
+        self.assertIsNone(frappe.db.get_value(REQUEST, name, "submitted_on"))
+
+    def test_sending_it_days_later_dates_it_from_the_sending(self):
+        out = PortalService.save_draft(
+            customer=self.customer, lines=[self.line()], request_type="Add"
+        )
+        name = self.track("MSP Request", out["name"])
+        # the draft was started a week ago
+        frappe.db.set_value(
+            REQUEST, name, "creation", add_days(now_datetime(), -7), update_modified=False
+        )
+        frappe.db.commit()
+
+        PortalService.create_request(
+            name=name, customer=self.customer, lines=[self.line()], request_type="Add"
+        )
+
+        stamped = frappe.db.get_value(REQUEST, name, "submitted_on")
+        creation = frappe.db.get_value(REQUEST, name, "creation")
+
+        self.assertIsNotNone(stamped)
+        self.assertGreater(get_datetime(stamped), get_datetime(creation))
+
+    def test_the_stamp_never_moves_again(self):
+        out = PortalService.create_request(
+            customer=self.customer, lines=[self.line()], request_type="Add"
+        )
+        name = self.track("MSP Request", out["name"])
+        first = frappe.db.get_value(REQUEST, name, "submitted_on")
+
+        self.assertIsNotNone(first)
+
+        RequestService.run_action(name=name, action="start_review")
+
         self.assertEqual(
-            frappe.utils.get_datetime(row["submitted_on"]),
-            frappe.utils.get_datetime(row["creation"]),
+            get_datetime(frappe.db.get_value(REQUEST, name, "submitted_on")),
+            get_datetime(first),
         )

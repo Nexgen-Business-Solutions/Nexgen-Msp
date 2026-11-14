@@ -29,6 +29,9 @@ OPEN_WORK_STATUSES = ("Open", "Scheduled", "In Progress")
 # the act as the work order names it: a customer asks to Remove, this door calls it End
 ASKED_AS = {"End": "Remove"}
 
+# and the requests that still authorise anything at all
+LIVE_REQUESTS = ("Approved", "In Progress")
+
 COVERAGE_FILTERS = (
     "no_device",
     "no_personal_service",
@@ -481,6 +484,11 @@ class UserService:
         day, and the ordinary rule applies.
         """
         if not source_request or not assignment or not action:
+            return None
+
+        # and the request has to be one whose work is still ours to carry out: a refused
+        # or cancelled request authorises nothing, however its rows were left
+        if frappe.db.get_value("MSP Request", source_request, "status") not in LIVE_REQUESTS:
             return None
 
         found = frappe.get_all(

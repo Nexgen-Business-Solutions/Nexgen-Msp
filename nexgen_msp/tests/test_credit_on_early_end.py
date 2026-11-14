@@ -892,3 +892,78 @@ class TestACustomerBilledBeforeThisApplication(AdvanceCase):
         line = next((l for l in lines if l["service_assignment"] == assignment), None)
 
         self.assertTrue(line is None or line["amount"] == 0.0)
+
+
+class TestWhatAPauseOwesBack(AdvanceCase):
+    """A quarter paid in advance, and the service paused for part of it.
+
+    Only a service that stopped was ever read here. A pause leaves the assignment running
+    with no end date, so the days it stood paused were paid for and never served, and
+    nothing proposed them back. The pause may well be recorded after the invoice went out
+    — that is the whole point of billing in advance.
+    """
+
+    def pauses(self, assignment, frm, to=None):
+        doc = frappe.get_doc("MSP Service Assignment", assignment)
+        doc.append("suspension_log", {"suspended_on": frm, "resumed_on": to})
+        doc.flags.ignore_validate = True
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+
+    def test_a_fortnight_paused_is_owed_back(self):
+        run, assignment = self.billed_ahead()
+        self.pauses(assignment, "2026-09-01", "2026-09-16")
+
+        _, line = self.owed(run, assignment)
+
+        self.assertIsNotNone(line["owed_back"], "fifteen days paid for and not served")
+        self.assertEqual(getdate(line["owed_back"]["unused_from"]), getdate("2026-09-01"))
+        # the day of the resume is served again
+        self.assertEqual(getdate(line["owed_back"]["unused_to"]), getdate("2026-09-15"))
+        self.assertEqual(line["owed_back"]["unused_days"], 15)
+        self.assertEqual(line["owed_back"]["months"], 0.5)
+
+    def test_a_pause_never_resumed_runs_to_the_end_of_what_was_paid(self):
+        run, assignment = self.billed_ahead()
+        self.pauses(assignment, "2026-09-21")
+
+        _, line = self.owed(run, assignment)
+
+        self.assertEqual(getdate(line["owed_back"]["unused_to"]), getdate("2026-09-30"))
+        self.assertEqual(line["owed_back"]["unused_days"], 10)
+
+    def test_two_pauses_are_two_segments_of_one_proposal(self):
+        run, assignment = self.billed_ahead()
+        self.pauses(assignment, "2026-08-05", "2026-08-10")
+        self.pauses(assignment, "2026-09-05", "2026-09-10")
+
+        _, line = self.owed(run, assignment)
+
+        self.assertEqual(len(line["owed_back"]["segments"]), 2)
+        self.assertEqual(line["owed_back"]["unused_days"], 10)
+
+    def test_a_pause_and_an_early_end_are_owed_once_each(self):
+        run, assignment = self.billed_ahead()
+        self.pauses(assignment, "2026-08-05", "2026-08-10")
+        self.stops(assignment, "2026-09-24")
+
+        _, line = self.owed(run, assignment)
+
+        # five paused days in August, six unserved days after the 24th of September
+        self.assertEqual(line["owed_back"]["unused_days"], 11)
+        self.assertEqual(len(line["owed_back"]["segments"]), 2)
+
+    def test_a_pause_outside_what_was_paid_for_owes_nothing(self):
+        run, assignment = self.billed_ahead()
+        self.pauses(assignment, "2026-10-05", "2026-10-10")
+
+        _, line = self.owed(run, assignment)
+
+        self.assertIsNone(line["owed_back"])
+
+    def test_a_service_that_was_never_paused_still_owes_nothing(self):
+        run, assignment = self.billed_ahead()
+
+        _, line = self.owed(run, assignment)
+
+        self.assertIsNone(line["owed_back"])

@@ -43,6 +43,10 @@ FINISHED_STATUSES = ("Completed", "Cancelled")
 
 DONE_STATUSES = ("Completed", "Awaiting Verification")
 
+# the requests whose work is still ours to carry out: one that was refused, cancelled or
+# already closed asks for nothing more, whatever its rows still say
+LIVE_REQUEST_STATUSES = ("Approved", "In Progress")
+
 PRIMARY_ACTION_LABELS = {
 	"service.add": "Add service",
 	"service.end": "End service",
@@ -2029,6 +2033,11 @@ class RequestExecutionService:
 					)
 
 			order.resulting_assignment = outcome.get("name")
+			# the three days #39 asks to keep apart are kept apart here, and reviews keep
+			# reading this line as though one overwrote another: the day the customer asked
+			# for stays on their own line (`MSP Request Line.requested_effective_date`, which
+			# nothing here writes), this field becomes the day the act was really applied,
+			# and `completed_at` below is the moment the work was done
 			order.effective_date = on_date
 			order.execution_notes = notes or order.execution_notes
 			order.customer_visible_note = customer_note or order.customer_visible_note
@@ -2661,6 +2670,19 @@ class RequestExecutionService:
 		if order.status == "Blocked":
 			raise ValidationError(
 				"This work is blocked. Resume it before carrying it out.", "INVALID_TRANSITION"
+			)
+
+		# the work exists because a request asked for it, and it stops existing the moment
+		# that request does. Cancelling or refusing one leaves its open work orders where
+		# they are, so without this a row left behind could still be carried out — and
+		# carried out behind a decision somebody took to stop it
+		asked = frappe.db.get_value("MSP Request", order.request, "status")
+
+		if asked not in LIVE_REQUEST_STATUSES:
+			raise ValidationError(
+				f"{order.request} is {str(asked or 'gone').lower()}; its work is no longer "
+				"ours to carry out.",
+				"INVALID_TRANSITION",
 			)
 
 		RequestExecutionService._settle_targets(order)

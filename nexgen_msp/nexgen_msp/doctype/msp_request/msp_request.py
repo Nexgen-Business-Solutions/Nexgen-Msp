@@ -85,6 +85,25 @@ class MSPRequest(Document):
 
 		self.sync_request_type()
 		self.sync_status_with_lines()
+		self.stamp_arrival()
+
+	def stamp_arrival(self):
+		"""The moment this request reached Nexgen, written once and never again.
+
+		Not the day the document was made: a request waits inside the company until
+		somebody there agrees to it, and a draft — ours or theirs — can sit for a week
+		before it is sent. Every later move leaves the stamp where it is, so the queue is
+		always measured from the day the work actually landed on us.
+		"""
+		if self.status in ("Draft", "Awaiting Customer Approval"):
+			return
+
+		# a request the company itself turned down never reached us
+		if frappe.utils.cint(self.refused_by_customer):
+			return
+
+		if not self.submitted_on:
+			self.submitted_on = frappe.utils.now()
 
 	def validate_requested_date(self):
 		if not self.has_value_changed("requested_date"):
