@@ -365,6 +365,51 @@ def _record_refusal(settings, template_name, recipients, reference_doctype, refe
         )
 
 
+def _record_event_send(
+    settings, template_name, recipients, cc, subject, queued, reference_doctype, reference_name
+):
+    """Record that this event produced this mail, so the delivery history is the whole story.
+
+    One row per address written to, all of them pointing at the one queue entry the mail
+    really is: the history question is "was this person told", and that is answered per
+    person even when a single message carried several of them.
+
+    Events are not deduplicated here, and deliberately so. A business record can legitimately
+    produce the same notification twice — a request decided, reopened and decided again — and
+    nothing a call site passes today identifies one occurrence from the next. Giving them a
+    shared identity would silence the second decision, which is worse than recording two.
+
+    Nothing in here may break the operation that triggered the mail, so every failure is
+    logged and swallowed.
+    """
+    try:
+        from nexgen_msp.api.internal.services.notification_dispatch_service import (
+            NotificationDispatchService,
+        )
+
+        occurrence = f"event:{frappe.generate_hash(length=12)}"
+        queue_id = getattr(queued, "name", None) or (queued if isinstance(queued, str) else None)
+
+        for address in recipients:
+            NotificationDispatchService.record_event(
+                rule_key=settings["rule_key"],
+                revision=settings.get("revision"),
+                recipient=address,
+                cc=cc,
+                template_name=template_name,
+                subject=subject,
+                occurrence=occurrence,
+                queue_id=queue_id,
+                business_doctype=reference_doctype,
+                business_name=reference_name,
+            )
+    except Exception:
+        frappe.log_error(
+            title=f"Could not record the delivery of {template_name}",
+            message=frappe.get_traceback(),
+        )
+
+
 def send(
     name,
     recipients,
@@ -408,20 +453,30 @@ def send(
 
     try:
         subject, message = render(name, context)
-
-        return (
-            frappe.sendmail(
-                recipients=recipients,
-                cc=cc,
-                subject=subject,
-                message=message,
-                reference_doctype=reference_doctype,
-                reference_name=reference_name,
-                attachments=attachments or None,
-                now=now,
-            )
-            or True
+        queued = frappe.sendmail(
+            recipients=recipients,
+            cc=cc,
+            subject=subject,
+            message=message,
+            reference_doctype=reference_doctype,
+            reference_name=reference_name,
+            attachments=attachments or None,
+            now=now,
         )
+
+        if settings:
+            _record_event_send(
+                settings,
+                name,
+                recipients,
+                cc,
+                subject,
+                queued,
+                reference_doctype,
+                reference_name,
+            )
+
+        return queued or True
     except Exception:
         frappe.log_error(title=f"{name} could not be sent", message=frappe.get_traceback())
         return False

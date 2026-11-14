@@ -167,11 +167,16 @@ class NotificationDispatchService:
         doc.reserved_at = frappe.utils.now()
         doc.attempt = 1
 
+        # the claim is attempted inside a savepoint. Losing the race must undo this one
+        # insert and nothing else: a business transaction that happened to send a mail is
+        # not rolled back because two workers reached for the same delivery
+        savepoint = "notification_reserve"
+        frappe.db.savepoint(savepoint)
+
         try:
             doc.insert(ignore_permissions=True)
         except frappe.exceptions.DuplicateEntryError:
-            # the race, resolved by the database rather than by us
-            frappe.db.rollback()
+            frappe.db.rollback(save_point=savepoint)
             found = frappe.db.get_value(DISPATCH, {"dedup_key": key}, "name")
 
             return {"reserved": False, "dispatch": frappe.get_doc(DISPATCH, found)}
@@ -271,6 +276,68 @@ class NotificationDispatchService:
         dispatch.reload()
 
         return dispatch
+
+    @staticmethod
+    def record_event(
+        rule_key,
+        recipient,
+        template_name,
+        subject,
+        occurrence,
+        queue_id=None,
+        revision=None,
+        cc=None,
+        business_doctype=None,
+        business_name=None,
+    ):
+        """Write down a mail an event already queued, so the history is not only reminders.
+
+        The send itself is the business event's own, and keeps its shape: one message may
+        carry several addresses, and this records each of them against the one queue entry
+        rather than pretending each was a separate mail.
+        """
+        address = NotificationDispatchService.normalise(recipient)
+
+        if not address:
+            return None
+
+        key = NotificationDispatchService.dedup_key(
+            rule_key, business_doctype, business_name, occurrence, address
+        )
+        doc = frappe.new_doc(DISPATCH)
+        doc.dedup_key = key
+        doc.rule = rule_key
+        doc.rule_revision_at_decision = revision or 0
+        doc.business_doctype = business_doctype
+        doc.business_name = business_name
+        doc.event_occurrence_key = occurrence
+        doc.reminder_iteration = 0
+        doc.recipient = address
+        doc.cc_snapshot = ", ".join(cc or [])
+        doc.template_name = template_name
+        doc.subject_snapshot = (subject or "")[:140]
+        doc.status = "Queued" if queue_id else "Unknown"
+        doc.email_queue_id = queue_id
+        doc.reserved_at = frappe.utils.now()
+        doc.queued_at = frappe.utils.now() if queue_id else None
+        doc.attempt = 1
+        doc.insert(ignore_permissions=True)
+
+        NotificationSettingsService._write_audit(
+            action="Queued" if queue_id else "Failed",
+            rule=rule_key,
+            rule_revision=revision,
+            dispatch=doc.name,
+            business_doctype=business_doctype,
+            business_name=business_name,
+            recipients=address,
+            template_name=template_name,
+            subject_snapshot=(subject or "")[:140],
+            attempt=1,
+            reason_code="queued" if queue_id else "queue_id_unknown",
+        )
+
+        return doc.name
 
     # ------------------------------------------------------------------ reconciling
     @staticmethod
