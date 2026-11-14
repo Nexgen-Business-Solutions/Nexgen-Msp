@@ -954,7 +954,13 @@ class RequestPresentationService:
         moments = RequestPresentationService._moments(doc)
         submitted_at = None
 
-        if doc.status != "Draft":
+        # a request still waiting for its company, or one that company turned down, never
+        # reached us: the stamp of that refusal is not an arrival
+        arrived = doc.status not in ("Draft", "Awaiting Customer Approval") and not frappe.utils.cint(
+            doc.refused_by_customer
+        )
+
+        if arrived:
             # the day it reached us, from the same stamp the list reads. A request from the
             # customer's side waits inside the company until somebody there agrees to it,
             # so leaving Draft is not arriving. Older requests have no stamp, and the

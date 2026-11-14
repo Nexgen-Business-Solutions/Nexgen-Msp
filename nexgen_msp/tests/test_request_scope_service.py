@@ -630,3 +630,54 @@ class TestAServiceAMachineAlreadyRunsIsNotOfferedAgain(RequestScopeCase):
 
         self.assertTrue(state["live"], "the machine's old spell is not the current answer")
         self.assertEqual(state["held_by"], "User")
+
+    def test_a_service_closed_for_a_day_to_come_is_still_held_today(self):
+        """It is provided until that day, so asking to add it again is nonsense."""
+        running = ServiceLifecycleService.activate(
+            customer=self.customer,
+            service_item=self.service,
+            target_scope="User",
+            client_user=self.alice,
+            effective_date=frappe.utils.add_days(frappe.utils.today(), -30),
+        )["name"]
+        self.track(ASSIGNMENT, running)
+        # closed for a day still ahead, as a request may ask
+        frappe.db.set_value(
+            ASSIGNMENT,
+            running,
+            {
+                "effective_end_date": frappe.utils.add_days(frappe.utils.today(), 12),
+                "operational_status": "Ended",
+            },
+            update_modified=False,
+        )
+        frappe.db.commit()
+
+        codes = self.offered(self.service)
+
+        self.assertNotIn("service.add", codes, "it is still running until that day")
+        self.assertIn("service.end", codes)
+
+    def test_a_pause_dated_ahead_does_not_offer_to_resume_it_yet(self):
+        running = ServiceLifecycleService.activate(
+            customer=self.customer,
+            service_item=self.service,
+            target_scope="User",
+            client_user=self.alice,
+            effective_date=frappe.utils.add_days(frappe.utils.today(), -30),
+        )["name"]
+        self.track(ASSIGNMENT, running)
+        doc = frappe.get_doc(ASSIGNMENT, running)
+        doc.append(
+            "suspension_log",
+            {"suspended_on": frappe.utils.add_days(frappe.utils.today(), 12)},
+        )
+        doc.operational_status = "Suspended"
+        doc.flags.ignore_validate = True
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+
+        codes = self.offered(self.service)
+
+        self.assertNotIn("service.resume", codes, "the pause has not started")
+        self.assertIn("service.suspend", codes)

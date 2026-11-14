@@ -94,16 +94,27 @@ class MSPRequest(Document):
 		somebody there agrees to it, and a draft — ours or theirs — can sit for a week
 		before it is sent. Every later move leaves the stamp where it is, so the queue is
 		always measured from the day the work actually landed on us.
+
+		Written on the one move that is an arrival: into `Submitted`, which every request
+		passes through whichever door it came by. Not on any later save, or a request from
+		before this field existed would be dated the day somebody next touched it; and not
+		on a refusal or a cancellation, which a draft can be moved to without ever having
+		been sent.
 		"""
-		if self.status in ("Draft", "Awaiting Customer Approval"):
+		if self.submitted_on or self.status != "Submitted":
 			return
 
 		# a request the company itself turned down never reached us
 		if frappe.utils.cint(self.refused_by_customer):
 			return
 
-		if not self.submitted_on:
-			self.submitted_on = frappe.utils.now()
+		before = self.get_doc_before_save()
+
+		if before and before.status == "Submitted":
+			# nothing arrived here: it was already ours before this save
+			return
+
+		self.submitted_on = frappe.utils.now()
 
 	def validate_requested_date(self):
 		if not self.has_value_changed("requested_date"):

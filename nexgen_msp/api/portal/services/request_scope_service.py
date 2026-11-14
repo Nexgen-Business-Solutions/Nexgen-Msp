@@ -18,7 +18,7 @@ target one at a time before a line is written.
 import frappe
 
 from nexgen_msp.api.internal.services.service_definition_service import ServiceDefinitionService
-from nexgen_msp.utils import billing_marks, operations, request_targets
+from nexgen_msp.utils import assignments, billing_marks, operations, request_targets
 from nexgen_msp.utils.assignments import OPEN_ASSIGNMENT_STATUSES
 from nexgen_msp.utils.errors import ValidationError
 from nexgen_msp.utils.request_intents import IN_FLIGHT_STATUSES
@@ -393,12 +393,18 @@ def _assignments(customer, people, devices):
     rows = frappe.db.sql(
         """
         select sa.name as assignment, sa.service_item, sa.assignment_scope, sa.client_user,
-               sa.managed_device, sa.operational_status,
+               sa.managed_device, sa.operational_status, sa.effective_end_date,
                coalesce(item.item_name, sa.service_item) as label
         from `tabMSP Service Assignment` sa
         left join `tabItem` item on item.name = sa.service_item
         where sa.customer = %(customer)s
-          and sa.operational_status in %(open)s
+          and (
+            sa.operational_status in %(open)s
+            -- a service closed for a day still to come is being provided until that day,
+            -- so it is still one of the services this selection holds. One closed today
+            -- is done: its last day is over as far as asking for anything goes
+            or (sa.operational_status = 'Ended' and sa.effective_end_date > %(today)s)
+          )
           and (
             (sa.assignment_scope = 'User' and sa.client_user in %(people)s)
             or (sa.assignment_scope = 'Device' and sa.managed_device in %(devices)s)
@@ -407,14 +413,35 @@ def _assignments(customer, people, devices):
         {
             "customer": customer,
             "open": OPEN_ASSIGNMENT_STATUSES,
+            "today": frappe.utils.today(),
             "people": tuple(people) or ("",),
             "devices": tuple(devices) or ("",),
         },
         as_dict=True,
     )
 
+    pauses = {}
+
+    if rows:
+        for pause in frappe.get_all(
+            "MSP Service Suspension",
+            filters={
+                "parenttype": "MSP Service Assignment",
+                "parent": ("in", [row.assignment for row in rows]),
+            },
+            fields=["parent", "suspended_on", "resumed_on"],
+            order_by="parent asc, suspended_on asc",
+        ):
+            pauses.setdefault(pause.parent, []).append(pause)
+
     for row in rows:
         entry = dict(row)
+        # what it is doing today, not what it will do: a pause or a close decided for a
+        # day to come is on the record already, and what may be asked of a service is
+        # decided by the day the asking happens
+        entry["operational_status"] = assignments.status_as_of(
+            row.operational_status, row.effective_end_date, pauses.get(row.assignment)
+        )
 
         if row.assignment_scope == "User":
             by_user.setdefault(row.client_user, []).append(entry)
