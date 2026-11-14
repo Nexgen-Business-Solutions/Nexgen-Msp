@@ -104,8 +104,20 @@ class TestDeploymentSteps(MSPTestCase):
         self.assertTrue(frappe.db.get_default(currency_setup.MARKER))
 
     def test_permissions_and_contacts_agree(self):
-        """The sweep that runs at every deployment must leave nothing adrift."""
+        """The sweep repairs what is unambiguous and reports the rest rather than guessing.
+
+        An account whose contacts name two companies is the one thing it must not settle
+        on its own: granting the second permission would widen one customer's account over
+        another customer's data, and dropping the contact would quietly disown a company.
+        Those accounts come back named, under a status that says so.
+
+        So what a deployment must leave is not "everything agrees" — it is "everything
+        agrees except what was reported", which is also what makes the report worth
+        reading. Asserting the stronger thing made this fail on a site where the sweep had
+        behaved exactly as designed.
+        """
         permissions.reconcile_all_customer_permissions()
+        adrift = []
 
         for user in frappe.db.sql_list(
             """
@@ -114,6 +126,12 @@ class TestDeploymentSteps(MSPTestCase):
             where ifnull(c.user, '') != '' and dl.link_doctype = 'Customer'
             """
         ):
+            outcome = permissions.reconcile_customer_permissions(user)
+
+            if outcome["status"] in permissions.NEEDS_REVIEW:
+                # named for a human to settle, which is the sweep working, not failing
+                continue
+
             declared = permissions.customers_from_contacts(user)
             held = set(
                 frappe.get_all(
@@ -121,4 +139,37 @@ class TestDeploymentSteps(MSPTestCase):
                 )
             )
 
-            self.assertEqual(declared, held, f"{user} is adrift")
+            if declared != held:
+                adrift.append((user, outcome["status"], sorted(declared), sorted(held)))
+
+        self.assertEqual(adrift, [], "adrift and nobody flagged it")
+
+    def test_an_account_naming_two_companies_is_reported_and_not_settled(self):
+        """The conflict the sweep refuses to guess at, pinned so nobody makes it guess."""
+        permissions.reconcile_all_customer_permissions()
+        reported = {
+            user: permissions.reconcile_customer_permissions(user)
+            for user in permissions.customer_role_accounts()
+            if frappe.db.get_value("User", user, "enabled")
+        }
+        conflicted = [
+            user
+            for user, outcome in reported.items()
+            if len(permissions.customers_from_contacts(user))
+            > len(
+                set(
+                    frappe.get_all(
+                        "User Permission",
+                        filters={"user": user, "allow": "Customer"},
+                        pluck="for_value",
+                    )
+                )
+            )
+        ]
+
+        for user in conflicted:
+            self.assertIn(
+                reported[user]["status"],
+                permissions.NEEDS_REVIEW,
+                f"{user} holds fewer companies than its contacts name and was not reported",
+            )

@@ -760,3 +760,68 @@ class TestServiceLifecycle(MSPTestCase):
         after = frappe.db.get_value("MSP Service Assignment", opened["name"], fields, as_dict=True)
         self.assertEqual(after, before, "a machine taken back keeps what it is billed for")
         self.assertEqual(after.operational_status, "Active")
+
+class TestAPeriodClosedForLaterIsStillInTheWay(TestServiceLifecycle):
+    """Two periods of one service on one target may not cover the same day.
+
+    The guard read the status, and a close dated for later writes Ended at once. A second
+    period could then be opened over days the first is still being provided over — two
+    live periods of the same service on the same person, which is what the guard exists
+    to prevent. A period that really ran out is a different matter: the period after it
+    is legitimate, and must stay possible.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.service = self.offering("OVL")
+
+    def closing_on(self, day):
+        """The state a close dated for later leaves: the record says Ended from that moment."""
+        opened = self.open_service(self.service, effective_date=self.days_ago(30))
+        frappe.db.set_value(
+            "MSP Service Assignment",
+            opened["name"],
+            {"operational_status": "Ended", "effective_end_date": day},
+            update_modified=False,
+        )
+        frappe.db.commit()
+
+        return opened["name"]
+
+    def test_a_second_period_may_not_open_over_days_the_first_still_covers(self):
+        first = self.closing_on(frappe.utils.add_days(self.today, 20))
+
+        with self.assertRaises(ValidationError) as caught:
+            self.open_service(self.service, effective_date=self.today)
+
+        self.assertIn(first, str(caught.exception))
+
+    def test_its_last_day_is_still_one_of_its_days(self):
+        """The boundary itself: a service stops at the end of the day it stops on."""
+        first = self.closing_on(self.today)
+
+        with self.assertRaises(ValidationError) as caught:
+            self.open_service(self.service, effective_date=self.today)
+
+        self.assertIn(first, str(caught.exception))
+
+    def test_the_day_after_it_ends_is_free(self):
+        """The legitimate follow-on period, which the guard must not take away.
+
+        A start dated ahead is refused by another rule altogether — only a request may
+        date an act for later — so a follow-on period is opened on the day it begins, by
+        which time the period before it has really run out. That is the case here.
+        """
+        self.closing_on(self.days_ago(1))
+
+        opened = self.open_service(self.service, effective_date=self.today)
+
+        self.assertTrue(opened["name"])
+
+    def test_a_period_that_really_ran_out_is_not_in_the_way(self):
+        self.closing_on(self.days_ago(5))
+
+        opened = self.open_service(self.service, effective_date=self.today)
+
+        self.assertTrue(opened["name"])
+

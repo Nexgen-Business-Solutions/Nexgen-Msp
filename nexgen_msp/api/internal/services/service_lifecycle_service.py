@@ -483,7 +483,9 @@ class ServiceLifecycleService:
         # for the same target. Locking the owning target also works before the first
         # assignment row exists, when there is nothing in the assignment table to lock.
         ServiceLifecycleService._lock_target(scope, target.name)
-        running = ServiceLifecycleService._open_assignment(customer, item.name, scope, target.name)
+        running = ServiceLifecycleService._open_assignment(
+            customer, item.name, scope, target.name, on_date
+        )
 
         if running:
             raise ValidationError(
@@ -878,12 +880,19 @@ class ServiceLifecycleService:
         ServiceLifecycleService._rate(doc.customer, doc.service_item, on_date)
 
     @staticmethod
-    def _open_assignment(customer, service_item, scope, target):
-        """The open period this exact service already has on this exact target, if any.
+    def _open_assignment(customer, service_item, scope, target, on_date=None):
+        """The period this exact service already has on this exact target on a given day.
 
         The target is the whole question: the same service runs on two machines of the same
         person at once, and a device service never answers for the person holding the device.
+
+        The day is the other half of it. A period closed for a day still to come is being
+        provided until that day, and its status says Ended from the moment somebody dates
+        the close — so reading the status alone let a second period open over the tail of
+        the first. A period that really ran out is no longer in the way, which is how a
+        legitimate follow-on period is still opened.
         """
+        day = frappe.utils.getdate(on_date or frappe.utils.today())
         filters = {
             "customer": customer,
             "service_item": service_item,
@@ -893,6 +902,12 @@ class ServiceLifecycleService:
         }
 
         found = frappe.get_all("MSP Service Assignment", filters=filters, pluck="name", limit=1)
+
+        if found:
+            return found[0]
+
+        closing = dict(filters, operational_status="Ended", effective_end_date=(">=", day))
+        found = frappe.get_all("MSP Service Assignment", filters=closing, pluck="name", limit=1)
 
         return found[0] if found else None
 
