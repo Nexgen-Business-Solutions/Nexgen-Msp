@@ -16,7 +16,7 @@ SCOPE_FIELD = {
 }
 
 # the two scopes a catalogue entry can be restricted to, and what each forbids
-ITEM_SCOPES = ("User", "Device")
+ITEM_SCOPES = ("User", "Device", "Customer")
 
 LIFECYCLE_FIELDS = (
 	"customer",

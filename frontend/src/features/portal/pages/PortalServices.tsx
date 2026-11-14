@@ -20,8 +20,7 @@ const SCOPE_LABEL: Record<string, string> = {
   User: 'Per person',
   Device: 'Per machine',
   Both: 'Person or machine',
-  // the company still holds services sold to it, whatever this branch can sell today
-  Customer: 'The company itself',
+  Customer: 'Per customer',
 };
 
 /** A service is in use when something is actually running, not merely because it is on file. */

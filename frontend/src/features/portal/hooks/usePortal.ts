@@ -549,7 +549,10 @@ export const useRequestOperations = (
         },
         signal
       ),
-    enabled: subjectKeys.length > 0,
+    // a request about the company itself has nobody in it, and a gate on the selected keys
+    // alone kept the company's own services from ever being offered. A request that does
+    // have people still waits for their projection: an empty scope is not all of them
+    enabled: subjectKeys.length > 0 || subjects.length === 0,
     keepPreviousData: true,
   });
 
@@ -597,6 +600,8 @@ export const useRequestPreview = (payload: Omit<portal.RequestPayload, 'name' | 
   return useQuery({
     queryKey: [...requestBuilderKeys.all, 'preview', customer ?? '', JSON.stringify(payload)] as const,
     queryFn: ({ signal }) => previewRequest({ ...payload, customer: customer || undefined }, signal),
-    enabled: payload.subjects.length > 0,
+    // a request about the company itself has no people in it, and used to sit here
+    // for ever on "Preparing the review…"
+    enabled: payload.subjects.length > 0 || payload.action_groups.length > 0,
   });
 };
