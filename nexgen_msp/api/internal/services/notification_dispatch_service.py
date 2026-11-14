@@ -175,7 +175,13 @@ class NotificationDispatchService:
 
         try:
             doc.insert(ignore_permissions=True)
-        except frappe.exceptions.DuplicateEntryError:
+        except (
+            # a duplicate unique *field* raises UniqueValidationError; DuplicateEntryError
+            # is what a duplicate *name* raises. Catching only the second meant the worker
+            # that lost the race raised instead of being handed the winner's delivery
+            frappe.exceptions.UniqueValidationError,
+            frappe.exceptions.DuplicateEntryError,
+        ):
             frappe.db.rollback(save_point=savepoint)
             found = frappe.db.get_value(DISPATCH, {"dedup_key": key}, "name")
 

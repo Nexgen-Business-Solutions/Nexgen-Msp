@@ -142,14 +142,15 @@ class NotificationReminderService:
 
     @staticmethod
     def _sent_iterations(rule_key, business_name):
-        """How many iterations of this reminder really reached the queue for this record.
+        """What has really been sent for this record: how many, and when the last one went.
 
-        A failed enqueue is not one of them: the maximum counts reminders the customer
+        A failed enqueue is neither of them: the maximum counts reminders the customer
         could have received, not attempts the mail server refused.
         """
         found = frappe.db.sql(
             """
-            select coalesce(max(reminder_iteration), 0) as reached
+            select coalesce(max(reminder_iteration), 0) as reached,
+                   max(coalesce(sent_at, queued_at)) as last_at
             from `tabMSP Notification Dispatch`
             where rule = %(rule)s
               and business_name = %(record)s
@@ -160,7 +161,10 @@ class NotificationReminderService:
             as_dict=True,
         )
 
-        return frappe.utils.cint(found[0].reached) if found else 0
+        if not found:
+            return 0, None
+
+        return frappe.utils.cint(found[0].reached), found[0].last_at
 
     @staticmethod
     def _quiet_shift(current, moment, zone):
@@ -211,7 +215,7 @@ class NotificationReminderService:
         switched the rule off.
         """
         now = _aware(now or frappe.utils.now(), zone)
-        reached = NotificationReminderService._sent_iterations(rule_key, row.name)
+        reached, _last_at = NotificationReminderService._sent_iterations(rule_key, row.name)
         maximum = frappe.utils.cint(current.get("max_sends"))
 
         if reached >= maximum:
@@ -223,13 +227,28 @@ class NotificationReminderService:
                 "deferred": False,
             }
 
-        anchor = _aware(NotificationReminderService._anchor(adapter, row), zone)
-        due = _add(
-            anchor,
+        # the first reminder: the anchor plus the configured delay, and never before the
+        # rule itself said so. That boundary is what stops enabling a rule from mailing
+        # everything it could have mailed while it was off
+        first = _add(
+            _aware(NotificationReminderService._anchor(adapter, row), zone),
             current.get("initial_delay_value"),
             current.get("initial_delay_unit"),
             zone,
         )
+        boundary = current.get("schedule_effective_at")
+
+        if boundary:
+            effective = _aware(boundary, zone)
+
+            if first < effective:
+                first = effective
+
+        # and the ones after it, each an interval from the one before — counted from that
+        # first instant, not clamped to the boundary in turn. Clamping every iteration put
+        # them all on the same instant, so a record older than the rule had its whole
+        # allowance come due at once and went out over three consecutive ticks
+        due = first
 
         for _ in range(reached):
             due = _add(
@@ -238,16 +257,6 @@ class NotificationReminderService:
                 current.get("repeat_interval_unit"),
                 zone,
             )
-
-        # nothing owed from before the rule said so: this is what keeps enabling a rule
-        # from mailing everything it could have mailed while it was off
-        boundary = current.get("schedule_effective_at")
-
-        if boundary:
-            effective = _aware(boundary, zone)
-
-            if due < effective:
-                due = effective
 
         due, deferred = NotificationReminderService._quiet_shift(current, due, zone)
 
@@ -344,12 +353,76 @@ class NotificationReminderService:
                 }
             )
 
+        # on the first page, the records this rule has written to and that no longer match
+        # it. "Why did the reminders stop" is the question this screen exists to answer, and
+        # a record that quietly left the list answers it by being absent — which is no answer
+        if not page:
+            out += NotificationReminderService._settled(rule_key, adapter, current, out)
+
         return {
             "rows": out,
             "total": frappe.db.count(adapter["doctype"], adapter["filters"]),
             "page": page,
             "page_length": page_length,
         }
+
+    @staticmethod
+    def _settled(rule_key, adapter, current, listed, limit=20):
+        """Records this reminder has written to which are no longer eligible."""
+        already = {row["business_name"] for row in listed}
+        reminded = frappe.db.sql(
+            """
+            select business_name, max(reminder_iteration) as iteration
+            from `tabMSP Notification Dispatch`
+            where rule = %(rule)s
+              and ifnull(is_test, 0) = 0
+              and ifnull(business_name, '') != ''
+              and status in ('Queued', 'Sent')
+            group by business_name
+            order by max(coalesce(sent_at, queued_at)) desc
+            limit %(limit)s
+            """,
+            {"rule": rule_key, "limit": limit},
+            as_dict=True,
+        )
+        out = []
+
+        for row in reminded:
+            if row.business_name in already:
+                continue
+
+            if not frappe.db.exists(adapter["doctype"], row.business_name):
+                continue
+
+            still = frappe.db.get_value(
+                adapter["doctype"], row.business_name, list(adapter["filters"]), as_dict=True
+            )
+
+            if still and all(
+                f"{still.get(field)}" == f"{value}"
+                for field, value in adapter["filters"].items()
+            ):
+                continue
+
+            out.append(
+                {
+                    "business_doctype": adapter["doctype"],
+                    "business_name": row.business_name,
+                    "customer": frappe.db.get_value(
+                        adapter["doctype"], row.business_name, "customer"
+                    ),
+                    "status": (still or {}).get("status"),
+                    "iteration": frappe.utils.cint(row.iteration),
+                    "max_sends": frappe.utils.cint(current.get("max_sends")),
+                    "next_due": None,
+                    "reason": "resolved",
+                    "reason_label": REASONS["resolved"],
+                    "timezone": current.get("timezone"),
+                    "revision": current.get("revision"),
+                }
+            )
+
+        return out
 
     # ------------------------------------------------------------------ the tick
     @staticmethod

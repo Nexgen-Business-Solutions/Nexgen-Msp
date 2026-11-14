@@ -50,6 +50,76 @@ class MailCase(WriterCase):
     def mails(self, template):
         return [row for row in self.sent if row["template"] == template]
 
+    def due_now(self, rule_key):
+        """Configure a reminder the way an administrator would to have it owed at once.
+
+        The engine answers to the settings, so a test about a reminder has to set them.
+        Nothing is owed before the rule says so, which is the point of the boundary, and a
+        test that did not move it would be testing the boundary rather than the reminder.
+        """
+        from nexgen_msp.api.internal.services.notification_settings_service import (
+            NotificationSettingsService,
+        )
+
+        NotificationSettingsService.save(
+            rule_key,
+            changes={
+                "enabled": 1,
+                "initial_delay_value": 0,
+                "initial_delay_unit": "Hours",
+                "repeat_interval_value": 1,
+                "repeat_interval_unit": "Hours",
+                "max_sends": 3,
+            },
+        )
+        frappe.db.set_value(
+            "MSP Notification Rule",
+            rule_key,
+            "schedule_effective_at",
+            frappe.utils.add_to_date(frappe.utils.now(), hours=-1),
+            update_modified=False,
+        )
+        frappe.db.commit()
+
+    def queued(self, subject_fragment, reference=None):
+        """The mails really handed to Frappe's queue, which is where reminders now go.
+
+        Reminders are sent through the dispatch records that make one impossible to send
+        twice, so they no longer pass the seam this case patches. Reading the queue instead
+        tests the path that actually runs.
+        """
+        rows = frappe.get_all(
+            "Email Queue",
+            filters={"status": ("in", ("Not Sent", "Sending", "Sent"))},
+            fields=["name", "message", "reference_name"],
+            order_by="creation desc",
+            limit=50,
+        )
+        out = []
+
+        for row in rows:
+            if reference and row.reference_name != reference:
+                continue
+
+            if subject_fragment not in (row.message or ""):
+                continue
+
+            out.append(
+                {
+                    "message": row.message,
+                    "reference": row.reference_name,
+                    "to": sorted(
+                        frappe.get_all(
+                            "Email Queue Recipient",
+                            filters={"parent": row.name},
+                            pluck="recipient",
+                        )
+                    ),
+                }
+            )
+
+        return out
+
     def addressed(self, template):
         return sorted({address for row in self.mails(template) for address in row["to"]})
 
@@ -266,31 +336,41 @@ class TestTheTechnicianMailsFrameTheRequest(MailCase):
         self.assertIn("They start on Monday.", self.mails("MSP Request For Our Team")[0]["message"])
 
 
-class TestTheThreeHourlyReminders(MailCase):
+class TestTheConfiguredReminders(MailCase):
+    """What a reminder says, now that when it is said is the administrator's to set.
+
+    The two conditions are the ones this application has always reminded about. What the
+    engine changed is that the cadence is configured, finite, and recorded — so a test
+    about the wording sets the cadence first and reads the queue the engine really used.
+    """
+
     def test_a_request_waiting_for_its_company_is_pointed_out_to_the_approver(self):
         name = self.raise_as(self.asker, self.simple())
-        self.sent.clear()
+        self.due_now("request_approval_pending")
 
-        counts = reminders.every_three_hours()
+        outcome = reminders.every_three_hours()
 
-        reminded = [row for row in self.mails("MSP Request Approval Reminder") if row["reference"] == name]
-        self.assertTrue(reminded)
+        reminded = self.queued("still needs your approval", reference=name)
+        self.assertTrue(reminded, f"nothing was queued: {outcome}")
         self.assertIn(self.approver, {address for row in reminded for address in row["to"]})
-        self.assertIn("still needs your approval", reminded[0]["subject"])
-        self.assertGreaterEqual(counts["approvals"], 1)
+        self.assertGreaterEqual(outcome["sent"], 1)
 
     def test_a_request_waiting_on_us_is_pointed_out_to_our_team(self):
         name = self.raise_as(self.approver, self.simple())
-        self.sent.clear()
+        self.due_now("request_waiting_internal")
 
-        reminders.every_three_hours()
+        outcome = reminders.every_three_hours()
 
-        reminded = [row for row in self.mails("MSP Request Waiting Reminder") if row["reference"] == name]
-        self.assertTrue(reminded)
+        reminded = self.queued("Wanted for", reference=name)
+        self.assertTrue(reminded, f"nothing was queued: {outcome}")
         self.assertIn(self.tech, {address for row in reminded for address in row["to"]})
-        self.assertIn(self.customer, reminded[0]["subject"], "the subject frames it at a glance")
-        self.assertIn("Wanted for", reminded[0]["message"])
         self.assertIn("What is asked", reminded[0]["message"])
+
+    def test_the_old_entry_point_still_reaches_the_engine(self):
+        """A deployed site may still hold a scheduled job naming the three-hourly call."""
+        self.assertEqual(
+            sorted(reminders.every_three_hours()), ["sent", "skipped"]
+        )
 
     def test_a_request_somebody_has_started_is_never_reminded_about(self):
         name = self.raise_as(self.approver, self.simple())
@@ -310,13 +390,24 @@ class TestTheThreeHourlyReminders(MailCase):
 
         self.assertFalse([row for row in self.sent if row["reference"] == name])
 
-    def test_the_reminder_is_registered_to_run_every_three_hours(self):
+    def test_the_reminders_are_polled_every_ten_minutes_while_each_rule_keeps_its_own_cadence(self):
         from nexgen_msp import hooks
+        from nexgen_msp.api.internal.services import notification_registry as registry
 
         self.assertEqual(
-            hooks.scheduler_events["cron"]["0 */3 * * *"],
-            ["nexgen_msp.utils.reminders.every_three_hours"],
+            hooks.scheduler_events["cron"]["*/10 * * * *"],
+            ["nexgen_msp.utils.reminders.tick"],
         )
+        self.assertNotIn("0 */3 * * *", hooks.scheduler_events["cron"])
+        self.assertEqual(list(hooks.scheduler_events["cron"]), ["*/10 * * * *"])
+
+        for key in registry.keys(registry.REMINDER):
+            suggested = registry.rule(key)["suggested"]
+            interval = suggested["repeat_interval_value"] * {"Hours": 1, "Days": 24, "Weeks": 168}[
+                suggested["repeat_interval_unit"]
+            ]
+
+            self.assertGreater(interval, 1, f"{key} is not reminded at the polling frequency")
 
 
 class TestEveryTemplateRenders(MailCase):

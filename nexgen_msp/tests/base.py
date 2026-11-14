@@ -44,6 +44,7 @@ class MSPTestCase(IntegrationTestCase):
                 # anything the record sent must go with it: a queued mail outlives the
                 # document it refers to and would sit in the site's outbox for ever
                 self._purge_mail(doctype, name)
+                self._purge_notifications(doctype, name)
                 self._purge_work(doctype, name)
                 self._purge_requested(doctype, name)
                 self._purge_definition(doctype, name)
@@ -128,6 +129,41 @@ class MSPTestCase(IntegrationTestCase):
         for run in runs:
             frappe.db.sql("delete from `tabMSP Billing Run Line` where parent = %s", run)
             frappe.db.sql("delete from `tabMSP Billing Run` where name = %s", run)
+
+    def _purge_notifications(self, doctype, name):
+        """The dispatch and audit rows a fixture's own mail left behind.
+
+        Both doctypes refuse deletion through the ORM on purpose: a dispatch is what stops
+        a mail being sent twice, and an audit entry is what happened. Neither of those is
+        true of a fixture, and a stale dispatch row would tell the next test that a mail it
+        is about to send has already gone — so these go out with SQL, by the record and the
+        address they belong to and nothing else.
+        """
+        rows = frappe.db.sql_list(
+            """
+            select name from `tabMSP Notification Dispatch`
+            where (business_doctype = %(doctype)s and business_name = %(name)s)
+               or (%(doctype)s = 'User' and recipient = %(address)s)
+            """,
+            {"doctype": doctype, "name": name, "address": (name or "").lower()},
+        )
+
+        for row in rows:
+            frappe.db.sql("delete from `tabMSP Notification Audit` where dispatch = %s", row)
+            frappe.db.sql("delete from `tabMSP Notification Dispatch` where name = %s", row)
+
+        frappe.db.sql(
+            """
+            delete from `tabMSP Notification Audit`
+            where business_doctype = %(doctype)s and business_name = %(name)s
+            """,
+            {"doctype": doctype, "name": name},
+        )
+
+        if doctype == "User":
+            frappe.db.sql(
+                "delete from `tabMSP Notification Audit` where recipients = %s", name
+            )
 
     def _purge_mail(self, doctype, name):
         queued = frappe.get_all(

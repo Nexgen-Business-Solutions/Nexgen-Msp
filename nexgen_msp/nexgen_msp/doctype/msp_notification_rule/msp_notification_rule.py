@@ -134,9 +134,13 @@ class MSPNotificationRule(Document):
 				)
 			)
 
-		if iteration > frappe.utils.cint(self.max_sends):
+		# "after reminder N" means the ones that follow it, so an escalation after the last
+		# reminder has nothing left to escalate. Allowing it stored a setting that could
+		# never fire, which reads on the screen as an escalation somebody will be waiting for
+		if iteration >= frappe.utils.cint(self.max_sends):
 			frappe.throw(
-				_("An escalation after reminder {0} is never reached: this rule stops at {1}.").format(
-					iteration, self.max_sends
-				)
+				_(
+					"An escalation after reminder {0} is never reached: this rule stops at {1}, "
+					"so nothing follows it."
+				).format(iteration, self.max_sends)
 			)

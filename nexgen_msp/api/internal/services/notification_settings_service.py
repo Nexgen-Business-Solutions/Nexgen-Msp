@@ -119,6 +119,7 @@ class NotificationSettingsService:
             rule_key,
             [
                 "enabled",
+                "display_name",
                 "template_name",
                 "audience_key",
                 "revision",
