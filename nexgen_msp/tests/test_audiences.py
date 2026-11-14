@@ -114,7 +114,9 @@ class TestWhatEachAudienceReaches(MSPTestCase):
 
             self.assertEqual(context["is_internal_user"], internal, role)
             self.assertEqual(context["is_portal_user"], not internal, role)
-            self.assertEqual(context["can_see_invoices"], role != OPERATOR, role)
+            # the money is opened by selling, not by being one of us: a technician is
+            # kept from it exactly as an operator is
+            self.assertEqual(context["can_see_invoices"], role not in (TECH, OPERATOR), role)
 
     def test_a_customer_never_sees_another_customer_anywhere(self):
         other = self.make_customer("B")

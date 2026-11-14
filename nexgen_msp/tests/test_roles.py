@@ -246,9 +246,16 @@ class TestWhatARoleOpens(MSPTestCase):
         for role, email in self.accounts.items():
             self.assertEqual(permissions.is_customer_contact(email), role in CUSTOMER, role)
 
-    def test_only_the_operator_is_kept_from_the_invoices(self):
+    def test_who_the_invoices_are_open_to(self):
+        """Being one of us does not open the money: selling does.
+
+        A technician carries the work out and never prices it, so the invoices are not
+        theirs to read. On the customer's side the two roles are otherwise the same, and
+        the invoices are the whole difference between them.
+        """
         for role, email in self.accounts.items():
-            expected = role != "MSP Customer Operator"
+            expected = role not in ("MSP Technician", "MSP Customer Operator")
+
             self.assertEqual(permissions.may_see_invoices(email), expected, role)
 
     def test_the_internal_workspace_answers_staff_only(self):
@@ -281,7 +288,9 @@ class TestWhatARoleOpens(MSPTestCase):
             self.assertEqual(context["is_internal_user"], role in INTERNAL, role)
             self.assertEqual(context["is_portal_user"], role in CUSTOMER, role)
             self.assertEqual(
-                context["can_see_invoices"], role != "MSP Customer Operator", role
+                context["can_see_invoices"],
+                role not in ("MSP Technician", "MSP Customer Operator"),
+                role,
             )
 
     def test_both_customer_roles_reach_the_same_pages(self):

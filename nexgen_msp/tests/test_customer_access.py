@@ -179,23 +179,33 @@ class TestSomebodyAtTwoCompanies(AccessCase):
 
 
 class TestACustomersPersonIsNeverOneOfOurs(AccessCase):
-    def test_a_staff_role_added_by_mistake_widens_nothing(self):
+    def test_a_staff_role_is_what_makes_an_account_one_of_ours(self):
+        """The explicit role decides, and the customer link no longer narrows it.
+
+        Our own people are sometimes a contact at a customer as well, and the role they
+        were deliberately given is what says what they reach. The other side of the same
+        rule: a staff role handed to a contact by mistake hands them every company, so the
+        role is the thing to be careful with — not the link.
+        """
         account = frappe.get_doc("User", self.manager)
         account.append("roles", {"role": "MSP Technician"})
         account.save(ignore_permissions=True)
         frappe.db.commit()
 
-        self.assertEqual(self.reach(self.manager), [self.acme])
-        self.assertFalse(access.is_staff(self.manager))
+        self.assertTrue(access.is_staff(self.manager))
+        # staff reach every company, this one's own link included
+        self.assertIn(self.acme, self.reach(self.manager))
+        self.assertIn(self.beta, self.reach(self.manager))
 
-    def test_even_the_commercial_role_added_by_mistake_widens_nothing(self):
+    def test_the_commercial_role_opens_every_company_too(self):
+        """Same rule at the commercial end: the role is the authorisation."""
         account = frappe.get_doc("User", self.manager)
         account.append("roles", {"role": "MSP System Admin"})
         account.save(ignore_permissions=True)
         frappe.db.commit()
 
-        self.assertEqual(self.reach(self.manager), [self.acme])
-        self.assertFalse(access.can_view_all_customers(self.manager))
+        self.assertTrue(access.can_view_all_customers(self.manager))
+        self.assertIn(self.beta, self.reach(self.manager))
 
     def test_our_own_people_reach_every_company(self):
         frappe.clear_cache(user=self.technician)

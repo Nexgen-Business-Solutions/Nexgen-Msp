@@ -175,7 +175,9 @@ export default function PortalServices() {
                 <p className="text-sm font-semibold text-slate-900">
                   <BusinessText>{row.service_name}</BusinessText>
                 </p>
-                <p className="text-xs text-slate-400">{row.service_item}</p>
+                <p className="text-xs text-slate-400">
+                  <BusinessText>{row.service_item}</BusinessText>
+                </p>
               </td>
               <td className="whitespace-nowrap px-4 py-3">
                 <span

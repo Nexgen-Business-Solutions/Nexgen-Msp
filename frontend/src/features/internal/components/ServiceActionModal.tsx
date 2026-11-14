@@ -186,11 +186,20 @@ const ServiceActionModal: React.FC<Props> = ({
             <BusinessText>{target.row.service_name}</BusinessText>
           </p>
           <p className="mt-0.5 text-xs text-slate-500">
-            {target.row.hostname ? `${target.row.hostname} · ` : ''}
+            {target.row.hostname ? (
+              <>
+                <BusinessText>{target.row.hostname}</BusinessText>
+                {' · '}
+              </>
+            ) : (
+              ''
+            )}
             open since {(target.row.effective_start_date ?? 'N/A').slice(0, 10)}
           </p>
           {target.row.device_serial_number && (
-            <p className="mt-1 text-xs text-slate-500">Serial: {target.row.device_serial_number}</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Serial: <BusinessText>{target.row.device_serial_number}</BusinessText>
+            </p>
           )}
           {target.row.device_user_name && (
             <p className="mt-1 text-xs text-slate-500">Current holder: {target.row.device_user_name}</p>

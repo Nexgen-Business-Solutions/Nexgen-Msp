@@ -20,21 +20,25 @@ import {
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
 
-/** A day and the hour of it, read where the reader is rather than where the server is. */
+/**
+ * A day and the hour of it, exactly as the site recorded them.
+ *
+ * Frappe writes its timestamps on the site's own clock and with no offset, so handing one
+ * to `new Date()` would read it as the reader's local time and shift it by their offset —
+ * an hour nobody ever wrote. The parts are formatted as they are.
+ */
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
 const fmtMoment = (value?: string | null) => {
   if (!value) return 'N/A';
 
-  const when = new Date(String(value).replace(' ', 'T'));
+  const [day, time = ''] = String(value).split(' ');
+  const [year, month, date] = day.split('-');
+  const name = MONTHS[Number(month) - 1];
 
-  return Number.isNaN(when.getTime())
-    ? String(value).slice(0, 16)
-    : when.toLocaleString(undefined, {
-        year: 'numeric',
-        month: 'short',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
+  if (!name || !date) return String(value).slice(0, 16);
+
+  return `${date} ${name} ${year}${time ? `, ${time.slice(0, 5)}` : ''}`;
 };
 
 const formatAge = (hours: number) => {

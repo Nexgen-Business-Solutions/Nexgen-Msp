@@ -207,7 +207,10 @@ class TestNothingInventsADepartment(ReferenceCase):
                     "customer": customer,
                     "approvers": [
                         {
-                            "account": account,
+                            # the line names its account in `user`; written under any other
+                            # name the row arrives empty, and the matrix refuses it for
+                            # having no account at all rather than for the department
+                            "user": account,
                             "can_submit": 1,
                             "can_approve": 1,
                             "department": "Department Of Nowhere",

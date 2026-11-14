@@ -231,17 +231,30 @@ class TestTheirBillingIsTheirOwn(CrossCustomerCase):
         self.refused(lambda: PortalService.download_breakdown(theirs), "their breakdown")
 
 
-class TestARoleAloneIsNotAnAuthorisation(CrossCustomerCase):
-    def test_a_staff_role_on_a_customer_account_widens_nothing(self):
-        """A role handed out by mistake must not turn a contact into our own team."""
+class TestWhatAnExplicitStaffRoleOpens(CrossCustomerCase):
+    """The role decides, and it decides for every company.
+
+    Our own people are sometimes a contact at a customer as well, so the role they were
+    deliberately given is what says what they reach. The link no longer narrows it — which
+    also means a staff role handed to a contact by mistake hands them every company.
+    """
+
+    def test_a_staff_role_reaches_another_company_s_person(self):
         account = frappe.get_doc("User", self.manager)
         account.append("roles", {"role": "MSP Technician"})
         account.save(ignore_permissions=True)
         frappe.db.commit()
+        frappe.clear_cache(user=self.manager)
 
+        detail = self.as_manager(lambda: PortalService.get_user_detail(self.their_person))
+
+        self.assertEqual(detail["user"]["name"], self.their_person)
+
+    def test_without_that_role_the_other_company_stays_shut(self):
+        """The same account, one role short: the link alone opens nothing of theirs."""
         self.refused(
             lambda: PortalService.get_user_detail(self.their_person),
-            "their person, with a staff role bolted on",
+            "their person, with no staff role",
         )
 
     def test_removing_the_link_removes_the_access(self):
