@@ -5,6 +5,9 @@ from frappe.utils import add_days, get_datetime, now_datetime
 
 from nexgen_msp.utils import stamps
 
+from nexgen_msp.api.internal.services.request_presentation_service import (
+    RequestPresentationService,
+)
 from nexgen_msp.api.internal.services.request_service import RequestService, effective_line_status
 from nexgen_msp.api.internal.services.requested_client_user_service import RequestedClientUserService
 from nexgen_msp.api.internal.services.requested_device_service import RequestedDeviceService
@@ -1448,6 +1451,27 @@ class TestADraftSentLaterIsDatedWhenItWasSent(MSPTestCase):
             get_datetime(said).replace(tzinfo=None),
             get_datetime(frappe.db.get_value(REQUEST, name, "submitted_on")),
             "the same instant, said differently",
+        )
+
+    def test_the_listing_and_the_detail_say_the_same_moment(self):
+        """Two screens reading one stamp must not hand the reader two different hours."""
+        out = PortalService.create_request(
+            customer=self.customer, lines=[self.line()], request_type="Add"
+        )
+        name = self.track("MSP Request", out["name"])
+
+        listed = next(
+            row
+            for row in RequestService.list_requests(page_length=100)["rows"]
+            if row["name"] == name
+        )["submitted_on"]
+        detailed = RequestPresentationService.for_request(name)["request"]["submitted_at"]
+
+        self.assertRegex(detailed, r"[+-]\d{2}:\d{2}$", "the detail carries the offset too")
+        self.assertEqual(
+            get_datetime(detailed).replace(tzinfo=None),
+            get_datetime(listed).replace(tzinfo=None),
+            "one stamp, one instant, whatever screen reads it",
         )
 
     def test_a_request_that_never_arrived_says_no_moment_at_all(self):

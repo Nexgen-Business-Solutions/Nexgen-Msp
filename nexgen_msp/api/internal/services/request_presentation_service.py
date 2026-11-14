@@ -13,7 +13,7 @@ from nexgen_msp.api.internal.services.requested_entity_presentation import (
     RequestedEntityPresentation,
 )
 from nexgen_msp.nexgen_msp.doctype.msp_request.msp_request import MODIFIED_COMMENT
-from nexgen_msp.utils import operations, permissions, request_targets
+from nexgen_msp.utils import operations, permissions, request_targets, stamps
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 REQUEST = "MSP Request"
@@ -1026,10 +1026,10 @@ class RequestPresentationService:
             "requested_date": doc.get("requested_date"),
             "priority": doc.priority,
             "source": doc.source,
-            "submitted_at": submitted_at,
+            "submitted_at": stamps.stamped(submitted_at),
             "details": details,
             "details_by": requester_name if details else None,
-            "details_at": submitted_at if details else None,
+            "details_at": stamps.stamped(submitted_at) if details else None,
             "customer_approval": RequestPresentationService._approval(doc),
             "nexgen_status_label": nexgen_status,
             "rejection": rejection,
