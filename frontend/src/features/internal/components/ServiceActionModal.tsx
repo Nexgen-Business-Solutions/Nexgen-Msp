@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import BusinessText from '@/shared/components/BusinessText';
 import { AlertCircle, CircleX, PauseCircle, PencilLine, PlayCircle } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
 import FieldLabel from '@/shared/components/FieldLabel';
@@ -181,7 +182,9 @@ const ServiceActionModal: React.FC<Props> = ({
     >
       <div className="space-y-4">
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-          <p className="text-sm font-semibold text-slate-900">{target.row.service_name}</p>
+          <p className="text-sm font-semibold text-slate-900">
+            <BusinessText>{target.row.service_name}</BusinessText>
+          </p>
           <p className="mt-0.5 text-xs text-slate-500">
             {target.row.hostname ? `${target.row.hostname} · ` : ''}
             open since {(target.row.effective_start_date ?? 'N/A').slice(0, 10)}
@@ -241,6 +244,7 @@ const ServiceActionModal: React.FC<Props> = ({
               value={replacement}
               onChange={setReplacement}
               placeholder="Select the service that replaces it"
+              protect
               options={offers.map((offer) => ({ value: offer.service_item, label: offer.item_name }))}
             />
           </div>

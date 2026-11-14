@@ -297,6 +297,11 @@ class RequestService:
                 sr.requester,
                 sr.billing_run,
                 sr.creation,
+                -- the day it reached us, which is not the day it was opened: a request
+                -- waits inside the company until somebody there agrees to it, and a
+                -- draft can sit for a week. Where nobody had to agree, it reached us as
+                -- it was written
+                coalesce(sr.customer_approved_at, sr.creation) as submitted_on,
                 sr.modified,
                 (select count(*) from `tabMSP Request Line` srl where srl.parent = sr.name)
                     as line_count,

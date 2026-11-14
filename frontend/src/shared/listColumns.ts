@@ -72,11 +72,21 @@ export const INTERNAL_REQUEST_LIST: ExportCatalogue = {
     { key: 'priority', label: 'Priority', section: 'Progress' },
     { key: 'lines', label: 'Lines', section: 'Progress' },
     { key: 'source', label: 'Source', section: 'Progress' },
+    { key: 'submitted_on', label: 'Submitted On', section: 'Dates' },
     { key: 'creation', label: 'Raised', section: 'Dates' },
     { key: 'age', label: 'Age', section: 'Dates' },
     { key: 'modified', label: 'Last updated', section: 'Dates' },
   ],
-  defaults: ['request', 'users', 'customer', 'request_type', 'status', 'priority'],
+  defaults: [
+    'request',
+    'users',
+    'customer',
+    'request_type',
+    'status',
+    'priority',
+    'submitted_on',
+    'age',
+  ],
 };
 
 export const INTERNAL_SERVICE_LIST: ExportCatalogue = {

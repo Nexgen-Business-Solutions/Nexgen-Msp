@@ -955,7 +955,9 @@ class RequestPresentationService:
         submitted_at = None
 
         if doc.status != "Draft":
-            submitted_at = next(
+            # the day it reached us. A request from the customer's side waits inside the
+            # company until somebody there agrees to it, so leaving Draft is not arriving
+            submitted_at = doc.customer_approved_at or next(
                 (moment["at"] for moment in moments if moment["from"] == "Draft"), doc.creation
             )
 

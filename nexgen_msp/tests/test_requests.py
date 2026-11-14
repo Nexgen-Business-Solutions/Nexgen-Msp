@@ -13,6 +13,7 @@ from nexgen_msp.utils import operations
 from .base import MSPTestCase
 
 LINE = "MSP Request Line"
+REQUEST = "MSP Request"
 
 
 class TestRequests(MSPTestCase):
@@ -1242,3 +1243,91 @@ class TestNothingClosesOnSomeoneWhoDoesNotExist(MSPTestCase):
             "MSP Request Line", {"parent": name, "idx": 1}, ["managed_device", "requested_device"], as_dict=True
         )
         self.assertEqual((row.managed_device, bool(row.requested_device)), (None, True))
+
+
+class TestWhenARequestReachedUs(MSPTestCase):
+    """Issue #38: the list showed when a request was opened, not when it arrived.
+
+    A request from the customer's side waits inside the company until somebody there
+    agrees to it, and a draft can sit for a week before that. "Raised" is the day it was
+    opened; what our queue is measured by is the day it landed on us.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.customer = self.make_customer()
+        self.person = self.make_person(self.customer, "Asker")
+        self.service = self.make_service("SUB", scope="User")
+        self.contact = self.make_account(
+            "customer", "MSP Customer Manager", self.customer, suffix="sb"
+        )
+
+    def line(self):
+        return {
+            "operation_code": self.operation(),
+            "action": "Add",
+            "target_scope": "User",
+            "client_user": self.person,
+            "requested_service": self.service,
+        }
+
+    def raised_by_the_contact(self):
+        frappe.set_user(self.contact)
+        try:
+            out = PortalService.create_request(
+                customer=self.customer, request_type="Add", lines=[self.line()]
+            )
+        finally:
+            frappe.set_user("Administrator")
+
+        return self.track("MSP Request", out["name"])
+
+    def listed(self, name):
+        rows = RequestService.list_requests(page_length=100)["rows"]
+
+        return next(row for row in rows if row["name"] == name)
+
+    def test_a_request_that_waited_for_the_company_arrives_when_it_is_agreed(self):
+        self.grant(self.contact, can_submit=1, can_approve=0)
+        name = self.raised_by_the_contact()
+
+        self.assertEqual(
+            frappe.db.get_value(REQUEST, name, "status"), "Awaiting Customer Approval"
+        )
+
+        # it reaches us a day later, when somebody there agrees to it
+        frappe.db.set_value(
+            REQUEST, name, "customer_approved_at", "2026-11-20 09:30:00", update_modified=False
+        )
+        frappe.db.set_value(REQUEST, name, "status", "Submitted", update_modified=False)
+
+        row = self.listed(name)
+
+        self.assertEqual(str(row["submitted_on"]), "2026-11-20 09:30:00")
+        self.assertNotEqual(str(row["submitted_on"]), str(row["creation"]))
+
+    def test_a_request_nobody_had_to_agree_to_arrives_as_it_is_written(self):
+        """Raised by somebody who may approve their own: the two instants are one."""
+        self.grant(self.contact)
+        name = self.raised_by_the_contact()
+
+        row = self.listed(name)
+
+        self.assertEqual(frappe.db.get_value(REQUEST, name, "status"), "Submitted")
+        self.assertEqual(
+            frappe.utils.get_datetime(row["submitted_on"]),
+            frappe.utils.get_datetime(frappe.db.get_value(REQUEST, name, "customer_approved_at")),
+        )
+
+    def test_one_we_raised_ourselves_arrives_when_it_was_written(self):
+        out = PortalService.create_request(
+            customer=self.customer, request_type="Add", lines=[self.line()]
+        )
+        name = self.track("MSP Request", out["name"])
+
+        row = self.listed(name)
+
+        self.assertEqual(
+            frappe.utils.get_datetime(row["submitted_on"]),
+            frappe.utils.get_datetime(row["creation"]),
+        )

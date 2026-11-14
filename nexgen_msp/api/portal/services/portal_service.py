@@ -3847,51 +3847,60 @@ class PortalService:
         )
 
         scope = ServiceDefinitionService.scope_of(service_item)
-        wanted = []
+        # one target at a time, in the order the question is usually meant: the machine
+        # that was named, then the person. Asking about both at once answered "held"
+        # without saying by which of the two, and a service sold at either scope is two
+        # different things on a person and on one of their machines
+        asked = []
 
         if managed_device and scope in ("Device", "Both"):
-            wanted.append("sa.managed_device = %(managed_device)s")
-            values["managed_device"] = managed_device
+            asked.append(("Device", "sa.managed_device = %(target)s", managed_device))
 
         if client_user and scope in ("User", "Both", None):
-            wanted.append("sa.client_user = %(client_user)s")
-            values["client_user"] = client_user
+            asked.append(("User", "sa.client_user = %(target)s", client_user))
 
-        if not wanted:
+        if not asked:
             # the one the caller named is the only one left to ask about
-            if managed_device:
-                wanted.append("sa.managed_device = %(managed_device)s")
-                values["managed_device"] = managed_device
-            else:
-                wanted.append("sa.client_user = %(client_user)s")
-                values["client_user"] = client_user
+            asked.append(
+                ("Device", "sa.managed_device = %(target)s", managed_device)
+                if managed_device
+                else ("User", "sa.client_user = %(target)s", client_user)
+            )
 
-        conditions.append(f"({' or '.join(wanted)})")
+        found = None
+        held_by = None
 
-        row = frappe.db.sql(
-            f"""
-            select
-                sa.name, sa.operational_status, sa.billing_status,
-                sa.effective_start_date, sa.effective_end_date,
-                {billing_marks.BILLED_TO} as last_billed_on
-            from `tabMSP Service Assignment` sa
-            where {" and ".join(conditions)}
-            order by (sa.operational_status not in ('Ended', 'Cancelled')) desc,
-                     sa.effective_start_date desc
-            limit 1
-            """,
-            values,
-            as_dict=True,
-        )
+        for kind, clause, target in asked:
+            row = frappe.db.sql(
+                f"""
+                select
+                    sa.name, sa.operational_status, sa.billing_status,
+                    sa.effective_start_date, sa.effective_end_date,
+                    {billing_marks.BILLED_TO} as last_billed_on
+                from `tabMSP Service Assignment` sa
+                where {" and ".join(conditions + [clause, "sa.assignment_scope = %(kind)s"])}
+                order by (sa.operational_status not in ('Ended', 'Cancelled')) desc,
+                         sa.effective_start_date desc
+                limit 1
+                """,
+                {**values, "target": target, "kind": kind},
+                as_dict=True,
+            )
 
-        if not row:
+            if row:
+                found, held_by = row[0], kind
+                break
+
+        if not found:
             return {"held": False}
 
-        found = row[0]
         live = found.operational_status not in ("Ended", "Cancelled")
 
         return {
             "held": True,
+            # which of the two it is held by, so an answer about a machine is never read
+            # as an answer about the person who holds it
+            "held_by": held_by,
             "live": live,
             "status": found.operational_status,
             "billing_status": found.billing_status,

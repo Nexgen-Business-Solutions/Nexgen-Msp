@@ -21,8 +21,10 @@ LIFECYCLE_STATUSES = ("Pending", "Active", "Disabled", "Archived")
 
 MAX_PAGE_LENGTH = 200
 
-# the work a day may still be taken from: anything finished or abandoned asks for nothing
-OPEN_WORK_STATUSES = ("Open", "Scheduled", "In Progress", "Awaiting Verification", "Blocked")
+# the work a day may still be taken from: exactly what the execution door agrees to carry
+# out. Blocked work and work already carried out confer nothing, or this page would be the
+# way round a refusal the work screen makes
+OPEN_WORK_STATUSES = ("Open", "Scheduled", "In Progress")
 
 # the act as the work order names it: a customer asks to Remove, this door calls it End
 ASKED_AS = {"End": "Remove"}

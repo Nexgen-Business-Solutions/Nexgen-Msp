@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import BusinessText from '@/shared/components/BusinessText';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Building2,
@@ -539,7 +540,7 @@ export default function CustomerContract() {
                     <tr key={service.service_item} className={blocking ? 'bg-amber-50/40' : ''}>
                       <td className="px-4 py-3">
                         <p className="text-sm font-semibold text-slate-900">
-                          {service.service_name}
+                          <BusinessText>{service.service_name}</BusinessText>
                         </p>
                         {service.open_assignments > 0 && (
                           <p className="text-xs text-slate-400">
@@ -587,7 +588,7 @@ export default function CustomerContract() {
                       {index === 0 ? (
                         <>
                           <p className="text-sm font-semibold text-slate-900">
-                            {service.service_name}
+                            <BusinessText>{service.service_name}</BusinessText>
                           </p>
                           {service.open_assignments > 0 && (
                             <p className="text-xs text-slate-400">
@@ -670,7 +671,9 @@ export default function CustomerContract() {
         <ul className="divide-y divide-slate-100">
           {(servicesOf?.services ?? []).map((service) => (
             <li key={service.service_item} className="flex items-center justify-between py-2.5">
-              <span className="text-sm font-medium text-slate-900">{service.service_name}</span>
+              <span className="text-sm font-medium text-slate-900">
+                <BusinessText>{service.service_name}</BusinessText>
+              </span>
               <span className="text-xs text-slate-500">{service.service_item}</span>
             </li>
           ))}

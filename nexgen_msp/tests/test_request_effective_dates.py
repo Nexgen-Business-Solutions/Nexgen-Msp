@@ -774,7 +774,12 @@ class TestThePageFollowsTheSameRuleAsTheWorkScreen(DatedRequestCase):
     def test_a_request_that_asks_nothing_of_this_service_carries_no_day(self):
         """Any old request of the customer would otherwise be a way to backdate."""
         running, _name = self.ending()
-        other = self.started(self.service_line("service.add"), created=-5)
+        # a request of the same customer that has nothing to do with this service
+        another = self.make_service(f"OTH{self.tag[:3]}", scope="User")
+        self.cover_service(self.customer, another)
+        other = self.started(
+            self.service_line("service.add", requested_service=another), created=-5
+        )
 
         self.refused(lambda: self.from_the_page(running, other, day(-2)), ADMIN_ONLY)
 

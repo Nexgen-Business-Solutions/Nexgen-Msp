@@ -34,6 +34,8 @@ export type RequestRow = {
   requester: string | null;
   billing_run: string | null;
   creation: string;
+  /** the day and hour it reached Nexgen, which is not the day it was opened */
+  submitted_on: string;
   modified: string;
   line_count: number;
   pending_lines: number;

@@ -20,6 +20,23 @@ import {
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
 
+/** A day and the hour of it, read where the reader is rather than where the server is. */
+const fmtMoment = (value?: string | null) => {
+  if (!value) return 'N/A';
+
+  const when = new Date(String(value).replace(' ', 'T'));
+
+  return Number.isNaN(when.getTime())
+    ? String(value).slice(0, 16)
+    : when.toLocaleString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+};
+
 const formatAge = (hours: number) => {
   if (hours === null || hours === undefined) return 'N/A';
   if (hours < 1) return 'just now';
@@ -101,6 +118,18 @@ export default function RequestsList() {
         return (
           <td key={key} className="whitespace-nowrap px-4 py-3 text-sm text-slate-500 tabular-nums">
             {fmtDate(row[key])}
+          </td>
+        );
+      case 'submitted_on':
+        // the day it reached us, with the hour: "2d" says how long we have had it, not
+        // when it landed, and an audit asks for the second one
+        return (
+          <td
+            key={key}
+            className="whitespace-nowrap px-4 py-3 text-sm text-slate-500 tabular-nums"
+            title={row.submitted_on ?? undefined}
+          >
+            {fmtMoment(row.submitted_on)}
           </td>
         );
       case 'age':

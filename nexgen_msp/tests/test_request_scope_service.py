@@ -522,3 +522,74 @@ class TestAServiceAMachineAlreadyRunsIsNotOfferedAgain(RequestScopeCase):
         )
 
         self.assertTrue(state["held"], "it is theirs, whatever machine was named with it")
+
+    def test_a_service_sold_at_either_scope_says_which_one_holds_it(self):
+        """`Both` is two different things on a person and on one of their machines."""
+        either = self.make_service(f"BO{self.tag[:3]}", scope="Both")
+        self.cover_service(self.customer, either)
+        machine = self.make_device(self.customer, hostname=f"BOT{self.tag[:3]}", holder=self.alice)
+        personal = ServiceLifecycleService.activate(
+            customer=self.customer,
+            service_item=either,
+            target_scope="User",
+            client_user=self.alice,
+            effective_date=frappe.utils.today(),
+        )["name"]
+        self.track(ASSIGNMENT, personal)
+
+        state = self.as_user(
+            self.asker,
+            lambda: PortalService.service_state(
+                service_item=either, client_user=self.alice, managed_device=machine
+            ),
+        )
+
+        # the machine does not run it; the person does, and the answer says so
+        self.assertTrue(state["held"])
+        self.assertEqual(state["held_by"], "User")
+
+    def test_work_that_cannot_be_carried_out_carries_no_day_either(self):
+        """Blocked work is refused on the work screen; the page must not be the way round."""
+        from nexgen_msp.api.internal.services.user_service import UserService
+
+        running = ServiceLifecycleService.activate(
+            customer=self.customer,
+            service_item=self.service,
+            target_scope="User",
+            client_user=self.alice,
+            effective_date=frappe.utils.add_days(frappe.utils.today(), -30),
+        )["name"]
+        self.track(ASSIGNMENT, running)
+
+        request = frappe.get_doc(
+            {
+                "doctype": "MSP Request",
+                "customer": self.customer,
+                "request_type": "Change",
+                "status": "Submitted",
+                "requester": frappe.session.user,
+            }
+        )
+        request.flags.ignore_validate = True
+        request.insert(ignore_permissions=True)
+        self.track(REQUEST, request.name)
+
+        order = frappe.get_doc(
+            {
+                "doctype": "MSP Work Order",
+                "request": request.name,
+                "customer": self.customer,
+                "work_type": "Service Action",
+                "action": "Remove",
+                "status": "Blocked",
+                "target_scope": "User",
+                "client_user": self.alice,
+                "source_service_assignment": running,
+            }
+        )
+        order.flags.ignore_validate = True
+        order.insert(ignore_permissions=True)
+        frappe.db.commit()
+        self.track(WORK_ORDER, order.name)
+
+        self.assertIsNone(UserService._asking_for(order.request, running, "End"))
