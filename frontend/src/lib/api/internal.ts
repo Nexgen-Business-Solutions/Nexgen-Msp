@@ -1180,6 +1180,9 @@ export type ServiceAvailabilityCurrent = {
   quantity: number;
   uom: string | null;
   effective_start_date: string | null;
+  effective_end_date: string | null;
+  /** a change is already dated on this period, so the lifecycle will refuse a second one */
+  dated_change: boolean;
   /** what the period is sold at, and where that number came from */
   agreed_rate: number | null;
   price_source: string;
@@ -3521,3 +3524,282 @@ export const setBillingLineDiscount = (payload: {
   service_assignment: string;
   discount_percent: number;
 }) => post<BillingRunDetail>(`${BASE}.set_billing_line_discount`, payload);
+
+export type NotificationKind = 'Event' | 'Reminder';
+
+export type NotificationHealth = {
+  state: string;
+  failed: number;
+  unknown: number;
+  queued: number;
+};
+
+export type NotificationRule = {
+  rule_key: string;
+  display_name: string;
+  category: string;
+  kind: NotificationKind;
+  enabled: boolean;
+  protected: boolean;
+  configured: boolean;
+  trigger_key: string;
+  template_name: string | null;
+  audience_key: string | null;
+  audience_label: string | null;
+  cc: string[];
+  extra: string[];
+  frequency: string;
+  last_sent: string | null;
+  next_due: string | null;
+  next_due_label: string | null;
+  eligible_count: number | null;
+  max_sends: number | null;
+  health: NotificationHealth;
+};
+
+export type NotificationRuleFields = NotificationRule & {
+  initial_delay_value?: number | null;
+  initial_delay_unit?: string | null;
+  repeat_interval_value?: number | null;
+  repeat_interval_unit?: string | null;
+  stop_condition_key?: string | null;
+  timezone?: string | null;
+  quiet_hours_enabled?: number | boolean | null;
+  quiet_start?: string | null;
+  quiet_end?: string | null;
+  escalation_after_iteration?: number | null;
+  escalation_audience_key?: string | null;
+  revision?: number | null;
+  schedule_effective_at?: string | null;
+};
+
+export type NotificationFigures = {
+  managed: number;
+  enabled: number;
+  reminders: number;
+  queued: number;
+  failed: number;
+  unknown: number;
+};
+
+export type NotificationOverview = {
+  figures: NotificationFigures;
+  rules: NotificationRule[];
+  total: number;
+  page: number;
+  page_length: number;
+  filters: { categories: string[]; kinds: string[] };
+  /** the keys of the notifications this application owns that have no settings yet */
+  can_create: string[];
+};
+
+export type NotificationOverviewParams = {
+  search?: string;
+  kind?: string;
+  category?: string;
+  enabled?: string;
+  page?: number;
+  page_length?: number;
+};
+
+export type NotificationAuditRow = {
+  name: string;
+  creation: string;
+  action: string;
+  actor: string | null;
+  reason_code: string | null;
+  detail: string | null;
+  attempt: number | null;
+  rule_revision: number | null;
+  business_doctype: string | null;
+  business_name: string | null;
+};
+
+export type NotificationChoices = {
+  templates: string[];
+  audiences: { key: string; label: string }[];
+  categories: string[];
+  protected: boolean;
+  kind: string;
+  stop_conditions?: { key: string; label: string }[];
+  business_doctype?: string | null;
+  units?: string[];
+  suggested?: Record<string, unknown>;
+};
+
+export type NotificationRuleDetail = {
+  rule: NotificationRuleFields;
+  choices: NotificationChoices;
+  audit: NotificationAuditRow[];
+};
+
+export type NotificationRuleChanges = Partial<{
+  display_name: string;
+  enabled: boolean;
+  template_name: string;
+  audience_key: string;
+  initial_delay_value: number;
+  initial_delay_unit: string;
+  repeat_interval_value: number;
+  repeat_interval_unit: string;
+  max_sends: number;
+  stop_condition_key: string;
+  timezone: string;
+  quiet_hours_enabled: boolean;
+  quiet_start: string;
+  quiet_end: string;
+  escalation_after_iteration: number | null;
+  escalation_audience_key: string | null;
+  recipients: { email: string; kind: 'To' | 'CC' }[];
+}>;
+
+export type NotificationPreview = {
+  subject: string;
+  message: string;
+  context_note?: string | null;
+};
+
+export type NotificationTestResult = {
+  status: string;
+  dispatch?: string | null;
+  reason?: string | null;
+};
+
+export type NotificationHistoryRow = {
+  name: string;
+  creation: string;
+  rule: string;
+  business_doctype: string | null;
+  business_name: string | null;
+  recipient: string | null;
+  cc_snapshot?: string | null;
+  template_name: string | null;
+  subject_snapshot: string | null;
+  reminder_iteration?: number | null;
+  attempt: number | null;
+  status: string;
+  email_queue_id: string | null;
+  failure_reason: string | null;
+  skip_reason: string | null;
+  is_test?: number | boolean | null;
+  queued_at?: string | null;
+  sent_at?: string | null;
+};
+
+export type NotificationHistory = {
+  rows: NotificationHistoryRow[];
+  total: number;
+  page: number;
+  page_length: number;
+  statuses: string[];
+};
+
+export type NotificationHistoryParams = {
+  rule_key?: string;
+  status?: string;
+  search?: string;
+  business_name?: string;
+  page?: number;
+  page_length?: number;
+};
+
+export type NotificationSourceRow = {
+  source: string;
+  provider: string;
+  trigger_mode: string;
+  management: string;
+  notes: string | null;
+};
+
+export type NotificationSources = { rows: NotificationSourceRow[]; generated_at?: string | null };
+
+export type NotificationEligibilityRow = {
+  business_doctype?: string | null;
+  business_name?: string | null;
+  record?: string;
+  customer?: string | null;
+  status?: string | null;
+  iteration: number;
+  max_sends?: number | null;
+  next_due: string | null;
+  reason: string;
+  reason_label?: string | null;
+  timezone?: string | null;
+  revision?: number | null;
+};
+
+export type NotificationEligibility = {
+  rows: NotificationEligibilityRow[];
+  total: number;
+  page?: number;
+  page_length?: number;
+  note?: string | null;
+};
+
+export const getNotificationOverview = (
+  params: NotificationOverviewParams = {},
+  signal?: AbortSignal
+) =>
+  get<NotificationOverview>(
+    `${BASE}.notification_settings_overview`,
+    {
+      search: params.search || undefined,
+      kind: params.kind || undefined,
+      category: params.category || undefined,
+      enabled: params.enabled || undefined,
+      page: params.page ?? 0,
+      page_length: params.page_length ?? 50,
+    },
+    signal
+  );
+
+export const getNotificationRule = (ruleKey: string, signal?: AbortSignal) =>
+  get<NotificationRuleDetail>(`${BASE}.notification_rule_detail`, { rule_key: ruleKey }, signal);
+
+export const saveNotificationRule = (payload: {
+  rule_key: string;
+  expected_revision: number;
+  changes: NotificationRuleChanges;
+}) =>
+  post<NotificationRuleDetail>(`${BASE}.save_notification_rule`, {
+    rule_key: payload.rule_key,
+    expected_revision: payload.expected_revision,
+    changes: JSON.stringify(payload.changes),
+  });
+
+export const previewNotificationRule = (ruleKey: string, signal?: AbortSignal) =>
+  get<NotificationPreview>(`${BASE}.preview_notification_rule`, { rule_key: ruleKey }, signal);
+
+export const testNotificationRule = (payload: { rule_key: string; recipient: string }) =>
+  post<NotificationTestResult>(`${BASE}.test_notification_rule`, payload);
+
+export const getNotificationHistory = (
+  params: NotificationHistoryParams = {},
+  signal?: AbortSignal
+) =>
+  get<NotificationHistory>(
+    `${BASE}.notification_delivery_history`,
+    {
+      rule_key: params.rule_key || undefined,
+      status: params.status || undefined,
+      search: params.search || undefined,
+      business_name: params.business_name || undefined,
+      page: params.page ?? 0,
+      page_length: params.page_length ?? 50,
+    },
+    signal
+  );
+
+export const getNotificationSources = (signal?: AbortSignal) =>
+  get<NotificationSources>(`${BASE}.notification_source_inventory`, undefined, signal);
+
+export const getNotificationEligibility = (
+  ruleKey: string,
+  page = 0,
+  signal?: AbortSignal
+) =>
+  get<NotificationEligibility>(
+    `${BASE}.notification_rule_eligibility`,
+    { rule_key: ruleKey, page, page_length: 50 },
+    signal
+  );

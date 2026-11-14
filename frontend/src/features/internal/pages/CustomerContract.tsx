@@ -826,24 +826,32 @@ export default function CustomerContract() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <RowActionsMenu
+                        disabledReason={
+                          row.dated_change
+                            ? 'A change to this service is already set for a day to come.'
+                            : undefined
+                        }
                         actions={[
                           {
                             label: 'Change quantity or rate',
                             icon: Pencil,
                             onClick: () => setChangingHeld(row),
-                            disabled: row.operational_status !== 'Active',
+                            // a period already carrying a dated change takes no second
+                            // one: the lifecycle refuses it, so offering it here would
+                            // only produce an error somebody has to read
+                            disabled: row.operational_status !== 'Active' || row.dated_change,
                           },
                           {
                             label: 'Suspend',
                             icon: Pause,
                             onClick: () => openHeldAction(row, 'Suspend'),
-                            disabled: row.operational_status !== 'Active',
+                            disabled: row.operational_status !== 'Active' || row.dated_change,
                           },
                           {
                             label: 'Resume',
                             icon: Play,
                             onClick: () => openHeldAction(row, 'Resume'),
-                            disabled: row.operational_status !== 'Suspended',
+                            disabled: row.operational_status !== 'Suspended' || row.dated_change,
                           },
                           {
                             label: 'End service',
@@ -851,7 +859,9 @@ export default function CustomerContract() {
                             danger: true,
                             onClick: () => openHeldAction(row, 'End'),
                             // only a service being provided has provision to stop
-                            disabled: !['Active', 'Suspended'].includes(row.operational_status),
+                            disabled:
+                              !['Active', 'Suspended'].includes(row.operational_status) ||
+                              row.dated_change,
                           },
                           {
                             label: 'Cancel pending service',

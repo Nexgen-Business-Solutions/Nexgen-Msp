@@ -25,6 +25,8 @@ const storage: ServiceAvailabilityCurrent = {
   quantity: 5,
   uom: 'TB',
   effective_start_date: '2026-01-01',
+  effective_end_date: null,
+  dated_change: false,
   agreed_rate: 42,
   price_source: 'Manual Override',
 };

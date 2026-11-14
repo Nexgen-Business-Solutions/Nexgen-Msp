@@ -29,6 +29,7 @@ import AccountDetail from '@/features/internal/pages/AccountDetail';
 import DevicesList from '@/features/internal/pages/DevicesList';
 import ActivityLog from '@/features/internal/pages/ActivityLog';
 import Settings from '@/features/internal/pages/Settings';
+import NotificationSettings from '@/features/internal/pages/NotificationSettings';
 import ItemIntegrityReview from '@/features/internal/pages/ItemIntegrityReview';
 import PortalRequestDetail from '@/features/portal/pages/PortalRequestDetail';
 import RoleDetail from './RoleDetail';
@@ -153,6 +154,14 @@ export const router = createBrowserRouter([
         element: (
           <AdminGuard>
             <Settings />
+          </AdminGuard>
+        ),
+      },
+      {
+        path: 'settings/notifications',
+        element: (
+          <AdminGuard>
+            <NotificationSettings />
           </AdminGuard>
         ),
       },

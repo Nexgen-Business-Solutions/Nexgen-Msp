@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as internal from '@/lib/api/internal';
 import type { ServiceAvailability, UserDetail } from '@/lib/api/internal';
+import { today } from '@/shared/lib/today';
 import AddUserServiceModal from './AddUserServiceModal';
 
 vi.mock('@/lib/api/internal', async (importOriginal) => {
@@ -124,7 +125,9 @@ describe('AddUserServiceModal', () => {
     expect(internal.assignUserService).toHaveBeenCalledWith({
       client_user: 'USR-001',
       service_item: 'ITEM-M365',
-      effective_date: new Date().toISOString().slice(0, 10),
+      // the day the person is having, not the day UTC is having: the two differ for an
+      // hour either side of local midnight, and this failed in exactly that hour
+      effective_date: today(),
       notes: undefined,
       source_request: undefined,
     });

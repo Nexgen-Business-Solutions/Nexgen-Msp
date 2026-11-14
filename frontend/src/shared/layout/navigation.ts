@@ -140,6 +140,16 @@ export const getSectionsForRoles = (roles: string[] = []): NavSection[] => {
   return sections;
 };
 
+/** Pages that have a place in the trail but no entry in the sidebar. */
+const ADMIN_TRAIL: NavItem[] = [
+  {
+    id: 'administration',
+    label: 'Administration',
+    icon: Settings2,
+    path: '/msp/settings/notifications',
+  },
+];
+
 export const getNavForRoles = (roles: string[] = []) =>
   getSectionsForRoles(roles).flatMap((section) => section.items);
 
@@ -149,7 +159,7 @@ export const getPagesForRoles = (roles: string[] = [], canSubmit = true) =>
         ...PORTAL_NAV.filter((item) => !item.needsInvoices || seesInvoices(roles)),
         ...PORTAL_PAGES.filter((item) => mayRaise(item, canSubmit)),
       ]
-    : getNavForRoles(roles);
+    : [...getNavForRoles(roles), ...(isAdmin(roles) ? ADMIN_TRAIL : [])];
 
 export const findNavItem = (pathname: string, items: NavItem[]): NavItem => {
   const matches = items.filter(
