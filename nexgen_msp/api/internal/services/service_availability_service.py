@@ -17,6 +17,7 @@ from nexgen_msp.api.internal.services.service_lifecycle_service import (
     TARGET_FIELD,
     ServiceLifecycleService,
 )
+from nexgen_msp.utils import assignments
 from nexgen_msp.utils.assignments import OPEN_ASSIGNMENT_STATUSES
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
@@ -176,8 +177,15 @@ class ServiceAvailabilityService:
         available = []
         blocked = []
 
+        # what is already held, read on today's clock: a period closed for a day still to
+        # come is being provided, and offering to add the same service over it would create
+        # the overlap the assignment rules exist to prevent
+        held = {row["service_item"] for row in current}
+
         for item in ServiceAvailabilityService._catalogue(SELLABLE_AT[scope]):
-            if ServiceLifecycleService._open_assignment(customer, item.name, scope, target):
+            if item.name in held or ServiceLifecycleService._open_assignment(
+                customer, item.name, scope, target
+            ):
                 # already had: neither an offer nor a refusal, it is simply in CURRENT
                 continue
 
@@ -256,7 +264,7 @@ class ServiceAvailabilityService:
         filters = {
             "customer": customer,
             "assignment_scope": scope,
-            "operational_status": ("in", OPEN_ASSIGNMENT_STATUSES),
+            "operational_status": ("in", OPEN_ASSIGNMENT_STATUSES + ("Ended",)),
         }
 
         # a company service has no target field to match on: the company is the target
@@ -275,6 +283,8 @@ class ServiceAvailabilityService:
                 # what the quantity counts: a block of storage is not a month
                 "uom",
                 "effective_start_date",
+                # the day it stops, so a period closed for later is read as still provided
+                "effective_end_date",
                 # the terms in force, so a screen changing them can show what they are
                 "agreed_rate",
                 "price_source",
@@ -282,11 +292,45 @@ class ServiceAvailabilityService:
             order_by="effective_start_date asc",
         )
 
+        pauses = {}
+
+        if rows:
+            for pause in frappe.get_all(
+                "MSP Service Suspension",
+                filters={
+                    "parenttype": "MSP Service Assignment",
+                    "parent": ("in", [row["name"] for row in rows]),
+                },
+                fields=["parent", "suspended_on", "resumed_on"],
+                order_by="parent asc, suspended_on asc",
+            ):
+                pauses.setdefault(pause.parent, []).append(pause)
+
+        held = []
+
         for row in rows:
+            reads = assignments.status_as_of(
+                row["operational_status"], row.get("effective_end_date"), pauses.get(row["name"])
+            )
+
+            # a period that ran out is history and belongs on the timeline, not here; one
+            # closed for a day still to come is being provided until that day
+            if row["operational_status"] == "Ended" and reads == "Ended":
+                continue
+
             row["item_name"] = ServiceLifecycleService._label(row["service_item"])
             row["service_scope"] = ServiceDefinitionService.scope_of(row["service_item"])
+            # read before the status is overwritten, or the comparison answers itself
+            dated = reads != row["operational_status"] or bool(
+                row.get("effective_end_date")
+                and frappe.utils.getdate(row["effective_end_date"])
+                > frappe.utils.getdate(frappe.utils.today())
+            )
+            row["operational_status"] = reads
+            row["dated_change"] = dated
+            held.append(row)
 
-        return rows
+        return held
 
     @staticmethod
     def _entry(item, reason=None, warning=None):

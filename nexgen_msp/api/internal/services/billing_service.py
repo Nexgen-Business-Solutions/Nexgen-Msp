@@ -13,7 +13,7 @@ from nexgen_msp.api.internal.services.service_definition_service import (
     ServiceDefinitionService,
 )
 from nexgen_msp.api.internal.services.billing import accounting, money
-from nexgen_msp.utils import billing_marks, erpnext_bridge, permissions
+from nexgen_msp.utils import billing_marks, erpnext_bridge, permissions, pricing
 from nexgen_msp.utils import intervals as coverage_intervals
 from nexgen_msp.utils.catalogue import BILLING_UOM
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
@@ -326,6 +326,118 @@ class BillingService:
             return coverage_intervals.span(line["covered_from"], line["covered_to"])
 
         return []
+
+    @staticmethod
+    def _preceding_period(assignment, customer):
+        """The period this one replaced, when it replaced one.
+
+        A change of terms closes the running period the day before and opens a replacement
+        on the day, so the two abut. The replacement carries an identity of its own, which
+        is the point — an issued invoice keeps reading the terms it was drawn on — but it
+        also means the days the customer already paid for sit against a name this one does
+        not know. Reading them back is how a change over paid days charges the difference
+        instead of the whole of it again.
+
+        Derived rather than stored: the shape of the handover is what identifies it, and a
+        field for it would have to be written onto records that already exist.
+        """
+        start = assignment.effective_start_date
+
+        if not start:
+            return None
+
+        filters = {
+            "customer": customer,
+            "service_item": assignment.service_item,
+            "assignment_scope": assignment.assignment_scope,
+            "effective_end_date": add_days(getdate(start), -1),
+            "operational_status": "Ended",
+            "name": ("!=", assignment.name),
+        }
+
+        # the same target, so one person's period is never read as another's. An empty one
+        # is left out rather than matched against '': the column holds NULL, which equals
+        # nothing at all, and the scope above already tells a company period from a person's
+        for field in ("client_user", "managed_device"):
+            if assignment.get(field):
+                filters[field] = assignment.get(field)
+
+        found = frappe.get_all(
+            "MSP Service Assignment",
+            filters=filters,
+            fields=["name", "quantity"],
+            order_by="creation desc",
+            limit=1,
+        )
+
+        return found[0] if found else None
+
+    @staticmethod
+    def _prepaid_before(assignment, coverage, window_start, window_end, customer):
+        """The days of this period the period it replaced was already charged for.
+
+        Returns the quantity those days were paid at and the days themselves.
+        """
+        earlier = BillingService._preceding_period(assignment, customer)
+
+        if not earlier:
+            return 0.0, [], []
+
+        held = coverage.get(earlier.name, {})
+        charged = coverage_intervals.merge(
+            held.get("charged", []) + held.get("reserved", [])
+        )
+
+        if not charged:
+            return 0.0, [], []
+
+        live_to = (
+            min(getdate(assignment.effective_end_date), getdate(window_end))
+            if assignment.effective_end_date
+            else getdate(window_end)
+        )
+        live = coverage_intervals.span(
+            max(getdate(assignment.effective_start_date), getdate(window_start)), live_to
+        )
+
+        if not live:
+            return 0.0, [], []
+
+        return flt(earlier.quantity or 0), coverage_intervals.intersect(charged, live), live
+
+    @staticmethod
+    def _quantity_stretches(stretches, prepaid, quantity, prepaid_quantity, live=None):
+        """Each rate stretch cut again where its days were already paid at another quantity.
+
+        Over days the customer has already paid for, only what was added to the service is
+        owed: five units paid for and eight now held is a charge for three, prorated over
+        those days alone. Taking units away over paid days owes nothing more — giving money
+        back is an act somebody performs, not one a run performs for them.
+        """
+        if not prepaid:
+            return [tuple(stretch) + (flt(quantity),) for stretch in stretches]
+
+        added = flt(quantity) - flt(prepaid_quantity)
+        pieces = []
+
+        for stretch in stretches:
+            whole = coverage_intervals.span(stretch[0], stretch[1])
+            terms = tuple(stretch[2:])
+
+            # the days of this stretch the period was really live for: splitting the whole
+            # of it would hand back a piece outside the period's own life, which earns
+            # nothing and would read on the invoice as a line charging for no days at all
+            if live:
+                whole = coverage_intervals.intersect(whole, live)
+
+            if added > 0:
+                for first, last in coverage_intervals.intersect(whole, prepaid):
+                    pieces.append((first, last) + terms + (added,))
+
+            for first, last in coverage_intervals.subtract(whole, prepaid):
+                pieces.append((first, last) + terms + (flt(quantity),))
+
+        return sorted(pieces, key=lambda piece: piece[0])
 
     @staticmethod
     def _unused_after_billing(
@@ -672,22 +784,20 @@ class BillingService:
                 flt(price.msp_discount_percent),
             )
 
-        price = frappe.db.get_value(
-            "Item Price",
-            {
-                "item_code": assignment.service_item,
-                "price_list": terms.get("price_list"),
-                "selling": 1,
-            },
-            "price_list_rate",
-        )
+        # the price this customer was given, in force over the days being billed. Asked of
+        # the contract's price list instead, a generic price answers for a customer who has
+        # one of their own, and the invoice is drawn at a rate nobody agreed to
+        price = pricing.customer_price(
+            customer, assignment.service_item, period_start
+        ) or pricing.customer_price(customer, assignment.service_item, period_end)
 
         if not price:
             return (
                 None,
                 source,
                 "Missing Rate",
-                f"No Item Price for {assignment.service_item} on {terms.get('price_list')}.",
+                f"No price is on file for {assignment.service_item} for this customer over "
+                f"{period_start} to {period_end}.",
                 0.0,
             )
 
@@ -708,7 +818,9 @@ class BillingService:
         window_start = getdate(period_start)
         window_end = getdate(period_end)
 
-        if source != "Contract":
+        # a rate held by hand on the record, and one that is missing altogether, do not come
+        # off a price list and so cannot change part-way through a period
+        if source not in ("Contract", "Item Price"):
             rate, source, code, detail, discount = BillingService._rate_for(
                 customer, assignment, terms, period_start, period_end
             )
@@ -1151,7 +1263,31 @@ class BillingService:
                     blocked + coverage_intervals.span("1900-01-01", already_paid)
                 )
 
-            for begins, ends, rate, source, rate_exception, rate_detail, rate_discount in stretches:
+            # days the period this one replaced was already charged for, and the quantity
+            # they were charged at: over those days only what was added is owed
+            prepaid_quantity, prepaid, live_span = BillingService._prepaid_before(
+                assignment, coverage, period_start, period_end, customer
+            )
+            pieces = BillingService._quantity_stretches(
+                stretches, prepaid, quantity, prepaid_quantity, live_span
+            )
+
+            if not pieces:
+                # the whole of it was paid for and nothing was added: the days are covered,
+                # and the line that says so is the one an administrator needs to see
+                blocked = coverage_intervals.merge(blocked + prepaid)
+                pieces = [tuple(stretch) + (quantity,) for stretch in stretches]
+
+            for (
+                begins,
+                ends,
+                rate,
+                source,
+                rate_exception,
+                rate_detail,
+                rate_discount,
+                line_quantity,
+            ) in pieces:
                 exception_code = None
                 exception_detail = None
 
@@ -1231,7 +1367,7 @@ class BillingService:
                 else:
                     discount_source = None
 
-                gross = 0.0 if exception_code else flt(rate) * quantity * months
+                gross = 0.0 if exception_code else flt(rate) * line_quantity * months
                 amount = gross * (1 - flt(discount) / 100.0)
 
                 lines.append(
@@ -1254,7 +1390,9 @@ class BillingService:
                         "assignment_scope": assignment.assignment_scope,
                         "client_user": assignment.client_user,
                         "managed_device": assignment.managed_device,
-                        "quantity": quantity,
+                        # what this line charges for, which over days already paid for at a
+                        # smaller quantity is only what was added to the service
+                        "quantity": line_quantity,
                         "billable_days": billable_days,
                         "period_days": period_days,
                         "covered_from": covered_from,

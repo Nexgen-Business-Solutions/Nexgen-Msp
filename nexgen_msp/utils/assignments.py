@@ -3,6 +3,34 @@
 # a service that is still on somebody's hands, in whatever stage of its life
 OPEN_ASSIGNMENT_STATUSES = ("Pending Setup", "Active", "Suspended")
 
+# where the catalogue says a service may be provided, and so where a period of it may be
+# opened. "Both" is the one entry that is not its own name: it means a person or a machine,
+# never the company, which is why it cannot be read as "anywhere"
+SCOPES_FOR_CATALOGUE = {
+    "User": ("User",),
+    "Device": ("Device",),
+    "Both": ("User", "Device"),
+    "Customer": ("Customer",),
+}
+
+SCOPE_PHRASE = {
+    "User": "per-user",
+    "Device": "per-device",
+    "Both": "per-user or per-device",
+    "Customer": "customer-level",
+}
+
+
+def scopes_allowed_for(item_scope):
+    """The assignment scopes a catalogue entry permits, or None when it restricts nothing.
+
+    An Item with no scope on file, or one carrying a scope this application does not
+    recognise, is a legacy record: it is left unrestricted rather than retroactively made
+    invalid.
+    """
+    return SCOPES_FOR_CATALOGUE.get(item_scope)
+
+
 # billing follows the operational life of a service, it never runs a state machine of its own
 OPERATIONAL_TO_BILLING = {
     "Draft": "Not Billable",

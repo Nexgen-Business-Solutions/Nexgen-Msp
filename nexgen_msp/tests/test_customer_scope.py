@@ -11,7 +11,6 @@ no target, and two overlapping Customer periods were already refused. What was m
 the way in — the catalogue would not sell one, and the lifecycle had nowhere to put it.
 """
 
-import unittest
 
 import frappe
 
@@ -1059,25 +1058,15 @@ class TestACompanyPeriodIsBilledOnce(CompanyBillingCase):
         self.assertGreater(sum(flt(row.billable_months) for row in self.mine(first)), 0)
         self.assertEqual(sum(flt(row.billable_months) for row in self.mine(again)), 0)
 
-    @unittest.skip(
-        "Reproduction kept, expectation not settled: what a change over days already paid "
-        "for should do — bill nothing, bill the difference, or raise the credit itself — "
-        "is a commercial decision, not a mechanical one."
-    )
-    def test_a_change_after_the_days_were_billed_does_not_bill_them_twice(self):
-        """A quarter paid in advance, then the company takes more of it halfway through.
-
-        The change closes one period and opens another with an identity of its own, and
-        coverage is recorded against the period that was billed. Nothing stops the new one
-        from being drawn over days the customer has already paid for.
-        """
+    def take_more(self, quantity, now):
+        """A period opened at one quantity, paid for, then resized halfway through."""
         start, end = self.month()
-        first = self.opened(quantity=5)
+        first = self.opened(quantity=quantity)
         self.posted(start, end)
         middle = frappe.utils.add_days(frappe.utils.getdate(start), 15)
 
         ServiceLifecycleService.change(
-            assignment=first, effective_date=str(middle), quantity=8
+            assignment=first, effective_date=str(middle), quantity=now
         )
         frappe.db.commit()
 
@@ -1088,12 +1077,47 @@ class TestACompanyPeriodIsBilledOnce(CompanyBillingCase):
         ):
             self.track(ASSIGNMENT, row)
 
+        return first, start, end, middle
+
+    def test_a_change_after_the_days_were_billed_charges_only_what_was_added(self):
+        """A month paid at five, then the company takes eight halfway through.
+
+        Issue #33: only the added quantity and time is charged, and the coverage already
+        issued stays where it is. Charging the eight again over days paid for at five is
+        charging five of them twice.
+        """
+        first, start, end, middle = self.take_more(5, 8)
+
+        rows = self.mine(self.drawn(start=start, end=end))
+        added = [row for row in rows if row.service_assignment != first]
+
+        self.assertEqual(
+            [flt(row.quantity) for row in added],
+            [3.0],
+            f"three units were added, not eight: {[(flt(row.quantity), str(row.covered_from)) for row in rows]}",
+        )
+        self.assertGreater(
+            flt(added[0].billable_months), 0, "the added units are charged for the rest of it"
+        )
+        self.assertEqual(
+            sum(flt(row.billable_months) for row in rows if row.service_assignment == first),
+            0,
+            "the period already paid for owes nothing more",
+        )
+
+    def test_taking_units_away_over_paid_days_charges_nothing_more(self):
+        """Money owed back is given back by somebody, not quietly billed as a negative."""
+        first, start, end, _middle = self.take_more(8, 5)
+
         rows = self.mine(self.drawn(start=start, end=end))
 
         self.assertEqual(
             sum(flt(row.billable_months) for row in rows),
             0,
-            f"those days are paid for: {[(str(row.covered_from), str(row.covered_to), flt(row.quantity), flt(row.billable_months)) for row in rows]}",
+            f"nothing further is owed: {[(flt(row.quantity), flt(row.billable_months)) for row in rows]}",
+        )
+        self.assertTrue(
+            all(flt(row.amount) >= 0 for row in rows), "no run writes a credit by itself"
         )
 
     def test_a_decrease_bills_the_smaller_quantity_for_the_rest_of_the_period(self):
@@ -1431,3 +1455,241 @@ class TestARequestForACompanyService(ExecutionCase):
 
         with self.assertRaises(ServiceRefused):
             self.approved(self.line(service, client_user=None))
+
+class TestWhatIsNotSoldToTheCompany(CustomerScopeCase):
+    """"Both" names a person or a machine, and has never named the company.
+
+    Adding Customer to the scopes a service may be provided at widened the one test that
+    read "Both" as "anywhere": a service sold per person or per machine became sellable to
+    the company itself, which no catalogue entry ever said.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.either = self.make_service(f"BTH{self.tag}", scope="Both")
+        self.cover_service(self.customer, self.either, rate=20.0)
+
+    def test_a_per_user_or_per_device_service_is_refused_at_company_scope(self):
+        with self.assertRaises(ValidationError) as caught:
+            ServiceLifecycleService.activate(
+                customer=self.customer,
+                service_item=self.either,
+                target_scope="Customer",
+                effective_date="2026-01-01",
+                quantity=1,
+            )
+
+        self.assertIn("cannot be assigned at Customer scope", str(caught.exception))
+
+    def test_it_is_still_provided_to_a_person_exactly_as_before(self):
+        person = self.make_person(self.customer, "Alice")
+        opened = ServiceLifecycleService.activate(
+            customer=self.customer,
+            service_item=self.either,
+            target_scope="User",
+            client_user=person,
+            effective_date="2026-01-01",
+            quantity=1,
+        )
+
+        self.assertTrue(self.track(ASSIGNMENT, opened["name"]))
+
+    def test_the_record_refuses_it_whatever_door_writes_it(self):
+        """The service layer is one door; a script writing the document itself is another."""
+        doc = frappe.get_doc(
+            {
+                "doctype": ASSIGNMENT,
+                "customer": self.customer,
+                "service_item": self.either,
+                "assignment_scope": "Customer",
+                "operational_status": "Active",
+                "effective_start_date": "2026-01-01",
+                "quantity": 1,
+            }
+        )
+
+        with self.assertRaises(frappe.ValidationError):
+            doc.insert(ignore_permissions=True)
+
+
+class TestARequestActsOnTheServiceItNames(CustomerScopeCase):
+    """A line says what it acts on, and the record has to agree with it.
+
+    A person's service is identified by the person named beside it, so a line pointing at
+    the wrong one is caught by that name. The company has no such name: the scope and the
+    service are the whole of the identity, and without checking them a line raised about
+    the company could carry out its act on somebody's service instead.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.person = self.make_person(self.customer, "Alice")
+        self.personal = self.make_service(f"PRS{self.tag}", scope="User")
+        self.cover_service(self.customer, self.personal, rate=15.0)
+        self.hers = self.track(
+            ASSIGNMENT,
+            ServiceLifecycleService.activate(
+                customer=self.customer,
+                service_item=self.personal,
+                target_scope="User",
+                client_user=self.person,
+                effective_date="2026-01-01",
+                quantity=1,
+            )["name"],
+        )
+
+    def asking(self, **over):
+        line = {
+            "doctype": "MSP Request Line",
+            "action": "Remove",
+            "operation_code": "service.end",
+            "target_scope": "Customer",
+            "requested_service": self.retainer,
+        }
+        line.update(over)
+        doc = frappe.get_doc(
+            {
+                "doctype": "MSP Request",
+                "customer": self.customer,
+                "request_type": "Change",
+                # a draft is not checked: it is still being written, and the rules this
+                # exercises are the ones that run when it is sent
+                "status": "Submitted",
+                "requester": frappe.session.user,
+                "lines": [line],
+            }
+        )
+        doc.insert(ignore_permissions=True)
+
+        return self.track("MSP Request", doc.name)
+
+    def test_a_company_line_may_not_act_on_a_persons_service(self):
+        with self.assertRaises(frappe.ValidationError) as caught:
+            self.asking(source_service_assignment=self.hers)
+
+        self.assertIn("scope", str(caught.exception).lower())
+
+    def test_a_line_may_not_name_one_service_and_act_on_another(self):
+        company = self.open_one()
+        other = self.make_service(f"OTH{self.tag}", scope="Customer")
+        self.cover_service(self.customer, other, rate=50.0)
+
+        with self.assertRaises(frappe.ValidationError):
+            self.asking(source_service_assignment=company, requested_service=other)
+
+    def test_a_change_may_still_put_the_period_onto_another_service(self):
+        """The one act that is allowed to name a service the period does not hold."""
+        company = self.open_one()
+        other = self.make_service(f"SWP{self.tag}", scope="Customer")
+        self.cover_service(self.customer, other, rate=50.0)
+
+        self.assertTrue(
+            self.asking(
+                action="Change",
+                operation_code="service.change",
+                source_service_assignment=company,
+                requested_service=other,
+            )
+        )
+
+    def test_the_line_that_names_its_own_service_is_accepted(self):
+        company = self.open_one()
+
+        self.assertTrue(self.asking(source_service_assignment=company))
+
+    def test_the_same_company_service_may_not_be_asked_for_twice_at_once(self):
+        """Nothing identifies the company target but the customer and the scope."""
+        first = self.asking(
+            action="Add", operation_code="service.add", source_service_assignment=None
+        )
+        frappe.db.commit()
+
+        with self.assertRaises(frappe.ValidationError) as caught:
+            self.asking(
+                action="Add", operation_code="service.add", source_service_assignment=None
+            )
+
+        self.assertIn(first, str(caught.exception))
+
+
+class TestACompanyServiceClosedForLater(CustomerScopeCase):
+    """A period closed for a day still to come is being provided until that day.
+
+    The portal read the stored status, which already says Ended the moment somebody dates
+    the close. The service then vanished from what the company holds, and was offered for
+    sale again over days it is still being provided over.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.held = self.open_one()
+        self.later = frappe.utils.add_days(frappe.utils.today(), 20)
+        # the state a close dated ahead leaves on the record. Only a request may date one
+        # for later, and what is exercised here is how that state is read, not how it is
+        # reached
+        frappe.db.set_value(
+            ASSIGNMENT,
+            self.held,
+            {"operational_status": "Ended", "effective_end_date": self.later},
+            update_modified=False,
+        )
+        frappe.db.commit()
+
+    def test_the_company_still_holds_it_until_that_day(self):
+        from nexgen_msp.api.portal.services import request_scope_service
+
+        running = request_scope_service._company_open(self.customer)
+
+        self.assertIn(self.retainer, running)
+        self.assertEqual(running[self.retainer]["status"], "Active")
+        self.assertTrue(running[self.retainer]["dated_change"])
+
+    def test_nothing_further_is_offered_on_it_until_the_day_comes(self):
+        """The lifecycle would refuse a second close, so the portal must not offer one."""
+        from nexgen_msp.api.portal.services.request_scope_service import RequestScopeService
+
+        # the builder is always asked about somebody; the company's own card is built
+        # beside the people's, and it is that card this reads
+        person = self.make_person(self.customer, "Alice")
+        card = frappe.db.get_value(
+            "MSP Client User", person, ["full_name", "department", "email"], as_dict=True
+        )
+        options = RequestScopeService.operation_options(
+            customer=self.customer,
+            subjects=[
+                {
+                    "subject_key": f"user:{person}",
+                    "client_user": person,
+                    "full_name": card.full_name,
+                    "department": card.department,
+                    "email": card.email,
+                    "added_via": "Existing",
+                }
+            ],
+        )
+        company = next(
+            (domain for domain in options["domains"] if domain["key"] == "Company"), None
+        )
+        offered = [] if not company else [
+            code
+            for option in company["options"]
+            if option["object_key"] == self.retainer
+            for code in [action["operation_code"] for action in option["actions"]]
+        ]
+
+        self.assertEqual(offered, [], "a change is already dated on it")
+
+    def test_the_internal_screen_does_not_offer_to_sell_it_again(self):
+        from nexgen_msp.api.internal.services.service_availability_service import (
+            ServiceAvailabilityService,
+        )
+
+        answer = ServiceAvailabilityService._answer(
+            self.customer, "Customer", None, "The company", None
+        )
+
+        self.assertIn(self.retainer, [row["service_item"] for row in answer["current"]])
+        self.assertNotIn(
+            self.retainer, [row["service_item"] for row in answer["available"]]
+        )
+

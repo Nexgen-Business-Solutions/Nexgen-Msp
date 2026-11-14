@@ -15,7 +15,7 @@ import frappe
 from nexgen_msp.api.internal.services.service_definition_service import (
     ServiceDefinitionService,
 )
-from nexgen_msp.utils import catalogue as msp_catalogue
+from nexgen_msp.utils import assignments, catalogue as msp_catalogue, pricing
 
 from nexgen_msp.api.internal.services.contract_service import ContractService
 from nexgen_msp.api.internal.services.request_service import ADMIN_ROLES, RequestService
@@ -639,10 +639,12 @@ class ServiceLifecycleService:
                 f"'{scope}' is not a target a service can be provided to.", "VALIDATION_ERROR"
             )
 
-        if item.service_scope != "Both" and item.service_scope != scope:
+        allowed = assignments.scopes_allowed_for(item.service_scope)
+
+        if allowed and scope not in allowed:
             raise ValidationError(
-                f"{item.name} is a {item.service_scope} service and cannot be assigned at "
-                f"{scope} scope.",
+                f"{item.name} is a {assignments.SCOPE_PHRASE[item.service_scope]} service and "
+                f"cannot be assigned at {scope} scope.",
                 "VALIDATION_ERROR",
             )
 
@@ -883,24 +885,7 @@ class ServiceLifecycleService:
     @staticmethod
     def _customer_price(customer, service_item, on_date):
         """A selling price written for this customer and still in force on the day."""
-        rows = frappe.db.sql(
-            """
-            select price.price_list_rate
-            from `tabItem Price` price
-            where price.item_code = %(item)s
-              and price.customer = %(customer)s
-              and price.selling = 1
-              and ifnull(price.price_list_rate, 0) > 0
-              and (price.valid_from is null or price.valid_from <= %(on_date)s)
-              and (price.valid_upto is null or price.valid_upto >= %(on_date)s)
-            order by price.valid_from desc
-            limit 1
-            """,
-            {"customer": customer, "item": service_item, "on_date": on_date},
-            pluck=True,
-        )
-
-        return frappe.utils.flt(rows[0]) if rows else None
+        return pricing.customer_price(customer, service_item, on_date)
 
     @staticmethod
     def _confirm_rate(doc, on_date):

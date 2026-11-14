@@ -53,6 +53,10 @@ REASON_TEXT = {
     "CHANGE_ALREADY_DATED": "A change to this service is already set for a day to come.",
 }
 
+# what the portal may ask about a service. Changing the terms of one — how many units, at
+# what rate — is deliberately not here, and not for the company either: those are read off
+# the contract and settled with Nexgen, so they are performed from the internal screens and
+# have never been a request a customer raises. Its absence is a decision, not an oversight
 SERVICE_CODES = ("service.add", "service.suspend", "service.resume", "service.end")
 
 # what a target about the company itself is grouped under in the builder
@@ -986,22 +990,57 @@ def _sort_service(code, item, scope, row, device, state, available, targets, exc
 
 
 def _company_open(customer):
-    """The periods the company itself has open, by service."""
+    """The periods the company itself has open, by service.
+
+    Read on the same clock as a person's services: a period closed for a day still to come
+    is being provided until that day, and a pause decided for later has not started yet.
+    """
+    rows = frappe.db.sql(
+        """
+        select sa.name, sa.service_item, sa.operational_status, sa.effective_end_date
+        from `tabMSP Service Assignment` sa
+        where sa.customer = %(customer)s
+          and sa.assignment_scope = 'Customer'
+          and (
+            sa.operational_status in %(open)s
+            or (sa.operational_status = 'Ended' and sa.effective_end_date > %(today)s)
+          )
+        """,
+        {
+            "customer": customer,
+            "open": OPEN_ASSIGNMENT_STATUSES,
+            "today": frappe.utils.today(),
+        },
+        as_dict=True,
+    )
+
+    pauses = {}
+
+    if rows:
+        for pause in frappe.get_all(
+            "MSP Service Suspension",
+            filters={
+                "parenttype": "MSP Service Assignment",
+                "parent": ("in", [row.name for row in rows]),
+            },
+            fields=["parent", "suspended_on", "resumed_on"],
+            order_by="parent asc, suspended_on asc",
+        ):
+            pauses.setdefault(pause.parent, []).append(pause)
+
     found = {}
 
-    for row in frappe.get_all(
-        "MSP Service Assignment",
-        filters={
-            "customer": customer,
-            "assignment_scope": "Customer",
-            "operational_status": ("in", OPEN_ASSIGNMENT_STATUSES),
-        },
-        fields=["name", "service_item", "operational_status"],
-    ):
+    for row in rows:
+        reads = assignments.status_as_of(
+            row.operational_status, row.effective_end_date, pauses.get(row.name)
+        )
         found[row.service_item] = {
             "assignment": row.name,
             "service_item": row.service_item,
-            "status": row.operational_status,
+            "status": reads,
+            # it still holds the service, so nothing may be added onto it, but the change it
+            # already carries has not happened yet and the lifecycle would refuse a second one
+            "dated_change": reads != row.operational_status,
         }
 
     return found
@@ -1051,6 +1090,8 @@ def _evaluate_company(code, item, customer, label, current, available, state):
         exclusions.append(_company_entry(label, None, "NO_CURRENT_ASSIGNMENT"))
     elif current["assignment"] in state["in_flight"]["touched"]:
         exclusions.append(_company_entry(label, current, "PENDING_CONFLICT"))
+    elif current.get("dated_change"):
+        exclusions.append(_company_entry(label, current, "CHANGE_ALREADY_DATED"))
     elif code not in operations.for_service_state(current["status"]):
         exclusions.append(
             _company_entry(

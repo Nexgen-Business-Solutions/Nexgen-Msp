@@ -6,7 +6,11 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import getdate
 
-from nexgen_msp.utils.assignments import OPERATIONAL_TO_BILLING
+from nexgen_msp.utils.assignments import (
+	OPERATIONAL_TO_BILLING,
+	SCOPE_PHRASE,
+	scopes_allowed_for,
+)
 from nexgen_msp.utils.service_suspensions import validate_suspension_log
 
 SCOPE_FIELD = {
@@ -115,13 +119,14 @@ class MSPServiceAssignment(Document):
 		)
 
 		item_scope = ServiceDefinitionService.scope_of(self.service_item, default=None)
+		allowed = scopes_allowed_for(item_scope)
 
-		if item_scope not in ITEM_SCOPES or item_scope == self.assignment_scope:
+		if not allowed or self.assignment_scope in allowed:
 			return
 
 		frappe.throw(
 			_("{0} is a {1} service and cannot be assigned at {2} scope.").format(
-				frappe.bold(self.service_item), item_scope, self.assignment_scope
+				frappe.bold(self.service_item), SCOPE_PHRASE[item_scope], self.assignment_scope
 			)
 		)
 

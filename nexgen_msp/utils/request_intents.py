@@ -34,6 +34,9 @@ IN_FLIGHT_STATUSES = (
 
 TARGET_FIELD = {"User": "client_user", "Device": "managed_device"}
 
+# the company holds a service in its own name, with no row to point at
+COMPANY_SCOPE = "Customer"
+
 TARGET_SQL = {"User": request_targets.line_person_sql, "Device": request_targets.line_device_sql}
 
 # the operations that decide who holds a machine, and so cannot be asked twice at once
@@ -139,23 +142,27 @@ def allowed_actions(operational_status):
 
 def open_assignment_for(customer, service_item, scope, target):
 	"""The service already running on this exact target, if there is one."""
-	if scope not in TARGET_FIELD or not target:
+	if scope in TARGET_FIELD:
+		if not target:
+			return None
+	elif scope != COMPANY_SCOPE:
 		return None
 
 	from nexgen_msp.utils.assignments import OPEN_ASSIGNMENT_STATUSES
 
-	found = frappe.get_all(
-		ASSIGNMENT,
-		filters={
-			"customer": customer,
-			"service_item": service_item,
-			"assignment_scope": scope,
-			TARGET_FIELD[scope]: target,
-			"operational_status": ("in", OPEN_ASSIGNMENT_STATUSES),
-		},
-		pluck="name",
-		limit=1,
-	)
+	filters = {
+		"customer": customer,
+		"service_item": service_item,
+		"assignment_scope": scope,
+		"operational_status": ("in", OPEN_ASSIGNMENT_STATUSES),
+	}
+
+	# a scope with a target field is asked about that target; the company has none, and the
+	# customer named above is the whole of the question
+	if scope in TARGET_FIELD:
+		filters[TARGET_FIELD[scope]] = target
+
+	found = frappe.get_all(ASSIGNMENT, filters=filters, pluck="name", limit=1)
 
 	return found[0] if found else None
 
@@ -177,7 +184,16 @@ def in_flight_requests_for(assignment, exclude=None):
 
 def in_flight_additions_for(customer, service_item, scope, target, exclude=None):
 	"""Another request already asking for this same service on this same target."""
-	if scope not in TARGET_FIELD or not target:
+	if scope in TARGET_FIELD:
+		if not target:
+			return []
+
+		on_target = f"and {TARGET_SQL[scope]('srl')} = %(target)s"
+	elif scope == COMPANY_SCOPE:
+		# the company is named by the customer and the scope alone: asking twice for the same
+		# service at that scope is asking twice for the same thing
+		on_target = ""
+	else:
 		return []
 
 	return frappe.db.sql_list(
@@ -189,7 +205,7 @@ def in_flight_additions_for(customer, service_item, scope, target, exclude=None)
 		  and srl.requested_service = %(service)s
 		  and srl.action = 'Add'
 		  and srl.target_scope = %(scope)s
-		  and {TARGET_SQL[scope]("srl")} = %(target)s
+		  {on_target}
 		  and sr.status in %(in_flight)s
 		  and sr.name != %(exclude)s
 		""",
@@ -351,6 +367,36 @@ def validate_action_against_state(doc, row):
 				_("Row {0}: {1} belongs to another customer.").format(row.idx, frappe.bold(assignment))
 			)
 
+		# the company scope has no row to point at, so a mismatch there cannot be caught by
+		# the target: the scope and the service are the whole of the identity, and without
+		# them a line could name the company and act on a person's service
+		if current.assignment_scope != row.target_scope:
+			frappe.throw(
+				_("Row {0}: {1} is held at {2} scope, not at {3} scope.").format(
+					row.idx,
+					frappe.bold(assignment),
+					current.assignment_scope,
+					row.target_scope,
+				)
+			)
+
+		# a change may put the period onto another service altogether, so the service named
+		# there is the one wanted, not the one held. Every other act works on the service as
+		# it stands, and naming a different one means the line is about something else
+		if (
+			action != "Change"
+			and row.get("requested_service")
+			and current.service_item != row.requested_service
+		):
+			frappe.throw(
+				_("Row {0}: {1} is a period of {2}, not of {3}.").format(
+					row.idx,
+					frappe.bold(assignment),
+					current.service_item,
+					row.requested_service,
+				)
+			)
+
 		field = TARGET_FIELD.get(row.target_scope)
 		target = row.get(field) if field else None
 
@@ -384,7 +430,7 @@ def validate_action_against_state(doc, row):
 		field = TARGET_FIELD.get(row.target_scope)
 		target = row.get(field) if field else None
 
-		if not target:
+		if field and not target:
 			return
 
 		running = open_assignment_for(doc.customer, row.requested_service, row.target_scope, target)
@@ -436,7 +482,7 @@ def validate_no_open_conflict(doc, row):
 	else:
 		target = None
 
-	if not target:
+	if not target and row.target_scope != COMPANY_SCOPE:
 		return
 
 	others = in_flight_additions_for(
