@@ -1,0 +1,247 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:rule_key",
+ "creation": "2026-11-14 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "rule_key",
+  "display_name",
+  "category",
+  "kind",
+  "enabled",
+  "protected",
+  "section_message",
+  "trigger_key",
+  "template_name",
+  "audience_key",
+  "recipients",
+  "section_schedule",
+  "initial_delay_value",
+  "initial_delay_unit",
+  "repeat_interval_value",
+  "repeat_interval_unit",
+  "max_sends",
+  "stop_condition_key",
+  "column_window",
+  "timezone",
+  "quiet_hours_enabled",
+  "quiet_start",
+  "quiet_end",
+  "escalation_after_iteration",
+  "escalation_audience_key",
+  "section_state",
+  "revision",
+  "schedule_effective_at"
+ ],
+ "fields": [
+  {
+   "fieldname": "rule_key",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Rule Key",
+   "reqd": 1,
+   "set_only_once": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "display_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Display Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "category",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Category",
+   "options": "Requests\nBilling\nAccounts\nOperations",
+   "reqd": 1
+  },
+  {
+   "fieldname": "kind",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Kind",
+   "options": "Event\nReminder",
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Enabled"
+  },
+  {
+   "default": "0",
+   "fieldname": "protected",
+   "fieldtype": "Check",
+   "label": "Protected",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_message",
+   "fieldtype": "Section Break",
+   "label": "Message and recipients"
+  },
+  {
+   "fieldname": "trigger_key",
+   "fieldtype": "Data",
+   "label": "Trigger Key",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "template_name",
+   "fieldtype": "Link",
+   "label": "Email Template",
+   "options": "Email Template",
+   "reqd": 1
+  },
+  {
+   "fieldname": "audience_key",
+   "fieldtype": "Data",
+   "label": "Audience",
+   "reqd": 1
+  },
+  {
+   "fieldname": "recipients",
+   "fieldtype": "Table",
+   "label": "Additional Recipients",
+   "options": "MSP Notification Recipient"
+  },
+  {
+   "fieldname": "section_schedule",
+   "fieldtype": "Section Break",
+   "label": "Reminder schedule"
+  },
+  {
+   "default": "0",
+   "fieldname": "initial_delay_value",
+   "fieldtype": "Int",
+   "label": "First Reminder After"
+  },
+  {
+   "default": "Days",
+   "fieldname": "initial_delay_unit",
+   "fieldtype": "Select",
+   "label": "First Reminder Unit",
+   "options": "Hours\nDays\nWeeks"
+  },
+  {
+   "default": "0",
+   "fieldname": "repeat_interval_value",
+   "fieldtype": "Int",
+   "label": "Repeat Every"
+  },
+  {
+   "default": "Days",
+   "fieldname": "repeat_interval_unit",
+   "fieldtype": "Select",
+   "label": "Repeat Unit",
+   "options": "Hours\nDays\nWeeks"
+  },
+  {
+   "default": "0",
+   "fieldname": "max_sends",
+   "fieldtype": "Int",
+   "label": "Maximum Reminders"
+  },
+  {
+   "fieldname": "stop_condition_key",
+   "fieldtype": "Data",
+   "label": "Stop Condition"
+  },
+  {
+   "fieldname": "column_window",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "timezone",
+   "fieldtype": "Data",
+   "label": "Timezone"
+  },
+  {
+   "default": "0",
+   "fieldname": "quiet_hours_enabled",
+   "fieldtype": "Check",
+   "label": "Quiet Hours"
+  },
+  {
+   "fieldname": "quiet_start",
+   "fieldtype": "Time",
+   "label": "Quiet Period Starts"
+  },
+  {
+   "fieldname": "quiet_end",
+   "fieldtype": "Time",
+   "label": "Quiet Period Ends"
+  },
+  {
+   "fieldname": "escalation_after_iteration",
+   "fieldtype": "Int",
+   "label": "Escalate After Iteration"
+  },
+  {
+   "fieldname": "escalation_audience_key",
+   "fieldtype": "Data",
+   "label": "Escalation Audience"
+  },
+  {
+   "fieldname": "section_state",
+   "fieldtype": "Section Break",
+   "label": "State"
+  },
+  {
+   "default": "1",
+   "fieldname": "revision",
+   "fieldtype": "Int",
+   "label": "Revision",
+   "read_only": 1
+  },
+  {
+   "fieldname": "schedule_effective_at",
+   "fieldtype": "Datetime",
+   "label": "Schedule Effective At",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-11-14 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nexgen MSP",
+ "name": "MSP Notification Rule",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "MSP System Admin",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

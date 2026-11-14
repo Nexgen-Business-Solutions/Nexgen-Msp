@@ -1,0 +1,132 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-11-14 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "action",
+  "rule",
+  "rule_revision",
+  "dispatch",
+  "business_doctype",
+  "business_name",
+  "actor",
+  "attempt",
+  "recipients",
+  "template_name",
+  "subject_snapshot",
+  "reason_code",
+  "detail"
+ ],
+ "fields": [
+  {
+   "fieldname": "action",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Action",
+   "options": "Rule Edited\nRule Enabled\nRule Disabled\nEvaluated\nQueued\nSkipped\nFailed\nStatus Changed\nRetry Decided\nTest Sent",
+   "reqd": 1
+  },
+  {
+   "fieldname": "rule",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Rule",
+   "options": "MSP Notification Rule"
+  },
+  {
+   "fieldname": "rule_revision",
+   "fieldtype": "Int",
+   "label": "Rule Revision"
+  },
+  {
+   "fieldname": "dispatch",
+   "fieldtype": "Link",
+   "label": "Dispatch",
+   "options": "MSP Notification Dispatch"
+  },
+  {
+   "fieldname": "business_doctype",
+   "fieldtype": "Data",
+   "label": "Business DocType"
+  },
+  {
+   "fieldname": "business_name",
+   "fieldtype": "Data",
+   "label": "Business Record"
+  },
+  {
+   "fieldname": "actor",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Actor"
+  },
+  {
+   "default": "0",
+   "fieldname": "attempt",
+   "fieldtype": "Int",
+   "label": "Attempt"
+  },
+  {
+   "fieldname": "recipients",
+   "fieldtype": "Small Text",
+   "label": "Recipients"
+  },
+  {
+   "fieldname": "template_name",
+   "fieldtype": "Data",
+   "label": "Template"
+  },
+  {
+   "fieldname": "subject_snapshot",
+   "fieldtype": "Data",
+   "label": "Subject"
+  },
+  {
+   "fieldname": "reason_code",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Reason Code"
+  },
+  {
+   "fieldname": "detail",
+   "fieldtype": "Small Text",
+   "label": "Detail"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-11-14 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nexgen MSP",
+ "name": "MSP Notification Audit",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 0,
+   "delete": 0,
+   "email": 0,
+   "print": 0,
+   "read": 1,
+   "role": "System Manager",
+   "share": 0,
+   "write": 0
+  },
+  {
+   "create": 0,
+   "delete": 0,
+   "email": 0,
+   "print": 0,
+   "read": 1,
+   "role": "MSP System Admin",
+   "share": 0,
+   "write": 0
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

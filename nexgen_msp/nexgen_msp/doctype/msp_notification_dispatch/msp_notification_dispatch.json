@@ -1,0 +1,200 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-11-14 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "dedup_key",
+  "rule",
+  "rule_revision_at_decision",
+  "status",
+  "is_test",
+  "section_subject",
+  "business_doctype",
+  "business_name",
+  "event_occurrence_key",
+  "reminder_iteration",
+  "recipient",
+  "cc_snapshot",
+  "template_name",
+  "subject_snapshot",
+  "section_timing",
+  "due_at",
+  "reserved_at",
+  "queued_at",
+  "sent_at",
+  "email_queue_id",
+  "attempt",
+  "failure_reason",
+  "skip_reason"
+ ],
+ "fields": [
+  {
+   "fieldname": "dedup_key",
+   "fieldtype": "Data",
+   "label": "Dedup Key",
+   "length": 64,
+   "reqd": 1,
+   "set_only_once": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "rule",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Rule",
+   "options": "MSP Notification Rule",
+   "reqd": 1
+  },
+  {
+   "fieldname": "rule_revision_at_decision",
+   "fieldtype": "Int",
+   "label": "Rule Revision At Decision"
+  },
+  {
+   "default": "Pending",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Pending\nQueued\nSent\nFailed\nSkipped\nUnknown",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "is_test",
+   "fieldtype": "Check",
+   "label": "Test Send"
+  },
+  {
+   "fieldname": "section_subject",
+   "fieldtype": "Section Break",
+   "label": "What it is about"
+  },
+  {
+   "fieldname": "business_doctype",
+   "fieldtype": "Data",
+   "label": "Business DocType"
+  },
+  {
+   "fieldname": "business_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Business Record"
+  },
+  {
+   "fieldname": "event_occurrence_key",
+   "fieldtype": "Data",
+   "label": "Event Occurrence"
+  },
+  {
+   "default": "0",
+   "fieldname": "reminder_iteration",
+   "fieldtype": "Int",
+   "label": "Reminder Iteration"
+  },
+  {
+   "fieldname": "recipient",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Recipient",
+   "reqd": 1
+  },
+  {
+   "fieldname": "cc_snapshot",
+   "fieldtype": "Small Text",
+   "label": "CC Snapshot"
+  },
+  {
+   "fieldname": "template_name",
+   "fieldtype": "Data",
+   "label": "Template"
+  },
+  {
+   "fieldname": "subject_snapshot",
+   "fieldtype": "Data",
+   "label": "Subject"
+  },
+  {
+   "fieldname": "section_timing",
+   "fieldtype": "Section Break",
+   "label": "Timing and outcome"
+  },
+  {
+   "fieldname": "due_at",
+   "fieldtype": "Datetime",
+   "label": "Due At"
+  },
+  {
+   "fieldname": "reserved_at",
+   "fieldtype": "Datetime",
+   "label": "Reserved At"
+  },
+  {
+   "fieldname": "queued_at",
+   "fieldtype": "Datetime",
+   "label": "Queued At"
+  },
+  {
+   "fieldname": "sent_at",
+   "fieldtype": "Datetime",
+   "label": "Sent At"
+  },
+  {
+   "fieldname": "email_queue_id",
+   "fieldtype": "Data",
+   "label": "Email Queue"
+  },
+  {
+   "default": "0",
+   "fieldname": "attempt",
+   "fieldtype": "Int",
+   "label": "Attempt"
+  },
+  {
+   "fieldname": "failure_reason",
+   "fieldtype": "Small Text",
+   "label": "Failure Reason"
+  },
+  {
+   "fieldname": "skip_reason",
+   "fieldtype": "Small Text",
+   "label": "Skip Reason"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-11-14 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nexgen MSP",
+ "name": "MSP Notification Dispatch",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 0,
+   "delete": 0,
+   "email": 0,
+   "print": 0,
+   "read": 1,
+   "role": "System Manager",
+   "share": 0,
+   "write": 0
+  },
+  {
+   "create": 0,
+   "delete": 0,
+   "email": 0,
+   "print": 0,
+   "read": 1,
+   "role": "MSP System Admin",
+   "share": 0,
+   "write": 0
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}
