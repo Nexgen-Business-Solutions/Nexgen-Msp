@@ -884,8 +884,17 @@ class ServiceLifecycleService:
 
     @staticmethod
     def _customer_price(customer, service_item, on_date):
-        """A selling price written for this customer and still in force on the day."""
-        return pricing.customer_price(customer, service_item, on_date)
+        """A selling price written for this customer and still in force on the day.
+
+        Narrowed to the list and the money the contract is drawn in, so that opening a
+        service and billing it ask the same question and get the same number.
+        """
+        return pricing.customer_price(
+            customer,
+            service_item,
+            on_date,
+            price_list=ContractService._price_list(customer, service_item, on_date),
+        )
 
     @staticmethod
     def _confirm_rate(doc, on_date):

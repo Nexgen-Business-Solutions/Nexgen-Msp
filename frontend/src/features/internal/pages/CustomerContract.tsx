@@ -827,7 +827,12 @@ export default function CustomerContract() {
                     <td className="px-4 py-3 text-right">
                       <RowActionsMenu
                         disabledReason={
-                          row.dated_change
+                          // the reason explains why the acts on a running service are gone,
+                          // so it is only given when those are the acts in question: a
+                          // pending service can still be cancelled, and saying nothing is
+                          // available would take that away too
+                          row.dated_change &&
+                          ['Active', 'Suspended'].includes(row.operational_status)
                             ? 'A change to this service is already set for a day to come.'
                             : undefined
                         }
