@@ -144,20 +144,53 @@ class NotificationReminderService:
         return row.get("creation")
 
     @staticmethod
-    def _candidates(adapter, limit=None, start=0):
+    def _candidates(adapter, limit=None, after=None, start=0):
+        """A page of records this condition watches, read from a place rather than an offset.
+
+        An offset shifts under its own feet: records leave the status while the walk is
+        going on, and page two then begins somewhere page one already was. A place in the
+        order — the oldest record after the last one looked at — cannot do that.
+        """
         fields = ["name", "customer", "requester", "status", "creation"] + [
             field
             for field in adapter.get("anchor_fields", ())
             if field not in ("creation",)
         ]
+        filters = dict(adapter["filters"])
+
+        if after:
+            filters["creation"] = (">", after)
 
         return frappe.get_all(
             adapter["doctype"],
-            filters=adapter["filters"],
+            filters=filters,
             fields=sorted(set(fields)),
-            order_by="creation asc",
+            order_by="creation asc, name asc",
+            # a screen paging through a list wants the page the reader asked for; the
+            # scheduler's own walk uses `after`, which cannot be shifted under it
             start=start,
             page_length=limit or BATCH,
+        )
+
+    @staticmethod
+    def _cursor_key(rule_key):
+        return f"msp_notification_scan_{rule_key}"
+
+    @staticmethod
+    def _cursor(rule_key):
+        """Where this rule's last walk stopped, kept across restarts.
+
+        One tick does a bounded amount of work, so a rule watching more records than that
+        has to carry on where it left off — otherwise it reads the same first few thousand
+        for ever and the rest are never looked at once.
+        """
+        return frappe.db.get_default(NotificationReminderService._cursor_key(rule_key)) or None
+
+    @staticmethod
+    def _remember(rule_key, moment):
+        frappe.db.set_default(
+            NotificationReminderService._cursor_key(rule_key),
+            str(moment) if moment else "",
         )
 
     @staticmethod
@@ -479,16 +512,21 @@ class NotificationReminderService:
         adapter = registry.condition(declared["condition_key"])
         zone = _zone(current.get("timezone"))
         sent = skipped = 0
-        start = 0
+        after = NotificationReminderService._cursor(rule_key)
 
-        # read past the first page. Two hundred records that stay in the trigger status and
-        # have had their full allowance are two hundred records this rule looks at on every
-        # tick for ever — and the two hundred and first is never reached at all. Scanning is
-        # cheap; what has to stay bounded is the mail, so the walk stops on work done
+        # the walk carries on from where the last tick stopped, and wraps round when it runs
+        # out. Starting from the beginning every time means a rule with more watched records
+        # than one tick can read never reaches the ones at the end — they wait for ever while
+        # the same first few thousand are read again and again. Scanning is cheap; what has
+        # to stay bounded is the mail, so the walk also stops on work done
         for _ in range(SCAN_PAGES):
-            rows = NotificationReminderService._candidates(adapter, limit=BATCH, start=start)
+            rows = NotificationReminderService._candidates(adapter, limit=BATCH, after=after)
 
             if not rows:
+                # the end of the order. The cursor goes back to the top for the next tick
+                # rather than carrying on here: reading from the top again in this same
+                # pass would walk the records just walked, and walk them twenty-five times
+                NotificationReminderService._remember(rule_key, None)
                 break
 
             for row in rows:
@@ -506,10 +544,11 @@ class NotificationReminderService:
                 sent += outcome["sent"]
                 skipped += outcome["skipped"]
 
+            after = rows[-1].creation
+            NotificationReminderService._remember(rule_key, after)
+
             if sent >= limit:
                 break
-
-            start += BATCH
 
         return {"sent": sent, "skipped": skipped}
 

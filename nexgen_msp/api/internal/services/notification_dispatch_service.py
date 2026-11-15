@@ -25,6 +25,9 @@ QUEUE = "Email Queue"
 
 NUL = "\0"
 
+# the one failure that is known to have queued nothing, and so is safe to try again
+RENDER_FAILED = "render_failed"
+
 # what the queue says, said in our words. Neither of the first two means anybody read it.
 # "Partially Sent" is deliberately absent: one queue entry can carry several addresses, so
 # the entry alone cannot say what became of this one, and only that address's own
@@ -134,7 +137,18 @@ class NotificationDispatchService:
                     "dispatch": existing.name,
                 }
 
-            if existing.status in ("Unknown", "Failed"):
+            if existing.status == "Failed" and existing.skip_reason == RENDER_FAILED:
+                # nothing was ever handed to the queue: the template would not render, which
+                # happens before any mail exists. Once it renders, this is the delivery that
+                # was always owed, and refusing it for ever would mean a corrected template
+                # never reaches the person waiting for it
+                if not NotificationDispatchService._claim(existing, lease_seconds=0):
+                    return {
+                        "status": existing.status,
+                        "reason": "held_by_another_worker",
+                        "dispatch": existing.name,
+                    }
+            elif existing.status in ("Unknown", "Failed"):
                 # the mail may already be in the queue — that is precisely what Unknown
                 # means — and sending again to find out would send it twice. It stays as it
                 # is until somebody reconciles it against the queue
@@ -229,12 +243,29 @@ class NotificationDispatchService:
             DISPATCH, dispatch.name, ["status", "reserved_at", "attempt"], as_dict=True
         )
 
-        if not fresh or fresh.status != "Pending":
+        if not fresh or fresh.status not in ("Pending", "Failed"):
             return False
 
         if fresh.reserved_at and frappe.utils.time_diff_in_seconds(
             frappe.utils.now(), fresh.reserved_at
         ) < lease_seconds:
+            return False
+
+        # before taking it over, find out whether the worker that stopped had already
+        # handed a mail to the queue. The crash to fear is the one between the queue entry
+        # being written and this row being told about it: taken over blindly, that mail is
+        # sent a second time
+        already = NotificationDispatchService._queued_already(dispatch, fresh.reserved_at)
+
+        if already:
+            NotificationDispatchService._mark(
+                dispatch,
+                "Queued",
+                email_queue_id=already,
+                queued_at=frappe.utils.now(),
+                failure_reason=None,
+            )
+
             return False
 
         frappe.db.set_value(
@@ -251,13 +282,63 @@ class NotificationDispatchService:
         return True
 
     @staticmethod
+    def _queued_already(dispatch, since):
+        """The queue entry a stopped worker may already have written for this delivery.
+
+        There is no identifier shared between the two until this row is told, which is the
+        whole difficulty: the mail is correlated instead by the things that are true of it
+        — the address written to, the record it refers to, the subject it carries — and only
+        among entries written since the reservation was taken.
+
+        Returns nothing when no such entry can be found. "Nothing found" is not proof that
+        none exists, so the caller treats it as licence to send only together with the lease
+        having run out.
+        """
+        if not dispatch.recipient:
+            return None
+
+        found = frappe.db.sql(
+            """
+            select distinct queue.name
+            from `tabEmail Queue` queue
+            join `tabEmail Queue Recipient` person on person.parent = queue.name
+            where person.recipient = %(recipient)s
+              and queue.creation >= %(since)s
+              and (
+                %(reference)s is null
+                or (queue.reference_doctype = %(doctype)s and queue.reference_name = %(reference)s)
+              )
+              and not exists (
+                select 1 from `tabMSP Notification Dispatch` other
+                where other.email_queue_id = queue.name
+              )
+            order by queue.creation asc
+            limit 1
+            """,
+            {
+                "recipient": dispatch.recipient,
+                "since": since or frappe.utils.add_to_date(frappe.utils.now(), hours=-24),
+                "doctype": dispatch.business_doctype,
+                "reference": dispatch.business_name,
+            },
+            pluck=True,
+        )
+
+        return found[0] if found else None
+
+    @staticmethod
     def _queue(dispatch, current, context, cc=None, attachments=None):
         """Render the administrator's template and hand the mail to Frappe's own queue."""
         try:
             subject, message = notifications.render(current["template_name"], context or {})
         except Exception as error:
             NotificationDispatchService._mark(
-                dispatch, "Failed", failure_reason=f"{error}"[:500]
+                dispatch,
+                "Failed",
+                failure_reason=f"{error}"[:500],
+                # said on the record, because this is the one failure that is safe to try
+                # again: it happened before anything was handed to the mail queue
+                skip_reason=RENDER_FAILED,
             )
             NotificationSettingsService._write_audit(
                 action="Failed",

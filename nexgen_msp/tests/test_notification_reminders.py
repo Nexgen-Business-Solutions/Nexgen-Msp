@@ -533,8 +533,16 @@ class RequestCase(NotificationCase, WriterCase):
         """Look at these requests and no others, whatever else the site holds."""
         real = NotificationReminderService._candidates
 
-        def narrowed(adapter, limit=None, start=0):
-            return [row for row in real(adapter, limit=200) if row.name in names]
+        def narrowed(adapter, limit=None, **read):
+            """The named requests only, however the engine asks for its page.
+
+            The engine's own paging is not what these tests are about, and taking whatever
+            keywords it uses keeps them from breaking when it changes how it walks.
+            """
+            found = [row for row in real(adapter, limit=200) if row.name in names]
+
+            # the walk stops when a page comes back empty, so a narrowed read answers once
+            return [] if read.get("after") else found
 
         return patch.object(NotificationReminderService, "_candidates", side_effect=narrowed)
 
@@ -546,7 +554,10 @@ class TestAReminderStopsWhenTheRecordIsSettled(RequestCase):
         real = NotificationReminderService._candidates
         before = self.mails(name)
 
-        def list_then_settle(adapter, limit=None, start=0):
+        def list_then_settle(adapter, limit=None, **read):
+            if read.get("after"):
+                return []
+
             rows = [row for row in real(adapter, limit=200) if row.name == name]
             frappe.db.set_value(REFERENCE, name, "status", "Under Review")
 
