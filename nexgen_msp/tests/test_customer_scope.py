@@ -1693,3 +1693,174 @@ class TestACompanyServiceClosedForLater(CustomerScopeCase):
             self.retainer, [row["service_item"] for row in answer["available"]]
         )
 
+class TestAReplacementSaysWhatItReplaced(CompanyBillingCase):
+    """Issue #33 R2.1: the handover is written down, not read off the calendar.
+
+    A change of terms and a service that stopped and was sold again leave the same shape —
+    one period ending, another starting the next day — and the two owe entirely different
+    things. Only the record can tell them apart.
+    """
+
+    def test_a_change_records_the_period_it_took_over_from(self):
+        first = self.opened(quantity=5)
+        ServiceLifecycleService.change(
+            assignment=first, effective_date=frappe.utils.today(), quantity=8
+        )
+        frappe.db.commit()
+
+        successors = frappe.get_all(
+            ASSIGNMENT,
+            filters={"replaces_assignment": first},
+            fields=["name", "quantity"],
+        )
+
+        for row in successors:
+            self.track(ASSIGNMENT, row.name)
+
+        self.assertEqual(len(successors), 1)
+        self.assertEqual(flt(successors[0].quantity), 8.0)
+        self.assertTrue(BillingService._was_replaced(first))
+
+    def test_a_service_that_simply_stopped_says_nothing_of_the_kind(self):
+        first = self.opened(quantity=5)
+        ServiceLifecycleService.end(assignment=first, effective_date=frappe.utils.today())
+        frappe.db.commit()
+
+        self.assertFalse(
+            BillingService._was_replaced(first),
+            "nothing took it over, so it stopped — and what it owes back is the unused days",
+        )
+
+
+class TestWhatAChangeOwesBack(CompanyBillingCase):
+    """Issue #33, F33-02 and F33-04: a change that lowers the terms owes the difference back.
+
+    The run proposes it and stops there. A credit note is somebody's decision, taken in the
+    flow that already exists for them, and no billing run has ever refunded anybody by
+    itself — which is also why a decrease charges nothing further on the debit side.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # every scenario here is about days the customer has already paid for, which only
+        # exist where the contract bills ahead of serving
+        frappe.db.set_value("MSP Contract", self.contract, "billing_timing", "In Advance")
+        frappe.db.commit()
+
+    def owed(self, run):
+        return [
+            {
+                "assignment": row["service_assignment"],
+                "months": flt((row.get("owed_back") or {}).get("months") or 0),
+                "replaced": bool((row.get("owed_back") or {}).get("replaced")),
+            }
+            for row in BillingService.creditable_lines(run)["lines"]
+            if row.get("service_item") == self.storage
+        ]
+
+    def test_taking_units_away_owes_back_only_the_units_taken(self):
+        start, end = self.month()
+        first = self.opened(quantity=8)
+        run = self.posted(start, end)
+        middle = frappe.utils.add_days(frappe.utils.getdate(start), 15)
+
+        ServiceLifecycleService.change(assignment=first, effective_date=str(middle), quantity=5)
+        frappe.db.commit()
+
+        for row in frappe.get_all(
+            ASSIGNMENT, filters={"customer": self.customer, "service_item": self.storage}, pluck="name"
+        ):
+            self.track(ASSIGNMENT, row)
+
+        proposed = next(row for row in self.owed(run) if row["assignment"] == first)
+        line = next(
+            row
+            for row in BillingService.get_run(run)["lines"]
+            if row["service_assignment"] == first
+        )
+        # three of the eight units, over the days the five-unit period is serving
+        share = BillingService._unused_share(
+            line["proration_method"], [(middle, frappe.utils.getdate(end))]
+        )
+
+        self.assertTrue(proposed["replaced"], "the service did not stop; its terms moved")
+        self.assertAlmostEqual(proposed["months"], round(share * 3 / 8, 3), places=2)
+
+    def test_a_lower_price_owes_back_the_price_difference(self):
+        start, end = self.month()
+        first = self.opened(quantity=5)
+        run = self.posted(start, end)
+        middle = frappe.utils.add_days(frappe.utils.getdate(start), 15)
+        was = flt(
+            next(
+                row
+                for row in BillingService.get_run(run)["lines"]
+                if row["service_assignment"] == first
+            )["unit_rate"]
+        )
+
+        ServiceLifecycleService.change(
+            assignment=first,
+            effective_date=str(middle),
+            agreed_rate=was / 2,
+            rate_override_reason="Agreed reduction for the rest of the period",
+        )
+        frappe.db.commit()
+
+        for row in frappe.get_all(
+            ASSIGNMENT, filters={"customer": self.customer, "service_item": self.storage}, pluck="name"
+        ):
+            self.track(ASSIGNMENT, row)
+
+        proposed = next(row for row in self.owed(run) if row["assignment"] == first)
+        share = BillingService._unused_share(
+            next(
+                row
+                for row in BillingService.get_run(run)["lines"]
+                if row["service_assignment"] == first
+            )["proration_method"],
+            [(middle, frappe.utils.getdate(end))],
+        )
+
+        # half the price over those days, so half of what they were charged at
+        self.assertAlmostEqual(proposed["months"], round(share / 2, 3), places=2)
+
+    def test_taking_more_owes_nothing_back(self):
+        start, end = self.month()
+        first = self.opened(quantity=5)
+        run = self.posted(start, end)
+        middle = frappe.utils.add_days(frappe.utils.getdate(start), 15)
+
+        ServiceLifecycleService.change(assignment=first, effective_date=str(middle), quantity=8)
+        frappe.db.commit()
+
+        for row in frappe.get_all(
+            ASSIGNMENT, filters={"customer": self.customer, "service_item": self.storage}, pluck="name"
+        ):
+            self.track(ASSIGNMENT, row)
+
+        proposed = next(row for row in self.owed(run) if row["assignment"] == first)
+
+        self.assertEqual(proposed["months"], 0, "the five units are still being provided")
+
+    def test_nothing_is_credited_without_somebody_doing_it(self):
+        """The run proposes; it never refunds."""
+        start, end = self.month()
+        first = self.opened(quantity=8)
+        run = self.posted(start, end)
+        middle = frappe.utils.add_days(frappe.utils.getdate(start), 15)
+
+        ServiceLifecycleService.change(assignment=first, effective_date=str(middle), quantity=5)
+        frappe.db.commit()
+
+        for row in frappe.get_all(
+            ASSIGNMENT, filters={"customer": self.customer, "service_item": self.storage}, pluck="name"
+        ):
+            self.track(ASSIGNMENT, row)
+
+        self.assertTrue(next(row for row in self.owed(run) if row["assignment"] == first)["months"])
+        self.assertFalse(
+            frappe.get_all("MSP Billing Run", filters={"credit_note_of": run}, pluck="name"),
+            "a proposal is not a credit note",
+        )
+

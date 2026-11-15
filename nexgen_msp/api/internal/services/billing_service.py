@@ -599,6 +599,119 @@ class BillingService:
 
     @staticmethod
     @staticmethod
+    def _successors(assignment, depth=24):
+        """The periods that took this one over, in order, each with the terms it runs on."""
+        chain = []
+        current = assignment
+
+        for _ in range(depth):
+            found = frappe.get_all(
+                "MSP Service Assignment",
+                filters={
+                    "replaces_assignment": current,
+                    "operational_status": ("!=", "Cancelled"),
+                },
+                fields=[
+                    "name",
+                    "quantity",
+                    "agreed_rate",
+                    "effective_start_date",
+                    "effective_end_date",
+                ],
+                order_by="effective_start_date asc",
+                limit=1,
+            )
+
+            if not found:
+                break
+
+            chain.append(found[0])
+            current = found[0].name
+
+        return chain
+
+    @staticmethod
+    def _owed_after_downgrade(line, run_start, run_end, method, remaining, stopped, credited=None):
+        """What a change of terms owes back over days the customer had already paid for.
+
+        A period whose terms moved was charged in advance on the old terms and is being
+        served on the new ones. Where the new ones come to less — fewer units, or a lower
+        price — the difference over those days is the customer's. Where they come to more,
+        nothing is owed back and the difference is charged instead, which happens where the
+        charging happens.
+
+        What comes out is a proposal, expressed in months of this very line so that the
+        credit note the operator issues multiplies out to exactly the money owed. Nobody is
+        refunded by a billing run: the amount is shown, and somebody decides.
+        """
+        paid = flt(line.get("quantity")) * flt(line.get("unit_rate")) * (
+            1 - flt(line.get("discount_percent")) / 100.0
+        )
+
+        if paid <= 0:
+            return None
+
+        # the days of this line that fall after it stopped being charged for, which are the
+        # ones its successors are serving
+        served_on = BillingService._billed_stretches(line) or coverage_intervals.span(
+            run_start, run_end
+        )
+        after = coverage_intervals.intersect(
+            served_on, coverage_intervals.span(add_days(getdate(stopped), 1), getdate(run_end))
+        )
+        after = coverage_intervals.subtract(after, credited or [])
+
+        if not after:
+            return None
+
+        owed = []
+
+        for successor in BillingService._successors(line["service_assignment"]):
+            live = coverage_intervals.span(
+                successor.effective_start_date,
+                successor.effective_end_date or getdate(run_end),
+            )
+            overlap = coverage_intervals.intersect(after, live)
+
+            if not overlap:
+                continue
+
+            revised = flt(successor.quantity) * flt(successor.agreed_rate or line.get("unit_rate"))
+
+            if revised >= paid:
+                continue
+
+            owed.append(((paid - revised) / paid, overlap))
+
+        if not owed:
+            return None
+
+        # each stretch is worth the share of this line's own terms that the new ones fall
+        # short by, so the months add up to money without inventing a second kind of line
+        months = sum(
+            share * flt(BillingService._unused_share(method, stretches), 6)
+            for share, stretches in owed
+        )
+        months = min(flt(months, 3), flt(remaining))
+
+        if months <= 0:
+            return None
+
+        segments = coverage_intervals.merge(
+            [stretch for _share, stretches in owed for stretch in stretches]
+        )
+
+        return {
+            "ended_on": None,
+            "replaced": True,
+            "unused_from": min(first for first, _last in segments),
+            "unused_to": max(last for _first, last in segments),
+            "unused_days": sum((last - first).days + 1 for first, last in segments),
+            "months": months,
+            "segments": [{"from": str(first), "to": str(last)} for first, last in segments],
+        }
+
+    @staticmethod
     def _was_replaced(assignment, stopped=None):
         """Whether another period took this one over, said by the record and not by a date.
 
@@ -653,8 +766,12 @@ class BillingService:
         )
         stopped = getdate(ended) if ended else None
 
-        if stopped and BillingService._was_replaced(assignment, stopped):
-            stopped = None
+        if stopped and BillingService._was_replaced(assignment):
+            # the service did not stop; its terms moved. What may be owed back is not the
+            # remaining days but the part of them the new terms are cheaper by
+            return BillingService._owed_after_downgrade(
+                line, run_start, run_end, method, remaining, stopped, credited
+            )
         rested = (
             pauses.get(assignment, [])
             if pauses is not None
