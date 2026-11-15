@@ -8,6 +8,7 @@ import {
   Layers,
   LayoutDashboard,
   History,
+  Mail,
   Package,
   Receipt,
   Settings2,
@@ -132,6 +133,12 @@ export const getSectionsForRoles = (roles: string[] = []): NavSection[] => {
 
   if (isAdmin(roles)) {
     bottom.push({ id: 'accounts', label: 'Accounts', icon: UserCog, path: '/msp/accounts' });
+    bottom.push({
+      id: 'notifications',
+      label: 'Email & Notifications',
+      icon: Mail,
+      path: '/msp/notifications',
+    });
     bottom.push({ id: 'settings', label: 'Settings', icon: Settings2, path: '/msp/settings' });
   }
 
@@ -139,16 +146,6 @@ export const getSectionsForRoles = (roles: string[] = []): NavSection[] => {
 
   return sections;
 };
-
-/** Pages that have a place in the trail but no entry in the sidebar. */
-const ADMIN_TRAIL: NavItem[] = [
-  {
-    id: 'administration',
-    label: 'Administration',
-    icon: Settings2,
-    path: '/msp/settings/notifications',
-  },
-];
 
 export const getNavForRoles = (roles: string[] = []) =>
   getSectionsForRoles(roles).flatMap((section) => section.items);
@@ -159,7 +156,7 @@ export const getPagesForRoles = (roles: string[] = [], canSubmit = true) =>
         ...PORTAL_NAV.filter((item) => !item.needsInvoices || seesInvoices(roles)),
         ...PORTAL_PAGES.filter((item) => mayRaise(item, canSubmit)),
       ]
-    : [...getNavForRoles(roles), ...(isAdmin(roles) ? ADMIN_TRAIL : [])];
+    : getNavForRoles(roles);
 
 export const findNavItem = (pathname: string, items: NavItem[]): NavItem => {
   const matches = items.filter(

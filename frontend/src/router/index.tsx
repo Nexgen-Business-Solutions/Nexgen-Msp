@@ -158,7 +158,7 @@ export const router = createBrowserRouter([
         ),
       },
       {
-        path: 'settings/notifications',
+        path: 'notifications',
         element: (
           <AdminGuard>
             <NotificationSettings />

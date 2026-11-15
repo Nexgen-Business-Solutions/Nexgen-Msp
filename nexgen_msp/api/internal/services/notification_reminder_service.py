@@ -44,6 +44,10 @@ REASONS = {
 
 BATCH = 200
 
+# how far past the first page one tick will look. Bounded so a rule with a hundred thousand
+# waiting records cannot hold the scheduler, and wide enough that nothing waits for ever
+SCAN_PAGES = 25
+
 
 def _zone(name):
     from zoneinfo import ZoneInfo
@@ -94,18 +98,34 @@ def _localise(naive, zone):
     return attempt
 
 
+def _utc(moment):
+    """The same instant, said in UTC, which is the only way to compare two of them.
+
+    Python compares two aware datetimes by their wall-clock fields when their `tzinfo` is
+    the *same object* — and `ZoneInfo` hands out cached instances, so it usually is. Across
+    a clock change that is wrong: half past two on the morning the clocks go forward is
+    half past seven UTC, which is later than three o'clock, which is seven. Compared as
+    wall times it reads as earlier, and a reminder goes out thirty minutes before it is due.
+    """
+    import datetime
+
+    return moment.astimezone(datetime.timezone.utc)
+
+
 def _add(moment, value, unit, zone):
     """A calendar offset, applied on the administrator's own clock.
 
     Three days means the same wall-clock time three days later, not seventy-two hours:
-    those differ by an hour twice a year, and the one people mean is the clock.
+    those differ by an hour twice a year, and the one people mean is the clock. An hour,
+    on the other hand, means an hour — so it is added to the instant rather than to the
+    clock face, which on the morning the clocks go forward are not the same thing.
     """
     import datetime
 
     value = frappe.utils.cint(value)
 
     if unit == "Hours":
-        return (moment + datetime.timedelta(hours=value)).astimezone(zone)
+        return (_utc(moment) + datetime.timedelta(hours=value)).astimezone(zone)
 
     local = moment.astimezone(zone).replace(tzinfo=None)
     moved = local + datetime.timedelta(days=value * UNIT_DAYS.get(unit, 1))
@@ -241,7 +261,7 @@ class NotificationReminderService:
         if boundary:
             effective = _aware(boundary, zone)
 
-            if first < effective:
+            if _utc(first) < _utc(effective):
                 first = effective
 
         # and the ones after it, each an interval from the one before — counted from that
@@ -265,7 +285,7 @@ class NotificationReminderService:
             "iteration": reached,
             "next_due": due,
             "reason": "eligible"
-            if due <= now
+            if _utc(due) <= _utc(now)
             else ("quiet_hours" if deferred else "not_due"),
             "deferred": deferred,
         }
@@ -301,13 +321,16 @@ class NotificationReminderService:
                 "watched": len(rows),
             }
 
-        soonest = min(state["next_due"] for state in waiting)
+        soonest = min((state["next_due"] for state in waiting), key=_utc)
 
         return {
             "next_due": soonest.isoformat(),
             "next_due_label": None,
             "eligible_count": sum(1 for state in states if state["reason"] == "eligible"),
             "watched": len(rows),
+            # counted over the records this read looked at, not over every one the rule
+            # watches: a figure that says "all" of a page is a figure that misleads
+            "partial": len(rows) >= BATCH,
         }
 
     @staticmethod
@@ -456,21 +479,37 @@ class NotificationReminderService:
         adapter = registry.condition(declared["condition_key"])
         zone = _zone(current.get("timezone"))
         sent = skipped = 0
+        start = 0
 
-        for row in NotificationReminderService._candidates(adapter, limit=limit):
-            state = NotificationReminderService.state_of(
-                rule_key, row, current, adapter, zone
-            )
+        # read past the first page. Two hundred records that stay in the trigger status and
+        # have had their full allowance are two hundred records this rule looks at on every
+        # tick for ever — and the two hundred and first is never reached at all. Scanning is
+        # cheap; what has to stay bounded is the mail, so the walk stops on work done
+        for _ in range(SCAN_PAGES):
+            rows = NotificationReminderService._candidates(adapter, limit=BATCH, start=start)
 
-            if state["reason"] != "eligible":
-                skipped += 1
-                continue
+            if not rows:
+                break
 
-            outcome = NotificationReminderService._remind(
-                declared, current, adapter, row, state["iteration"] + 1
-            )
-            sent += outcome["sent"]
-            skipped += outcome["skipped"]
+            for row in rows:
+                state = NotificationReminderService.state_of(
+                    rule_key, row, current, adapter, zone
+                )
+
+                if state["reason"] != "eligible":
+                    skipped += 1
+                    continue
+
+                outcome = NotificationReminderService._remind(
+                    declared, current, adapter, row, state["iteration"] + 1
+                )
+                sent += outcome["sent"]
+                skipped += outcome["skipped"]
+
+            if sent >= limit:
+                break
+
+            start += BATCH
 
         return {"sent": sent, "skipped": skipped}
 
@@ -502,7 +541,19 @@ class NotificationReminderService:
         if escalating and iteration > escalating and current.get("escalation_audience_key"):
             audience = current["escalation_audience_key"]
 
-        addresses = registry.resolve_audience(audience, doc)
+        # who this reminder reaches: the audience the record resolves to, plus the addresses
+        # an administrator added by hand. Resolved alone, an extra recipient saved in the
+        # screen was stored and never written to
+        addresses = []
+
+        for address in list(registry.resolve_audience(audience, doc)) + list(
+            current.get("extra") or []
+        ):
+            normalised = (address or "").strip().lower()
+
+            if normalised and normalised not in addresses:
+                addresses.append(normalised)
+
         context = NotificationReminderService._context(declared, doc, adapter)
         sent = skipped = 0
 

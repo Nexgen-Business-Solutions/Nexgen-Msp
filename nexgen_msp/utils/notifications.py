@@ -452,7 +452,13 @@ def send(
         ]
 
     try:
-        subject, message = render(name, context)
+        # the template the settings name, which is the one an administrator chose. Today the
+        # registry permits exactly one per notification, so this is the same template the
+        # caller passed — and it stays right the day a second one is registered, instead of
+        # silently sending the old one
+        subject, message = render(
+            (settings or {}).get("template_name") or name, context
+        )
         queued = frappe.sendmail(
             recipients=recipients,
             cc=cc,

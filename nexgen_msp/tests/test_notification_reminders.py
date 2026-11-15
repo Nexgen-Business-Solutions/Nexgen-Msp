@@ -683,9 +683,8 @@ class TestAReminderIsSentOnce(RequestCase):
         self.assertEqual(again["reason"], "already_dispatched")
         self.assertEqual(self.mails(name), queued)
 
-    def test_a_delivery_reserved_but_never_queued_is_finished_by_the_retry_and_only_once(self):
-        name = self.awaiting()
-        address = self.address("r")
+    def reserved_delivery(self, name, address):
+        """A delivery claimed and not finished: the row a worker leaves when it stops."""
         key = NotificationDispatchService.dedup_key(APPROVAL, REFERENCE, name, "iteration:1", address)
         held = NotificationDispatchService._reserve(
             key,
@@ -700,22 +699,53 @@ class TestAReminderIsSentOnce(RequestCase):
         )
         self.assertTrue(held["reserved"])
         frappe.db.commit()
+
+        return held["dispatch"].name
+
+    def deliver_once(self, name, address):
+        return NotificationDispatchService.deliver(
+            APPROVAL,
+            address,
+            self.context(),
+            business_doctype=REFERENCE,
+            business_name=name,
+            iteration=1,
+            occurrence="iteration:1",
+        )
+
+    def test_a_reservation_somebody_is_still_working_on_is_left_alone(self):
+        """Whoever claimed it is most likely inside sendmail, and racing them sends twice."""
+        name = self.awaiting()
+        address = self.address("r")
+        self.reserved_delivery(name, address)
+        before = self.mails(name)
+
+        outcome = self.deliver_once(name, address)
+
+        self.assertEqual(outcome["reason"], "held_by_another_worker")
+        self.assertEqual(self.mails(name), before)
+
+    def test_a_reservation_whose_worker_never_came_back_is_finished_once(self):
+        name = self.awaiting()
+        address = self.address("r")
+        dispatch = self.reserved_delivery(name, address)
+        # the worker stopped: its claim is older than the lease and nobody is in sendmail
+        frappe.db.set_value(
+            "MSP Notification Dispatch",
+            dispatch,
+            "reserved_at",
+            frappe.utils.add_to_date(frappe.utils.now(), hours=-2),
+            update_modified=False,
+        )
+        frappe.db.commit()
         before = self.mails(name)
 
         for _ in range(2):
-            NotificationDispatchService.deliver(
-                APPROVAL,
-                address,
-                self.context(),
-                business_doctype=REFERENCE,
-                business_name=name,
-                iteration=1,
-                occurrence="iteration:1",
-            )
+            self.deliver_once(name, address)
 
-        self.assertEqual(self.mails(name), before + 1)
+        self.assertEqual(self.mails(name), before + 1, "finished, and finished once")
         self.assertEqual(self.reminder_rows(name), 1)
-        self.assertEqual(frappe.db.get_value(DISPATCH, held["dispatch"].name, "status"), "Queued")
+        self.assertEqual(frappe.db.get_value(DISPATCH, dispatch, "status"), "Queued")
 
     def test_the_maximum_stops_run_one_from_sending_anything_more(self):
         name = self.awaiting()

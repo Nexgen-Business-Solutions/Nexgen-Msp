@@ -121,14 +121,32 @@ class NotificationDispatchService:
         )
 
         if not held["reserved"]:
-            # somebody already holds this delivery. If it never reached the queue, this is
-            # the retry that finishes it; otherwise there is nothing left to do
+            # somebody already holds this delivery, and what may be done about it depends
+            # entirely on how far they got
             existing = held["dispatch"]
 
             if existing.status in ("Queued", "Sent", "Skipped"):
                 return {
                     "status": existing.status,
                     "reason": "already_dispatched",
+                    "dispatch": existing.name,
+                }
+
+            if existing.status in ("Unknown", "Failed"):
+                # the mail may already be in the queue — that is precisely what Unknown
+                # means — and sending again to find out would send it twice. It stays as it
+                # is until somebody reconciles it against the queue
+                return {
+                    "status": existing.status,
+                    "reason": "needs_investigation",
+                    "dispatch": existing.name,
+                }
+
+            if not NotificationDispatchService._claim(existing):
+                # reserved and still being worked on by whoever reserved it
+                return {
+                    "status": existing.status,
+                    "reason": "held_by_another_worker",
                     "dispatch": existing.name,
                 }
 
@@ -188,6 +206,47 @@ class NotificationDispatchService:
             return {"reserved": False, "dispatch": frappe.get_doc(DISPATCH, found)}
 
         return {"reserved": True, "dispatch": doc}
+
+    @staticmethod
+    def _claim(dispatch, lease_seconds=900):
+        """Take over a reservation nobody finished, and only one worker ever may.
+
+        A row left at Pending is a worker that stopped between claiming the delivery and
+        queueing the mail. Someone has to finish it, and exactly one someone: the row is
+        locked, so of two workers reaching for it the second waits and then finds it is no
+        longer theirs to take.
+
+        A reservation younger than the lease is left alone. Its worker is in all likelihood
+        still in `sendmail`, and racing them is how one mail becomes two.
+        """
+        frappe.db.sql(
+            "select name from `tabMSP Notification Dispatch` where name = %(name)s for update",
+            {"name": dispatch.name},
+        )
+        fresh = frappe.db.get_value(
+            DISPATCH, dispatch.name, ["status", "reserved_at", "attempt"], as_dict=True
+        )
+
+        if not fresh or fresh.status != "Pending":
+            return False
+
+        if fresh.reserved_at and frappe.utils.time_diff_in_seconds(
+            frappe.utils.now(), fresh.reserved_at
+        ) < lease_seconds:
+            return False
+
+        frappe.db.set_value(
+            DISPATCH,
+            dispatch.name,
+            {
+                "reserved_at": frappe.utils.now(),
+                "attempt": frappe.utils.cint(fresh.attempt) + 1,
+            },
+            update_modified=True,
+        )
+        dispatch.reload()
+
+        return True
 
     @staticmethod
     def _queue(dispatch, current, context, cc=None, attachments=None):

@@ -1,6 +1,5 @@
 import { useState } from 'react';
-import { Link, useInRouterContext } from 'react-router-dom';
-import { Bell, Building2, FileText, Globe, Pencil, Plus, Trash2, Upload } from 'lucide-react';
+import { Building2, FileText, Globe, Pencil, Plus, Trash2, Upload } from 'lucide-react';
 import ConfirmModal from '@/shared/components/ConfirmModal';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import DepartmentModal from '../components/DepartmentModal';
@@ -43,31 +42,6 @@ const SECTIONS = [
   },
 ];
 
-const NOTIFICATIONS_PATH = '/msp/settings/notifications';
-const NOTIFICATIONS_LINK_CLASS =
-  'flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50';
-
-/** A page of its own rather than a section: it has tabs and a drawer that need the width. */
-const NotificationsEntry = () => {
-  const routed = useInRouterContext();
-  const content = (
-    <>
-      <Bell size={16} className="text-slate-400" />
-      Email &amp; Notification Settings
-    </>
-  );
-
-  return routed ? (
-    <Link to={NOTIFICATIONS_PATH} className={NOTIFICATIONS_LINK_CLASS}>
-      {content}
-    </Link>
-  ) : (
-    <a href={NOTIFICATIONS_PATH} className={NOTIFICATIONS_LINK_CLASS}>
-      {content}
-    </a>
-  );
-};
-
 const DEPARTMENT_COLUMNS = ['Department', 'Description', 'Order', 'Used by', 'Status', ''];
 
 export default function Settings() {
@@ -109,7 +83,6 @@ export default function Settings() {
               </button>
             );
           })}
-          <NotificationsEntry />
         </nav>
       </aside>
 
