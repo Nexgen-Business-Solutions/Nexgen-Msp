@@ -5378,11 +5378,22 @@ class BillingService:
         wanted = flt(flt(bucket["months"], 6) * flt(item["rate"]), 2)
         written = flt(flt(item["qty"]) * flt(item["rate"]), 2)
 
-        if flt(item["qty"]) and abs(wanted - written) >= 0.01:
-            item["rate"] = flt(wanted / flt(item["qty"]), 6)
+        if abs(wanted - written) >= 0.01:
+            # a fraction of a month small enough to round away leaves no quantity to carry
+            # the money at all — a hundredth of a unit given back for one day rounds to
+            # nothing, and a credit of thirty-three pence becomes a credit of none. The
+            # line is then written as one of what it is worth, and the months it answers
+            # stay on the billing run line that produced it
+            if not flt(item["qty"]):
+                item["qty"] = 1
+                item["rate"] = flt(wanted, 2)
+                item.pop("price_list_rate", None)
+                item.pop("discount_percentage", None)
+            else:
+                item["rate"] = flt(wanted / flt(item["qty"]), 6)
 
-            if discount:
-                item["price_list_rate"] = flt(item["rate"] / (1 - flt(discount) / 100.0), 6)
+                if discount:
+                    item["price_list_rate"] = flt(item["rate"] / (1 - flt(discount) / 100.0), 6)
 
         return item
 

@@ -629,20 +629,35 @@ class NotificationDispatchService:
                     "VALIDATION_ERROR",
                 )
 
-            # and about the same record, where either of them names one
+            # and about the same record. Where this delivery names one, the entry has to
+            # name the same one — the same doctype as well as the same name, since two
+            # records of different kinds can share a name. An entry that names nothing is
+            # not evidence either: it could be any mail to this person
             about = frappe.db.get_value(
-                QUEUE, email_queue, ["reference_doctype", "reference_name"], as_dict=True
+                QUEUE, email_queue, ["reference_doctype", "reference_name", "creation"], as_dict=True
             )
 
-            if (
-                doc.business_name
-                and about
-                and about.reference_name
-                and about.reference_name != doc.business_name
+            if doc.business_name and (
+                not about
+                or about.reference_name != doc.business_name
+                or (doc.business_doctype and about.reference_doctype != doc.business_doctype)
             ):
                 raise ValidationError(
-                    f"That queue entry is about {about.reference_name}, "
-                    f"not {doc.business_name}.",
+                    "That queue entry is not about "
+                    f"{doc.business_doctype or ''} {doc.business_name}.".replace("  ", " "),
+                    "VALIDATION_ERROR",
+                )
+
+            # and written after this delivery was claimed: a mail that existed before
+            # cannot be the one this worker was about to send
+            if (
+                doc.reserved_at
+                and about
+                and frappe.utils.get_datetime(about.creation)
+                < frappe.utils.get_datetime(doc.reserved_at)
+            ):
+                raise ValidationError(
+                    "That queue entry was written before this delivery was claimed.",
                     "VALIDATION_ERROR",
                 )
 

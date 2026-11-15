@@ -687,6 +687,73 @@ describe('Email & Notification Settings', () => {
       await waitFor(() => expect(screen.queryByText('Investigate delivery')).not.toBeInTheDocument());
     });
 
+    const pickAndWriteNote = async (dialog: HTMLElement) => {
+      await within(dialog).findByText('EQ-1');
+      fireEvent.click(within(dialog).getByLabelText('Select EQ-2'));
+      fireEvent.change(within(dialog).getByLabelText('Note (required)'), { target: { value: 'Matches the reference' } });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Attach this queue entry' }));
+    };
+
+    it('asks for confirmation before attaching and sends nothing until it is accepted', async () => {
+      const dialog = await openPanel();
+      await pickAndWriteNote(dialog);
+
+      expect(await screen.findByText('Attach this queue entry?')).toBeInTheDocument();
+      expect(internal.resolveNotificationDispatch).not.toHaveBeenCalled();
+    });
+
+    it('refuses to attach without a note and does not open the confirmation', async () => {
+      const dialog = await openPanel();
+      await within(dialog).findByText('EQ-1');
+      fireEvent.click(within(dialog).getByLabelText('Select EQ-1'));
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Attach this queue entry' }));
+
+      expect(await within(dialog).findByText(/Write a note/)).toBeInTheDocument();
+      expect(screen.queryByText('Attach this queue entry?')).not.toBeInTheDocument();
+      expect(internal.resolveNotificationDispatch).not.toHaveBeenCalled();
+    });
+
+    it('names the delivery, the chosen queue entry and the note in the attach confirmation', async () => {
+      const dialog = await openPanel();
+      await pickAndWriteNote(dialog);
+
+      const confirm = (await screen.findByText('Attach this queue entry?')).closest('[role="dialog"]') as HTMLElement;
+      expect(within(confirm).getByText(/request_approved to a@example\.com/)).toBeInTheDocument();
+      expect(within(confirm).getByText('EQ-2 · Error · MSP Request')).toBeInTheDocument();
+      expect(within(confirm).getByText('Matches the reference')).toBeInTheDocument();
+      expect(within(confirm).getByText(/recorded under your name/)).toBeInTheDocument();
+    });
+
+    it('keeps the selection and the note when the attach confirmation is cancelled', async () => {
+      const dialog = await openPanel();
+      await pickAndWriteNote(dialog);
+
+      const confirm = (await screen.findByText('Attach this queue entry?')).closest('[role="dialog"]') as HTMLElement;
+      fireEvent.click(within(confirm).getAllByRole('button', { name: 'Cancel' })[1]);
+
+      await waitFor(() => expect(screen.queryByText('Attach this queue entry?')).not.toBeInTheDocument());
+      expect(within(dialog).getByLabelText('Select EQ-2')).toBeChecked();
+      expect(within(dialog).getByLabelText('Note (required)')).toHaveValue('Matches the reference');
+      expect(internal.resolveNotificationDispatch).not.toHaveBeenCalled();
+    });
+
+    it('attaches the chosen entry once with the note when the confirmation is accepted', async () => {
+      vi.mocked(internal.resolveNotificationDispatch).mockResolvedValue({ status: 'Sent' });
+      const dialog = await openPanel();
+      await pickAndWriteNote(dialog);
+
+      const confirm = (await screen.findByText('Attach this queue entry?')).closest('[role="dialog"]') as HTMLElement;
+      fireEvent.click(within(confirm).getByRole('button', { name: 'Attach this queue entry' }));
+
+      await waitFor(() => expect(internal.resolveNotificationDispatch).toHaveBeenCalledTimes(1));
+      expect(internal.resolveNotificationDispatch).toHaveBeenCalledWith({
+        dispatch: 'D-Unknown',
+        decision: 'link',
+        note: 'Matches the reference',
+        email_queue: 'EQ-2',
+      });
+    });
+
     it('keeps the panel open and shows the server message when attaching is refused', async () => {
       vi.mocked(internal.resolveNotificationDispatch).mockRejectedValue(
         new FrappeError('That queue entry is already attached.', 417)
@@ -697,6 +764,8 @@ describe('Email & Notification Settings', () => {
       fireEvent.click(within(dialog).getByLabelText('Select EQ-1'));
       fireEvent.change(within(dialog).getByLabelText('Note (required)'), { target: { value: 'Matches the reference' } });
       fireEvent.click(within(dialog).getByRole('button', { name: 'Attach this queue entry' }));
+      const confirm = (await screen.findByText('Attach this queue entry?')).closest('[role="dialog"]') as HTMLElement;
+      fireEvent.click(within(confirm).getByRole('button', { name: 'Attach this queue entry' }));
 
       expect(await screen.findByText('That queue entry is already attached.')).toBeInTheDocument();
       expect(screen.getByText('Investigate delivery')).toBeInTheDocument();

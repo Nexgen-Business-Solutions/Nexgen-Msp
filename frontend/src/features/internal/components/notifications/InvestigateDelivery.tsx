@@ -17,14 +17,14 @@ const InvestigateDelivery: React.FC<Props> = ({ dispatch, onClose }) => {
   const [chosen, setChosen] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [noteMissing, setNoteMissing] = useState(false);
-  const [confirming, setConfirming] = useState(false);
+  const [confirming, setConfirming] = useState<'link' | 'not_sent' | null>(null);
   const noteId = useId();
 
   useEffect(() => {
     setChosen(null);
     setNote('');
     setNoteMissing(false);
-    setConfirming(false);
+    setConfirming(null);
     resolve.reset();
     // resolve.reset is stable per mutation; the panel state must restart per delivery only
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -35,7 +35,7 @@ const InvestigateDelivery: React.FC<Props> = ({ dispatch, onClose }) => {
     if (!dispatch) return;
     if (!trimmed) {
       setNoteMissing(true);
-      setConfirming(false);
+      setConfirming(null);
       return;
     }
     resolve.mutate(
@@ -47,10 +47,10 @@ const InvestigateDelivery: React.FC<Props> = ({ dispatch, onClose }) => {
       },
       {
         onSuccess: () => {
-          setConfirming(false);
+          setConfirming(null);
           onClose();
         },
-        onError: () => setConfirming(false),
+        onError: () => setConfirming(null),
       }
     );
   };
@@ -58,6 +58,7 @@ const InvestigateDelivery: React.FC<Props> = ({ dispatch, onClose }) => {
   const data = evidence.data;
   const delivery = data?.dispatch;
   const candidates = data?.candidates ?? [];
+  const chosenEntry = candidates.find((entry) => entry.email_queue === chosen);
   const facts: [string, string][] = delivery
     ? [
         ['Rule', delivery.rule],
@@ -91,7 +92,13 @@ const InvestigateDelivery: React.FC<Props> = ({ dispatch, onClose }) => {
               <button
                 type="button"
                 disabled={!chosen || resolve.isLoading}
-                onClick={() => settle('link')}
+                onClick={() => {
+                  if (!note.trim()) {
+                    setNoteMissing(true);
+                    return;
+                  }
+                  setConfirming('link');
+                }}
                 className="inline-flex h-10 items-center rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Attach this queue entry
@@ -104,7 +111,7 @@ const InvestigateDelivery: React.FC<Props> = ({ dispatch, onClose }) => {
                     setNoteMissing(true);
                     return;
                   }
-                  setConfirming(true);
+                  setConfirming('not_sent');
                 }}
                 className="inline-flex h-10 items-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
               >
@@ -211,16 +218,48 @@ const InvestigateDelivery: React.FC<Props> = ({ dispatch, onClose }) => {
         )}
       </Modal>
 
-      <ConfirmModal
-        open={confirming}
-        tone="warning"
-        title="Send this notification?"
-        description="Recording that nothing was sent puts the delivery back through the normal path, and the recipient will receive the email."
-        confirmLabel="Nothing was sent, send it"
-        loading={resolve.isLoading}
-        onConfirm={() => settle('not_sent')}
-        onCancel={() => setConfirming(false)}
-      />
+      {confirming === 'link' ? (
+        <ConfirmModal
+          open
+          tone="warning"
+          title="Attach this queue entry?"
+          description="This cannot be undone from this screen, and the delivery history will report this entry's mail as this delivery's."
+          confirmLabel="Attach this queue entry"
+          loading={resolve.isLoading}
+          onConfirm={() => settle('link')}
+          onCancel={() => setConfirming(null)}
+        >
+          <dl className="mt-3 space-y-2 text-sm">
+            <div>
+              <dt className="text-xs font-medium text-slate-500">Delivery</dt>
+              <dd className="break-words text-slate-800">
+                {delivery?.rule} to {delivery?.recipient || '—'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-slate-500">Queue entry</dt>
+              <dd className="break-words text-slate-800">
+                {chosenEntry?.email_queue} · {chosenEntry?.status || '—'} · {chosenEntry?.reference || '—'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-slate-500">Your note, recorded under your name</dt>
+              <dd className="whitespace-pre-line break-words text-slate-800">{note.trim()}</dd>
+            </div>
+          </dl>
+        </ConfirmModal>
+      ) : (
+        <ConfirmModal
+          open={confirming === 'not_sent'}
+          tone="warning"
+          title="Send this notification?"
+          description="Recording that nothing was sent puts the delivery back through the normal path, and the recipient will receive the email."
+          confirmLabel="Nothing was sent, send it"
+          loading={resolve.isLoading}
+          onConfirm={() => settle('not_sent')}
+          onCancel={() => setConfirming(null)}
+        />
+      )}
     </>
   );
 };
