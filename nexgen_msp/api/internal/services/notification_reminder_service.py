@@ -156,20 +156,45 @@ class NotificationReminderService:
             for field in adapter.get("anchor_fields", ())
             if field not in ("creation",)
         ]
-        filters = dict(adapter["filters"])
 
-        if after:
-            filters["creation"] = (">", after)
+        if not after:
+            return frappe.get_all(
+                adapter["doctype"],
+                filters=dict(adapter["filters"]),
+                fields=sorted(set(fields)),
+                order_by="creation asc, name asc",
+                # a screen paging through a list wants the page the reader asked for; the
+                # scheduler's own walk carries a place instead, which cannot shift under it
+                start=start,
+                page_length=limit or BATCH,
+            )
 
-        return frappe.get_all(
-            adapter["doctype"],
-            filters=filters,
-            fields=sorted(set(fields)),
-            order_by="creation asc, name asc",
-            # a screen paging through a list wants the page the reader asked for; the
-            # scheduler's own walk uses `after`, which cannot be shifted under it
-            start=start,
-            page_length=limit or BATCH,
+        # the place is both halves of the order, because the first on its own is not a place:
+        # two hundred and one records written in the same second share a timestamp, and
+        # "after that timestamp" steps over the one left on the page boundary for ever
+        moment, last = after
+        table = f"tab{adapter['doctype']}"
+        values = {"moment": moment, "last": last, "page": frappe.utils.cint(limit or BATCH)}
+        conditions = []
+
+        for index, (field, wanted) in enumerate(adapter["filters"].items()):
+            key = f"f{index}"
+            conditions.append(f"`{field}` = %({key})s")
+            values[key] = wanted
+
+        where = " and ".join(conditions) or "1 = 1"
+
+        return frappe.db.sql(
+            f"""
+            select {", ".join(f"`{field}`" for field in sorted(set(fields)))}
+            from `{table}`
+            where {where}
+              and (creation > %(moment)s or (creation = %(moment)s and name > %(last)s))
+            order by creation asc, name asc
+            limit %(page)s
+            """,
+            values,
+            as_dict=True,
         )
 
     @staticmethod
@@ -183,14 +208,25 @@ class NotificationReminderService:
         One tick does a bounded amount of work, so a rule watching more records than that
         has to carry on where it left off — otherwise it reads the same first few thousand
         for ever and the rest are never looked at once.
+
+        Both halves of the order are kept. A timestamp alone is not a place: records written
+        in the same second share one, and a page that ends in the middle of them would never
+        come back to the rest.
         """
-        return frappe.db.get_default(NotificationReminderService._cursor_key(rule_key)) or None
+        stored = frappe.db.get_default(NotificationReminderService._cursor_key(rule_key))
+
+        if not stored or "\t" not in stored:
+            return None
+
+        moment, last = stored.split("\t", 1)
+
+        return (moment, last) if moment and last else None
 
     @staticmethod
-    def _remember(rule_key, moment):
+    def _remember(rule_key, place):
         frappe.db.set_default(
             NotificationReminderService._cursor_key(rule_key),
-            str(moment) if moment else "",
+            f"{place[0]}\t{place[1]}" if place else "",
         )
 
     @staticmethod
@@ -544,7 +580,7 @@ class NotificationReminderService:
                 sent += outcome["sent"]
                 skipped += outcome["skipped"]
 
-            after = rows[-1].creation
+            after = (str(rows[-1].creation), rows[-1].name)
             NotificationReminderService._remember(rule_key, after)
 
             if sent >= limit:

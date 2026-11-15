@@ -736,11 +736,17 @@ class TestAReminderIsSentOnce(RequestCase):
         self.assertEqual(outcome["reason"], "held_by_another_worker")
         self.assertEqual(self.mails(name), before)
 
-    def test_a_reservation_whose_worker_never_came_back_is_finished_once(self):
+    def test_a_reservation_whose_worker_never_came_back_is_left_for_review(self):
+        """Nothing ties a dispatch to a queue entry, so neither answer can be guessed at.
+
+        The worker stopped somewhere between writing the mail and recording that it had.
+        Sending again might send twice; adopting whatever mail is addressed to that person
+        about that record might adopt a different notification entirely and lose this one.
+        So the row says it does not know, and somebody looks.
+        """
         name = self.awaiting()
         address = self.address("r")
         dispatch = self.reserved_delivery(name, address)
-        # the worker stopped: its claim is older than the lease and nobody is in sendmail
         frappe.db.set_value(
             "MSP Notification Dispatch",
             dispatch,
@@ -751,12 +757,17 @@ class TestAReminderIsSentOnce(RequestCase):
         frappe.db.commit()
         before = self.mails(name)
 
-        for _ in range(2):
-            self.deliver_once(name, address)
+        outcome = self.deliver_once(name, address)
 
-        self.assertEqual(self.mails(name), before + 1, "finished, and finished once")
+        self.assertEqual(outcome["reason"], "needs_investigation")
+        self.assertEqual(frappe.db.get_value(DISPATCH, dispatch, "status"), "Unknown")
+        self.assertEqual(self.mails(name), before, "and nothing was sent a second time")
+
+        # and asking again changes nothing, however many times it is asked
+        self.deliver_once(name, address)
+
+        self.assertEqual(self.mails(name), before)
         self.assertEqual(self.reminder_rows(name), 1)
-        self.assertEqual(frappe.db.get_value(DISPATCH, dispatch, "status"), "Queued")
 
     def test_the_maximum_stops_run_one_from_sending_anything_more(self):
         name = self.awaiting()

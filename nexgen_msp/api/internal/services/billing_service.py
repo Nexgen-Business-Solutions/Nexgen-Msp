@@ -825,11 +825,24 @@ class BillingService:
             return None
 
         # each stretch is worth the share of this line's own terms that the new ones fall
-        # short by, so the months add up to money without inventing a second kind of line
-        months = sum(
-            share * flt(BillingService._unused_share(method, stretches), 6)
-            for share, stretches in owed
-        )
+        # short by, so the months add up to money without inventing a second kind of line.
+        # Kept stretch by stretch as well: three units given back over one week and five
+        # over the next are two different amounts a day, and a single total over the whole
+        # of it is an average that is right for neither
+        components = []
+
+        for share, stretches in owed:
+            merged = coverage_intervals.merge(stretches)
+            components.append(
+                {
+                    "months": flt(share * flt(BillingService._unused_share(method, merged), 6), 6),
+                    "segments": [
+                        {"from": str(first), "to": str(last)} for first, last in merged
+                    ],
+                }
+            )
+
+        months = sum(part["months"] for part in components)
         months = min(flt(months, 6), flt(remaining))
 
         if months <= 0:
@@ -847,6 +860,9 @@ class BillingService:
             "unused_days": sum((last - first).days + 1 for first, last in segments),
             "months": months,
             "segments": [{"from": str(first), "to": str(last)} for first, last in segments],
+            # the same money, said stretch by stretch, so a credit of two reductions is
+            # written as two lines and each keeps the days it is really worth
+            "components": components,
         }
 
     @staticmethod
@@ -4673,6 +4689,10 @@ class BillingService:
         lines = frappe.parse_json(lines) if isinstance(lines, str) else lines
         method = source["proration_method"]
         wanted = {}
+        # a line can be owed back in pieces worth different amounts a day — three units over
+        # one stretch, five over the next. Kept apart, because one total over the merged
+        # dates is an average, and an average of two different prices is right for neither
+        parts = {}
         windows = {}
         # the exact stretches each credit covers: two stretches with a hole between them
         # must not read later as one unbroken period given back
@@ -4856,7 +4876,7 @@ class BillingService:
                     )
 
                 key = months_of[0].get("line") or row["service_assignment"]
-                wanted[key] = flt(row.get("months"))
+                wanted[key] = flt(wanted.get(key) or 0) + flt(row.get("months"))
 
                 # asked for in months because the money is a part of what those days cost,
                 # not all of it — but the days themselves still belong on the credit. Without
@@ -4869,12 +4889,21 @@ class BillingService:
                             for part in row["segments"]
                         ]
                     )
-                    segments[key] = [
-                        {"from": str(first), "to": str(last)} for first, last in held
-                    ]
-                    windows[key] = (
+                    mine = [{"from": str(first), "to": str(last)} for first, last in held]
+                    window = (
                         str(min(first for first, _last in held)),
                         str(max(last for _first, last in held)),
+                    )
+                    segments[key] = mine
+                    windows[key] = window
+                    # and kept as a piece of its own, so the days it covers carry the money
+                    # it is worth rather than a share of everything credited on this line
+                    parts.setdefault(key, []).append(
+                        {
+                            "months": flt(row.get("months")),
+                            "window": window,
+                            "segments": mine,
+                        }
                     )
 
         if not wanted:
@@ -4925,7 +4954,17 @@ class BillingService:
                         "VALIDATION_ERROR",
                     )
 
-            chosen.append((line, asked, key))
+            pieces = parts.get(key)
+
+            if pieces:
+                for piece in pieces:
+                    chosen.append(
+                        (line, flt(piece["months"]), key, piece["window"], piece["segments"])
+                    )
+            else:
+                chosen.append(
+                    (line, asked, key, windows.get(key, (None, None)), segments.get(key, []))
+                )
 
         if not chosen:
             raise ValidationError("Nothing left to credit on these lines.", "VALIDATION_ERROR")
@@ -4950,19 +4989,21 @@ class BillingService:
                         "service_assignment": line["service_assignment"],
                         "service_name": line["service_name"],
                         "user_name": line.get("user_name"),
-                        "covered_from": windows.get(key, (None, None))[0],
-                        "covered_to": windows.get(key, (None, None))[1],
-                        "billable_segments_json": frappe.as_json(segments.get(key, []))
-                        if segments.get(key)
+                        "covered_from": window[0],
+                        "covered_to": window[1],
+                        "billable_segments_json": frappe.as_json(mine)
+                        if mine
                         else None,
                         "months": flt(-months, 3),
                         "unit_rate": line["unit_rate"],
                         "discount_percent": flt(line.get("discount_percent")),
                         "amount": amount_of(line, months),
                     }
-                    for line, months, key in chosen
+                    for line, months, key, window, mine in chosen
                 ],
-                "total": flt(sum(amount_of(line, months) for line, months, _key in chosen), 2),
+                "total": flt(
+                    sum(amount_of(line, months) for line, months, _key, _w, _m in chosen), 2
+                ),
             }
 
         # a credit note still has to read as something a year from now. Said nothing, it
@@ -5017,13 +5058,11 @@ class BillingService:
                         "period_days": line["period_days"],
                         # the stretch given back, when one was named: what makes a second
                         # note over the same days refusable rather than merely unlikely
-                        "covered_from": windows.get(key, (None, None))[0],
-                        "covered_to": windows.get(key, (None, None))[1],
+                        "covered_from": window[0],
+                        "covered_to": window[1],
                         # the stretches actually given back: two of them with a hole between
                         # must never read later as one unbroken period credited
-                        "billable_segments_json": frappe.as_json(segments.get(key, []))
-                        if segments.get(key)
-                        else None,
+                        "billable_segments_json": frappe.as_json(mine) if mine else None,
                         "billable_months": -months,
                         "unit_rate": line["unit_rate"],
                         "price_source": line["price_source"],
@@ -5039,7 +5078,7 @@ class BillingService:
                         "amount": amount_of(line, months),
                         "line_comment": reason,
                     }
-                    for line, months, key in chosen
+                    for line, months, key, window, mine in chosen
                 ],
             }
         ).insert(ignore_permissions=True)

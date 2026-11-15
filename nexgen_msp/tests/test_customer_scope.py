@@ -2052,6 +2052,60 @@ class TestWhatAChangeOwesBack(CompanyBillingCase):
             "the first credit stands and no second one was written",
         )
 
+    def test_two_reductions_credited_together_keep_their_own_days(self):
+        """The review's own worked case: 8, then 5, then 3, credited once, then 4.
+
+        Two reductions are worth different amounts a day. Credited as one total over the
+        merged days, that total is spread evenly — and the next change is then priced
+        against an average nobody was ever charged.
+        """
+        from nexgen_msp.api.internal.services.billing import wizard
+
+        start, end = self.month()
+        first = self.opened(quantity=8)
+        run = self.posted(start, end)
+        middle = frappe.utils.add_days(frappe.utils.getdate(start), 15)
+        later = frappe.utils.add_days(frappe.utils.getdate(start), 22)
+
+        second = ServiceLifecycleService.change(
+            assignment=first, effective_date=str(middle), quantity=5
+        )["name"]
+        ServiceLifecycleService.change(
+            assignment=second, effective_date=str(later), quantity=3
+        )
+        frappe.db.commit()
+
+        for row in frappe.get_all(
+            ASSIGNMENT, filters={"customer": self.customer, "service_item": self.storage}, pluck="name"
+        ):
+            self.track(ASSIGNMENT, row)
+
+        line = next(
+            row
+            for row in BillingService.get_run(run)["lines"]
+            if row["service_assignment"] == first
+        )
+        method = line["proration_method"]
+        rate = flt(line["unit_rate"])
+        # three of the eight units over the first stretch, five of them over the second
+        expected = -(
+            3 * rate * BillingService._unused_share(method, [(middle, frappe.utils.add_days(later, -1))])
+            + 5 * rate * BillingService._unused_share(method, [(later, frappe.utils.getdate(end))])
+        )
+
+        priced = wizard.credit_preview(
+            contract=self.contract, against=run, include=[first], scope="detected"
+        )
+        mine = [row for row in priced["lines"] if row["service_assignment"] == first]
+
+        self.assertEqual(len(mine), 2, f"two reductions, two pieces: {mine}")
+        self.assertAlmostEqual(sum(flt(row["amount"]) for row in mine), round(expected, 2), places=1)
+        self.assertEqual(
+            len({(str(row["covered_from"]), str(row["covered_to"])) for row in mine}),
+            2,
+            "and each piece keeps the days it is worth",
+        )
+
     def test_nothing_is_credited_without_somebody_doing_it(self):
         """The run proposes; it never refunds."""
         start, end = self.month()

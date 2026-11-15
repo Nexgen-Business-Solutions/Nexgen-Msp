@@ -159,10 +159,15 @@ class NotificationDispatchService:
                 }
 
             if not NotificationDispatchService._claim(existing):
-                # reserved and still being worked on by whoever reserved it
+                # either somebody is still working on it, or it was abandoned and has just
+                # been recorded as unknown. The row itself says which
+                reads = frappe.db.get_value(DISPATCH, existing.name, "status")
+
                 return {
-                    "status": existing.status,
-                    "reason": "held_by_another_worker",
+                    "status": reads,
+                    "reason": "needs_investigation"
+                    if reads == "Unknown"
+                    else "held_by_another_worker",
                     "dispatch": existing.name,
                 }
 
@@ -251,19 +256,31 @@ class NotificationDispatchService:
         ) < lease_seconds:
             return False
 
-        # before taking it over, find out whether the worker that stopped had already
-        # handed a mail to the queue. The crash to fear is the one between the queue entry
-        # being written and this row being told about it: taken over blindly, that mail is
-        # sent a second time
-        already = NotificationDispatchService._queued_already(dispatch, fresh.reserved_at)
-
-        if already:
+        # a reservation this old was left by a worker that stopped, and the dangerous
+        # moment is the one between the mail being written to the queue and this row being
+        # told about it. Nothing durable ties the two together — Frappe's queue carries no
+        # mark of ours — so whether that mail exists cannot be established, only guessed at
+        # by address and reference. Two notifications to one person about one request fit
+        # that guess equally well, and adopting the wrong one loses the reminder while
+        # sending again would send twice.
+        #
+        # So neither. It is recorded as unknown, which is what it is, and somebody looks.
+        if fresh.status == "Pending":
             NotificationDispatchService._mark(
                 dispatch,
-                "Queued",
-                email_queue_id=already,
-                queued_at=frappe.utils.now(),
-                failure_reason=None,
+                "Unknown",
+                failure_reason="Reserved and never finished. Whether a mail was queued "
+                "cannot be established from the queue, so it is left for review rather "
+                "than risked either way.",
+            )
+            NotificationSettingsService._write_audit(
+                action="Retry Decided",
+                rule=dispatch.rule,
+                dispatch=dispatch.name,
+                recipients=dispatch.recipient,
+                attempt=frappe.utils.cint(fresh.attempt),
+                reason_code="reservation_abandoned",
+                detail="Left as Unknown: no durable link between a dispatch and a queue entry.",
             )
 
             return False
@@ -280,51 +297,6 @@ class NotificationDispatchService:
         dispatch.reload()
 
         return True
-
-    @staticmethod
-    def _queued_already(dispatch, since):
-        """The queue entry a stopped worker may already have written for this delivery.
-
-        There is no identifier shared between the two until this row is told, which is the
-        whole difficulty: the mail is correlated instead by the things that are true of it
-        — the address written to, the record it refers to, the subject it carries — and only
-        among entries written since the reservation was taken.
-
-        Returns nothing when no such entry can be found. "Nothing found" is not proof that
-        none exists, so the caller treats it as licence to send only together with the lease
-        having run out.
-        """
-        if not dispatch.recipient:
-            return None
-
-        found = frappe.db.sql(
-            """
-            select distinct queue.name
-            from `tabEmail Queue` queue
-            join `tabEmail Queue Recipient` person on person.parent = queue.name
-            where person.recipient = %(recipient)s
-              and queue.creation >= %(since)s
-              and (
-                %(reference)s is null
-                or (queue.reference_doctype = %(doctype)s and queue.reference_name = %(reference)s)
-              )
-              and not exists (
-                select 1 from `tabMSP Notification Dispatch` other
-                where other.email_queue_id = queue.name
-              )
-            order by queue.creation asc
-            limit 1
-            """,
-            {
-                "recipient": dispatch.recipient,
-                "since": since or frappe.utils.add_to_date(frappe.utils.now(), hours=-24),
-                "doctype": dispatch.business_doctype,
-                "reference": dispatch.business_name,
-            },
-            pluck=True,
-        )
-
-        return found[0] if found else None
 
     @staticmethod
     def _queue(dispatch, current, context, cc=None, attachments=None):

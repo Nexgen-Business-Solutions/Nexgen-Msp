@@ -606,16 +606,21 @@ def _credit_rows(run, include):
         # said it in months of this very line, so it is carried through as months — asking
         # again by date would price the whole quantity over them and give back too much
         if owed.get("replaced"):
-            rows.append(
-                {
-                    "service_assignment": line["service_assignment"],
-                    "line": line.get("line"),
-                    "months": owed["months"],
-                    # the days it is about, so what was returned can be told from what is
-                    # still paid for when the next run reads this period again
-                    "segments": owed.get("segments"),
-                }
-            )
+            # one row per stretch the reduction is worth a different amount over, so the
+            # credit is written as the pieces it is really made of. A single total over the
+            # merged days would be spread evenly across them, and a later change priced
+            # against that average is priced against something nobody was ever charged
+            for part in owed.get("components") or [
+                {"months": owed["months"], "segments": owed.get("segments")}
+            ]:
+                rows.append(
+                    {
+                        "service_assignment": line["service_assignment"],
+                        "line": line.get("line"),
+                        "months": part["months"],
+                        "segments": part["segments"],
+                    }
+                )
 
             continue
 
