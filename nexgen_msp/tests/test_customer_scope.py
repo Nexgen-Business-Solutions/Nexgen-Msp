@@ -1721,6 +1721,43 @@ class TestAReplacementSaysWhatItReplaced(CompanyBillingCase):
         self.assertEqual(flt(successors[0].quantity), 8.0)
         self.assertTrue(BillingService._was_replaced(first))
 
+    def test_a_service_sold_again_the_next_day_is_not_a_change(self):
+        """F33-H2: the calendar cannot tell a change from a resale, so it is not asked.
+
+        A service ended on the fifteenth and sold again on the sixteenth leaves exactly the
+        shape a change leaves. Read as a replacement, the new sale inherits the old one's
+        paid days and nobody is charged for them.
+        """
+        start, end = self.month()
+        first = self.opened(quantity=5)
+        self.posted(start, end)
+        middle = frappe.utils.add_days(frappe.utils.getdate(start), 15)
+
+        ServiceLifecycleService.end(assignment=first, effective_date=str(middle))
+        frappe.db.commit()
+        again = self.track(
+            ASSIGNMENT,
+            ServiceLifecycleService.activate(
+                customer=self.customer,
+                service_item=self.storage,
+                target_scope="Customer",
+                effective_date=str(frappe.utils.add_days(middle, 1)),
+                quantity=5,
+            )["name"],
+        )
+
+        self.assertIsNone(
+            frappe.db.get_value(ASSIGNMENT, again, "replaces_assignment"),
+            "nobody said it replaced anything, because it did not",
+        )
+        self.assertEqual(
+            BillingService._period_chain(
+                frappe.get_doc(ASSIGNMENT, again).as_dict(), self.customer
+            ),
+            [],
+            "a new sale carries no paid coverage from the period before it",
+        )
+
     def test_a_service_that_simply_stopped_says_nothing_of_the_kind(self):
         first = self.opened(quantity=5)
         ServiceLifecycleService.end(assignment=first, effective_date=frappe.utils.today())
@@ -1825,6 +1862,44 @@ class TestWhatAChangeOwesBack(CompanyBillingCase):
         # half the price over those days, so half of what they were charged at
         self.assertAlmostEqual(proposed["months"], round(share / 2, 3), places=2)
 
+    def test_a_rate_of_nothing_is_a_rate_somebody_chose(self):
+        """F33-H3: zero is a price, not a missing one.
+
+        Read for truthiness, an agreed rate of nothing falls back to the old rate and the
+        change reads as costing the same — so a service given away for the rest of the
+        period proposes no credit at all.
+        """
+        start, end = self.month()
+        first = self.opened(quantity=5)
+        run = self.posted(start, end)
+        middle = frappe.utils.add_days(frappe.utils.getdate(start), 15)
+
+        ServiceLifecycleService.change(
+            assignment=first,
+            effective_date=str(middle),
+            agreed_rate=0,
+            rate_override_reason="Given at no charge for the rest of the period",
+        )
+        frappe.db.commit()
+
+        for row in frappe.get_all(
+            ASSIGNMENT, filters={"customer": self.customer, "service_item": self.storage}, pluck="name"
+        ):
+            self.track(ASSIGNMENT, row)
+
+        proposed = next(row for row in self.owed(run) if row["assignment"] == first)
+        share = BillingService._unused_share(
+            next(
+                row
+                for row in BillingService.get_run(run)["lines"]
+                if row["service_assignment"] == first
+            )["proration_method"],
+            [(middle, frappe.utils.getdate(end))],
+        )
+
+        # nothing is being charged for those days, so the whole of what they cost is owed
+        self.assertAlmostEqual(proposed["months"], round(share, 3), places=2)
+
     def test_taking_more_owes_nothing_back(self):
         start, end = self.month()
         first = self.opened(quantity=5)
@@ -1883,6 +1958,47 @@ class TestWhatAChangeOwesBack(CompanyBillingCase):
 
         self.assertEqual(len(mine), 1, mine)
         self.assertAlmostEqual(flt(mine[0]["amount"]), round(expected, 2), places=1)
+
+    def test_a_partial_credit_leaves_the_rest_paid_for(self):
+        """F33-H4: a credit is money back, not a day struck off the calendar.
+
+        Three units returned out of eight leaves five paid for. Taken off by date instead,
+        those days read as unpaid and the five are charged all over again.
+        """
+        from nexgen_msp.api.internal.services.billing import wizard
+
+        start, end = self.month()
+        first = self.opened(quantity=8)
+        run = self.posted(start, end)
+        middle = frappe.utils.add_days(frappe.utils.getdate(start), 15)
+
+        ServiceLifecycleService.change(assignment=first, effective_date=str(middle), quantity=5)
+        frappe.db.commit()
+
+        for row in frappe.get_all(
+            ASSIGNMENT, filters={"customer": self.customer, "service_item": self.storage}, pluck="name"
+        ):
+            self.track(ASSIGNMENT, row)
+
+        given = wizard.create(
+            contract=self.contract,
+            kind="credit_note",
+            against=run,
+            include=[first],
+            scope="detected",
+            reason="Reduced to five units",
+        )
+        self.track(RUN, given["run"] if isinstance(given, dict) else given)
+        frappe.db.commit()
+
+        rows = self.mine(self.drawn(start=start, end=end))
+        charged = [row for row in rows if not row.exception_code and flt(row.billable_months)]
+
+        self.assertEqual(
+            charged,
+            [],
+            f"five units are still paid for over those days: {[(flt(r.quantity), flt(r.billable_months)) for r in rows]}",
+        )
 
     def test_nothing_is_credited_without_somebody_doing_it(self):
         """The run proposes; it never refunds."""

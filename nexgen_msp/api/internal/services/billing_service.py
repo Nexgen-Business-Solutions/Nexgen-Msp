@@ -329,82 +329,62 @@ class BillingService:
 
     @staticmethod
     def _period_chain(assignment, customer, depth=24):
-        """Every period this one replaced, walking back while they abut.
+        """Every period this one replaced, as the records themselves say.
 
         A change of terms closes the running period the day before and opens a replacement
         on the day, so a service changed twice in a month leaves three periods in a row.
         Reading only the one immediately before it would miss the invoice that paid for
-        those days, because that invoice was drawn against the first of them — and the days
-        would be charged a second time.
+        those days, and the days would be charged a second time.
 
-        Derived from the shape of the handover rather than stored: a field for it would have
-        to be written onto every record that already exists.
+        Followed by the link the change wrote, and by nothing else. The calendar cannot
+        answer this: a service genuinely ended in March and sold again in April leaves the
+        same shape as a change, and reading that shape as a replacement would treat the new
+        sale's days as already paid for and charge nobody for them. A period nobody said
+        was replaced is its own, which for a record written before the link existed is also
+        the only honest thing to say about it.
         """
         chain = []
-        start = assignment.effective_start_date
         seen = {assignment.name}
         named = assignment.get("replaces_assignment")
 
-        # the record says what it replaced, where it was written by a change. Followed by
-        # name there is no guessing at all
         while named and len(chain) < depth and named not in seen:
             earlier = frappe.db.get_value(
                 "MSP Service Assignment",
                 named,
-                ["name", "quantity", "effective_start_date", "replaces_assignment", "customer"],
+                [
+                    "name",
+                    "customer",
+                    "service_item",
+                    "assignment_scope",
+                    "client_user",
+                    "managed_device",
+                    "quantity",
+                    "effective_start_date",
+                    "replaces_assignment",
+                ],
                 as_dict=True,
             )
 
-            if not earlier or earlier.customer != customer:
+            if not earlier:
+                break
+
+            # a link is only evidence of a replacement between periods of the same thing
+            # for the same holder: anything else is a link somebody wrote by mistake, and
+            # inheriting paid coverage across it would charge the wrong customer less
+            same = (
+                earlier.customer == customer
+                and earlier.service_item == assignment.service_item
+                and earlier.assignment_scope == assignment.assignment_scope
+                and (earlier.client_user or None) == (assignment.get("client_user") or None)
+                and (earlier.managed_device or None) == (assignment.get("managed_device") or None)
+            )
+
+            if not same:
                 break
 
             chain.append(earlier)
             seen.add(earlier.name)
             named = earlier.replaces_assignment
-
-        if chain:
-            return chain
-
-        # nothing said so, which on a record written before the link existed means nobody
-        # knows. Reading the handover off the calendar is a guess, and it is made only
-        # here, on the question where guessing wrong charges a customer less rather than
-        # twice: days somebody already paid for are not billed again
-        for _ in range(depth):
-            if not start:
-                break
-
-            filters = {
-                "customer": customer,
-                "service_item": assignment.service_item,
-                "assignment_scope": assignment.assignment_scope,
-                "effective_end_date": add_days(getdate(start), -1),
-                "operational_status": "Ended",
-                "name": ("not in", list(seen)),
-            }
-
-            # the same target, so one person's period is never read as another's. An empty
-            # one is left out rather than matched against '': the column holds NULL, which
-            # equals nothing at all, and the scope already tells a company period from a
-            # person's
-            for field in ("client_user", "managed_device"):
-                if assignment.get(field):
-                    filters[field] = assignment.get(field)
-
-            found = frappe.get_all(
-                "MSP Service Assignment",
-                filters=filters,
-                fields=["name", "quantity", "effective_start_date"],
-                order_by="creation desc",
-                limit=1,
-            )
-
-            if not found:
-                break
-
-            earlier = found[0]
-            chain.append(earlier)
-            seen.add(earlier.name)
-            start = earlier.effective_start_date
 
         return chain
 
@@ -426,15 +406,19 @@ class BillingService:
             """
             select brl.covered_from, brl.covered_to, brl.billable_days, brl.amount,
                    brl.quantity, brl.unit_rate, brl.discount_percent,
-                   brl.billable_segments_json
+                   brl.billable_months, brl.proration_method,
+                   brl.billable_segments_json,
+                   case
+                       when ifnull(br.credit_note_of, '') != '' then 1
+                       when ifnull(br.standalone_credit, 0) = 1 then 1
+                       else 0
+                   end as gave_back
             from `tabMSP Billing Run Line` brl
             join `tabMSP Billing Run` br on br.name = brl.parent
             where brl.service_assignment in %(names)s
               and ifnull(brl.exception_code, '') = ''
               and br.docstatus < 2
               and br.status in %(charged)s
-              and (br.credit_note_of is null or br.credit_note_of = '')
-              and ifnull(br.standalone_credit, 0) = 0
               and br.name != %(exclude)s
             """,
             {
@@ -451,21 +435,37 @@ class BillingService:
         priced = []
 
         for row in rows:
-            if flt(row.billable_days) <= 0:
-                continue
-
-            # the terms this line really charged on, kept as terms rather than reduced to
-            # money per day. A day's share of a month is not linear under every proration
-            # method, so valuing the same days twice — once by the method and once by
-            # dividing an amount by days — compares two different things and is wrong by
-            # the difference between them
+            # the terms this line charged on, kept as terms rather than reduced to money per
+            # day. A day's share of a month is not linear under every proration method, so
+            # valuing the same days twice — once by the method and once by dividing an
+            # amount by days — compares two different things and is wrong by the difference
             basis = flt(row.quantity) * flt(row.unit_rate) * (
                 1 - flt(row.discount_percent) / 100.0
             )
-
-            for first, last in BillingService._billed_stretches(row) or coverage_intervals.span(
+            stretches = BillingService._billed_stretches(row) or coverage_intervals.span(
                 row.covered_from, row.covered_to
-            ):
+            )
+
+            if not stretches or not basis:
+                continue
+
+            if row.gave_back:
+                # what was given back, over the days it was given back for. A credit of
+                # three units out of eight leaves five paid for: subtracting the days
+                # instead would leave none of them paid for, and the five would be charged
+                # a second time
+                share = flt(
+                    BillingService._unused_share(row.proration_method or "None", stretches), 6
+                )
+
+                if share <= 0:
+                    continue
+
+                basis = -basis * abs(flt(row.billable_months)) / share
+            elif flt(row.billable_days) <= 0:
+                continue
+
+            for first, last in stretches:
                 priced.append((getdate(first), getdate(last), basis))
 
         return priced
@@ -500,12 +500,12 @@ class BillingService:
             held = coverage.get(earlier.name) or coverage_resolver.coverage_of(
                 [{"name": earlier.name}], with_baseline=False, exclude_run=exclude_run
             ).get(earlier.name, {})
-            # what was given back is not paid for any more
-            charged += coverage_intervals.subtract(
-                coverage_intervals.merge(
-                    held.get("charged", []) + held.get("reserved", [])
-                ),
-                held.get("credited", []),
+            # the days charged, credited ones included: what a credit gave back is taken
+            # off the money below, not off the calendar. Three units returned out of eight
+            # does not make the day unpaid, and striking the day out would charge the other
+            # five again
+            charged += coverage_intervals.merge(
+                held.get("charged", []) + held.get("reserved", [])
             )
 
         paid_days = coverage_intervals.intersect(coverage_intervals.merge(charged), live)
@@ -630,6 +630,14 @@ class BillingService:
         if abs(equivalent - flt(quantity)) < 0.0001:
             return flt(quantity), None
 
+        # a hundredth of a unit is not a charge. What is already paid for and what is now
+        # owed are each worked out through a proration helper, and the two do not agree to
+        # the last decimal — so a service whose terms came back to exactly what was paid
+        # leaves a fraction of a unit behind. Charging it would put a line on an invoice
+        # for a sum nobody can account for
+        if equivalent < 0.01:
+            return 0.0, None
+
         # what the difference is made of, said plainly: the issue asks that added units and
         # a moved price never read as one number nobody can account for
         paid_units = flt(paid_basis) / (flt(rate) * net)
@@ -675,7 +683,50 @@ class BillingService:
         return chain
 
     @staticmethod
-    def _owed_after_downgrade(line, run_start, run_end, method, remaining, stopped, credited=None):
+    def _net_terms_of(successor, customer, terms, overlap):
+        """What a replacement period is really worth a month, net of its own discount.
+
+        Priced by the same rules as any other charge — manual override, contract, customer
+        price — because a change made through the contract or the price list carries no
+        agreed rate of its own, and reading the absence of one as "unchanged" hides every
+        rate change that was not typed in by hand.
+
+        A manual rate of nothing is a real rate somebody chose, so it is read as one.
+        """
+        row = frappe.db.get_value(
+            "MSP Service Assignment",
+            successor.name,
+            [
+                "name",
+                "service_item",
+                "quantity",
+                "price_source",
+                "agreed_rate",
+                "rate_override_reason",
+            ],
+            as_dict=True,
+        )
+
+        if not row:
+            return 0.0, "The replacing period could not be read."
+
+        begins = min(first for first, _last in overlap)
+        ends = max(last for _first, last in overlap)
+        rate, _source, exception, detail, discount = BillingService._rate_for(
+            customer, row, terms or {}, begins, ends
+        )
+
+        if exception:
+            return 0.0, detail or exception
+
+        net = 1 - flt(discount) / 100.0
+
+        return flt(row.quantity) * flt(rate) * net, None
+
+    @staticmethod
+    def _owed_after_downgrade(
+        line, run_start, run_end, method, remaining, stopped, credited=None, customer=None, terms=None
+    ):
         """What a change of terms owes back over days the customer had already paid for.
 
         A period whose terms moved was charged in advance on the old terms and is being
@@ -720,7 +771,24 @@ class BillingService:
             if not overlap:
                 continue
 
-            revised = flt(successor.quantity) * flt(successor.agreed_rate or line.get("unit_rate"))
+            revised, refusal = BillingService._net_terms_of(
+                successor, customer, terms, overlap
+            )
+
+            if refusal:
+                # the new terms cannot be priced, so what they are worth is not known.
+                # Substituting the old rate would propose a credit of nothing and call it
+                # an answer; this says out loud that somebody has to look
+                return {
+                    "ended_on": None,
+                    "replaced": True,
+                    "unresolved": refusal,
+                    "unused_from": min(first for first, _last in overlap),
+                    "unused_to": max(last for _first, last in overlap),
+                    "unused_days": sum((last - first).days + 1 for first, last in overlap),
+                    "months": 0.0,
+                    "segments": [{"from": str(first), "to": str(last)} for first, last in overlap],
+                }
 
             if revised >= paid:
                 continue
@@ -780,7 +848,16 @@ class BillingService:
 
     @staticmethod
     def _unused_after_billing(
-        line, run_start, run_end, method, remaining, ends=None, credited=None, pauses=None
+        line,
+        run_start,
+        run_end,
+        method,
+        remaining,
+        ends=None,
+        credited=None,
+        pauses=None,
+        customer=None,
+        terms=None,
     ):
         """What a line billed in advance owes back for days the service was not provided.
 
@@ -816,7 +893,7 @@ class BillingService:
             # the service did not stop; its terms moved. What may be owed back is not the
             # remaining days but the part of them the new terms are cheaper by
             return BillingService._owed_after_downgrade(
-                line, run_start, run_end, method, remaining, stopped, credited
+                line, run_start, run_end, method, remaining, stopped, credited, customer, terms
             )
         rested = (
             pauses.get(assignment, [])
@@ -4456,6 +4533,16 @@ class BillingService:
             frappe.db.get_value("MSP Contract", detail["contract"], "billing_timing")
             == "In Advance"
         )
+        # the list and the money this run was drawn in, so a replacement period is priced
+        # the way a charge of it would be. Read light rather than through `_terms`, which
+        # refuses a contract that has since been closed — and an old invoice still has to
+        # be creditable after its contract ends
+        governing = frappe.db.get_value(
+            "MSP Contract",
+            detail["contract"],
+            ["customer", "price_list", "currency"],
+            as_dict=True,
+        ) or {}
 
         for line in detail["lines"]:
             if line.get("exception_code"):
@@ -4497,6 +4584,8 @@ class BillingService:
                         ends,
                         mine_credited,
                         pauses,
+                        governing.get("customer") or detail.get("customer"),
+                        governing,
                     )
                     if advance
                     else None,
@@ -4742,9 +4831,27 @@ class BillingService:
                         f"{row['service_assignment']} is not on {name}.", "VALIDATION_ERROR"
                     )
 
-                wanted[months_of[0].get("line") or row["service_assignment"]] = flt(
-                    row.get("months")
-                )
+                key = months_of[0].get("line") or row["service_assignment"]
+                wanted[key] = flt(row.get("months"))
+
+                # asked for in months because the money is a part of what those days cost,
+                # not all of it — but the days themselves still belong on the credit. Without
+                # them nothing downstream can tell which coverage was returned, and the next
+                # run would read the whole of it as still paid for
+                if row.get("segments"):
+                    held = coverage_intervals.merge(
+                        [
+                            (getdate(part["from"]), getdate(part["to"]))
+                            for part in row["segments"]
+                        ]
+                    )
+                    segments[key] = [
+                        {"from": str(first), "to": str(last)} for first, last in held
+                    ]
+                    windows[key] = (
+                        str(min(first for first, _last in held)),
+                        str(max(last for _first, last in held)),
+                    )
 
         if not wanted:
             raise ValidationError("Select at least one line to credit.", "VALIDATION_ERROR")

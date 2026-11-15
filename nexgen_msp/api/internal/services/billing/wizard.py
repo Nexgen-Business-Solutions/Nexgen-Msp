@@ -593,6 +593,9 @@ def _credit_rows(run, include):
                     "service_assignment": line["service_assignment"],
                     "line": line.get("line"),
                     "months": owed["months"],
+                    # the days it is about, so what was returned can be told from what is
+                    # still paid for when the next run reads this period again
+                    "segments": owed.get("segments"),
                 }
             )
 
