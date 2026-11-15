@@ -366,7 +366,15 @@ def _record_refusal(settings, template_name, recipients, reference_doctype, refe
 
 
 def _record_event_send(
-    settings, template_name, recipients, cc, subject, queued, reference_doctype, reference_name
+    settings,
+    template_name,
+    recipients,
+    cc,
+    subject,
+    queued,
+    reference_doctype,
+    reference_name,
+    occurrence=None,
 ):
     """Record that this event produced this mail, so the delivery history is the whole story.
 
@@ -378,6 +386,9 @@ def _record_event_send(
     produce the same notification twice — a request decided, reopened and decided again — and
     nothing a call site passes today identifies one occurrence from the next. Giving them a
     shared identity would silence the second decision, which is worse than recording two.
+    So the default is a fresh token, and it cannot be derived from the record: the record is
+    the same before and after the reopening. Only the caller knows what makes this decision
+    a different one from the last, and it says so by passing `occurrence`.
 
     Nothing in here may break the operation that triggered the mail, so every failure is
     logged and swallowed.
@@ -387,7 +398,9 @@ def _record_event_send(
             NotificationDispatchService,
         )
 
-        occurrence = f"event:{frappe.generate_hash(length=12)}"
+        occurrence = (
+            f"event:{occurrence}" if occurrence else f"event:{frappe.generate_hash(length=12)}"
+        )
         queue_id = getattr(queued, "name", None) or (queued if isinstance(queued, str) else None)
 
         for address in recipients:
@@ -419,11 +432,16 @@ def send(
     now=False,
     cc=None,
     attachments=None,
+    occurrence=None,
 ):
     """Queue a branded email. Never let a mail failure break the operation that triggered it.
 
     What comes back is the queued row when there is one, so a caller that has to trace its
     own mail can; it is still only ever read as "something was queued" or "nothing was".
+
+    `occurrence` is a stable identifier for this business event, chosen by the caller, so
+    that the same event retried is recognised as the same delivery. Left out, every call is
+    recorded as its own delivery.
     """
     recipients = [address for address in (recipients or []) if address]
     cc = [address for address in (cc or []) if address and address not in recipients]
@@ -441,7 +459,11 @@ def send(
 
         return False
 
-    if settings:
+    # the same refusal again at the point of sending, because this is the line that puts an
+    # address on a mail and it must hold even if something above it ever stops holding
+    if settings and settings.get("protected"):
+        cc = []
+    elif settings:
         cc = cc + [
             address
             for address in settings["cc"]
@@ -480,6 +502,7 @@ def send(
                 queued,
                 reference_doctype,
                 reference_name,
+                occurrence=occurrence,
             )
 
         return queued or True

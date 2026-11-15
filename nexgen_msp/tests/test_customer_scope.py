@@ -2000,6 +2000,58 @@ class TestWhatAChangeOwesBack(CompanyBillingCase):
             f"five units are still paid for over those days: {[(flt(r.quantity), flt(r.billable_months)) for r in rows]}",
         )
 
+    def test_the_same_partial_credit_cannot_be_given_twice(self):
+        """F33-08: months left on a line is not the same question as money still owed.
+
+        Three units of eight given back leaves months on the line, so a second identical
+        request passes a test that only looks at months — and the customer is refunded
+        twice for the same three units.
+        """
+        from nexgen_msp.api.internal.services.billing import wizard
+
+        start, end = self.month()
+        first = self.opened(quantity=8)
+        run = self.posted(start, end)
+        middle = frappe.utils.add_days(frappe.utils.getdate(start), 15)
+
+        ServiceLifecycleService.change(assignment=first, effective_date=str(middle), quantity=5)
+        frappe.db.commit()
+
+        for row in frappe.get_all(
+            ASSIGNMENT, filters={"customer": self.customer, "service_item": self.storage}, pluck="name"
+        ):
+            self.track(ASSIGNMENT, row)
+
+        given = wizard.create(
+            contract=self.contract,
+            kind="credit_note",
+            against=run,
+            include=[first],
+            scope="detected",
+            reason="Reduced to five units",
+        )
+        self.track(RUN, given["run"] if isinstance(given, dict) else given)
+        frappe.db.commit()
+
+        notes = frappe.get_all(RUN, filters={"credit_note_of": run}, pluck="name")
+        self.assertEqual(len(notes), 1)
+
+        with self.assertRaises(ValidationError):
+            wizard.create(
+                contract=self.contract,
+                kind="credit_note",
+                against=run,
+                include=[first],
+                scope="detected",
+                reason="Reduced to five units",
+            )
+
+        self.assertEqual(
+            frappe.get_all(RUN, filters={"credit_note_of": run}, pluck="name"),
+            notes,
+            "the first credit stands and no second one was written",
+        )
+
     def test_nothing_is_credited_without_somebody_doing_it(self):
         """The run proposes; it never refunds."""
         start, end = self.month()

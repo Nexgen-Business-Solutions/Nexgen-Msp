@@ -25,12 +25,14 @@ QUEUE = "Email Queue"
 
 NUL = "\0"
 
-# what the queue says, said in our words. Neither of the first two means anybody read it
+# what the queue says, said in our words. Neither of the first two means anybody read it.
+# "Partially Sent" is deliberately absent: one queue entry can carry several addresses, so
+# the entry alone cannot say what became of this one, and only that address's own
+# `Email Queue Recipient` row can. Frappe records "Not Sent" or "Sent" there and nothing finer
 FROM_QUEUE = {
     "Not Sent": "Queued",
     "Sending": "Queued",
     "Sent": "Sent",
-    "Partially Sent": "Sent",
     "Error": "Failed",
     "Expired": "Failed",
 }
@@ -311,11 +313,37 @@ class NotificationDispatchService:
 
             return {"status": "Unknown", "reason": "enqueue_failed", "dispatch": dispatch.name}
 
+        queue_id = getattr(queued, "name", None) or (queued if isinstance(queued, str) else None)
+
+        if not queue_id:
+            # `sendmail` returned nothing we can trace. Without a queue id the row can never be
+            # reconciled, so calling it Queued would be a claim nobody can ever check
+            reason = "The mail was handed to the queue but no queue entry could be identified."
+            NotificationDispatchService._mark(
+                dispatch, "Unknown", subject_snapshot=subject[:140], failure_reason=reason
+            )
+            NotificationSettingsService._write_audit(
+                action="Failed",
+                rule=dispatch.rule,
+                rule_revision=dispatch.rule_revision_at_decision,
+                dispatch=dispatch.name,
+                business_doctype=dispatch.business_doctype,
+                business_name=dispatch.business_name,
+                recipients=dispatch.recipient,
+                template_name=dispatch.template_name,
+                subject_snapshot=subject[:140],
+                attempt=dispatch.attempt,
+                reason_code="queue_id_unknown",
+                detail=reason,
+            )
+
+            return {"status": "Unknown", "reason": "queue_id_unknown", "dispatch": dispatch.name}
+
         NotificationDispatchService._mark(
             dispatch,
             "Queued",
             subject_snapshot=subject[:140],
-            email_queue_id=getattr(queued, "name", None) or (queued if isinstance(queued, str) else None),
+            email_queue_id=queue_id,
             queued_at=frappe.utils.now(),
         )
         NotificationSettingsService._write_audit(
@@ -369,6 +397,12 @@ class NotificationDispatchService:
         key = NotificationDispatchService.dedup_key(
             rule_key, business_doctype, business_name, occurrence, address
         )
+        # a caller-supplied occurrence can be recorded twice; the second is the same delivery
+        held = frappe.db.get_value(DISPATCH, {"dedup_key": key}, "name")
+
+        if held:
+            return held
+
         doc = frappe.new_doc(DISPATCH)
         doc.dedup_key = key
         doc.rule = rule_key
@@ -421,6 +455,7 @@ class NotificationDispatchService:
             limit=limit,
         )
         moved = 0
+        recipients_of = {}
 
         for row in rows:
             state = frappe.db.get_value(QUEUE, row.email_queue_id, "status")
@@ -428,7 +463,20 @@ class NotificationDispatchService:
             if not state:
                 continue
 
-            reads = FROM_QUEUE.get(state)
+            if state == "Partially Sent":
+                if row.email_queue_id not in recipients_of:
+                    recipients_of[row.email_queue_id] = (
+                        NotificationDispatchService._queue_recipients(row.email_queue_id)
+                    )
+
+                reads, reason = NotificationDispatchService._read_recipient(
+                    recipients_of[row.email_queue_id], row.recipient
+                )
+            else:
+                reads, reason = FROM_QUEUE.get(state), None
+
+                if reads == "Failed":
+                    reason = f"The mail queue reports {state}."
 
             if not reads or reads == row.status:
                 continue
@@ -439,9 +487,7 @@ class NotificationDispatchService:
                 {
                     "status": reads,
                     "sent_at": frappe.utils.now() if reads == "Sent" else None,
-                    "failure_reason": f"The mail queue reports {state}."
-                    if reads == "Failed"
-                    else None,
+                    "failure_reason": reason,
                 },
                 update_modified=True,
             )
@@ -460,6 +506,38 @@ class NotificationDispatchService:
             frappe.db.commit()
 
         return moved
+
+    @staticmethod
+    def _queue_recipients(queue_id):
+        """What Frappe recorded for each address of one queue entry, keyed by address."""
+        rows = frappe.get_all(
+            "Email Queue Recipient",
+            filters={"parent": queue_id, "parenttype": QUEUE},
+            fields=["recipient", "status", "error"],
+        )
+
+        return {NotificationDispatchService.normalise(row.recipient): row for row in rows}
+
+    @staticmethod
+    def _read_recipient(recipients, address):
+        """This address's own outcome inside a partially sent entry.
+
+        Never `Sent` unless this address's row says so. An address whose row is missing, or
+        still "Not Sent" with nothing said about why, is `Unknown`: the entry did go out in
+        part, and nothing here says it was this part.
+        """
+        found = recipients.get(NotificationDispatchService.normalise(address))
+
+        if not found:
+            return "Unknown", "The mail queue partly sent this message and holds no record for this address."
+
+        if found.status == "Sent":
+            return "Sent", None
+
+        if found.error:
+            return "Failed", f"{found.error}"[:500]
+
+        return "Unknown", "The mail queue partly sent this message and this address was not marked sent."
 
     # ------------------------------------------------------------------ the history
     @staticmethod

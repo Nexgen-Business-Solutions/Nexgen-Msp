@@ -754,12 +754,25 @@ class BillingService:
         after = coverage_intervals.intersect(
             served_on, coverage_intervals.span(add_days(getdate(stopped), 1), getdate(run_end))
         )
-        after = coverage_intervals.subtract(after, credited or [])
-
         if not after:
             return None
 
+        # what those days are worth now, net of everything already charged and credited
+        # against them. Striking the credited days out instead would say that a credit of
+        # three units out of eight settled the whole of them, so a further reduction to
+        # three would owe nothing at all
+        paid_now = {
+            (begins, ends): basis
+            for (begins, ends), basis in BillingService._basis_by_day(
+                BillingService._charged_value([line["service_assignment"]]), after
+            )
+        }
+
+        if not paid_now:
+            return None
+
         owed = []
+        unresolved = None
 
         for successor in BillingService._successors(line["service_assignment"]):
             live = coverage_intervals.span(
@@ -778,22 +791,35 @@ class BillingService:
             if refusal:
                 # the new terms cannot be priced, so what they are worth is not known.
                 # Substituting the old rate would propose a credit of nothing and call it
-                # an answer; this says out loud that somebody has to look
-                return {
-                    "ended_on": None,
-                    "replaced": True,
-                    "unresolved": refusal,
-                    "unused_from": min(first for first, _last in overlap),
-                    "unused_to": max(last for _first, last in overlap),
-                    "unused_days": sum((last - first).days + 1 for first, last in overlap),
-                    "months": 0.0,
-                    "segments": [{"from": str(first), "to": str(last)} for first, last in overlap],
-                }
-
-            if revised >= paid:
+                # an answer, so the proposal carries the question instead
+                unresolved = unresolved or refusal
                 continue
 
-            owed.append(((paid - revised) / paid, overlap))
+            # each stretch against what is still paid for over that stretch, because a
+            # credit already given back lands on some of these days and not others
+            for (begins, ends), remaining_basis in paid_now.items():
+                part = coverage_intervals.intersect(
+                    overlap, coverage_intervals.span(begins, ends)
+                )
+
+                if not part or revised >= remaining_basis:
+                    continue
+
+                owed.append(((remaining_basis - revised) / paid, part))
+
+        if unresolved and not owed:
+            covered = coverage_intervals.merge([stretch for stretch in after])
+
+            return {
+                "ended_on": None,
+                "replaced": True,
+                "unresolved": unresolved,
+                "unused_from": min(first for first, _last in covered),
+                "unused_to": max(last for _first, last in covered),
+                "unused_days": sum((last - first).days + 1 for first, last in covered),
+                "months": 0.0,
+                "segments": [{"from": str(first), "to": str(last)} for first, last in covered],
+            }
 
         if not owed:
             return None
@@ -804,8 +830,6 @@ class BillingService:
             share * flt(BillingService._unused_share(method, stretches), 6)
             for share, stretches in owed
         )
-        # kept to six places, not three: the amount is worked out from this number, and a
-        # third decimal of a month is a third of a percent of the money
         months = min(flt(months, 6), flt(remaining))
 
         if months <= 0:
@@ -4876,6 +4900,30 @@ class BillingService:
                     f"not {asked}.",
                     "VALIDATION_ERROR",
                 )
+
+            # what is still owed back on this line, read again under the lock. Months left
+            # to credit is not the same question: after three units of eight have been
+            # given back there are still months on the line, and asking for the same three
+            # units a second time would pass that test and pay them twice. A dispute the
+            # operator composes themselves is their own judgement and is not held to this
+            if frappe.utils.cint(only_unserved):
+                owed = line.get("owed_back") or {}
+                still = flt(owed.get("months"))
+
+                if not owed or still <= 0:
+                    raise ValidationError(
+                        f"{line['user_name'] or line['service_name']} is not owed anything "
+                        "back on this charge. Anything further is a dispute, and is raised "
+                        "as one.",
+                        "VALIDATION_ERROR",
+                    )
+
+                if asked > still + 0.000001:
+                    raise ValidationError(
+                        f"{line['user_name'] or line['service_name']} is owed {still} "
+                        f"month(s) back on this charge, not {asked}.",
+                        "VALIDATION_ERROR",
+                    )
 
             chosen.append((line, asked, key))
 

@@ -237,7 +237,13 @@ def _credit_candidates(source, scope):
     for line in source["lines"]:
         owed = line.get("owed_back") or {}
         remaining = flt(line.get("remaining_months") or 0, 3)
-        rate = flt(line.get("unit_rate") or 0) * flt(line.get("quantity") or 1)
+        # the basis create_credit_note writes the credit on, discount included, so the
+        # amount offered here is the amount that will be issued
+        rate = (
+            flt(line.get("unit_rate") or 0)
+            * flt(line.get("quantity") or 1)
+            * (1 - flt(line.get("discount_percent")) / 100.0)
+        )
 
         if scope == "detected":
             months = flt(owed.get("months") or 0, 3)
@@ -245,14 +251,26 @@ def _credit_candidates(source, scope):
             if not months:
                 continue
 
+            if owed.get("replaced"):
+                reason = (
+                    f"Terms changed on {owed.get('unused_from')}, inside a period charged "
+                    f"in advance; {owed.get('unused_days')} days were paid for at the "
+                    "previous quantity or rate. "
+                    "Confirm the original quantity, rate and any credit already given."
+                )
+            else:
+                reason = (
+                    "Service ended on "
+                    f"{owed.get('ended_on')}, inside a period charged in advance; "
+                    f"{owed.get('unused_days')} days were paid for and not served. "
+                    "Confirm the original quantity, rate and any credit already given."
+                )
+
             lines.append(
                 {
                     **_candidate(
                         {**line, "billable_months": months, "amount": -flt(months * rate, 2)},
-                        "Service ended on "
-                        f"{owed.get('ended_on')}, inside a period charged in advance; "
-                        f"{owed.get('unused_days')} days were paid for and not served. "
-                        "Confirm the original quantity, rate and any credit already given.",
+                        reason,
                         "History to verify",
                         proof=True,
                     ),

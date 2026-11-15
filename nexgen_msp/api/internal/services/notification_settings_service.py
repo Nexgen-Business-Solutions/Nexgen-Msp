@@ -154,7 +154,13 @@ class NotificationSettingsService:
                 "cc": [],
             }
 
-        extra, cc = NotificationSettingsService._extra_recipients(rule_key)
+        # read for every other rule, and for a protected one never: a row written before
+        # this was refused, or straight into the database, must not reach a send either
+        extra, cc = (
+            ([], [])
+            if declared["protected"]
+            else NotificationSettingsService._extra_recipients(rule_key)
+        )
 
         return {
             "rule_key": rule_key,
@@ -504,6 +510,17 @@ class NotificationSettingsService:
                 f"{declared['display_name']} keeps people's access to their own account and "
                 "cannot be switched off.",
                 "VALIDATION_ERROR",
+            )
+
+        # a protected notification carries the means of getting into somebody's account: a
+        # password reset link, an invitation. Copying one to another address hands that
+        # account to whoever holds the copy, and no reason for wanting it is good enough
+        if declared["protected"] and changes.get("recipients"):
+            raise ValidationError(
+                f"{declared['display_name']} reaches the account holder and nobody else. "
+                "It carries the means of signing in as them, so it cannot be copied.",
+                "PERMISSION_DENIED",
+                403,
             )
 
         refused = sorted(set(changes) - set(EDITABLE) - {"recipients"})

@@ -774,3 +774,68 @@ class TestTheHistoryTellsWhatHappened(NotificationCase):
 
         self.assertEqual(by_record["total"], 1)
         self.assertEqual(by_status["total"], 0)
+
+
+class TestASecurityNotificationReachesNobodyElse(NotificationCase):
+    """A reset link is the account. Copying it hands the account to whoever holds the copy.
+
+    The rule being impossible to switch off protects its delivery, not its contents: a
+    notification that still reaches the right person *and* an address somebody added is
+    worse than one that does not arrive at all.
+    """
+
+    PROTECTED = ("password_reset", "portal_invitation", "team_invitation")
+
+    def test_a_copy_cannot_be_configured_on_one(self):
+        for rule_key in self.PROTECTED:
+            with self.assertRaises(ValidationError, msg=rule_key):
+                NotificationSettingsService.save(
+                    rule_key,
+                    changes={"recipients": [{"email": "elsewhere@example.invalid", "kind": "CC"}]},
+                )
+
+    def test_a_row_written_straight_into_the_database_reaches_no_send(self):
+        for rule_key in self.PROTECTED:
+            doc = frappe.get_doc(RULE, rule_key)
+            doc.append("recipients", {"email": f"old-{rule_key}@example.invalid", "kind": "CC"})
+            doc.flags.ignore_validate = True
+            doc.save(ignore_permissions=True)
+
+        frappe.db.commit()
+
+        for rule_key in self.PROTECTED:
+            current = NotificationSettingsService.effective(rule_key)
+
+            self.assertEqual(current["cc"], [], rule_key)
+            self.assertEqual(current["extra"], [], rule_key)
+
+    def test_the_reset_mail_is_addressed_to_the_account_holder_alone(self):
+        holder = f"zztest-holder-{self.tag}@example.invalid"
+        doc = frappe.get_doc(RULE, "password_reset")
+        doc.append("recipients", {"email": "elsewhere@example.invalid", "kind": "CC"})
+        doc.flags.ignore_validate = True
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+
+        notifications.send(
+            "MSP Password Reset",
+            [holder],
+            {"full_name": "ZZTEST", "link": "https://example.invalid/reset"},
+        )
+
+        queued = frappe.db.sql_list(
+            "select distinct parent from `tabEmail Queue Recipient` where recipient = %s", holder
+        )
+        self.assertTrue(queued, "the holder was written to")
+
+        for parent in queued:
+            written = set(
+                frappe.get_all(
+                    "Email Queue Recipient", filters={"parent": parent}, pluck="recipient"
+                )
+            )
+            self.assertEqual(written, {holder}, "and nobody else was")
+            frappe.db.sql("delete from `tabEmail Queue Recipient` where parent = %s", parent)
+            frappe.db.sql("delete from `tabEmail Queue` where name = %s", parent)
+
+        frappe.db.commit()
