@@ -1843,6 +1843,47 @@ class TestWhatAChangeOwesBack(CompanyBillingCase):
 
         self.assertEqual(proposed["months"], 0, "the five units are still being provided")
 
+    def test_the_credit_that_is_issued_is_the_one_that_was_proposed(self):
+        """F33-04, asserted where the money actually leaves: the credit note itself.
+
+        The proposal being right is not the same as the credit being right. Asked for by
+        date, the engine prices the whole quantity over those days and gives back eight
+        units where three were taken away — and every test of the proposal passes while it
+        does so.
+        """
+        start, end = self.month()
+        first = self.opened(quantity=8)
+        run = self.posted(start, end)
+        middle = frappe.utils.add_days(frappe.utils.getdate(start), 15)
+
+        ServiceLifecycleService.change(assignment=first, effective_date=str(middle), quantity=5)
+        frappe.db.commit()
+
+        for row in frappe.get_all(
+            ASSIGNMENT, filters={"customer": self.customer, "service_item": self.storage}, pluck="name"
+        ):
+            self.track(ASSIGNMENT, row)
+
+        line = next(
+            row
+            for row in BillingService.get_run(run)["lines"]
+            if row["service_assignment"] == first
+        )
+        share = BillingService._unused_share(
+            line["proration_method"], [(middle, frappe.utils.getdate(end))]
+        )
+        expected = -3 * flt(line["unit_rate"]) * share
+
+        from nexgen_msp.api.internal.services.billing import wizard
+
+        priced = wizard.credit_preview(
+            contract=self.contract, against=run, include=[first], scope="detected"
+        )
+        mine = [row for row in priced["lines"] if row["service_assignment"] == first]
+
+        self.assertEqual(len(mine), 1, mine)
+        self.assertAlmostEqual(flt(mine[0]["amount"]), round(expected, 2), places=1)
+
     def test_nothing_is_credited_without_somebody_doing_it(self):
         """The run proposes; it never refunds."""
         start, end = self.month()

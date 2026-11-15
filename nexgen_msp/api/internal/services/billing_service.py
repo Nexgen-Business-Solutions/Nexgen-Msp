@@ -736,7 +736,9 @@ class BillingService:
             share * flt(BillingService._unused_share(method, stretches), 6)
             for share, stretches in owed
         )
-        months = min(flt(months, 3), flt(remaining))
+        # kept to six places, not three: the amount is worked out from this number, and a
+        # third decimal of a month is a third of a percent of the money
+        months = min(flt(months, 6), flt(remaining))
 
         if months <= 0:
             return None
