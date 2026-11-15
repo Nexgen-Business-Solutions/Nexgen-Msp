@@ -325,7 +325,13 @@ const RuleEditor: React.FC<EditorProps> = ({
                   htmlFor={`${idBase}-trigger`}
                   hint="Set by the application. It cannot be edited here."
                 >
-                  <input id={`${idBase}-trigger`} value={rule.trigger_key} readOnly disabled className={inputClass} />
+                  <input
+                    id={`${idBase}-trigger`}
+                    value={rule.trigger_label || rule.trigger_key}
+                    readOnly
+                    disabled
+                    className={inputClass}
+                  />
                 </Field>
                 <Field label="Email template">
                   <Select

@@ -19,6 +19,7 @@ from nexgen_msp.api.internal.services.notification_settings_service import (
     NotificationSettingsService,
 )
 from nexgen_msp.utils import notifications
+from nexgen_msp.utils.errors import ValidationError
 
 DISPATCH = "MSP Notification Dispatch"
 QUEUE = "Email Queue"
@@ -27,6 +28,9 @@ NUL = "\0"
 
 # the one failure that is known to have queued nothing, and so is safe to try again
 RENDER_FAILED = "render_failed"
+
+# somebody looked at the queue, found nothing, and said so with their name against it
+ATTESTED_NOT_SENT = "attested_not_sent"
 
 # what the queue says, said in our words. Neither of the first two means anybody read it.
 # "Partially Sent" is deliberately absent: one queue entry can carry several addresses, so
@@ -245,7 +249,10 @@ class NotificationDispatchService:
             {"name": dispatch.name},
         )
         fresh = frappe.db.get_value(
-            DISPATCH, dispatch.name, ["status", "reserved_at", "attempt"], as_dict=True
+            DISPATCH,
+            dispatch.name,
+            ["status", "reserved_at", "attempt", "skip_reason"],
+            as_dict=True,
         )
 
         if not fresh or fresh.status not in ("Pending", "Failed"):
@@ -265,7 +272,7 @@ class NotificationDispatchService:
         # sending again would send twice.
         #
         # So neither. It is recorded as unknown, which is what it is, and somebody looks.
-        if fresh.status == "Pending":
+        if fresh.status == "Pending" and fresh.skip_reason != ATTESTED_NOT_SENT:
             NotificationDispatchService._mark(
                 dispatch,
                 "Unknown",
@@ -490,6 +497,156 @@ class NotificationDispatchService:
         )
 
         return doc.name
+
+    # ------------------------------------------------------------------ resolving by hand
+    @staticmethod
+    def evidence(dispatch_name):
+        """The queue entries that could be the mail this delivery was going to send.
+
+        Shown rather than chosen. Nothing durable ties a dispatch to an entry in Frappe's
+        queue, so these are candidates on the strength of the address, the record and the
+        moment — which is enough for a person looking at them, and was never enough for
+        this application to pick one on its own.
+        """
+        NotificationSettingsService._guard()
+        doc = frappe.get_doc(DISPATCH, dispatch_name)
+
+        rows = frappe.db.sql(
+            """
+            select queue.name, queue.status, queue.creation, queue.reference_doctype,
+                   queue.reference_name, queue.message
+            from `tabEmail Queue` queue
+            join `tabEmail Queue Recipient` person on person.parent = queue.name
+            where person.recipient = %(recipient)s
+              and queue.creation >= %(since)s
+              and not exists (
+                select 1 from `tabMSP Notification Dispatch` other
+                where other.email_queue_id = queue.name
+              )
+            order by queue.creation desc
+            limit 20
+            """,
+            {
+                "recipient": doc.recipient,
+                "since": doc.reserved_at
+                or frappe.utils.add_to_date(doc.creation, hours=-1),
+            },
+            as_dict=True,
+        )
+
+        return {
+            "dispatch": {
+                "name": doc.name,
+                "rule": doc.rule,
+                "status": doc.status,
+                "recipient": doc.recipient,
+                "business_doctype": doc.business_doctype,
+                "business_name": doc.business_name,
+                "reminder_iteration": doc.reminder_iteration,
+                "subject_snapshot": doc.subject_snapshot,
+                "reserved_at": doc.reserved_at,
+                "failure_reason": doc.failure_reason,
+            },
+            "candidates": [
+                {
+                    "email_queue": row.name,
+                    "status": row.status,
+                    "created": row.creation,
+                    "reference": f"{row.reference_doctype or ''} {row.reference_name or ''}".strip(),
+                    # enough of the mail to recognise it, never the whole of it: a reset
+                    # link lives in that body
+                    "about": (row.message or "")[:0] or None,
+                }
+                for row in rows
+            ],
+            "decisions": ["link", "not_sent"],
+        }
+
+    @staticmethod
+    def resolve(dispatch_name, decision, email_queue=None, note=None):
+        """Settle a delivery nobody could settle automatically, on an administrator's word.
+
+        Two answers are possible and both are theirs to give. Either the mail is there and
+        this is which one it is, or it never went and the delivery is owed again. Whichever
+        they say is written down with their name against it, because an automatic engine
+        that cannot know something should not be the thing that decided it.
+        """
+        NotificationSettingsService._guard()
+
+        if decision not in ("link", "not_sent"):
+            raise ValidationError(
+                "Say whether the mail was found or was never sent.", "VALIDATION_ERROR"
+            )
+
+        reason = str(note or "").strip()
+
+        if not reason:
+            raise ValidationError(
+                "Say what you looked at before deciding.", "VALIDATION_ERROR"
+            )
+
+        # held while it is settled, so two administrators cannot each resolve it their way
+        frappe.db.sql(
+            "select name from `tabMSP Notification Dispatch` where name = %(name)s for update",
+            {"name": dispatch_name},
+        )
+        doc = frappe.get_doc(DISPATCH, dispatch_name)
+
+        if doc.status not in ("Unknown", "Failed"):
+            raise ValidationError(
+                f"{doc.name} is {doc.status.lower()} and needs nobody to settle it.",
+                "INVALID_TRANSITION",
+            )
+
+        if decision == "link":
+            if not email_queue or not frappe.db.exists(QUEUE, email_queue):
+                raise ValidationError("Name the queue entry to attach.", "VALIDATION_ERROR")
+
+            taken = frappe.db.get_value(
+                DISPATCH, {"email_queue_id": email_queue, "name": ("!=", doc.name)}, "name"
+            )
+
+            if taken:
+                raise ValidationError(
+                    f"That queue entry already belongs to {taken}.", "VALIDATION_ERROR"
+                )
+
+            state = frappe.db.get_value(QUEUE, email_queue, "status")
+            NotificationDispatchService._mark(
+                doc,
+                FROM_QUEUE.get(state, "Unknown"),
+                email_queue_id=email_queue,
+                queued_at=doc.queued_at or frappe.utils.now(),
+                failure_reason=None,
+            )
+        else:
+            # attested as never sent, so the delivery is owed again. It goes back to being
+            # reserved rather than being sent from here: the ordinary path sends it, under
+            # the same identity, so it still cannot go twice
+            NotificationDispatchService._mark(
+                doc,
+                "Pending",
+                reserved_at=frappe.utils.add_to_date(frappe.utils.now(), seconds=-3600),
+                failure_reason=None,
+                # marked, or the guard above would read this as another abandoned
+                # reservation and put it straight back to unknown
+                skip_reason=ATTESTED_NOT_SENT,
+            )
+
+        NotificationSettingsService._write_audit(
+            action="Retry Decided",
+            rule=doc.rule,
+            dispatch=doc.name,
+            business_doctype=doc.business_doctype,
+            business_name=doc.business_name,
+            recipients=doc.recipient,
+            attempt=frappe.utils.cint(doc.attempt),
+            reason_code=f"resolved_{decision}",
+            detail=f"{reason}"[:500] + (f" · {email_queue}" if email_queue else ""),
+        )
+        frappe.db.commit()
+
+        return {"status": frappe.db.get_value(DISPATCH, doc.name, "status")}
 
     # ------------------------------------------------------------------ reconciling
     @staticmethod

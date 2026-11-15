@@ -2106,6 +2106,78 @@ class TestWhatAChangeOwesBack(CompanyBillingCase):
             "and each piece keeps the days it is worth",
         )
 
+    def test_the_proposal_the_stored_line_and_the_return_all_say_the_same_money(self):
+        """One number, carried through three places without being rounded on the way.
+
+        A month fraction decides money. Rounded to three decimals on its way to the record,
+        a hundred and fifty becomes a hundred and fifty forty — and the return document,
+        which works the quantity out from the stored months again, carries that error out
+        of the door.
+        """
+        from nexgen_msp.api.internal.services.billing import wizard
+
+        start, end = self.month()
+        first = self.opened(quantity=8)
+        run = self.posted(start, end)
+        middle = frappe.utils.add_days(frappe.utils.getdate(start), 15)
+
+        ServiceLifecycleService.change(assignment=first, effective_date=str(middle), quantity=5)
+        frappe.db.commit()
+
+        for row in frappe.get_all(
+            ASSIGNMENT, filters={"customer": self.customer, "service_item": self.storage}, pluck="name"
+        ):
+            self.track(ASSIGNMENT, row)
+
+        line = next(
+            row
+            for row in BillingService.get_run(run)["lines"]
+            if row["service_assignment"] == first
+        )
+        expected = -3 * flt(line["unit_rate"]) * BillingService._unused_share(
+            line["proration_method"], [(middle, frappe.utils.getdate(end))]
+        )
+
+        proposed = wizard.credit_preview(
+            contract=self.contract, against=run, include=[first], scope="detected"
+        )
+        given = wizard.create(
+            contract=self.contract,
+            kind="credit_note",
+            against=run,
+            include=[first],
+            scope="detected",
+            reason="Reduced to five units",
+        )
+        note = given["run"] if isinstance(given, dict) else given
+        self.track(RUN, note)
+        frappe.db.commit()
+
+        stored = frappe.get_all(
+            "MSP Billing Run Line",
+            filters={"parent": note, "service_assignment": first},
+            fields=["billable_months", "amount"],
+        )
+
+        self.assertAlmostEqual(flt(proposed["total"]), round(expected, 2), places=1)
+        self.assertAlmostEqual(
+            sum(flt(row.amount) for row in stored), round(expected, 2), places=1
+        )
+
+        invoice = frappe.db.get_value(RUN, note, "sales_invoice")
+
+        if invoice:
+            self.track("Sales Invoice", invoice)
+            # the return is compared by what it is worth, not by the sign ERPNext writes it
+            # with, and to the money's own precision: rounding at the currency is right,
+            # rounding a month fraction on the way there is not
+            self.assertAlmostEqual(
+                abs(flt(frappe.db.get_value("Sales Invoice", invoice, "grand_total"))),
+                abs(round(expected, 2)),
+                delta=0.05,
+                msg="the return document carries the same money as the proposal",
+            )
+
     def test_nothing_is_credited_without_somebody_doing_it(self):
         """The run proposes; it never refunds."""
         start, end = self.month()

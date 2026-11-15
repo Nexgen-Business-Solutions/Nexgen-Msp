@@ -246,7 +246,10 @@ def _credit_candidates(source, scope):
         )
 
         if scope == "detected":
-            months = flt(owed.get("months") or 0, 3)
+            # not rounded here: the amount below is worked out from this number, and the
+            # credit that is issued is worked out from it again. Rounded to three decimals
+            # a month, a hundred and fifty pounds reads as a hundred and fifty pounds forty
+            months = flt(owed.get("months") or 0, 6)
 
             if not months:
                 continue

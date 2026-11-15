@@ -122,6 +122,11 @@ CONDITIONS = {
     "request_waiting_internal": _waiting_for_us,
 }
 
+def trigger_label(trigger_key):
+    """The trigger key as words: the underscores are ours, not the reader's."""
+    return (trigger_key or "").replace("_", " ").capitalize()
+
+
 STOP_CONDITIONS = {
     "left_trigger_status": "Stop when the record leaves the status that made it eligible",
     "refused_by_customer": "Stop when the customer refuses the request",

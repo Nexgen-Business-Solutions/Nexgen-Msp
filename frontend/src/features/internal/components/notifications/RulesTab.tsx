@@ -5,6 +5,7 @@ import Select from '@/shared/components/Select';
 import { Message, Pill, Segmented, SkeletonRows, inputClass } from './ui';
 import { EMPTY_FILTERS, type RuleFilters, fmtMoment, frequencyOf, healthDetail, healthLabel, healthTone, nextDueOf } from './format';
 import { Search } from 'lucide-react';
+import TablePagination from '@/shared/components/TablePagination';
 
 
 const STATUS_OPTIONS = [
@@ -30,8 +31,11 @@ const HEADS = [
 type Props = {
   filters: RuleFilters;
   onFilters: (patch: Partial<RuleFilters>) => void;
+  page: number;
+  onPage: (page: number) => void;
   data?: NotificationOverview;
   loading: boolean;
+  fetching?: boolean;
   error: unknown;
   onRetry: () => void;
   onOpen: (rule: NotificationRule) => void;
@@ -48,9 +52,10 @@ const StatusCell: React.FC<{ rule: NotificationRule }> = ({ rule }) => (
   </span>
 );
 
-const RulesTab: React.FC<Props> = ({ filters, onFilters, data, loading, error, onRetry, onOpen }) => {
+const RulesTab: React.FC<Props> = ({ filters, onFilters, page, onPage, data, loading, fetching = false, error, onRetry, onOpen }) => {
   const rules = data?.rules ?? [];
   const filtered = Object.values(filters).some(Boolean);
+  const pageLength = data?.page_length || 50;
   const categories = data?.filters.categories ?? [];
 
   return (
@@ -172,7 +177,7 @@ const RulesTab: React.FC<Props> = ({ filters, onFilters, data, loading, error, o
                       </Pill>
                     </td>
                     <td className="max-w-[14rem] truncate px-4 py-3 text-sm text-slate-600" title={rule.trigger_key}>
-                      {rule.trigger_key}
+                      {rule.trigger_label || rule.trigger_key}
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-600">
                       <p className="whitespace-nowrap">{rule.audience_label || rule.audience_key || '—'}</p>
@@ -210,11 +215,17 @@ const RulesTab: React.FC<Props> = ({ filters, onFilters, data, loading, error, o
         </div>
       )}
 
-      {data && (
-        <p className="border-t border-slate-100 px-5 py-3 text-xs text-slate-500">
-          Showing {rules.length} of {data.total}
-        </p>
+      {data && data.total > 0 && (
+        <TablePagination
+          start={page * pageLength}
+          pageLength={pageLength}
+          total={data.total}
+          loading={fetching}
+          onPrevious={() => onPage(Math.max(page - 1, 0))}
+          onNext={() => onPage(page + 1)}
+        />
       )}
+
     </div>
   );
 };

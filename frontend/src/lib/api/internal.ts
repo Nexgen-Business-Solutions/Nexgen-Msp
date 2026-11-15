@@ -3543,6 +3543,8 @@ export type NotificationRule = {
   protected: boolean;
   configured: boolean;
   trigger_key: string;
+  /** the trigger in words; the key is the application's, not the reader's */
+  trigger_label: string;
   template_name: string | null;
   audience_key: string | null;
   audience_label: string | null;

@@ -307,6 +307,7 @@ class NotificationSettingsService:
             "protected": declared["protected"],
             "configured": current["configured"],
             "trigger_key": declared["trigger_key"],
+            "trigger_label": registry.trigger_label(declared["trigger_key"]),
             "template_name": current["template_name"],
             "audience_key": current["audience_key"],
             "audience_label": audience.get("label") or current["audience_key"],

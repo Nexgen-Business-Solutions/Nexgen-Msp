@@ -145,7 +145,7 @@
    "fieldname": "billable_months",
    "fieldtype": "Float",
    "label": "Billable Months",
-   "precision": "3"
+   "precision": "6"
   },
   {
    "fieldname": "line_comment",

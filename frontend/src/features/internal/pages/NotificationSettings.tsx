@@ -13,7 +13,7 @@ import {
 import KpiCard from '@/shared/components/KpiCard';
 import { useSetPageHeading } from '@/shared/layout/pageHeading';
 import RulesTab from '../components/notifications/RulesTab';
-import { EMPTY_FILTERS, type RuleFilters } from '../components/notifications/format';
+import { EMPTY_FILTERS, EMPTY_HISTORY_FILTERS, type HistoryFilters, type RuleFilters } from '../components/notifications/format';
 import HistoryTab from '../components/notifications/HistoryTab';
 import SourcesTab from '../components/notifications/SourcesTab';
 import RuleDrawer from '../components/notifications/RuleDrawer';
@@ -22,6 +22,7 @@ import { useNotificationOverview } from '../components/notifications/useNotifica
 
 type TabId = 'rules' | 'history' | 'sources';
 
+const PAGE_LENGTH = 50;
 const TITLE = 'Email & Notification Settings';
 const NEW_RULE_REASON = 'Every notification this application owns is already configured.';
 
@@ -42,6 +43,9 @@ export default function NotificationSettings() {
 
   const [tab, setTab] = useState<TabId>('rules');
   const [filters, setFilters] = useState<RuleFilters>(EMPTY_FILTERS);
+  const [rulesPage, setRulesPage] = useState(0);
+  const [historyFilters, setHistoryFilters] = useState<HistoryFilters>(EMPTY_HISTORY_FILTERS);
+  const [historyPage, setHistoryPage] = useState(0);
   const [open, setOpen] = useState<{ key: string; name?: string } | null>(null);
   const [creating, setCreating] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -52,7 +56,21 @@ export default function NotificationSettings() {
     kind: filters.kind,
     category: filters.category,
     enabled: filters.status,
+    page: rulesPage,
+    page_length: PAGE_LENGTH,
   });
+
+  const showRules = (next: RuleFilters) => {
+    setFilters(next);
+    setRulesPage(0);
+    setTab('rules');
+  };
+
+  const showHistory = (status: string) => {
+    setHistoryFilters({ search: '', status });
+    setHistoryPage(0);
+    setTab('history');
+  };
 
   const figures = overview.data?.figures;
   const canCreate = overview.data?.can_create ?? [];
@@ -110,12 +128,12 @@ export default function NotificationSettings() {
       </div>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 2xl:grid-cols-6">
-        <KpiCard icon={BellRing} label="Managed" value={figures?.managed ?? 0} caption="Notifications under control" loading={loading} />
-        <KpiCard icon={CheckCircle2} accent="emerald" label="Enabled" value={figures?.enabled ?? 0} caption="Currently sending" loading={loading} />
-        <KpiCard icon={Clock} accent="slate" label="Reminders" value={figures?.reminders ?? 0} caption="Repeat on a schedule" loading={loading} />
-        <KpiCard icon={Mail} accent="slate" label="Queued" value={figures?.queued ?? 0} caption="Waiting in the mail queue" loading={loading} />
-        <KpiCard icon={AlertTriangle} tone="alert" accent="slate" label="Failed" value={figures?.failed ?? 0} caption="Needs a look" loading={loading} onView={() => setTab('history')} viewLabel="Show delivery history" />
-        <KpiCard icon={CircleHelp} tone="alert" accent="slate" label="Unknown" value={figures?.unknown ?? 0} caption="Outcome not confirmed" loading={loading} onView={() => setTab('history')} viewLabel="Show delivery history" />
+        <KpiCard icon={BellRing} label="Managed" value={figures?.managed ?? 0} caption="Notifications under control" loading={loading} onView={() => showRules(EMPTY_FILTERS)} viewLabel="Show all notification rules" />
+        <KpiCard icon={CheckCircle2} accent="emerald" label="Enabled" value={figures?.enabled ?? 0} caption="Currently sending" loading={loading} onView={() => showRules({ ...EMPTY_FILTERS, status: 'enabled' })} viewLabel="Show enabled notification rules" />
+        <KpiCard icon={Clock} accent="slate" label="Reminders" value={figures?.reminders ?? 0} caption="Repeat on a schedule" loading={loading} onView={() => showRules({ ...EMPTY_FILTERS, kind: 'Reminder' })} viewLabel="Show reminder rules" />
+        <KpiCard icon={Mail} accent="slate" label="Queued" value={figures?.queued ?? 0} caption="Waiting in the mail queue" loading={loading} onView={() => showHistory('Queued')} viewLabel="Show queued deliveries" />
+        <KpiCard icon={AlertTriangle} tone="alert" accent="slate" label="Failed" value={figures?.failed ?? 0} caption="Needs a look" loading={loading} onView={() => showHistory('Failed')} viewLabel="Show failed deliveries" />
+        <KpiCard icon={CircleHelp} tone="alert" accent="slate" label="Unknown" value={figures?.unknown ?? 0} caption="Outcome not confirmed" loading={loading} onView={() => showHistory('Unknown')} viewLabel="Show deliveries with an unknown outcome" />
       </div>
 
       <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
@@ -149,15 +167,32 @@ export default function NotificationSettings() {
           {tab === 'rules' && (
             <RulesTab
               filters={filters}
-              onFilters={(patch) => setFilters((current) => ({ ...current, ...patch }))}
+              onFilters={(patch) => {
+                setFilters((current) => ({ ...current, ...patch }));
+                setRulesPage(0);
+              }}
+              page={rulesPage}
+              onPage={setRulesPage}
               data={overview.data}
               loading={loading}
+              fetching={overview.isFetching}
               error={overview.error}
               onRetry={() => overview.refetch()}
               onOpen={(rule) => setOpen({ key: rule.rule_key, name: rule.display_name })}
             />
           )}
-          {tab === 'history' && <HistoryTab active />}
+          {tab === 'history' && (
+            <HistoryTab
+              active
+              filters={historyFilters}
+              onFilters={(patch) => {
+                setHistoryFilters((current) => ({ ...current, ...patch }));
+                setHistoryPage(0);
+              }}
+              page={historyPage}
+              onPage={setHistoryPage}
+            />
+          )}
           {tab === 'sources' && <SourcesTab active />}
         </div>
       </div>

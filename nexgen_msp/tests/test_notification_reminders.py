@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 import frappe
 
 from nexgen_msp.api.internal.services import notification_registry as registry
+from nexgen_msp.utils.errors import ValidationError
 from nexgen_msp.api.internal.services.notification_dispatch_service import (
     NotificationDispatchService,
 )
@@ -735,6 +736,52 @@ class TestAReminderIsSentOnce(RequestCase):
 
         self.assertEqual(outcome["reason"], "held_by_another_worker")
         self.assertEqual(self.mails(name), before)
+
+    def test_an_abandoned_delivery_can_be_settled_by_an_administrator(self):
+        """Unknown is a safe place to stop, not a place to stay.
+
+        The engine cannot tell whether that mail went, and must not guess. Somebody who can
+        look at the queue can tell, and whichever way they answer is written down with their
+        name against it.
+        """
+        name = self.awaiting()
+        address = self.address("r")
+        dispatch = self.reserved_delivery(name, address)
+        frappe.db.set_value(
+            "MSP Notification Dispatch",
+            dispatch,
+            "reserved_at",
+            frappe.utils.add_to_date(frappe.utils.now(), hours=-2),
+            update_modified=False,
+        )
+        frappe.db.commit()
+        self.deliver_once(name, address)
+
+        self.assertEqual(frappe.db.get_value(DISPATCH, dispatch, "status"), "Unknown")
+
+        shown = NotificationDispatchService.evidence(dispatch)
+        self.assertEqual(shown["dispatch"]["name"], dispatch)
+        self.assertEqual(sorted(shown["decisions"]), ["link", "not_sent"])
+
+        with self.assertRaises(ValidationError):
+            NotificationDispatchService.resolve(dispatch, "not_sent", note="")
+
+        before = self.mails(name)
+        NotificationDispatchService.resolve(
+            dispatch, "not_sent", note="Nothing in the queue for this address and request."
+        )
+
+        self.assertEqual(frappe.db.get_value(DISPATCH, dispatch, "status"), "Pending")
+
+        settled = self.audits(APPROVAL, action="Retry Decided", business_name=name)
+        self.assertIn("resolved_not_sent", [row.reason_code for row in settled])
+        self.assertTrue(all(row.actor for row in settled), "whoever decided is on the record")
+
+        # and the ordinary path finishes it, once
+        for _ in range(2):
+            self.deliver_once(name, address)
+
+        self.assertEqual(self.mails(name), before + 1)
 
     def test_a_reservation_whose_worker_never_came_back_is_left_for_review(self):
         """Nothing ties a dispatch to a queue entry, so neither answer can be guessed at.

@@ -75,3 +75,7 @@ export const splitCsv = (value: string) =>
 export type RuleFilters = { search: string; category: string; status: string; kind: string };
 
 export const EMPTY_FILTERS: RuleFilters = { search: '', category: '', status: '', kind: '' };
+
+export type HistoryFilters = { search: string; status: string };
+
+export const EMPTY_HISTORY_FILTERS: HistoryFilters = { search: '', status: '' };

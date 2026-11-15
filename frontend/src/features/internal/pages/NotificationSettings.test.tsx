@@ -31,6 +31,7 @@ const rule = (overrides: Partial<internal.NotificationRule> = {}): internal.Noti
   protected: false,
   configured: true,
   trigger_key: 'MSP Request approved',
+  trigger_label: 'A request is approved or declined',
   template_name: 'Request Approved',
   audience_key: 'requester',
   audience_label: 'Requester',
@@ -140,6 +141,9 @@ const renderPage = () => {
   );
 };
 
+const range = (text: string) =>
+  screen.getByText((_, node) => node?.tagName === 'P' && node.textContent === text);
+
 const openRule = async (name: string) => {
   fireEvent.click(await screen.findByRole('row', { name: `Open ${name}` }));
 
@@ -157,7 +161,7 @@ describe('Email & Notification Settings', () => {
     renderPage();
 
     expect(await screen.findByText('Request approved')).toBeInTheDocument();
-    expect(screen.getByText('Showing 3 of 3')).toBeInTheDocument();
+    expect(range('1–3 of 3')).toBeInTheDocument();
     expect(screen.getByText('4')).toBeInTheDocument();
     expect(screen.getAllByText('Event-triggered').length).toBeGreaterThan(0);
     expect(screen.getAllByText('On next valid event').length).toBeGreaterThan(0);
@@ -183,7 +187,7 @@ describe('Email & Notification Settings', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reminders' }));
     await waitFor(() => expect(screen.queryByText('Request approved')).not.toBeInTheDocument());
     expect(screen.getByText('Request waiting for review')).toBeInTheDocument();
-    expect(screen.getByText('Showing 1 of 1')).toBeInTheDocument();
+    expect(range('1–1 of 1')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'All' }));
     await screen.findByText('Request approved');
@@ -400,5 +404,169 @@ describe('Email & Notification Settings', () => {
     expect(within(table).getByText('External / read-only')).toBeInTheDocument();
     expect(within(table).queryAllByRole('button')).toHaveLength(0);
     expect(within(table).queryAllByRole('switch')).toHaveLength(0);
+  });
+
+  describe('KPI eyes', () => {
+    const historyOf = (rows = 0, total = 0): internal.NotificationHistory => ({
+      rows: Array.from({ length: rows }, (_, index) => ({
+        name: `D-${index}`,
+        creation: '2026-11-01 10:00:00',
+        rule: 'request_approved',
+        business_doctype: 'MSP Request',
+        business_name: `REQ-${index}`,
+        recipient: 'a@example.com',
+        template_name: 'Request Approved',
+        subject_snapshot: 'Approved',
+        attempt: 1,
+        status: 'Failed',
+        email_queue_id: null,
+        failure_reason: null,
+        skip_reason: null,
+      })),
+      total,
+      page: 0,
+      page_length: 50,
+      statuses: ['Pending', 'Queued', 'Sent', 'Failed', 'Skipped', 'Unknown'],
+    });
+
+    it.each([
+      ['Show enabled notification rules', { enabled: 'enabled' }],
+      ['Show reminder rules', { kind: 'Reminder' }],
+    ])('%s applies its rule filter', async (label, expected) => {
+      mockOverview();
+      vi.mocked(internal.getNotificationHistory).mockResolvedValue(historyOf());
+      renderPage();
+      await screen.findByText('Request approved');
+      fireEvent.click(screen.getByRole('tab', { name: 'Delivery history' }));
+      fireEvent.click(screen.getByRole('button', { name: label }));
+
+      expect(screen.getByRole('tab', { name: /Notification rules/ })).toHaveAttribute('aria-selected', 'true');
+      await waitFor(() =>
+        expect(vi.mocked(internal.getNotificationOverview)).toHaveBeenLastCalledWith(
+          expect.objectContaining(expected),
+          expect.anything()
+        )
+      );
+    });
+
+    it('Managed clears the rule filters', async () => {
+      mockOverview();
+      renderPage();
+      await screen.findByText('Request approved');
+      fireEvent.change(screen.getByLabelText('Search notifications'), { target: { value: 'password' } });
+      await waitFor(() => expect(screen.queryByText('Request approved')).not.toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole('button', { name: 'Show all notification rules' }));
+
+      expect(screen.getByLabelText('Search notifications')).toHaveValue('');
+      expect(await screen.findByText('Request approved')).toBeInTheDocument();
+    });
+
+    it.each([
+      ['Show queued deliveries', 'Queued'],
+      ['Show failed deliveries', 'Failed'],
+      ['Show deliveries with an unknown outcome', 'Unknown'],
+    ])('%s opens the history filtered to %s', async (label, status) => {
+      mockOverview();
+      vi.mocked(internal.getNotificationHistory).mockResolvedValue(historyOf(1, 1));
+      renderPage();
+      await screen.findByText('Request approved');
+
+      fireEvent.click(screen.getByRole('button', { name: label }));
+
+      expect(screen.getByRole('tab', { name: 'Delivery history' })).toHaveAttribute('aria-selected', 'true');
+      await waitFor(() =>
+        expect(vi.mocked(internal.getNotificationHistory)).toHaveBeenLastCalledWith(
+          expect.objectContaining({ status, page: 0 }),
+          expect.anything()
+        )
+      );
+      expect(screen.getByRole('button', { name: 'Clear filters' })).toBeInTheDocument();
+    });
+  });
+
+  describe('paging', () => {
+    const many = (total: number): void => {
+      vi.mocked(internal.getNotificationOverview).mockImplementation(async (params = {}) => ({
+        ...overviewOf([EVENT]),
+        total,
+        page: params.page ?? 0,
+        page_length: 1,
+      }));
+    };
+
+    it('asks the API for the next page and is disabled at both ends', async () => {
+      many(2);
+      renderPage();
+      await screen.findByText('Request approved');
+
+      const previous = screen.getByRole('button', { name: 'Previous page' });
+      const next = screen.getByRole('button', { name: 'Next page' });
+      expect(previous).toBeDisabled();
+      expect(next).toBeEnabled();
+
+      fireEvent.click(next);
+      await waitFor(() =>
+        expect(vi.mocked(internal.getNotificationOverview)).toHaveBeenLastCalledWith(
+          expect.objectContaining({ page: 1, page_length: 50 }),
+          expect.anything()
+        )
+      );
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled());
+      expect(screen.getByRole('button', { name: 'Previous page' })).toBeEnabled();
+    });
+
+    it('goes back to the first page when a filter changes', async () => {
+      many(3);
+      renderPage();
+      await screen.findByText('Request approved');
+      fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+      await waitFor(() =>
+        expect(vi.mocked(internal.getNotificationOverview)).toHaveBeenLastCalledWith(
+          expect.objectContaining({ page: 1 }),
+          expect.anything()
+        )
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'Reminders' }));
+
+      await waitFor(() =>
+        expect(vi.mocked(internal.getNotificationOverview)).toHaveBeenLastCalledWith(
+          expect.objectContaining({ page: 0, kind: 'Reminder' }),
+          expect.anything()
+        )
+      );
+    });
+
+    it('pages the delivery history through the API and resets on a filter change', async () => {
+      mockOverview();
+      vi.mocked(internal.getNotificationHistory).mockImplementation(async (params = {}) => ({
+        rows: [],
+        total: 120,
+        page: params.page ?? 0,
+        page_length: 50,
+        statuses: ['Queued', 'Failed'],
+      }));
+      renderPage();
+      fireEvent.click(await screen.findByRole('tab', { name: 'Delivery history' }));
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Next page' })).toBeEnabled());
+      expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+      await waitFor(() =>
+        expect(vi.mocked(internal.getNotificationHistory)).toHaveBeenLastCalledWith(
+          expect.objectContaining({ page: 1, page_length: 50 }),
+          expect.anything()
+        )
+      );
+
+      fireEvent.change(screen.getByLabelText('Search delivery history'), { target: { value: 'abc' } });
+      await waitFor(() =>
+        expect(vi.mocked(internal.getNotificationHistory)).toHaveBeenLastCalledWith(
+          expect.objectContaining({ page: 0, search: 'abc' }),
+          expect.anything()
+        )
+      );
+    });
   });
 });

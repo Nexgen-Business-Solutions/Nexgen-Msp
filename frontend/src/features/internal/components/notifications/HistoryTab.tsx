@@ -1,18 +1,29 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { RefreshCw, Search } from 'lucide-react';
+import TablePagination from '@/shared/components/TablePagination';
 import Select from '@/shared/components/Select';
 import { useNotificationHistory } from './useNotifications';
 import { InfoStrip, Message, Pill, SkeletonRows, inputClass } from './ui';
-import { STATE_MEANING, fmtMoment, stateTone } from './format';
+import { EMPTY_HISTORY_FILTERS, type HistoryFilters, STATE_MEANING, fmtMoment, stateTone } from './format';
 
 const DEFAULT_STATES = ['Pending', 'Queued', 'Sent', 'Failed', 'Skipped', 'Unknown'];
 
 const HEADS = ['Time', 'Rule', 'Business record', 'Recipient', 'Template / subject', 'Attempt', 'State', 'Details'];
 
-const HistoryTab: React.FC<{ active: boolean }> = ({ active }) => {
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('');
-  const history = useNotificationHistory({ search, status }, active);
+type Props = {
+  active: boolean;
+  filters: HistoryFilters;
+  onFilters: (patch: Partial<HistoryFilters>) => void;
+  page: number;
+  onPage: (page: number) => void;
+};
+
+const PAGE_LENGTH = 50;
+
+const HistoryTab: React.FC<Props> = ({ active, filters, onFilters, page, onPage }) => {
+  const { search, status } = filters;
+  const history = useNotificationHistory({ search, status, page, page_length: PAGE_LENGTH }, active);
+  const pageLength = history.data?.page_length || PAGE_LENGTH;
   const rows = history.data?.rows ?? [];
   const states = history.data?.statuses?.length ? history.data.statuses : DEFAULT_STATES;
 
@@ -30,14 +41,14 @@ const HistoryTab: React.FC<{ active: boolean }> = ({ active }) => {
             type="search"
             aria-label="Search delivery history"
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => onFilters({ search: event.target.value })}
             placeholder="Search a recipient or business record…"
             className={`${inputClass} pl-10`}
           />
         </div>
         <Select
           value={status}
-          onChange={setStatus}
+          onChange={(next) => onFilters({ status: next })}
           options={[
             { value: '', label: 'All delivery states' },
             ...states.map((entry) => ({ value: entry, label: entry })),
@@ -45,6 +56,15 @@ const HistoryTab: React.FC<{ active: boolean }> = ({ active }) => {
           className="w-full min-w-[10rem] sm:w-52"
           searchable={false}
         />
+        {(search || status) && (
+          <button
+            type="button"
+            onClick={() => onFilters(EMPTY_HISTORY_FILTERS)}
+            className="inline-flex h-10 items-center rounded-lg px-3 text-sm font-semibold text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+          >
+            Clear filters
+          </button>
+        )}
         <button
           type="button"
           onClick={() => history.refetch()}
@@ -125,11 +145,17 @@ const HistoryTab: React.FC<{ active: boolean }> = ({ active }) => {
         </div>
       )}
 
-      {history.data && (
-        <p className="border-t border-slate-100 px-5 py-3 text-xs text-slate-500">
-          Showing {rows.length} of {history.data.total}
-        </p>
+      {history.data && history.data.total > 0 && (
+        <TablePagination
+          start={page * pageLength}
+          pageLength={pageLength}
+          total={history.data.total}
+          loading={history.isFetching}
+          onPrevious={() => onPage(Math.max(page - 1, 0))}
+          onNext={() => onPage(page + 1)}
+        />
       )}
+
     </div>
   );
 };

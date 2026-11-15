@@ -2045,3 +2045,25 @@ def notification_rule_eligibility(rule_key=None, page=0, page_length=50):
     return NotificationReminderService.eligibility(
         rule_key, page=page, page_length=page_length
     )
+
+
+@frappe.whitelist()
+@handle_errors
+def notification_dispatch_evidence(dispatch=None):
+    from nexgen_msp.api.internal.services.notification_dispatch_service import (
+        NotificationDispatchService,
+    )
+
+    return NotificationDispatchService.evidence(dispatch)
+
+
+@frappe.whitelist()
+@handle_errors
+def resolve_notification_dispatch(dispatch=None, decision=None, email_queue=None, note=None):
+    from nexgen_msp.api.internal.services.notification_dispatch_service import (
+        NotificationDispatchService,
+    )
+
+    return NotificationDispatchService.resolve(
+        dispatch, decision, email_queue=email_queue, note=note
+    )
