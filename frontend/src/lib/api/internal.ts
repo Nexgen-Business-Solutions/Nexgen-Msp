@@ -3805,3 +3805,41 @@ export const getNotificationEligibility = (
     { rule_key: ruleKey, page, page_length: 50 },
     signal
   );
+
+export type NotificationDispatchCandidate = {
+  email_queue: string;
+  status: string | null;
+  created: string | null;
+  reference: string | null;
+  about: string | null;
+};
+
+export type NotificationDispatchEvidence = {
+  dispatch: {
+    name: string;
+    rule: string;
+    status: string;
+    recipient: string | null;
+    business_doctype: string | null;
+    business_name: string | null;
+    reminder_iteration: number | null;
+    subject_snapshot: string | null;
+    reserved_at: string | null;
+    failure_reason: string | null;
+  };
+  candidates: NotificationDispatchCandidate[];
+  decisions: string[];
+};
+
+export type NotificationDispatchDecision = {
+  dispatch: string;
+  decision: 'link' | 'not_sent';
+  note: string;
+  email_queue?: string;
+};
+
+export const getNotificationDispatchEvidence = (dispatch: string, signal?: AbortSignal) =>
+  get<NotificationDispatchEvidence>(`${BASE}.notification_dispatch_evidence`, { dispatch }, signal);
+
+export const resolveNotificationDispatch = (payload: NotificationDispatchDecision) =>
+  post<{ status: string }>(`${BASE}.resolve_notification_dispatch`, payload);

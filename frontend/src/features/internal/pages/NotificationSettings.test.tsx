@@ -17,6 +17,8 @@ vi.mock('@/lib/api/internal', async (importOriginal) => {
     getNotificationHistory: vi.fn(),
     getNotificationSources: vi.fn(),
     getNotificationEligibility: vi.fn(),
+    getNotificationDispatchEvidence: vi.fn(),
+    resolveNotificationDispatch: vi.fn(),
   };
 });
 
@@ -567,6 +569,143 @@ describe('Email & Notification Settings', () => {
           expect.anything()
         )
       );
+    });
+  });
+
+  describe('settling a stuck delivery', () => {
+    const stuckRows = ['Unknown', 'Failed', 'Sent', 'Queued'].map((status) => ({
+      name: `D-${status}`,
+      creation: '2026-11-01 10:00:00',
+      rule: 'request_approved',
+      business_doctype: 'MSP Request',
+      business_name: `REQ-${status}`,
+      recipient: 'a@example.com',
+      template_name: 'Request Approved',
+      subject_snapshot: 'Approved',
+      attempt: 1,
+      status,
+      email_queue_id: null,
+      failure_reason: null,
+      skip_reason: null,
+    }));
+
+    const evidence: internal.NotificationDispatchEvidence = {
+      dispatch: {
+        name: 'D-Unknown',
+        rule: 'request_approved',
+        status: 'Unknown',
+        recipient: 'a@example.com',
+        business_doctype: 'MSP Request',
+        business_name: 'REQ-Unknown',
+        reminder_iteration: 1,
+        subject_snapshot: 'Approved',
+        reserved_at: '2026-11-01 10:00:00',
+        failure_reason: 'Worker stopped',
+      },
+      candidates: [
+        { email_queue: 'EQ-1', status: 'Sent', created: '2026-11-01 10:01:00', reference: 'MSP Request', about: null },
+        { email_queue: 'EQ-2', status: 'Error', created: '2026-11-01 10:02:00', reference: 'MSP Request', about: null },
+      ],
+      decisions: ['link', 'not_sent'],
+    };
+
+    const openPanel = async () => {
+      mockOverview();
+      vi.mocked(internal.getNotificationHistory).mockResolvedValue({
+        rows: stuckRows,
+        total: 4,
+        page: 0,
+        page_length: 50,
+        statuses: ['Unknown', 'Failed', 'Sent', 'Queued'],
+      });
+      vi.mocked(internal.getNotificationDispatchEvidence).mockResolvedValue(evidence);
+      renderPage();
+      fireEvent.click(await screen.findByRole('tab', { name: 'Delivery history' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Investigate D-Unknown' }));
+      return screen.findByRole('dialog');
+    };
+
+    it('offers Investigate only on Unknown and Failed rows', async () => {
+      mockOverview();
+      vi.mocked(internal.getNotificationHistory).mockResolvedValue({
+        rows: stuckRows,
+        total: 4,
+        page: 0,
+        page_length: 50,
+        statuses: [],
+      });
+      renderPage();
+      fireEvent.click(await screen.findByRole('tab', { name: 'Delivery history' }));
+
+      await screen.findByRole('button', { name: 'Investigate D-Unknown' });
+      expect(screen.getByRole('button', { name: 'Investigate D-Failed' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Investigate D-Sent' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Investigate D-Queued' })).not.toBeInTheDocument();
+    });
+
+    it('lists the candidate queue entries and keeps attach disabled until one is picked', async () => {
+      const dialog = await openPanel();
+
+      expect(await within(dialog).findByText('EQ-1')).toBeInTheDocument();
+      expect(within(dialog).getByText('EQ-2')).toBeInTheDocument();
+      expect(within(dialog).getByText('Worker stopped')).toBeInTheDocument();
+      const attach = within(dialog).getByRole('button', { name: 'Attach this queue entry' });
+      expect(attach).toBeDisabled();
+
+      fireEvent.click(within(dialog).getByLabelText('Select EQ-2'));
+      expect(attach).toBeEnabled();
+    });
+
+    it('refuses a decision without a note and does not call the server', async () => {
+      const dialog = await openPanel();
+      await within(dialog).findByText('EQ-1');
+
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Nothing was sent' }));
+
+      expect(await within(dialog).findByText(/Write a note/)).toBeInTheDocument();
+      expect(screen.queryByText('Send this notification?')).not.toBeInTheDocument();
+      expect(internal.resolveNotificationDispatch).not.toHaveBeenCalled();
+    });
+
+    it('records not sent with the note after confirmation and closes the panel', async () => {
+      vi.mocked(internal.resolveNotificationDispatch).mockResolvedValue({ status: 'Pending' });
+      const dialog = await openPanel();
+      await within(dialog).findByText('EQ-1');
+
+      fireEvent.change(within(dialog).getByLabelText('Note (required)'), { target: { value: 'Checked the mail log' } });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Nothing was sent' }));
+      expect(internal.resolveNotificationDispatch).not.toHaveBeenCalled();
+      fireEvent.click(await screen.findByRole('button', { name: 'Nothing was sent, send it' }));
+
+      await waitFor(() =>
+        expect(internal.resolveNotificationDispatch).toHaveBeenCalledWith({
+          dispatch: 'D-Unknown',
+          decision: 'not_sent',
+          note: 'Checked the mail log',
+        })
+      );
+      await waitFor(() => expect(screen.queryByText('Investigate delivery')).not.toBeInTheDocument());
+    });
+
+    it('keeps the panel open and shows the server message when attaching is refused', async () => {
+      vi.mocked(internal.resolveNotificationDispatch).mockRejectedValue(
+        new FrappeError('That queue entry is already attached.', 417)
+      );
+      const dialog = await openPanel();
+      await within(dialog).findByText('EQ-1');
+
+      fireEvent.click(within(dialog).getByLabelText('Select EQ-1'));
+      fireEvent.change(within(dialog).getByLabelText('Note (required)'), { target: { value: 'Matches the reference' } });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Attach this queue entry' }));
+
+      expect(await screen.findByText('That queue entry is already attached.')).toBeInTheDocument();
+      expect(screen.getByText('Investigate delivery')).toBeInTheDocument();
+      expect(internal.resolveNotificationDispatch).toHaveBeenCalledWith({
+        dispatch: 'D-Unknown',
+        decision: 'link',
+        note: 'Matches the reference',
+        email_queue: 'EQ-1',
+      });
     });
   });
 });

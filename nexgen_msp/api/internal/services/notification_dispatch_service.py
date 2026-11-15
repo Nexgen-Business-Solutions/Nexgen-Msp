@@ -611,6 +611,41 @@ class NotificationDispatchService:
                     f"That queue entry already belongs to {taken}.", "VALIDATION_ERROR"
                 )
 
+            # the entry has to be a mail to this person: attached to one addressed to
+            # somebody else, this delivery would wear that mail's outcome and report a
+            # letter as having gone to a customer who never received one
+            written_to = {
+                (address or "").strip().lower()
+                for address in frappe.get_all(
+                    "Email Queue Recipient",
+                    filters={"parent": email_queue, "parenttype": QUEUE},
+                    pluck="recipient",
+                )
+            }
+
+            if doc.recipient not in written_to:
+                raise ValidationError(
+                    f"That queue entry was not written to {doc.recipient}.",
+                    "VALIDATION_ERROR",
+                )
+
+            # and about the same record, where either of them names one
+            about = frappe.db.get_value(
+                QUEUE, email_queue, ["reference_doctype", "reference_name"], as_dict=True
+            )
+
+            if (
+                doc.business_name
+                and about
+                and about.reference_name
+                and about.reference_name != doc.business_name
+            ):
+                raise ValidationError(
+                    f"That queue entry is about {about.reference_name}, "
+                    f"not {doc.business_name}.",
+                    "VALIDATION_ERROR",
+                )
+
             state = frappe.db.get_value(QUEUE, email_queue, "status")
             NotificationDispatchService._mark(
                 doc,

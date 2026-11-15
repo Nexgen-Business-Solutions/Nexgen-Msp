@@ -1,14 +1,15 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { RefreshCw, Search } from 'lucide-react';
 import TablePagination from '@/shared/components/TablePagination';
 import Select from '@/shared/components/Select';
+import InvestigateDelivery from './InvestigateDelivery';
 import { useNotificationHistory } from './useNotifications';
 import { InfoStrip, Message, Pill, SkeletonRows, inputClass } from './ui';
 import { EMPTY_HISTORY_FILTERS, type HistoryFilters, STATE_MEANING, fmtMoment, stateTone } from './format';
 
 const DEFAULT_STATES = ['Pending', 'Queued', 'Sent', 'Failed', 'Skipped', 'Unknown'];
 
-const HEADS = ['Time', 'Rule', 'Business record', 'Recipient', 'Template / subject', 'Attempt', 'State', 'Details'];
+const HEADS = ['Time', 'Rule', 'Business record', 'Recipient', 'Template / subject', 'Attempt', 'State', 'Details', 'Action'];
 
 type Props = {
   active: boolean;
@@ -23,6 +24,7 @@ const PAGE_LENGTH = 50;
 const HistoryTab: React.FC<Props> = ({ active, filters, onFilters, page, onPage }) => {
   const { search, status } = filters;
   const history = useNotificationHistory({ search, status, page, page_length: PAGE_LENGTH }, active);
+  const [investigating, setInvestigating] = useState<string | null>(null);
   const pageLength = history.data?.page_length || PAGE_LENGTH;
   const rows = history.data?.rows ?? [];
   const states = history.data?.statuses?.length ? history.data.statuses : DEFAULT_STATES;
@@ -137,6 +139,18 @@ const HistoryTab: React.FC<Props> = ({ active, filters, onFilters, page, onPage 
                       )}
                       {!reason && !row.email_queue_id && '—'}
                     </td>
+                    <td className="whitespace-nowrap px-4 py-3">
+                      {(row.status === 'Unknown' || row.status === 'Failed') && (
+                        <button
+                          type="button"
+                          aria-label={`Investigate ${row.name}`}
+                          onClick={() => setInvestigating(row.name)}
+                          className="inline-flex h-9 items-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                        >
+                          Investigate
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
@@ -156,6 +170,7 @@ const HistoryTab: React.FC<Props> = ({ active, filters, onFilters, page, onPage 
         />
       )}
 
+      <InvestigateDelivery dispatch={investigating} onClose={() => setInvestigating(null)} />
     </div>
   );
 };

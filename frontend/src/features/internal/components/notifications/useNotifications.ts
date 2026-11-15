@@ -10,6 +10,7 @@ export const notificationKeys = {
   eligibility: (ruleKey: string) => [...notificationKeys.all, 'eligibility', ruleKey] as const,
   history: (params: internal.NotificationHistoryParams) =>
     [...notificationKeys.all, 'history', params] as const,
+  evidence: (dispatch: string) => [...notificationKeys.all, 'evidence', dispatch] as const,
   sources: () => [...notificationKeys.all, 'sources'] as const,
 };
 
@@ -78,6 +79,24 @@ export const useTestNotificationRule = () => {
 
   return useMutation({
     mutationFn: internal.testNotificationRule,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [...notificationKeys.all, 'history'] }),
+  });
+};
+
+export const useDispatchEvidence = (dispatch: string | null) =>
+  useQuery({
+    queryKey: notificationKeys.evidence(dispatch ?? ''),
+    queryFn: ({ signal }) => internal.getNotificationDispatchEvidence(dispatch as string, signal),
+    enabled: Boolean(dispatch),
+    cacheTime: 0,
+    retry: false,
+  });
+
+export const useResolveDispatch = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: internal.resolveNotificationDispatch,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: [...notificationKeys.all, 'history'] }),
   });
 };

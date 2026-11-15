@@ -5370,6 +5370,20 @@ class BillingService:
             item["price_list_rate"] = flt(rate, 2)
             item["discount_percentage"] = flt(discount, 2)
 
+        # the quantity a Sales Invoice Item can hold has three decimals, and a credit of
+        # one day out of a month needs more: three thousandths of a month given back at a
+        # thousand a month is thirty-three pounds, and the fourth decimal is another
+        # thirty-four pence. The quantity is left as the document can hold it and the rate
+        # carries the remainder, so the line still multiplies out to the money that is owed
+        wanted = flt(flt(bucket["months"], 6) * flt(item["rate"]), 2)
+        written = flt(flt(item["qty"]) * flt(item["rate"]), 2)
+
+        if flt(item["qty"]) and abs(wanted - written) >= 0.01:
+            item["rate"] = flt(wanted / flt(item["qty"]), 6)
+
+            if discount:
+                item["price_list_rate"] = flt(item["rate"] / (1 - flt(discount) / 100.0), 6)
+
         return item
 
     @staticmethod

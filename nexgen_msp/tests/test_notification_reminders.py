@@ -434,6 +434,13 @@ class RequestCase(NotificationCase, WriterCase):
 
     def setUp(self):
         super().setUp()
+        # the engine's walk remembers where it stopped, on purpose and across restarts. A
+        # test whose request is dated into the past sits behind whatever the last test left
+        # there, so each one starts the walk from the top
+        for rule_key in (APPROVAL, WAITING):
+            NotificationReminderService._remember(rule_key, None)
+
+        frappe.db.commit()
         self.tech = self.make_account("internal", "MSP Technician", suffix=f"rt{self.tag[:3]}")
         self.second_tech = self.make_account("internal", "MSP Technician", suffix=f"rs{self.tag[:3]}")
         self.asker = self.make_account(
