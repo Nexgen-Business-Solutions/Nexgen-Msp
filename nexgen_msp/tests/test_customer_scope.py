@@ -1864,3 +1864,124 @@ class TestWhatAChangeOwesBack(CompanyBillingCase):
             "a proposal is not a credit note",
         )
 
+class TestTheChangeMatrix(CompanyBillingCase):
+    """Issue #33's own worked examples, each charged to the penny and then charged again.
+
+    Every case here is a period already invoiced and then changed inside it. What must come
+    out is the difference and only the difference — and running the same period a second
+    time must come out at nothing, because the difference has already been asked for.
+    """
+
+    def tracked(self):
+        for row in frappe.get_all(
+            ASSIGNMENT,
+            filters={"customer": self.customer, "service_item": self.storage},
+            pluck="name",
+        ):
+            self.track(ASSIGNMENT, row)
+
+    def repriced(self, assignment, on, rate=None, quantity=None):
+        ServiceLifecycleService.change(
+            assignment=assignment,
+            effective_date=str(on),
+            quantity=quantity,
+            agreed_rate=rate,
+            rate_override_reason="Agreed for the rest of the period" if rate else None,
+        )
+        frappe.db.commit()
+        self.tracked()
+
+        return frappe.get_all(
+            ASSIGNMENT,
+            filters={"replaces_assignment": assignment},
+            pluck="name",
+        )[0]
+
+    def charged(self, run, assignment=None):
+        rows = self.mine(run)
+
+        return [
+            (round(flt(row.quantity), 3), str(row.covered_from), str(row.covered_to))
+            for row in rows
+            if (assignment is None or row.service_assignment == assignment)
+            and not row.exception_code
+            and flt(row.billable_months)
+        ]
+
+    def day(self, start, offset):
+        return frappe.utils.add_days(frappe.utils.getdate(start), offset)
+
+    # ----------------------------------------------------------------- F33-01
+    def test_a_price_rise_alone_is_charged_as_the_difference(self):
+        start, end = self.month()
+        first = self.opened(quantity=5)
+        self.posted(start, end)
+        self.repriced(first, self.day(start, 15), rate=120.0)
+
+        charged = self.charged(self.drawn(start=start, end=end))
+
+        # five units already paid for at a hundred, now worth a hundred and twenty
+        self.assertEqual(len(charged), 1, charged)
+        self.assertAlmostEqual(charged[0][0], (5 * 120 - 5 * 100) / 120, places=2)
+
+    # ----------------------------------------------------------------- F33-05
+    def test_more_units_at_a_higher_price_is_one_difference(self):
+        start, end = self.month()
+        first = self.opened(quantity=5)
+        self.posted(start, end)
+        self.repriced(first, self.day(start, 15), rate=120.0, quantity=8)
+
+        charged = self.charged(self.drawn(start=start, end=end))
+
+        self.assertEqual(len(charged), 1, charged)
+        self.assertAlmostEqual(charged[0][0], (8 * 120 - 5 * 100) / 120, places=2)
+
+    # ----------------------------------------------------------------- F33-06
+    def test_two_changes_before_anything_was_topped_up(self):
+        start, end = self.month()
+        first = self.opened(quantity=5)
+        self.posted(start, end)
+        second = self.repriced(first, self.day(start, 15), quantity=8)
+        third = self.repriced(second, self.day(start, 22), quantity=10)
+
+        run = self.drawn(start=start, end=end)
+
+        # three more units while eight were held, five more once ten were
+        self.assertEqual(
+            [entry[0] for entry in self.charged(run, second)], [3.0], self.charged(run)
+        )
+        self.assertEqual(
+            [entry[0] for entry in self.charged(run, third)], [5.0], self.charged(run)
+        )
+
+    # ----------------------------------------------------------------- F33-07
+    def test_a_second_change_counts_the_top_up_already_invoiced(self):
+        start, end = self.month()
+        first = self.opened(quantity=5)
+        self.posted(start, end)
+        second = self.repriced(first, self.day(start, 15), quantity=8)
+        # the three extra units are invoiced before anybody asks for ten
+        self.posted(start, end)
+        third = self.repriced(second, self.day(start, 22), quantity=10)
+
+        run = self.drawn(start=start, end=end)
+
+        # eight units are paid for on those days, so two are owed and not five
+        self.assertEqual(
+            [entry[0] for entry in self.charged(run, third)], [2.0], self.charged(run)
+        )
+
+    # ----------------------------------------------------------------- F33-11
+    def test_the_same_period_drawn_twice_asks_for_nothing_the_second_time(self):
+        start, end = self.month()
+        first = self.opened(quantity=5)
+        self.posted(start, end)
+        self.repriced(first, self.day(start, 15), quantity=8)
+        self.posted(start, end)
+
+        again = self.drawn(start=start, end=end)
+
+        self.assertEqual(
+            self.charged(again), [], "the difference was already asked for and paid"
+        )
+

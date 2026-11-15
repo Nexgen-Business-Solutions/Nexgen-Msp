@@ -480,7 +480,7 @@ class BillingService:
         chain = BillingService._period_chain(assignment, customer)
 
         if not chain:
-            return [], 0.0, []
+            return [], [], []
 
         live_to = (
             min(getdate(assignment.effective_end_date), getdate(window_end))
@@ -492,7 +492,7 @@ class BillingService:
         )
 
         if not live:
-            return [], 0.0, []
+            return [], [], []
 
         charged = []
 
@@ -511,31 +511,68 @@ class BillingService:
         paid_days = coverage_intervals.intersect(coverage_intervals.merge(charged), live)
 
         if not paid_days:
-            return [], 0.0, []
+            return [], [], []
 
+        # every period of the chain, and this one's own earlier charges: a service changed
+        # twice may have been topped up once already, and that top-up is money paid for
+        # those same days just as much as the original charge was
         priced = BillingService._charged_value(
-            [earlier.name for earlier in chain], exclude_run=exclude_run
-        )
-        # the dearest terms the paid stretch was charged on, which are the honest ones to
-        # beat: averaging a stretch charged at two prices would under-charge the dearer days
-        basis = max(
-            (
-                value
-                for first, last, value in priced
-                if coverage_intervals.intersect([(first, last)], paid_days)
-            ),
-            default=0.0,
+            [earlier.name for earlier in chain] + [assignment.name], exclude_run=exclude_run
         )
 
-        return paid_days, basis, live
+        return paid_days, BillingService._basis_by_day(priced, paid_days), live
 
     @staticmethod
-    def _quantity_stretches(stretches, prepaid, quantity, paid_basis, live=None):
-        """Each rate stretch cut again where its days were already paid for.
+    def _basis_by_day(priced, within):
+        """What has been charged for each day, added up across every line that charged it.
 
-        A piece covering paid days carries what was paid for them, so the loop that knows
-        the months can work out what is still owed. A piece covering days nobody has paid
-        for carries nothing and is charged in full.
+        Added up, not the dearest of them: five units invoiced once and three more invoiced
+        as a top-up are eight units paid for on the days both cover, and reading only the
+        larger of the two would charge those three again. Each invoiced line is money
+        somebody really asked for.
+
+        Comes back as disjoint stretches, each with the money charged for a day inside it,
+        so a run whose terms changed part-way through is answered per stretch rather than
+        by one number for the whole of it.
+        """
+        edges = set()
+
+        for first, last, _basis in priced:
+            edges.add(getdate(first))
+            edges.add(getdate(add_days(last, 1)))
+
+        for first, last in within:
+            edges.add(getdate(first))
+            edges.add(getdate(add_days(last, 1)))
+
+        marks = sorted(edges)
+        out = []
+
+        for index, begins in enumerate(marks[:-1]):
+            ends = add_days(marks[index + 1], -1)
+
+            if not coverage_intervals.intersect(coverage_intervals.span(begins, ends), within):
+                continue
+
+            total = sum(
+                basis
+                for first, last, basis in priced
+                if getdate(first) <= begins and getdate(last) >= ends
+            )
+
+            if total > 0:
+                out.append(((begins, getdate(ends)), total))
+
+        return out
+
+    @staticmethod
+    def _quantity_stretches(stretches, prepaid, quantity, paid_by_day, live=None):
+        """Each rate stretch cut again wherever what was already paid for it changes.
+
+        A piece covering paid days carries what was paid for those days, so the loop that
+        knows the months can work out what is still owed. A piece covering days nobody has
+        paid for carries nothing and is charged in full. Days paid at two different amounts
+        become two pieces, because one number for both would be wrong for each.
         """
         if not prepaid:
             return [tuple(stretch) + (flt(quantity), None) for stretch in stretches]
@@ -552,10 +589,17 @@ class BillingService:
             if live:
                 whole = coverage_intervals.intersect(whole, live)
 
-            for first, last in coverage_intervals.intersect(whole, prepaid):
-                pieces.append((first, last) + terms + (flt(quantity), flt(paid_basis)))
+            for (begins, ends), basis in paid_by_day:
+                for first, last in coverage_intervals.intersect(
+                    whole, coverage_intervals.span(begins, ends)
+                ):
+                    pieces.append((first, last) + terms + (flt(quantity), flt(basis)))
 
-            for first, last in coverage_intervals.subtract(whole, prepaid):
+            paid_days = coverage_intervals.merge(
+                [(begins, ends) for (begins, ends), _basis in paid_by_day]
+            )
+
+            for first, last in coverage_intervals.subtract(whole, paid_days):
                 pieces.append((first, last) + terms + (flt(quantity), None))
 
         return sorted(pieces, key=lambda piece: piece[0])
@@ -1585,11 +1629,11 @@ class BillingService:
 
             # the days the periods this one replaced were already charged for, and what was
             # charged for them a day: over those days only the difference is owed
-            prepaid, paid_basis, live_span = BillingService._prepaid_before(
+            prepaid, paid_by_day, live_span = BillingService._prepaid_before(
                 assignment, coverage, period_start, period_end, customer, exclude_run
             )
             pieces = BillingService._quantity_stretches(
-                stretches, prepaid, quantity, paid_basis, live_span
+                stretches, prepaid, quantity, paid_by_day, live_span
             )
 
             if not pieces:
