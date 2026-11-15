@@ -438,6 +438,18 @@ class ServiceLifecycleService:
             frappe.db.rollback(save_point=savepoint)
             raise
 
+        # the replacement says which period it took over from. Billing has to tell a change
+        # of terms from a service that stopped and was later sold again: the two leave the
+        # same shape on the calendar — one period ending, another starting the next day —
+        # and only one of them means the service never stopped being provided
+        frappe.db.set_value(
+            "MSP Service Assignment",
+            outcome["name"],
+            "replaces_assignment",
+            doc.name,
+            update_modified=False,
+        )
+
         if _commit:
             frappe.db.commit()
 

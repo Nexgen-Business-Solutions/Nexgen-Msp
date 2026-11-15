@@ -34,6 +34,7 @@
   "rate_override_reason",
   "section_traceability",
   "source_request",
+  "replaces_assignment",
   "column_break_traceability",
   "activation_work_order",
   "migration_source",
@@ -238,6 +239,14 @@
    "label": "Source Request",
    "options": "MSP Request",
    "read_only": 1
+  },
+  {
+   "fieldname": "replaces_assignment",
+   "fieldtype": "Link",
+   "label": "Replaces Assignment",
+   "options": "MSP Service Assignment",
+   "read_only": 1,
+   "set_only_once": 1
   },
   {
    "fieldname": "column_break_traceability",

@@ -343,7 +343,32 @@ class BillingService:
         chain = []
         start = assignment.effective_start_date
         seen = {assignment.name}
+        named = assignment.get("replaces_assignment")
 
+        # the record says what it replaced, where it was written by a change. Followed by
+        # name there is no guessing at all
+        while named and len(chain) < depth and named not in seen:
+            earlier = frappe.db.get_value(
+                "MSP Service Assignment",
+                named,
+                ["name", "quantity", "effective_start_date", "replaces_assignment", "customer"],
+                as_dict=True,
+            )
+
+            if not earlier or earlier.customer != customer:
+                break
+
+            chain.append(earlier)
+            seen.add(earlier.name)
+            named = earlier.replaces_assignment
+
+        if chain:
+            return chain
+
+        # nothing said so, which on a record written before the link existed means nobody
+        # knows. Reading the handover off the calendar is a guess, and it is made only
+        # here, on the question where guessing wrong charges a customer less rather than
+        # twice: days somebody already paid for are not billed again
         for _ in range(depth):
             if not start:
                 break
@@ -574,38 +599,25 @@ class BillingService:
 
     @staticmethod
     @staticmethod
-    def _was_replaced(assignment, stopped):
-        """Whether the day after this period ended, another period of it opened.
+    def _was_replaced(assignment, stopped=None):
+        """Whether another period took this one over, said by the record and not by a date.
 
-        That is what a change of terms leaves behind, and it is the difference between a
-        service that stopped and a service whose price or quantity moved. The question is
-        asked of the records rather than of a stored flag, because the shape of the handover
-        is what it is on every site, including the ones written before this existed.
+        It is the difference between a service that stopped and a service whose price or
+        quantity moved, and the two leave the same shape on the calendar: one period ending,
+        another starting the next day. A service genuinely ended in March and sold again in
+        April looks identical from the outside.
+
+        So only the written link answers. A period nobody said was replaced is read as
+        having stopped, which is what it looks like — and on this side of the question that
+        is the safe way to be wrong: it proposes a credit somebody has to approve, rather
+        than silently withholding one the customer is owed.
         """
-        row = frappe.db.get_value(
-            "MSP Service Assignment",
-            assignment,
-            ["customer", "service_item", "assignment_scope", "client_user", "managed_device"],
-            as_dict=True,
+        return bool(
+            frappe.db.exists(
+                "MSP Service Assignment",
+                {"replaces_assignment": assignment, "operational_status": ("!=", "Cancelled")},
+            )
         )
-
-        if not row:
-            return False
-
-        filters = {
-            "customer": row.customer,
-            "service_item": row.service_item,
-            "assignment_scope": row.assignment_scope,
-            "effective_start_date": add_days(getdate(stopped), 1),
-            "name": ("!=", assignment),
-            "operational_status": ("!=", "Cancelled"),
-        }
-
-        for field in ("client_user", "managed_device"):
-            if row.get(field):
-                filters[field] = row.get(field)
-
-        return bool(frappe.db.exists("MSP Service Assignment", filters))
 
     @staticmethod
     def _unused_after_billing(
@@ -1275,6 +1287,8 @@ class BillingService:
                 sa.name, sa.service_item, sa.assignment_scope, sa.client_user, sa.managed_device,
                 sa.quantity, sa.uom, sa.operational_status, sa.billing_status,
                 sa.effective_start_date, sa.effective_end_date,
+                -- which period this one took over from, where a change wrote it
+                sa.replaces_assignment,
                 sa.price_source, sa.agreed_rate, sa.rate_override_reason,
                 sa.baseline_covered_from, sa.baseline_covered_to, sa.baseline_state,
                 sa.internal_notes as line_comment,
