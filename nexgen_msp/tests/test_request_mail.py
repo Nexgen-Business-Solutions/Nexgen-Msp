@@ -9,6 +9,18 @@ from nexgen_msp.utils import notifications, reminders
 
 from .writer_case import REQUEST, WriterCase
 
+RULE = "MSP Notification Rule"
+AUDIT = "MSP Notification Audit"
+KEPT = (
+    "enabled",
+    "initial_delay_value",
+    "initial_delay_unit",
+    "repeat_interval_value",
+    "repeat_interval_unit",
+    "max_sends",
+    "schedule_effective_at",
+)
+
 
 class MailCase(WriterCase):
     """The writer's company, plus a requester who cannot approve and an approver who can."""
@@ -27,10 +39,30 @@ class MailCase(WriterCase):
         self.sent = []
         self.real_send = notifications.send
         notifications.send = self.record
+        self.rules_before = {}
+        self.audit_before = None
 
     def tearDown(self):
         notifications.send = self.real_send
+        self.restore_rules()
         super().tearDown()
+
+    def restore_rules(self):
+        """Puts back the live reminder settings this case moved, and the trail of moving them.
+
+        The rules are the site's own configuration, so a cadence a test needed must not
+        outlive it. Only the audit rows this case added are removed, by name.
+        """
+        if not self.rules_before:
+            return
+
+        for rule_key, values in self.rules_before.items():
+            frappe.db.set_value(RULE, rule_key, values, update_modified=False)
+
+        for name in set(frappe.get_all(AUDIT, pluck="name")) - self.audit_before:
+            frappe.db.sql("delete from `tabMSP Notification Audit` where name = %s", name)
+
+        frappe.db.commit()
 
     def record(self, template, recipients, context, **kwargs):
         """Keep what would have been mailed, and still render it so a broken template fails here."""
@@ -59,6 +91,14 @@ class MailCase(WriterCase):
         """
         from nexgen_msp.api.internal.services.notification_settings_service import (
             NotificationSettingsService,
+        )
+
+        if self.audit_before is None:
+            self.audit_before = set(frappe.get_all(AUDIT, pluck="name"))
+
+        self.rules_before.setdefault(
+            rule_key,
+            frappe.db.get_value(RULE, rule_key, KEPT, as_dict=True),
         )
 
         NotificationSettingsService.save(
