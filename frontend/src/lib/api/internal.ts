@@ -3814,6 +3814,7 @@ export type NotificationDispatchCandidate = {
   status: string | null;
   created: string | null;
   reference: string | null;
+  matched: boolean;
 };
 
 export type NotificationDispatchEvidence = {

@@ -20,6 +20,8 @@ import frappe
 
 from nexgen_msp.api.internal.services import notification_registry as registry
 from nexgen_msp.api.internal.services.notification_dispatch_service import (
+    ATTESTED_NOT_SENT,
+    RENDER_FAILED,
     NotificationDispatchService,
 )
 from nexgen_msp.api.internal.services.notification_settings_service import (
@@ -255,6 +257,49 @@ class NotificationReminderService:
             return 0, None
 
         return frappe.utils.cint(found[0].reached), found[0].last_at
+
+    @staticmethod
+    def _owed(rule_key, names):
+        """Per record, the deliveries that never reached anybody and may be tried again.
+
+        The record's cadence is one question and delivery is another: `max_sends` counts
+        reminders about the record, so a recipient whose mail was attested as never sent
+        would otherwise wait for an iteration the record will never reach again.
+
+        Read for a whole page of records at once. Asked record by record it would be one
+        query per watched record per tick, which is the scheduler's own time spent finding
+        out that almost nothing is owed.
+        """
+        if not names:
+            return {}
+
+        rows = frappe.db.sql(
+            """
+            select business_name, reminder_iteration, recipient
+            from `tabMSP Notification Dispatch`
+            where rule = %(rule)s
+              and business_name in %(records)s
+              and ifnull(is_test, 0) = 0
+              and status = 'Failed'
+              and skip_reason in (%(attested)s, %(render)s)
+            order by reminder_iteration asc, recipient asc
+            """,
+            {
+                "rule": rule_key,
+                "records": tuple(names),
+                "attested": ATTESTED_NOT_SENT,
+                "render": RENDER_FAILED,
+            },
+            as_dict=True,
+        )
+        out = {}
+
+        for row in rows:
+            out.setdefault(row.business_name, []).append(
+                (frappe.utils.cint(row.reminder_iteration), row.recipient)
+            )
+
+        return out
 
     @staticmethod
     def _quiet_shift(current, moment, zone):
@@ -579,7 +624,16 @@ class NotificationReminderService:
                 NotificationReminderService._remember(rule_key, None)
                 break
 
+            owed = NotificationReminderService._owed(rule_key, [row.name for row in rows])
+
             for row in rows:
+                if row.name in owed:
+                    again = NotificationReminderService._redeliver(
+                        declared, current, adapter, row, owed[row.name]
+                    )
+                    sent += again["sent"]
+                    skipped += again["skipped"]
+
                 state = NotificationReminderService.state_of(
                     rule_key, row, current, adapter, zone
                 )
@@ -660,6 +714,43 @@ class NotificationReminderService:
                 business_name=doc.name,
                 iteration=iteration,
                 occurrence=f"iteration:{iteration}",
+                cc=current.get("cc"),
+            )
+
+            if outcome["status"] == "Queued":
+                sent += 1
+            else:
+                skipped += 1
+
+        return {"sent": sent, "skipped": skipped}
+
+    @staticmethod
+    def _redeliver(declared, current, adapter, row, owed):
+        """Each delivery still owed, to the address it was owed to and at its own iteration.
+
+        The audience is not resolved again: somebody who has since left it must not receive
+        an old iteration, and nothing here creates one, so the record's count is untouched.
+        """
+        doc = frappe.get_doc(adapter["doctype"], row.name)
+        sent = skipped = 0
+
+        if not NotificationReminderService._still_waiting(
+            doc, adapter, current.get("stop_condition_key")
+        ):
+            return {"sent": 0, "skipped": len(owed)}
+
+        for iteration, address in owed:
+            outcome = NotificationDispatchService.deliver(
+                declared["rule_key"],
+                address,
+                context={
+                    **NotificationReminderService._context(declared, doc, adapter),
+                    "full_name": frappe.db.get_value("User", address, "full_name") or address,
+                },
+                business_doctype=adapter["doctype"],
+                business_name=doc.name,
+                iteration=frappe.utils.cint(iteration),
+                occurrence=f"iteration:{frappe.utils.cint(iteration)}",
                 cc=current.get("cc"),
             )
 

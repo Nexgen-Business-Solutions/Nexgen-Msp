@@ -273,11 +273,10 @@ class NotificationDispatchService:
 
         # a reservation this old was left by a worker that stopped, and the dangerous
         # moment is the one between the mail being written to the queue and this row being
-        # told about it. Nothing durable ties the two together — Frappe's queue carries no
-        # mark of ours — so whether that mail exists cannot be established, only guessed at
-        # by address and reference. Two notifications to one person about one request fit
-        # that guess equally well, and adopting the wrong one loses the reminder while
-        # sending again would send twice.
+        # told about it. A mail queued from here does carry our mark, but a worker that
+        # stopped before the mail existed leaves nothing to find, and one that stopped
+        # after it still needs somebody to look, so the answer is not guessed either way.
+        # Sending again would send twice and adopting the wrong entry loses the reminder.
         #
         # So neither. It is recorded as unknown, which is what it is, and somebody looks.
         if fresh.status == "Pending":
@@ -295,7 +294,7 @@ class NotificationDispatchService:
                 recipients=dispatch.recipient,
                 attempt=frappe.utils.cint(fresh.attempt),
                 reason_code="reservation_abandoned",
-                detail="Left as Unknown: no durable link between a dispatch and a queue entry.",
+                detail="Left as Unknown: the reservation was abandoned before it was recorded.",
             )
 
             return False
@@ -358,6 +357,11 @@ class NotificationDispatchService:
                 reference_doctype=dispatch.business_doctype or None,
                 reference_name=dispatch.business_name or None,
                 attachments=attachments or None,
+                # the one durable tie between this delivery and its queue entry. Opaque on
+                # purpose: the dispatch name carries no address and no record. It names this
+                # delivery's own recipient only; a cc'd address shares the entry without
+                # being what the marker is about
+                message_id=dispatch.name,
                 # an automated send is never immediate: the queue is what makes a crash
                 # recoverable, and `now` would send outside it
                 now=False,
@@ -508,13 +512,32 @@ class NotificationDispatchService:
 
     # ------------------------------------------------------------------ resolving by hand
     @staticmethod
+    def marker_of(stored):
+        """The dispatch a queue entry was written for, or nothing if it says none.
+
+        Frappe keeps the `message_id` it was given as it is, and only wraps it in angle
+        brackets and a domain on the wire, so what is read back is normally the bare name.
+        It is still unwrapped, because the same header comes back that way from a mail that
+        has travelled, and only a name that really is one of ours counts: any other
+        message id is somebody else's and says nothing about us.
+        """
+        name = (stored or "").strip().strip("<>").split("@", 1)[0].strip()
+
+        if not name or not frappe.db.exists(DISPATCH, name):
+            return None
+
+        return name
+
+    @staticmethod
     def evidence(dispatch_name):
         """The queue entries that could be the mail this delivery was going to send.
 
-        Shown rather than chosen. Nothing durable ties a dispatch to an entry in Frappe's
-        queue, so these are candidates on the strength of the address, the record and the
-        moment — which is enough for a person looking at them, and was never enough for
-        this application to pick one on its own.
+        Shown rather than chosen. An entry that carries this delivery's own mark is proof
+        and is listed first, flagged `matched`. An entry written before the mark existed has
+        only the address, the record and the moment to go on, which is enough for a person
+        looking at them and was never enough for this application to pick one on its own,
+        so those are flagged unmatched. An entry marked for another delivery is not offered
+        at all: it is that delivery's mail, even where this address was a cc on it.
         """
         NotificationSettingsService._guard()
         doc = frappe.get_doc(DISPATCH, dispatch_name)
@@ -522,7 +545,7 @@ class NotificationDispatchService:
         rows = frappe.db.sql(
             """
             select queue.name, queue.status, queue.creation, queue.reference_doctype,
-                   queue.reference_name
+                   queue.reference_name, queue.message_id
             from `tabEmail Queue` queue
             join `tabEmail Queue Recipient` person on person.parent = queue.name
             where person.recipient = %(recipient)s
@@ -531,16 +554,37 @@ class NotificationDispatchService:
                 select 1 from `tabMSP Notification Dispatch` other
                 where other.email_queue_id = queue.name
               )
-            order by queue.creation desc
+            order by queue.message_id = %(name)s desc, queue.creation desc
             limit 20
             """,
             {
+                "name": doc.name,
                 "recipient": doc.recipient,
                 "since": doc.reserved_at
                 or frappe.utils.add_to_date(doc.creation, hours=-1),
             },
             as_dict=True,
         )
+
+        candidates = []
+
+        for row in rows:
+            marker = NotificationDispatchService.marker_of(row.message_id)
+
+            if marker and marker != doc.name:
+                continue
+
+            candidates.append(
+                {
+                    "email_queue": row.name,
+                    "status": row.status,
+                    "created": row.creation,
+                    "reference": f"{row.reference_doctype or ''} {row.reference_name or ''}".strip(),
+                    "matched": marker == doc.name,
+                }
+            )
+
+        candidates.sort(key=lambda candidate: not candidate["matched"])
 
         return {
             "dispatch": {
@@ -555,15 +599,7 @@ class NotificationDispatchService:
                 "reserved_at": doc.reserved_at,
                 "failure_reason": doc.failure_reason,
             },
-            "candidates": [
-                {
-                    "email_queue": row.name,
-                    "status": row.status,
-                    "created": row.creation,
-                    "reference": f"{row.reference_doctype or ''} {row.reference_name or ''}".strip(),
-                }
-                for row in rows
-            ],
+            "candidates": candidates,
             "decisions": ["link", "not_sent"],
         }
 
@@ -614,6 +650,19 @@ class NotificationDispatchService:
             if taken:
                 raise ValidationError(
                     f"That queue entry already belongs to {taken}.", "VALIDATION_ERROR"
+                )
+
+            # an entry marked for another delivery is that delivery's mail, whatever the
+            # address and the record say; an unmarked one predates the mark and is judged
+            # by the checks below, exactly as it always was
+            marked = NotificationDispatchService.marker_of(
+                frappe.db.get_value(QUEUE, email_queue, "message_id")
+            )
+
+            if marked and marked != doc.name:
+                raise ValidationError(
+                    f"That queue entry was written for {marked}, not for this delivery.",
+                    "VALIDATION_ERROR",
                 )
 
             # the entry has to be a mail to this person: attached to one addressed to
@@ -715,6 +764,10 @@ class NotificationDispatchService:
             return "manual"
 
         current = NotificationSettingsService.effective(dispatch.rule)
+
+        if not current["enabled"]:
+            return "manual"
+
         adapter = registry.condition(
             registry.effective_condition_key(dispatch.rule, current.get("condition_key"))
         )

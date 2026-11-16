@@ -443,16 +443,18 @@ const RuleEditor: React.FC<EditorProps> = ({
                       ))}
                     </datalist>
                   </Field>
-                  <Field label="Condition" className="sm:col-span-2">
-                    <Select
-                      value={draft.condition_key}
-                      onChange={(value) => set({ condition_key: value })}
-                      options={conditions.map((entry) => ({ value: entry.key, label: entry.label }))}
-                      placeholder="Choose which records are watched"
-                      searchable={false}
-                      className="w-full"
-                    />
-                  </Field>
+                  {conditions.length > 1 && (
+                    <Field label="Condition" className="sm:col-span-2">
+                      <Select
+                        value={draft.condition_key}
+                        onChange={(value) => set({ condition_key: value })}
+                        options={conditions.map((entry) => ({ value: entry.key, label: entry.label }))}
+                        placeholder="Choose which records are watched"
+                        searchable={false}
+                        className="w-full"
+                      />
+                    </Field>
+                  )}
                   <Field label="Stop condition" className="sm:col-span-2">
                     <Select
                       value={draft.stop_condition_key}

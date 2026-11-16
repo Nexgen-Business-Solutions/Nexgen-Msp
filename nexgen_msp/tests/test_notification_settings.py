@@ -1050,3 +1050,162 @@ class TestReconciliationReachesEveryDelivery(NotificationCase):
         NotificationDispatchService.reconcile()
 
         self.assertEqual(snapshot(), before)
+
+
+class TestAQueueEntryIsTiedToItsDeliveryByAMark(NotificationCase):
+    def deliver(self, address, reference, occurrence="event:1", **over):
+        return NotificationDispatchService.deliver(
+            "request_received",
+            address,
+            self.context(),
+            business_doctype=REFERENCE,
+            business_name=reference,
+            occurrence=occurrence,
+            **over,
+        )
+
+    def entry_of(self, dispatch):
+        return frappe.db.get_value(DISPATCH, dispatch, "email_queue_id")
+
+    def lose_the_link(self, dispatch):
+        frappe.db.set_value(DISPATCH, dispatch, {"status": "Unknown", "email_queue_id": None})
+
+    def written_by_hand(self, address, reference, message_id=None, cc=None):
+        entry = frappe.get_doc(
+            {
+                "doctype": "Email Queue",
+                "sender": "noreply@example.invalid",
+                "message": "x",
+                "status": "Not Sent",
+                "message_id": message_id,
+                "reference_doctype": REFERENCE,
+                "reference_name": reference,
+                "recipients": [{"recipient": person} for person in [address, *(cc or [])]],
+            }
+        ).insert(ignore_permissions=True)
+
+        return entry.name
+
+    def candidate(self, dispatch, entry):
+        found = [
+            row
+            for row in NotificationDispatchService.evidence(dispatch)["candidates"]
+            if row["email_queue"] == entry
+        ]
+
+        return found[0] if found else None
+
+    def test_a_queued_delivery_records_its_own_name_on_the_entry_and_evidence_reports_it_matched(self):
+        address = self.address()
+        reference = self.reference()
+        sent = self.deliver(address, reference)
+        entry = self.entry_of(sent["dispatch"])
+        self.assertEqual(frappe.db.get_value("Email Queue", entry, "message_id"), sent["dispatch"])
+
+        self.lose_the_link(sent["dispatch"])
+        frappe.db.set_value(DISPATCH, sent["dispatch"], "reserved_at", frappe.utils.add_to_date(None, minutes=-5))
+
+        found = self.candidate(sent["dispatch"], entry)
+
+        self.assertTrue(found["matched"])
+
+    def test_a_link_to_an_entry_marked_for_another_delivery_is_refused_and_the_status_stays(self):
+        address = self.address()
+        reference = self.reference()
+        first = self.deliver(address, reference, occurrence="event:1")
+        second = self.deliver(address, reference, occurrence="event:2")
+        self.lose_the_link(first["dispatch"])
+
+        with self.assertRaises(ValidationError):
+            NotificationDispatchService.resolve(
+                first["dispatch"], "link", email_queue=self.entry_of(second["dispatch"]), note="Looked"
+            )
+
+        self.assertEqual(frappe.db.get_value(DISPATCH, first["dispatch"], "status"), "Unknown")
+        self.assertFalse(self.entry_of(first["dispatch"]))
+
+    def test_a_link_to_the_entry_marked_for_this_delivery_is_accepted(self):
+        address = self.address()
+        reference = self.reference()
+        sent = self.deliver(address, reference)
+        entry = self.entry_of(sent["dispatch"])
+        self.lose_the_link(sent["dispatch"])
+
+        outcome = NotificationDispatchService.resolve(
+            sent["dispatch"], "link", email_queue=entry, note="Looked"
+        )
+
+        self.assertEqual(outcome["status"], "Queued")
+        self.assertEqual(self.entry_of(sent["dispatch"]), entry)
+
+    def test_an_entry_with_no_mark_still_links_as_before_and_is_reported_unmatched(self):
+        address = self.address()
+        reference = self.reference()
+        row = self.dispatch_row(address, reference, status="Unknown")
+        entry = self.written_by_hand(address, reference)
+
+        self.assertFalse(self.candidate(row.name, entry)["matched"])
+
+        outcome = NotificationDispatchService.resolve(row.name, "link", email_queue=entry, note="Looked")
+
+        self.assertEqual(outcome["status"], "Queued")
+        self.assertEqual(self.entry_of(row.name), entry)
+
+    def test_two_deliveries_to_one_person_about_one_record_are_told_apart_by_the_mark(self):
+        address = self.address()
+        reference = self.reference()
+        first = self.deliver(address, reference, occurrence="event:1")
+        second = self.deliver(address, reference, occurrence="event:2")
+        mine = self.entry_of(first["dispatch"])
+        theirs = self.entry_of(second["dispatch"])
+        self.lose_the_link(first["dispatch"])
+        self.lose_the_link(second["dispatch"])
+
+        for name in (first["dispatch"], second["dispatch"]):
+            frappe.db.set_value(DISPATCH, name, "reserved_at", frappe.utils.add_to_date(None, minutes=-5))
+
+        offered = NotificationDispatchService.evidence(first["dispatch"])["candidates"]
+
+        self.assertEqual([row["email_queue"] for row in offered], [mine])
+        self.assertTrue(offered[0]["matched"])
+        self.assertEqual(
+            [row["email_queue"] for row in NotificationDispatchService.evidence(second["dispatch"])["candidates"]],
+            [theirs],
+        )
+
+        with self.assertRaises(ValidationError):
+            NotificationDispatchService.resolve(first["dispatch"], "link", email_queue=theirs, note="Looked")
+
+        NotificationDispatchService.resolve(second["dispatch"], "link", email_queue=theirs, note="Looked")
+
+        self.assertEqual(self.entry_of(second["dispatch"]), theirs)
+
+    def test_an_address_that_was_only_copied_is_not_read_as_that_deliverys_own_mail(self):
+        address = self.address("to")
+        copied = self.address("cc")
+        reference = self.reference()
+        sent = self.deliver(address, reference, cc=[copied])
+        entry = self.entry_of(sent["dispatch"])
+        own = self.dispatch_row(copied, reference, status="Unknown")
+        frappe.db.set_value(DISPATCH, own.name, "reserved_at", frappe.utils.add_to_date(None, minutes=-5))
+
+        self.assertIsNone(self.candidate(own.name, entry))
+
+        with self.assertRaises(ValidationError):
+            NotificationDispatchService.resolve(own.name, "link", email_queue=entry, note="Looked")
+
+        self.assertEqual(frappe.db.get_value(DISPATCH, own.name, "status"), "Unknown")
+
+    def test_a_marker_that_is_not_one_of_ours_says_nothing(self):
+        self.assertIsNone(NotificationDispatchService.marker_of("<abc123@example.invalid>"))
+        self.assertIsNone(NotificationDispatchService.marker_of(None))
+
+    def test_a_disabled_reminder_is_not_promised_a_retry(self):
+        reminder = registry.keys(registry.REMINDER)[0]
+        address = self.address()
+        row = self.dispatch_row(address, "Administrator", rule=reminder, status="Unknown", doctype="User")
+        adapter = {"doctype": "User", "filters": {"enabled": 1}}
+        frappe.db.set_value(RULE, reminder, "enabled", 0)
+
+        with patch.object(registry, "condition", return_value=adapter):
+            self.assertEqual(NotificationDispatchService._retry_of(row), "manual")

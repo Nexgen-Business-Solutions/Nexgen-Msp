@@ -332,7 +332,6 @@ RULES = {
             "approvers",
             "reminders.remind_approvers",
             "request_approval_pending",
-            conditions=("request_approval_pending", "request_waiting_internal"),
         ),
         _reminder(
             "request_waiting_internal",
@@ -342,7 +341,6 @@ RULES = {
             "internal_without_requester",
             "reminders.remind_our_team",
             "request_waiting_internal",
-            conditions=("request_approval_pending", "request_waiting_internal"),
         ),
     )
 }
@@ -408,6 +406,13 @@ def allowed_conditions(rule_key):
 
     A condition over another doctype is fed a context the rule's template was never built
     for, so it is never listable however the declaration reads.
+
+    Sharing a doctype is not sharing a meaning either. Each rule declares the one condition
+    its template and its audience were written for: the approval reminder tells a company
+    its own people are still waiting on it, and pointing that letter at requests already
+    submitted to us would send it to the wrong people about the wrong moment. A second
+    condition for a rule would be a second notification, declared here with the template
+    and the audience that go with it.
     """
     found = RULES.get(rule_key)
 

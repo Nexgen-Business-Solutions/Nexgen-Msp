@@ -164,7 +164,7 @@ const InvestigateDelivery: React.FC<Props> = ({ dispatch, onClose }) => {
             <div>
               <h3 className="mb-1 text-sm font-semibold text-slate-800">Possible queue entries</h3>
               <p className="mb-2 text-xs text-slate-500">
-                These entries could be this delivery&apos;s email. They are not proof; message content is not shown.
+                A matched entry carries this delivery&apos;s own mark. The others could be this delivery&apos;s email but are not proof; message content is not shown.
               </p>
               {candidates.length === 0 ? (
                 <p className="rounded-lg bg-slate-50 px-3 py-3 text-sm text-slate-600">
@@ -195,7 +195,12 @@ const InvestigateDelivery: React.FC<Props> = ({ dispatch, onClose }) => {
                               className="h-4 w-4"
                             />
                           </td>
-                          <td className="px-3 py-2 text-sm font-medium text-slate-800">{entry.email_queue}</td>
+                          <td className="px-3 py-2 text-sm font-medium text-slate-800">
+                            {entry.email_queue}
+                            <span className="ml-2 text-xs font-normal text-slate-500">
+                              {entry.matched ? 'Matched' : 'Unmatched'}
+                            </span>
+                          </td>
                           <td className="px-3 py-2 text-sm text-slate-600">{entry.status || '—'}</td>
                           <td className="whitespace-nowrap px-3 py-2 text-sm tabular-nums text-slate-600">
                             {fmtMoment(entry.created) || '—'}

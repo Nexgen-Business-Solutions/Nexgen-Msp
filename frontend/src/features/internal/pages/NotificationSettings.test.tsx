@@ -603,8 +603,20 @@ describe('Email & Notification Settings', () => {
         failure_reason: 'Worker stopped',
       },
       candidates: [
-        { email_queue: 'EQ-1', status: 'Sent', created: '2026-11-01 10:01:00', reference: 'MSP Request' },
-        { email_queue: 'EQ-2', status: 'Error', created: '2026-11-01 10:02:00', reference: 'MSP Request' },
+        {
+          email_queue: 'EQ-1',
+          status: 'Sent',
+          created: '2026-11-01 10:01:00',
+          reference: 'MSP Request',
+          matched: true,
+        },
+        {
+          email_queue: 'EQ-2',
+          status: 'Error',
+          created: '2026-11-01 10:02:00',
+          reference: 'MSP Request',
+          matched: false,
+        },
       ],
       decisions: ['link', 'not_sent'],
     };

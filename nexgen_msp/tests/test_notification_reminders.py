@@ -18,7 +18,7 @@ from nexgen_msp.api.internal.services.notification_settings_service import (
     NotificationSettingsService,
 )
 from nexgen_msp.api.portal.services.portal_service import PortalService
-from nexgen_msp.utils import reminders
+from nexgen_msp.utils import notifications, reminders
 from nexgen_msp.utils.errors import ValidationError
 
 from .test_notification_settings import (
@@ -703,24 +703,10 @@ class TestTheConditionARuleWatchesIsConfigurable(RequestCase):
 
         return seen, patch.object(NotificationReminderService, "_candidates", side_effect=record)
 
-    def test_a_rule_pointed_at_the_other_condition_watches_that_conditions_records(self):
-        name = self.submitted()
-        self.configure(APPROVAL, condition_key=WAITING)
-        seen, spy = self.spy()
-
-        with spy:
-            NotificationReminderService.run_one(APPROVAL)
-            NotificationReminderService.summary(APPROVAL)
-            NotificationReminderService.eligibility(APPROVAL)
-
-        self.assertTrue(seen)
-        self.assertTrue(all(found["status"] == "Submitted" for found in seen), seen)
-        self.assertTrue(
-            frappe.db.count(
-                REFERENCE,
-                {**registry.watch_filters(registry.condition(WAITING), None), "name": name},
-            )
-        )
+    def test_each_reminder_declares_exactly_one_condition(self):
+        self.assertEqual(registry.allowed_conditions(APPROVAL), (APPROVAL,))
+        self.assertEqual(registry.allowed_conditions(WAITING), (WAITING,))
+        self.assertEqual([entry["key"] for entry in registry.choices(APPROVAL)["conditions"]], [APPROVAL])
 
     def test_a_rule_with_no_stored_condition_watches_the_one_it_declares(self):
         self.configure(APPROVAL, condition_key=None)
@@ -732,10 +718,11 @@ class TestTheConditionARuleWatchesIsConfigurable(RequestCase):
         self.assertTrue(all(found["status"] == "Awaiting Customer Approval" for found in seen), seen)
 
     def test_saving_refuses_a_condition_the_rule_does_not_declare(self):
-        with self.assertRaises(ValidationError):
-            NotificationSettingsService.save(APPROVAL, changes={"condition_key": "every_invoice"})
+        for refused in ("every_invoice", WAITING):
+            with self.assertRaises(ValidationError):
+                NotificationSettingsService.save(APPROVAL, changes={"condition_key": refused})
 
-        self.assertNotEqual(self.stored(APPROVAL, "condition_key"), "every_invoice")
+            self.assertNotEqual(self.stored(APPROVAL, "condition_key"), refused)
 
     def test_a_condition_over_another_doctype_is_never_listable(self):
         other = lambda rule_key=None: {  # noqa: E731
@@ -760,14 +747,14 @@ class TestTheConditionARuleWatchesIsConfigurable(RequestCase):
             with self.assertRaises(ValidationError):
                 NotificationSettingsService.save(APPROVAL, changes={"condition_key": "invoice_overdue"})
 
-    def test_the_choices_offer_each_allowed_condition_with_a_label_and_its_own_stops(self):
+    def test_the_choices_offer_the_declared_condition_with_a_label_and_its_own_stops(self):
         offered = registry.choices(APPROVAL)
 
-        self.assertEqual({entry["key"] for entry in offered["conditions"]}, {APPROVAL, WAITING})
+        self.assertEqual([entry["key"] for entry in offered["conditions"]], [APPROVAL])
         self.assertTrue(all(entry["label"] for entry in offered["conditions"]))
         self.assertEqual(
-            [entry["key"] for entry in registry.choices(APPROVAL, WAITING)["stop_conditions"]],
-            list(registry.condition(WAITING)["stop_conditions"]),
+            [entry["key"] for entry in offered["stop_conditions"]],
+            list(registry.condition(APPROVAL)["stop_conditions"]),
         )
 
     def test_switching_condition_moves_the_boundary_clears_the_cursor_and_is_audited(self):
@@ -775,7 +762,8 @@ class TestTheConditionARuleWatchesIsConfigurable(RequestCase):
         NotificationReminderService._remember(APPROVAL, (LONG_AGO, self.reference("cur")))
         frappe.db.commit()
 
-        NotificationSettingsService.save(APPROVAL, changes={"condition_key": WAITING})
+        with patch.dict(registry.RULES[APPROVAL], {"conditions": (APPROVAL, WAITING)}):
+            NotificationSettingsService.save(APPROVAL, changes={"condition_key": WAITING})
 
         moved = frappe.utils.get_datetime(self.stored(APPROVAL, "schedule_effective_at"))
         self.assertGreater(moved, frappe.utils.get_datetime(LONG_AGO) + datetime.timedelta(days=365))
@@ -784,6 +772,208 @@ class TestTheConditionARuleWatchesIsConfigurable(RequestCase):
         edits = self.audits(APPROVAL, action="Rule Edited")
         details = [frappe.db.get_value(AUDIT, row.name, "detail") for row in edits]
         self.assertTrue(any("condition_key" in (detail or "") for detail in details), details)
+
+
+class TestADeliveryThatNeverReachedAnybodyIsOwedAgain(RequestCase):
+    """The record's cadence is one question; whether each address got its mail is another."""
+
+    def setUp(self):
+        super().setUp()
+        self.first = self.address("a")
+        self.second = self.address("b")
+
+    def both(self):
+        return patch.object(registry, "resolve_audience", return_value=[self.first, self.second])
+
+    def leave_unknown(self, name, address):
+        """A claim whose worker never came back, as the engine finds it two hours on."""
+        key = NotificationDispatchService.dedup_key(APPROVAL, REFERENCE, name, "iteration:1", address)
+        held = NotificationDispatchService._reserve(
+            key,
+            rule_key=APPROVAL,
+            revision=1,
+            business_doctype=REFERENCE,
+            business_name=name,
+            occurrence="iteration:1",
+            iteration=1,
+            recipient=address,
+            template_name="MSP Request Approval Reminder",
+        )
+        dispatch = held["dispatch"].name
+        frappe.db.set_value(
+            DISPATCH,
+            dispatch,
+            "reserved_at",
+            frappe.utils.add_to_date(frappe.utils.now(), hours=-2),
+            update_modified=False,
+        )
+        frappe.db.commit()
+        NotificationDispatchService.deliver(
+            APPROVAL,
+            address,
+            self.context(),
+            business_doctype=REFERENCE,
+            business_name=name,
+            iteration=1,
+            occurrence="iteration:1",
+        )
+        self.assertEqual(frappe.db.get_value(DISPATCH, dispatch, "status"), "Unknown")
+
+        return dispatch
+
+    def attest(self, dispatch):
+        NotificationDispatchService.resolve(
+            dispatch, "not_sent", note="Nothing in the queue for this address and request."
+        )
+        self.assertEqual(frappe.db.get_value(DISPATCH, dispatch, "skip_reason"), "attested_not_sent")
+
+    def strand_second(self, **over):
+        """One iteration: the first address is queued, the second is attested as never sent."""
+        name = self.awaiting()
+        self.configure(APPROVAL, **over)
+        dispatch = self.leave_unknown(name, self.second)
+
+        with self.only(name), self.both():
+            NotificationReminderService.run_one(APPROVAL)
+
+        self.assertEqual(self.queued_to(self.first), 1)
+        self.assertEqual(self.queued_to(self.second), 0)
+        self.attest(dispatch)
+
+        return name, dispatch
+
+    def state(self, name):
+        row = frappe._dict(name=name, creation=frappe.db.get_value(REFERENCE, name, "creation"))
+        current = NotificationSettingsService.effective(APPROVAL)
+
+        return NotificationReminderService.state_of(
+            APPROVAL, row, current, registry.condition(APPROVAL), ZoneInfo(current["timezone"])
+        )
+
+    def test_an_address_attested_as_not_sent_is_mailed_at_its_iteration_even_at_the_maximum(self):
+        name, _dispatch = self.strand_second(max_sends=1)
+
+        self.assertEqual(self.state(name)["reason"], "max_reached")
+
+        with self.only(name), self.both():
+            out = NotificationReminderService.run_one(APPROVAL)
+
+        self.assertEqual(out["sent"], 1)
+        self.assertEqual(self.queued_to(self.second), 1)
+        self.assertEqual(self.queued_to(self.first), 1, "and nothing more to the one already mailed")
+        self.assertEqual(self.iterations(name), [1, 1])
+        self.assertEqual(self.state(name)["reason"], "max_reached")
+
+    def test_with_more_iterations_allowed_the_missed_one_is_delivered_and_the_cadence_is_unchanged(self):
+        name, _dispatch = self.strand_second(max_sends=3)
+        before = self.state(name)
+
+        with self.only(name), self.both():
+            out = NotificationReminderService.run_one(APPROVAL)
+
+        after = self.state(name)
+
+        self.assertEqual(out["sent"], 1)
+        self.assertEqual(self.queued_to(self.second), 1)
+        self.assertEqual(self.queued_to(self.first), 1)
+        self.assertEqual(self.iterations(name), [1, 1], "the retry created no iteration of its own")
+        self.assertEqual((after["iteration"], after["reason"]), (before["iteration"], before["reason"]))
+        self.assertEqual(after["next_due"], before["next_due"])
+
+    def test_a_record_that_left_the_trigger_status_is_not_reminded_whatever_is_owed(self):
+        name, _dispatch = self.strand_second(max_sends=1)
+        frappe.db.set_value(REFERENCE, name, "status", "Submitted", update_modified=False)
+        frappe.db.commit()
+
+        with self.only(name), self.both():
+            NotificationReminderService.run_one(APPROVAL)
+
+        declared = registry.rule(APPROVAL)
+        current = NotificationSettingsService.effective(APPROVAL)
+        listed = frappe._dict(name=name)
+        direct = NotificationReminderService._redeliver(
+            declared, current, registry.condition(APPROVAL), listed, [(1, self.second)]
+        )
+
+        self.assertEqual(direct, {"sent": 0, "skipped": 1})
+        self.assertEqual(self.queued_to(self.second), 0)
+        self.assertEqual(self.queued_to(self.first), 1)
+
+    def test_a_rule_switched_off_raises_nothing_outstanding(self):
+        name, _dispatch = self.strand_second(max_sends=1)
+        self.configure(APPROVAL, enabled=0, max_sends=1)
+
+        with self.only(name), self.both():
+            out = NotificationReminderService.run_one(APPROVAL)
+
+        self.assertEqual(out, {"sent": 0, "skipped": 0})
+        self.assertEqual(self.queued_to(self.second), 0)
+
+    def test_two_ticks_in_a_row_mail_the_missed_address_once(self):
+        name, _dispatch = self.strand_second(max_sends=1)
+
+        with self.only(name), self.both():
+            first = NotificationReminderService.run_one(APPROVAL)
+            second = NotificationReminderService.run_one(APPROVAL)
+
+        self.assertEqual(first["sent"], 1)
+        self.assertEqual(second["sent"], 0)
+        self.assertEqual(self.queued_to(self.second), 1)
+        self.assertEqual(self.queued_to(self.first), 1)
+
+    def test_an_address_no_longer_in_the_audience_is_not_sent_an_old_iteration(self):
+        name, _dispatch = self.strand_second(max_sends=1)
+
+        with self.only(name), patch.object(registry, "resolve_audience", return_value=[self.first]):
+            NotificationReminderService.run_one(APPROVAL)
+
+        self.assertEqual(self.queued_to(self.second), 1, "owed to them, and still delivered")
+
+        self.assertEqual(NotificationReminderService._owed(APPROVAL, [name]), {})
+
+    def test_the_owed_list_holds_only_failed_untried_deliveries_in_order(self):
+        name, dispatch = self.strand_second(max_sends=1)
+
+        self.assertEqual(
+            NotificationReminderService._owed(APPROVAL, [name]),
+            {name: [(1, self.second)]},
+        )
+
+        frappe.db.set_value(DISPATCH, dispatch, "is_test", 1)
+
+        self.assertEqual(NotificationReminderService._owed(APPROVAL, [name]), {})
+
+    def test_a_delivery_whose_template_failed_to_render_is_picked_up_once_it_renders(self):
+        name = self.awaiting()
+        self.configure(APPROVAL, max_sends=1)
+        real = notifications.render
+
+        def fails_for_the_second(template, context):
+            if context.get("full_name") == self.second:
+                raise ValueError("template broken")
+
+            return real(template, context)
+
+        with (
+            self.only(name),
+            self.both(),
+            patch.object(notifications, "render", side_effect=fails_for_the_second),
+        ):
+            NotificationReminderService.run_one(APPROVAL)
+
+        self.assertEqual(self.queued_to(self.first), 1)
+        self.assertEqual(self.queued_to(self.second), 0)
+        self.assertEqual(
+            frappe.db.get_value(DISPATCH, {"business_name": name, "recipient": self.second}, "skip_reason"),
+            "render_failed",
+        )
+
+        with self.only(name), self.both():
+            out = NotificationReminderService.run_one(APPROVAL)
+
+        self.assertEqual(out["sent"], 1)
+        self.assertEqual(self.queued_to(self.second), 1)
+        self.assertEqual(self.queued_to(self.first), 1)
 
 
 class TestWhoIsReminded(RequestCase):
