@@ -275,7 +275,7 @@ class NotificationReminderService:
 
         rows = frappe.db.sql(
             """
-            select business_name, reminder_iteration, recipient
+            select name, business_name, reminder_iteration, recipient
             from `tabMSP Notification Dispatch`
             where rule = %(rule)s
               and business_name in %(records)s
@@ -296,7 +296,7 @@ class NotificationReminderService:
 
         for row in rows:
             out.setdefault(row.business_name, []).append(
-                (frappe.utils.cint(row.reminder_iteration), row.recipient)
+                (frappe.utils.cint(row.reminder_iteration), row.recipient, row.name)
             )
 
         return out
@@ -606,6 +606,12 @@ class NotificationReminderService:
         zone = _zone(current.get("timezone"))
         sent = skipped = 0
         after = NotificationReminderService._cursor(rule_key)
+        # a delivery owed from an earlier attempt is still a delivery, and the quiet period
+        # governs when mail may go out rather than which mail. Held back until the window
+        # ends, never dropped: what is owed stays owed
+        _opens, hushed = NotificationReminderService._quiet_shift(
+            current, _aware(frappe.utils.now(), zone), zone
+        )
 
         # the walk carries on from where the last tick stopped, and wraps round when it runs
         # out. Starting from the beginning every time means a rule with more watched records
@@ -627,7 +633,7 @@ class NotificationReminderService:
             owed = NotificationReminderService._owed(rule_key, [row.name for row in rows])
 
             for row in rows:
-                if row.name in owed:
+                if row.name in owed and not hushed:
                     again = NotificationReminderService._redeliver(
                         declared, current, adapter, row, owed[row.name]
                     )
@@ -657,6 +663,36 @@ class NotificationReminderService:
         return {"sent": sent, "skipped": skipped}
 
     @staticmethod
+    def _addresses(current, doc, iteration):
+        """Who this iteration may reach, read off the record as it stands at this moment.
+
+        The audience the record resolves to, plus the addresses an administrator added by
+        hand. Resolved alone, an extra recipient saved in the screen was stored and never
+        written to.
+
+        Asked again on every send, including a send owed from a week ago: approving for a
+        company is an authority people are given and lose, and an address that has lost it
+        must not receive a request summary because it was once on the list.
+        """
+        audience = current["audience_key"]
+        escalating = frappe.utils.cint(current.get("escalation_after_iteration"))
+
+        if escalating and iteration > escalating and current.get("escalation_audience_key"):
+            audience = current["escalation_audience_key"]
+
+        allowed = []
+
+        for address in list(registry.resolve_audience(audience, doc)) + list(
+            current.get("extra") or []
+        ):
+            normalised = (address or "").strip().lower()
+
+            if normalised and normalised not in allowed:
+                allowed.append(normalised)
+
+        return allowed
+
+    @staticmethod
     def _remind(declared, current, adapter, row, iteration):
         """One iteration of one reminder, to everybody it is addressed to.
 
@@ -680,25 +716,7 @@ class NotificationReminderService:
 
             return {"sent": 0, "skipped": 1}
 
-        audience = current["audience_key"]
-        escalating = frappe.utils.cint(current.get("escalation_after_iteration"))
-
-        if escalating and iteration > escalating and current.get("escalation_audience_key"):
-            audience = current["escalation_audience_key"]
-
-        # who this reminder reaches: the audience the record resolves to, plus the addresses
-        # an administrator added by hand. Resolved alone, an extra recipient saved in the
-        # screen was stored and never written to
-        addresses = []
-
-        for address in list(registry.resolve_audience(audience, doc)) + list(
-            current.get("extra") or []
-        ):
-            normalised = (address or "").strip().lower()
-
-            if normalised and normalised not in addresses:
-                addresses.append(normalised)
-
+        addresses = NotificationReminderService._addresses(current, doc, iteration)
         context = NotificationReminderService._context(declared, doc, adapter)
         sent = skipped = 0
 
@@ -739,7 +757,43 @@ class NotificationReminderService:
         ):
             return {"sent": 0, "skipped": len(owed)}
 
-        for iteration, address in owed:
+        allowed = {}
+
+        for iteration, address, dispatch in owed:
+            if iteration not in allowed:
+                allowed[iteration] = NotificationReminderService._addresses(
+                    current, doc, iteration
+                )
+
+            if address not in allowed[iteration]:
+                # and it is closed rather than left owed: it will never be sent now, and a
+                # delivery that waits for ever would say on every tick that it is waiting
+                frappe.db.set_value(
+                    DISPATCH,
+                    dispatch,
+                    {
+                        "status": "Skipped",
+                        "skip_reason": "no_longer_addressed",
+                        "failure_reason": "This address is no longer one the reminder is "
+                        "addressed to.",
+                    },
+                    update_modified=True,
+                )
+                NotificationSettingsService._write_audit(
+                    action="Skipped",
+                    rule=declared["rule_key"],
+                    rule_revision=current.get("revision"),
+                    dispatch=dispatch,
+                    business_doctype=adapter["doctype"],
+                    business_name=doc.name,
+                    recipients=address,
+                    reason_code="no_longer_addressed",
+                    detail="Owed from an earlier attempt, and this address is no longer one "
+                    "this reminder is addressed to.",
+                )
+                skipped += 1
+                continue
+
             outcome = NotificationDispatchService.deliver(
                 declared["rule_key"],
                 address,

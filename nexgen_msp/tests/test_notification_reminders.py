@@ -892,7 +892,7 @@ class TestADeliveryThatNeverReachedAnybodyIsOwedAgain(RequestCase):
         current = NotificationSettingsService.effective(APPROVAL)
         listed = frappe._dict(name=name)
         direct = NotificationReminderService._redeliver(
-            declared, current, registry.condition(APPROVAL), listed, [(1, self.second)]
+            declared, current, registry.condition(APPROVAL), listed, [(1, self.second, "x")]
         )
 
         self.assertEqual(direct, {"sent": 0, "skipped": 1})
@@ -922,21 +922,75 @@ class TestADeliveryThatNeverReachedAnybodyIsOwedAgain(RequestCase):
         self.assertEqual(self.queued_to(self.first), 1)
 
     def test_an_address_no_longer_in_the_audience_is_not_sent_an_old_iteration(self):
-        name, _dispatch = self.strand_second(max_sends=1)
+        """Approving for a company is an authority people lose, and a reprise must ask again."""
+        name, dispatch = self.strand_second(max_sends=1)
 
         with self.only(name), patch.object(registry, "resolve_audience", return_value=[self.first]):
             NotificationReminderService.run_one(APPROVAL)
 
-        self.assertEqual(self.queued_to(self.second), 1, "owed to them, and still delivered")
-
+        self.assertEqual(self.queued_to(self.second), 0, "no longer theirs to receive")
+        self.assertEqual(self.queued_to(self.first), 1)
+        self.assertEqual(frappe.db.get_value(DISPATCH, dispatch, "status"), "Skipped")
+        self.assertEqual(
+            frappe.db.get_value(DISPATCH, dispatch, "skip_reason"), "no_longer_addressed"
+        )
         self.assertEqual(NotificationReminderService._owed(APPROVAL, [name]), {})
+        told = self.audits(APPROVAL, action="Skipped", business_name=name)
+        self.assertIn("no_longer_addressed", [row.reason_code for row in told])
+
+    def test_an_address_put_back_in_the_audience_before_the_tick_is_still_served(self):
+        name, _dispatch = self.strand_second(max_sends=1)
+
+        with self.only(name), self.both():
+            NotificationReminderService.run_one(APPROVAL)
+
+        self.assertEqual(self.queued_to(self.second), 1)
+
+    def test_an_extra_recipient_an_administrator_added_is_addressed_on_a_reprise(self):
+        name, _dispatch = self.strand_second(max_sends=1)
+        rule = frappe.get_doc(RULE, APPROVAL)
+        rule.append("recipients", {"email": self.second, "kind": "To"})
+        rule.save(ignore_permissions=True)
+        frappe.db.commit()
+
+        with self.only(name), patch.object(registry, "resolve_audience", return_value=[self.first]):
+            NotificationReminderService.run_one(APPROVAL)
+
+        self.assertEqual(self.queued_to(self.second), 1, "still addressed, by hand")
+
+    def test_a_reprise_waits_for_the_quiet_period_to_end(self):
+        name, dispatch = self.strand_second(max_sends=1)
+        current = NotificationSettingsService.effective(APPROVAL)
+        now = frappe.utils.get_datetime(frappe.utils.now()).astimezone(
+            ZoneInfo(current["timezone"])
+        )
+        self.configure(
+            APPROVAL,
+            max_sends=1,
+            quiet_hours_enabled=1,
+            quiet_start=(now - datetime.timedelta(hours=1)).strftime("%H:%M:%S"),
+            quiet_end=(now + datetime.timedelta(hours=1)).strftime("%H:%M:%S"),
+        )
+
+        with self.only(name), self.both():
+            NotificationReminderService.run_one(APPROVAL)
+
+        self.assertEqual(self.queued_to(self.second), 0, "deferred, not dropped")
+        self.assertEqual(frappe.db.get_value(DISPATCH, dispatch, "status"), "Failed")
+
+        self.configure(APPROVAL, max_sends=1, quiet_hours_enabled=0)
+
+        with self.only(name), self.both():
+            NotificationReminderService.run_one(APPROVAL)
+
+        self.assertEqual(self.queued_to(self.second), 1, "and owed still, once the window ends")
 
     def test_the_owed_list_holds_only_failed_untried_deliveries_in_order(self):
         name, dispatch = self.strand_second(max_sends=1)
 
         self.assertEqual(
             NotificationReminderService._owed(APPROVAL, [name]),
-            {name: [(1, self.second)]},
+            {name: [(1, self.second, dispatch)]},
         )
 
         frappe.db.set_value(DISPATCH, dispatch, "is_test", 1)
