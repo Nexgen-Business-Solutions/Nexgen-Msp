@@ -15,6 +15,7 @@
   "protected",
   "section_message",
   "trigger_key",
+  "condition_key",
   "template_name",
   "audience_key",
   "recipients",
@@ -95,6 +96,11 @@
    "label": "Trigger Key",
    "read_only": 1,
    "reqd": 1
+  },
+  {
+   "fieldname": "condition_key",
+   "fieldtype": "Data",
+   "label": "Condition"
   },
   {
    "fieldname": "template_name",

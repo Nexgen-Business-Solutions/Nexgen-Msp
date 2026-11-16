@@ -70,12 +70,23 @@ class MSPNotificationRule(Document):
 				self.set(fieldname, 0)
 
 			self.stop_condition_key = None
+			self.condition_key = None
 			self.escalation_audience_key = None
 			self.quiet_hours_enabled = 0
 
 			return
 
-		adapter = registry.condition(self.trigger_key) or {}
+		if self.condition_key and self.condition_key not in registry.allowed_conditions(
+			self.rule_key
+		):
+			frappe.throw(_("{0} cannot watch {1}.").format(self.rule_key, self.condition_key))
+
+		adapter = (
+			registry.condition(
+				registry.effective_condition_key(self.rule_key, self.condition_key)
+			)
+			or {}
+		)
 
 		if frappe.utils.cint(self.initial_delay_value) < 0:
 			frappe.throw(_("The first reminder cannot be sent before the record exists."))

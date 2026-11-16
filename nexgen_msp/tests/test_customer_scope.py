@@ -2320,3 +2320,466 @@ class TestTheChangeMatrix(CompanyBillingCase):
             self.charged(again), [], "the difference was already asked for and paid"
         )
 
+
+
+class LedgerCase(CompanyBillingCase):
+    """A company service billed ahead, in months of thirty days, so the sums can be done by hand."""
+
+    def setUp(self):
+        super().setUp()
+        frappe.db.set_value(
+            "MSP Contract",
+            self.contract,
+            {"billing_timing": "In Advance", "proration_method": "30-Day Convention"},
+        )
+        frappe.db.commit()
+
+    def thirty_day_month(self):
+        """A month that has already gone by and is thirty days long, so the convention and the calendar agree."""
+        anchor = frappe.utils.getdate(self.today)
+
+        for back in range(1, 13):
+            first = frappe.utils.add_months(anchor, -back).replace(day=1)
+            last = frappe.utils.add_days(frappe.utils.add_months(first, 1), -1)
+
+            if last.day == 30:
+                return str(first), str(last)
+
+        raise AssertionError("no month of thirty days in the last year")
+
+    def dear(self, rate):
+        service = self.offering("CDR", scope="Customer", rate=rate)
+        frappe.db.set_value("Item", service, "stock_uom", self.unit)
+        frappe.db.commit()
+
+        return service
+
+    def adopt(self, service):
+        for row in frappe.get_all(
+            ASSIGNMENT,
+            filters={"customer": self.customer, "service_item": service},
+            pluck="name",
+        ):
+            if (ASSIGNMENT, row) not in self._trash:
+                self.track(ASSIGNMENT, row)
+
+    def day(self, start, offset):
+        return frappe.utils.add_days(frappe.utils.getdate(start), offset)
+
+    def lines_for(self, run, service):
+        return frappe.get_all(
+            "MSP Billing Run Line",
+            filters={"parent": run, "service_item": service},
+            fields=[
+                "service_assignment",
+                "quantity",
+                "billable_months",
+                "unit_rate",
+                "amount",
+                "discount_percent",
+                "exception_code",
+                "covered_from",
+                "covered_to",
+                "billable_segments_json",
+            ],
+            order_by="covered_from asc",
+        )
+
+    def top_ups(self, run, service):
+        return [
+            row
+            for row in self.lines_for(run, service)
+            if not row.exception_code and flt(row.billable_months) > 0
+        ]
+
+    def settle(self, run):
+        invoice = self.invoiced(run)
+        BillingService.submit_invoice(name=run, notify=0)
+
+        return invoice
+
+
+class TestACreditAndItsTopUpReachTheLedger(LedgerCase):
+    """The review's own case, run end to end rather than previewed.
+
+    Eight units paid for a month at a hundred, five from the 16th, three from the 23rd,
+    one credit note for both stretches, then four from the 25th. The credit is money going
+    back in ERPNext and the top-up is money asked for, and neither may be zero or point the
+    wrong way.
+    """
+
+    def credited_and_raised(self):
+        from nexgen_msp.api.internal.services.billing import wizard
+
+        start, end = self.thirty_day_month()
+        first = self.opened(quantity=8)
+        run = self.posted(start, end)
+
+        second = ServiceLifecycleService.change(
+            assignment=first, effective_date=str(self.day(start, 15)), quantity=5
+        )["name"]
+        third = ServiceLifecycleService.change(
+            assignment=second, effective_date=str(self.day(start, 22)), quantity=3
+        )["name"]
+        frappe.db.commit()
+        self.adopt(self.storage)
+
+        given = wizard.create(
+            contract=self.contract,
+            kind="credit_note",
+            against=run,
+            include=[first],
+            scope="detected",
+            reason="Reduced to five, then to three",
+        )
+        note = self.track(RUN, given["run"] if isinstance(given, dict) else given)
+        frappe.db.commit()
+
+        fourth = ServiceLifecycleService.change(
+            assignment=third, effective_date=str(self.day(start, 24)), quantity=4
+        )["name"]
+        frappe.db.commit()
+        self.adopt(self.storage)
+
+        return start, end, first, fourth, note
+
+    def test_the_credit_is_a_return_in_erpnext_that_gives_back_each_stretch_at_its_own_price(self):
+        start, end, first, _fourth, note = self.credited_and_raised()
+
+        rows = frappe.get_all(
+            "MSP Billing Run Line",
+            filters={"parent": note},
+            fields=[
+                "quantity",
+                "billable_months",
+                "unit_rate",
+                "amount",
+                "covered_from",
+                "covered_to",
+            ],
+            order_by="covered_from asc",
+        )
+
+        # three units over the 16th to the 22nd, five over the 23rd to the 30th, a hundred
+        # a unit a month in thirty-day months: 3 x 100 x 7/30 and 5 x 100 x 8/30
+        self.assertEqual(len(rows), 2, rows)
+        self.assertEqual(
+            [(str(row.covered_from), str(row.covered_to)) for row in rows],
+            [
+                (str(self.day(start, 15)), str(self.day(start, 21))),
+                (str(self.day(start, 22)), str(self.day(end, 0))),
+            ],
+        )
+        self.assertEqual([flt_round(row.amount) for row in rows], [-70.0, -133.33])
+        self.assertEqual(
+            [flt_round(flt(row.billable_months) * flt(row.quantity) * flt(row.unit_rate)) for row in rows],
+            [-70.0, -133.33],
+            "each line's months multiply out to its own money",
+        )
+        self.assertEqual(flt_round(sum(flt(row.amount) for row in rows)), -203.33)
+
+        invoice = frappe.db.get_value(RUN, note, "sales_invoice")
+        self.assertTrue(invoice, "the credit note drafted its return document")
+        self.assertTrue(frappe.db.exists("Sales Invoice", invoice))
+        self.track("Sales Invoice", invoice)
+
+        document = frappe.get_doc("Sales Invoice", invoice)
+
+        self.assertEqual(document.is_return, 1)
+        self.assertLess(flt(document.grand_total), 0)
+        self.assertTrue(document.items)
+
+        for item in document.items:
+            self.assertLess(flt(item.qty), 0, f"a return line takes its sign from the quantity: {item.as_dict()}")
+            self.assertGreaterEqual(flt(item.rate), 0, "and never from the rate")
+            self.assertLess(flt(item.amount), 0)
+
+        self.assertEqual(
+            flt_round(sum(flt(item.amount) for item in document.items)), flt_round(document.grand_total)
+        )
+        self.assertAlmostEqual(
+            flt(document.grand_total),
+            -203.33,
+            delta=0.011,
+            msg="the return document carries the money of the credit run, to the cent",
+        )
+
+    def test_the_return_document_carries_exactly_the_money_the_credit_run_owes(self):
+        _start, _end, _first, _fourth, note = self.credited_and_raised()
+
+        invoice = frappe.db.get_value(RUN, note, "sales_invoice")
+        self.track("Sales Invoice", invoice)
+        document = frappe.get_doc("Sales Invoice", invoice)
+        owed = flt_round(
+            sum(
+                flt(row.amount)
+                for row in frappe.get_all(
+                    "MSP Billing Run Line", filters={"parent": note}, fields=["amount"]
+                )
+            )
+        )
+
+        self.assertEqual(flt_round(document.grand_total), owed)
+
+    def test_the_increase_after_the_credit_is_charged_and_charged_once(self):
+        start, end, _first, fourth, _note = self.credited_and_raised()
+
+        run = self.drawn(start=start, end=end)
+        added = self.top_ups(run, self.storage)
+
+        self.assertEqual(len(added), 1, self.lines_for(run, self.storage))
+        self.assertEqual(added[0].service_assignment, fourth)
+        self.assertEqual(flt(added[0].quantity), 1.0, "four held over the three paid for")
+        self.assertEqual(
+            (str(added[0].covered_from), str(added[0].covered_to)),
+            (str(self.day(start, 24)), str(end)),
+        )
+        # six days are charged as two blocks of five, which is how a charge is rounded and a
+        # credit is not: ten thirtieths of a hundred, with the months kept to three places
+        self.assertAlmostEqual(flt(added[0].billable_months), 10 / 30.0, places=3)
+        self.assertEqual(flt_round(added[0].amount), flt_round(flt(added[0].billable_months) * 100))
+        self.assertAlmostEqual(flt(added[0].amount), 100 * 10 / 30.0, delta=0.05)
+        self.assertGreater(flt(added[0].amount), 0)
+
+        again = self.drawn(start=start, end=end)
+
+        self.assertEqual(self.top_ups(again, self.storage), [], "the same scope and period asks for nothing twice")
+
+        self.settle(run)
+        after = self.drawn(start=start, end=end)
+
+        self.assertEqual(
+            self.top_ups(after, self.storage), [], "and nor does it once the top-up is posted"
+        )
+
+
+class TestASmallTopUpIsStillMoney(LedgerCase):
+    """A fraction of a unit at a high rate is a real sum, and a sum below a cent is not."""
+
+    def raised(self, was, now, rate):
+        service = self.dear(rate)
+        start, end = self.thirty_day_month()
+        first = self.running(service, scope="Customer", quantity=was)
+        self.posted(start, end)
+
+        ServiceLifecycleService.change(
+            assignment=first, effective_date=str(self.day(start, 15)), quantity=now
+        )
+        frappe.db.commit()
+        self.adopt(service)
+
+        return service, start, end, self.drawn(start=start, end=end)
+
+    def test_five_thousandths_of_a_unit_at_a_high_rate_is_charged(self):
+        service, _start, _end, run = self.raised(5.0, 5.005, 100000.0)
+        added = self.top_ups(run, service)
+
+        self.assertEqual(len(added), 1, self.lines_for(run, service))
+        self.assertEqual(flt(added[0].quantity), 0.005)
+        self.assertAlmostEqual(flt(added[0].billable_months), 0.5, places=3)
+        # 0.005 x 100000 x 15/30
+        self.assertEqual(flt_round(added[0].amount), 250.0)
+
+    def test_a_rise_from_five_thousandths_to_ten_is_charged(self):
+        service, _start, _end, run = self.raised(0.005, 0.010, 100000.0)
+        added = self.top_ups(run, service)
+
+        self.assertEqual(len(added), 1, self.lines_for(run, service))
+        self.assertEqual(flt(added[0].quantity), 0.005)
+        self.assertEqual(flt_round(added[0].amount), 250.0)
+
+    def test_a_rise_of_one_thousandth_at_a_high_rate_is_charged(self):
+        service, _start, _end, run = self.raised(0.001, 0.002, 100000.0)
+        added = self.top_ups(run, service)
+
+        self.assertEqual(len(added), 1, self.lines_for(run, service))
+        self.assertEqual(flt(added[0].quantity), 0.001)
+        self.assertEqual(flt_round(added[0].amount), 50.0)
+
+    def test_a_sum_of_one_cent_is_charged(self):
+        service, _start, _end, run = self.raised(5.0, 5.001, 20.0)
+        added = self.top_ups(run, service)
+
+        self.assertEqual(len(added), 1, self.lines_for(run, service))
+        self.assertEqual(flt_round(added[0].amount), 0.01)
+
+    def test_a_sum_below_half_a_cent_is_not_charged(self):
+        service, _start, _end, run = self.raised(5.0, 5.001, 5.0)
+
+        self.assertEqual(
+            self.top_ups(run, service),
+            [],
+            f"0.001 x 5 x 15/30 is a quarter of a cent: {self.lines_for(run, service)}",
+        )
+
+    def test_an_assignment_that_never_changed_has_no_top_up_at_all(self):
+        service = self.dear(100000.0)
+        start, end = self.thirty_day_month()
+        self.running(service, scope="Customer", quantity=5.005)
+        self.posted(start, end)
+
+        again = self.drawn(start=start, end=end)
+
+        self.assertEqual(self.top_ups(again, service), [])
+        self.assertEqual(sum(flt(row.amount) for row in self.lines_for(again, service)), 0)
+
+    def test_the_same_run_twice_charges_the_top_up_once(self):
+        service, start, end, run = self.raised(5.0, 5.005, 100000.0)
+
+        self.assertEqual(len(self.top_ups(run, service)), 1)
+
+        twin = self.drawn(start=start, end=end)
+        self.assertEqual(self.top_ups(twin, service), [], "a draft is already asking for it")
+
+        self.settle(run)
+        after = self.drawn(start=start, end=end)
+
+        self.assertEqual(self.top_ups(after, service), [], "and a posted one has been paid")
+
+
+class TestACreditThatRoundsToNoQuantityStillReturnsMoney(LedgerCase):
+    """Three decimals of quantity cannot hold a third of a thousandth of a month.
+
+    The money is not nothing — a third of a thousandth of a month at a thousand is thirty-
+    three pence — and it may not be written as a charge to get past the rounding.
+    """
+
+    RATE = 1000.0
+
+    def charged(self, discount=0):
+        service = self.dear(self.RATE)
+        start, end = self.thirty_day_month()
+        first = self.running(service, scope="Customer", quantity=1)
+        run = self.track(
+            RUN,
+            BillingService.generate(
+                contract=self.contract,
+                period_start=start,
+                period_end=end,
+                discount_percent=discount,
+            )["name"],
+        )
+        self.invoiced(run)
+        BillingService.submit_invoice(name=run, notify=0)
+
+        return service, first, start, end, run
+
+    def credit(self, run, first, rows):
+        note = BillingService.create_credit_note(
+            name=run, lines=rows, reason="ZZTEST a fraction given back", only_unserved=False
+        )["name"]
+        self.track(RUN, note)
+        invoice = frappe.db.get_value(RUN, note, "sales_invoice")
+        self.track("Sales Invoice", invoice)
+
+        return note, frappe.get_doc("Sales Invoice", invoice)
+
+    def piece(self, first, months, start, offset):
+        day = str(self.day(start, offset))
+
+        return {
+            "service_assignment": first,
+            "months": months,
+            "segments": [{"from": day, "to": day}],
+        }
+
+    def test_the_item_function_writes_a_return_as_minus_one_at_a_positive_rate(self):
+        bucket = {"months": -0.000333}
+
+        item = BillingService._credited_item("ZZTEST-ITEM", 1000.0, 0, bucket, "ZZTEST", "x")
+
+        self.assertEqual((item["qty"], item["rate"]), (-1, 0.33))
+
+    def test_the_item_function_still_writes_a_charge_as_plus_one(self):
+        item = BillingService._credited_item("ZZTEST-ITEM", 1000.0, 0, {"months": 0.000333}, "ZZTEST", "x")
+
+        self.assertEqual((item["qty"], item["rate"]), (1, 0.33))
+
+    def test_a_third_of_a_thousandth_of_a_month_is_a_return_of_thirty_three_pence(self):
+        service, first, start, _end, run = self.charged()
+
+        note, document = self.credit(run, first, [self.piece(first, 0.000333, start, 9)])
+        row = self.lines_for(note, service)[0]
+
+        self.assertEqual(document.is_return, 1)
+        self.assertEqual(len(document.items), 1)
+        self.assertEqual(document.items[0].qty, -1)
+        self.assertEqual(flt(document.items[0].rate), 0.33)
+        self.assertEqual(flt_round(document.items[0].amount), -0.33)
+        self.assertEqual(flt_round(document.grand_total), -0.33)
+        document.validate()
+        self.assertAlmostEqual(flt(row.billable_months), -0.000333, places=6)
+        self.assertEqual(flt_round(row.amount), -0.33)
+        self.assertEqual(
+            (str(row.covered_from), str(row.covered_to)),
+            (str(self.day(start, 9)), str(self.day(start, 9))),
+        )
+
+    def test_an_ordinary_partial_credit_keeps_its_quantity_and_its_sign(self):
+        service, first, start, _end, run = self.charged()
+
+        note, document = self.credit(run, first, [self.piece(first, 0.5, start, 14)])
+        row = self.lines_for(note, service)[0]
+
+        self.assertEqual(document.is_return, 1)
+        self.assertEqual(flt(document.items[0].qty), -0.5)
+        self.assertEqual(flt(document.items[0].rate), 1000.0)
+        self.assertEqual(flt_round(document.items[0].amount), -500.0)
+        self.assertEqual(flt_round(document.grand_total), -500.0)
+        self.assertAlmostEqual(flt(row.billable_months), -0.5, places=6)
+        self.assertEqual(str(row.covered_from), str(self.day(start, 14)))
+
+    def test_a_credit_with_half_off_gives_back_the_net_money(self):
+        service, first, start, _end, run = self.charged(discount=50)
+
+        self.assertEqual(flt(self.lines_for(run, service)[0].discount_percent), 50.0)
+
+        note, document = self.credit(run, first, [self.piece(first, 0.0004, start, 3)])
+        row = self.lines_for(note, service)[0]
+
+        # 0.0004 of a month at five hundred net is twenty pence, which no quantity holds
+        self.assertEqual(document.is_return, 1)
+        self.assertEqual(document.items[0].qty, -1)
+        self.assertEqual(flt(document.items[0].rate), 0.2)
+        self.assertEqual(flt_round(document.items[0].amount), -0.2)
+        self.assertEqual(flt_round(document.grand_total), -0.2)
+        document.validate()
+        self.assertAlmostEqual(flt(row.billable_months), -0.0004, places=6)
+        self.assertEqual(flt(row.discount_percent), 50.0)
+        self.assertEqual(str(row.covered_from), str(self.day(start, 3)))
+
+    def test_a_larger_credit_with_half_off_is_still_a_return_at_net_money(self):
+        service, first, start, _end, run = self.charged(discount=50)
+
+        note, document = self.credit(run, first, [self.piece(first, 0.5, start, 3)])
+
+        self.assertEqual(flt(document.items[0].qty), -0.5)
+        self.assertGreaterEqual(flt(document.items[0].rate), 0)
+        self.assertEqual(flt_round(document.items[0].amount), -250.0)
+        self.assertEqual(flt_round(document.grand_total), -250.0)
+
+    def test_a_credit_over_two_stretches_keeps_each_stretch_and_returns_the_sum(self):
+        service, first, start, _end, run = self.charged()
+
+        note, document = self.credit(
+            run,
+            first,
+            [self.piece(first, 0.0002, start, 2), self.piece(first, 0.0001, start, 9)],
+        )
+        rows = self.lines_for(note, service)
+
+        self.assertEqual(document.is_return, 1)
+        self.assertEqual(len(document.items), 1)
+        self.assertEqual(document.items[0].qty, -1)
+        self.assertEqual(flt(document.items[0].rate), 0.3)
+        self.assertEqual(flt_round(document.grand_total), -0.3)
+        document.validate()
+        self.assertEqual(len(rows), 2, rows)
+        self.assertEqual(
+            [(str(row.covered_from), str(row.covered_to)) for row in rows],
+            [(str(self.day(start, 2)), str(self.day(start, 2))), (str(self.day(start, 9)), str(self.day(start, 9)))],
+        )
+        self.assertEqual(
+            [round(flt(row.billable_months), 6) for row in rows], [-0.0002, -0.0001]
+        )
+        self.assertEqual([flt_round(row.amount) for row in rows], [-0.2, -0.1])

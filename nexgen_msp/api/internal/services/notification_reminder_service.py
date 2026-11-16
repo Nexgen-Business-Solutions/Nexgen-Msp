@@ -144,13 +144,14 @@ class NotificationReminderService:
         return row.get("creation")
 
     @staticmethod
-    def _candidates(adapter, limit=None, after=None, start=0):
+    def _candidates(adapter, limit=None, after=None, start=0, stop_key=None):
         """A page of records this condition watches, read from a place rather than an offset.
 
         An offset shifts under its own feet: records leave the status while the walk is
         going on, and page two then begins somewhere page one already was. A place in the
         order — the oldest record after the last one looked at — cannot do that.
         """
+        watched = registry.watch_filters(adapter, stop_key)
         fields = ["name", "customer", "requester", "status", "creation"] + [
             field
             for field in adapter.get("anchor_fields", ())
@@ -160,7 +161,7 @@ class NotificationReminderService:
         if not after:
             return frappe.get_all(
                 adapter["doctype"],
-                filters=dict(adapter["filters"]),
+                filters=dict(watched),
                 fields=sorted(set(fields)),
                 order_by="creation asc, name asc",
                 # a screen paging through a list wants the page the reader asked for; the
@@ -177,7 +178,7 @@ class NotificationReminderService:
         values = {"moment": moment, "last": last, "page": frappe.utils.cint(limit or BATCH)}
         conditions = []
 
-        for index, (field, wanted) in enumerate(adapter["filters"].items()):
+        for index, (field, wanted) in enumerate(watched.items()):
             key = f"f{index}"
             conditions.append(f"`{field}` = %({key})s")
             values[key] = wanted
@@ -373,9 +374,13 @@ class NotificationReminderService:
         if not current["enabled"]:
             return {"next_due": None, "next_due_label": "Disabled", "eligible_count": 0}
 
-        adapter = registry.condition(declared["condition_key"])
+        adapter = registry.condition(
+            registry.effective_condition_key(rule_key, current.get("condition_key"))
+        )
         zone = _zone(current.get("timezone"))
-        rows = NotificationReminderService._candidates(adapter, limit=BATCH)
+        rows = NotificationReminderService._candidates(
+            adapter, limit=BATCH, stop_key=current.get("stop_condition_key")
+        )
         states = [
             NotificationReminderService.state_of(rule_key, row, current, adapter, zone)
             for row in rows
@@ -412,7 +417,9 @@ class NotificationReminderService:
             return {"rows": [], "total": 0, "note": "An event notification watches no records."}
 
         current = NotificationSettingsService.effective(rule_key)
-        adapter = registry.condition(declared["condition_key"])
+        adapter = registry.condition(
+            registry.effective_condition_key(rule_key, current.get("condition_key"))
+        )
         zone = _zone(current.get("timezone"))
         page = max(0, frappe.utils.cint(page))
         page_length = min(200, max(1, frappe.utils.cint(page_length) or 50))
@@ -453,7 +460,10 @@ class NotificationReminderService:
 
         return {
             "rows": out,
-            "total": frappe.db.count(adapter["doctype"], adapter["filters"]),
+            "total": frappe.db.count(
+                adapter["doctype"],
+                registry.watch_filters(adapter, current.get("stop_condition_key")),
+            ),
             "page": page,
             "page_length": page_length,
         }
@@ -462,6 +472,7 @@ class NotificationReminderService:
     def _settled(rule_key, adapter, current, listed, limit=20):
         """Records this reminder has written to which are no longer eligible."""
         already = {row["business_name"] for row in listed}
+        watched = registry.watch_filters(adapter, current.get("stop_condition_key"))
         reminded = frappe.db.sql(
             """
             select business_name, max(reminder_iteration) as iteration
@@ -487,12 +498,11 @@ class NotificationReminderService:
                 continue
 
             still = frappe.db.get_value(
-                adapter["doctype"], row.business_name, list(adapter["filters"]), as_dict=True
+                adapter["doctype"], row.business_name, list(watched), as_dict=True
             )
 
             if still and all(
-                f"{still.get(field)}" == f"{value}"
-                for field, value in adapter["filters"].items()
+                f"{still.get(field)}" == f"{value}" for field, value in watched.items()
             ):
                 continue
 
@@ -545,7 +555,9 @@ class NotificationReminderService:
         if not current["enabled"]:
             return {"sent": 0, "skipped": 0}
 
-        adapter = registry.condition(declared["condition_key"])
+        adapter = registry.condition(
+            registry.effective_condition_key(rule_key, current.get("condition_key"))
+        )
         zone = _zone(current.get("timezone"))
         sent = skipped = 0
         after = NotificationReminderService._cursor(rule_key)
@@ -556,7 +568,9 @@ class NotificationReminderService:
         # the same first few thousand are read again and again. Scanning is cheap; what has
         # to stay bounded is the mail, so the walk also stops on work done
         for _ in range(SCAN_PAGES):
-            rows = NotificationReminderService._candidates(adapter, limit=BATCH, after=after)
+            rows = NotificationReminderService._candidates(
+                adapter, limit=BATCH, after=after, stop_key=current.get("stop_condition_key")
+            )
 
             if not rows:
                 # the end of the order. The cursor goes back to the top for the next tick
@@ -597,7 +611,9 @@ class NotificationReminderService:
         """
         doc = frappe.get_doc(adapter["doctype"], row.name)
 
-        if not NotificationReminderService._still_waiting(doc, adapter):
+        if not NotificationReminderService._still_waiting(
+            doc, adapter, current.get("stop_condition_key")
+        ):
             NotificationSettingsService._write_audit(
                 action="Skipped",
                 rule=declared["rule_key"],
@@ -655,9 +671,9 @@ class NotificationReminderService:
         return {"sent": sent, "skipped": skipped}
 
     @staticmethod
-    def _still_waiting(doc, adapter):
+    def _still_waiting(doc, adapter, stop_key=None):
         """Whether the record is, right now, what made it eligible in the first place."""
-        for field, value in adapter["filters"].items():
+        for field, value in registry.watch_filters(adapter, stop_key).items():
             if f"{doc.get(field)}" != f"{value}":
                 return False
 

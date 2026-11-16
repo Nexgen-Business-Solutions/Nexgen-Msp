@@ -3564,6 +3564,7 @@ export type NotificationRuleFields = NotificationRule & {
   initial_delay_unit?: string | null;
   repeat_interval_value?: number | null;
   repeat_interval_unit?: string | null;
+  condition_key?: string | null;
   stop_condition_key?: string | null;
   timezone?: string | null;
   quiet_hours_enabled?: number | boolean | null;
@@ -3623,6 +3624,7 @@ export type NotificationChoices = {
   categories: string[];
   protected: boolean;
   kind: string;
+  conditions?: { key: string; label: string }[];
   stop_conditions?: { key: string; label: string }[];
   business_doctype?: string | null;
   units?: string[];
@@ -3645,6 +3647,7 @@ export type NotificationRuleChanges = Partial<{
   repeat_interval_value: number;
   repeat_interval_unit: string;
   max_sends: number;
+  condition_key: string;
   stop_condition_key: string;
   timezone: string;
   quiet_hours_enabled: boolean;
@@ -3811,7 +3814,6 @@ export type NotificationDispatchCandidate = {
   status: string | null;
   created: string | null;
   reference: string | null;
-  about: string | null;
 };
 
 export type NotificationDispatchEvidence = {
@@ -3842,4 +3844,7 @@ export const getNotificationDispatchEvidence = (dispatch: string, signal?: Abort
   get<NotificationDispatchEvidence>(`${BASE}.notification_dispatch_evidence`, { dispatch }, signal);
 
 export const resolveNotificationDispatch = (payload: NotificationDispatchDecision) =>
-  post<{ status: string }>(`${BASE}.resolve_notification_dispatch`, payload);
+  post<{ status: string; retry: 'scheduled' | 'manual' | null }>(
+    `${BASE}.resolve_notification_dispatch`,
+    payload
+  );

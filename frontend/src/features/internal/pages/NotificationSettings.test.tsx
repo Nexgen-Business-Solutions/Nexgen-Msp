@@ -603,8 +603,8 @@ describe('Email & Notification Settings', () => {
         failure_reason: 'Worker stopped',
       },
       candidates: [
-        { email_queue: 'EQ-1', status: 'Sent', created: '2026-11-01 10:01:00', reference: 'MSP Request', about: null },
-        { email_queue: 'EQ-2', status: 'Error', created: '2026-11-01 10:02:00', reference: 'MSP Request', about: null },
+        { email_queue: 'EQ-1', status: 'Sent', created: '2026-11-01 10:01:00', reference: 'MSP Request' },
+        { email_queue: 'EQ-2', status: 'Error', created: '2026-11-01 10:02:00', reference: 'MSP Request' },
       ],
       decisions: ['link', 'not_sent'],
     };
@@ -663,19 +663,20 @@ describe('Email & Notification Settings', () => {
       fireEvent.click(within(dialog).getByRole('button', { name: 'Nothing was sent' }));
 
       expect(await within(dialog).findByText(/Write a note/)).toBeInTheDocument();
-      expect(screen.queryByText('Send this notification?')).not.toBeInTheDocument();
+      expect(screen.queryByText('Record that nothing was sent?')).not.toBeInTheDocument();
       expect(internal.resolveNotificationDispatch).not.toHaveBeenCalled();
     });
 
-    it('records not sent with the note after confirmation and closes the panel', async () => {
-      vi.mocked(internal.resolveNotificationDispatch).mockResolvedValue({ status: 'Pending' });
+    it('records not sent with the note after confirmation and says the scheduler will raise a reminder again', async () => {
+      vi.mocked(internal.resolveNotificationDispatch).mockResolvedValue({ status: 'Failed', retry: 'scheduled' });
       const dialog = await openPanel();
       await within(dialog).findByText('EQ-1');
 
       fireEvent.change(within(dialog).getByLabelText('Note (required)'), { target: { value: 'Checked the mail log' } });
       fireEvent.click(within(dialog).getByRole('button', { name: 'Nothing was sent' }));
       expect(internal.resolveNotificationDispatch).not.toHaveBeenCalled();
-      fireEvent.click(await screen.findByRole('button', { name: 'Nothing was sent, send it' }));
+      expect(await screen.findByText(/makes the delivery owed again/)).toBeInTheDocument();
+      fireEvent.click(await screen.findByRole('button', { name: 'Record that nothing was sent' }));
 
       await waitFor(() =>
         expect(internal.resolveNotificationDispatch).toHaveBeenCalledWith({
@@ -684,7 +685,21 @@ describe('Email & Notification Settings', () => {
           note: 'Checked the mail log',
         })
       );
-      await waitFor(() => expect(screen.queryByText('Investigate delivery')).not.toBeInTheDocument());
+      expect(await screen.findByText('The reminder scheduler will raise this delivery again.')).toBeInTheDocument();
+    });
+
+    it('says nothing will resend an event notification on its own', async () => {
+      vi.mocked(internal.resolveNotificationDispatch).mockResolvedValue({ status: 'Failed', retry: 'manual' });
+      const dialog = await openPanel();
+      await within(dialog).findByText('EQ-1');
+
+      fireEvent.change(within(dialog).getByLabelText('Note (required)'), { target: { value: 'Checked the mail log' } });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Nothing was sent' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Record that nothing was sent' }));
+
+      expect(
+        await screen.findByText('Nothing will resend this on its own — repeat the action that sends it.')
+      ).toBeInTheDocument();
     });
 
     const pickAndWriteNote = async (dialog: HTMLElement) => {
@@ -738,7 +753,7 @@ describe('Email & Notification Settings', () => {
     });
 
     it('attaches the chosen entry once with the note when the confirmation is accepted', async () => {
-      vi.mocked(internal.resolveNotificationDispatch).mockResolvedValue({ status: 'Sent' });
+      vi.mocked(internal.resolveNotificationDispatch).mockResolvedValue({ status: 'Sent', retry: null });
       const dialog = await openPanel();
       await pickAndWriteNote(dialog);
 

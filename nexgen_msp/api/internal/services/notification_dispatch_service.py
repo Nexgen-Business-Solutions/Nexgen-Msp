@@ -26,6 +26,8 @@ QUEUE = "Email Queue"
 
 NUL = "\0"
 
+RECONCILE_CURSOR = "msp_notification_reconcile"
+
 # the one failure that is known to have queued nothing, and so is safe to try again
 RENDER_FAILED = "render_failed"
 
@@ -141,18 +143,16 @@ class NotificationDispatchService:
                     "dispatch": existing.name,
                 }
 
-            if existing.status == "Failed" and existing.skip_reason == RENDER_FAILED:
-                # nothing was ever handed to the queue: the template would not render, which
-                # happens before any mail exists. Once it renders, this is the delivery that
-                # was always owed, and refusing it for ever would mean a corrected template
-                # never reaches the person waiting for it
-                if not NotificationDispatchService._claim(existing, lease_seconds=0):
-                    return {
-                        "status": existing.status,
-                        "reason": "held_by_another_worker",
-                        "dispatch": existing.name,
-                    }
-            elif existing.status in ("Unknown", "Failed"):
+            # a failure that is known to have queued nothing: the template would not render,
+            # which happens before any mail exists, or an administrator attested that none
+            # exists. Once it can be sent, this is the delivery that was always owed, and
+            # refusing it for ever would mean it never reaches the person waiting for it
+            retryable = existing.status == "Failed" and existing.skip_reason in (
+                RENDER_FAILED,
+                ATTESTED_NOT_SENT,
+            )
+
+            if existing.status in ("Unknown", "Failed") and not retryable:
                 # the mail may already be in the queue — that is precisely what Unknown
                 # means — and sending again to find out would send it twice. It stays as it
                 # is until somebody reconciles it against the queue
@@ -258,9 +258,17 @@ class NotificationDispatchService:
         if not fresh or fresh.status not in ("Pending", "Failed"):
             return False
 
-        if fresh.reserved_at and frappe.utils.time_diff_in_seconds(
-            frappe.utils.now(), fresh.reserved_at
-        ) < lease_seconds:
+        retryable = fresh.status == "Failed" and fresh.skip_reason in (
+            RENDER_FAILED,
+            ATTESTED_NOT_SENT,
+        )
+
+        if (
+            not retryable
+            and fresh.reserved_at
+            and frappe.utils.time_diff_in_seconds(frappe.utils.now(), fresh.reserved_at)
+            < lease_seconds
+        ):
             return False
 
         # a reservation this old was left by a worker that stopped, and the dangerous
@@ -272,7 +280,7 @@ class NotificationDispatchService:
         # sending again would send twice.
         #
         # So neither. It is recorded as unknown, which is what it is, and somebody looks.
-        if fresh.status == "Pending" and fresh.skip_reason != ATTESTED_NOT_SENT:
+        if fresh.status == "Pending":
             NotificationDispatchService._mark(
                 dispatch,
                 "Unknown",
@@ -292,15 +300,15 @@ class NotificationDispatchService:
 
             return False
 
-        frappe.db.set_value(
-            DISPATCH,
-            dispatch.name,
-            {
-                "reserved_at": frappe.utils.now(),
-                "attempt": frappe.utils.cint(fresh.attempt) + 1,
-            },
-            update_modified=True,
-        )
+        taken = {
+            "reserved_at": frappe.utils.now(),
+            "attempt": frappe.utils.cint(fresh.attempt) + 1,
+        }
+
+        if retryable:
+            taken.update({"status": "Pending", "skip_reason": None, "failure_reason": None})
+
+        frappe.db.set_value(DISPATCH, dispatch.name, taken, update_modified=True)
         dispatch.reload()
 
         return True
@@ -514,7 +522,7 @@ class NotificationDispatchService:
         rows = frappe.db.sql(
             """
             select queue.name, queue.status, queue.creation, queue.reference_doctype,
-                   queue.reference_name, queue.message
+                   queue.reference_name
             from `tabEmail Queue` queue
             join `tabEmail Queue Recipient` person on person.parent = queue.name
             where person.recipient = %(recipient)s
@@ -553,9 +561,6 @@ class NotificationDispatchService:
                     "status": row.status,
                     "created": row.creation,
                     "reference": f"{row.reference_doctype or ''} {row.reference_name or ''}".strip(),
-                    # enough of the mail to recognise it, never the whole of it: a reset
-                    # link lives in that body
-                    "about": (row.message or "")[:0] or None,
                 }
                 for row in rows
             ],
@@ -670,16 +675,14 @@ class NotificationDispatchService:
                 failure_reason=None,
             )
         else:
-            # attested as never sent, so the delivery is owed again. It goes back to being
-            # reserved rather than being sent from here: the ordinary path sends it, under
-            # the same identity, so it still cannot go twice
+            # attested as never sent, so the delivery is owed again. It is not sent from
+            # here: whatever raises it next goes through under the same identity, so it
+            # still cannot go twice
             NotificationDispatchService._mark(
                 doc,
-                "Pending",
-                reserved_at=frappe.utils.add_to_date(frappe.utils.now(), seconds=-3600),
-                failure_reason=None,
-                # marked, or the guard above would read this as another abandoned
-                # reservation and put it straight back to unknown
+                "Failed",
+                email_queue_id=None,
+                failure_reason="An administrator attested that no mail exists for this delivery.",
                 skip_reason=ATTESTED_NOT_SENT,
             )
 
@@ -696,7 +699,39 @@ class NotificationDispatchService:
         )
         frappe.db.commit()
 
-        return {"status": frappe.db.get_value(DISPATCH, doc.name, "status")}
+        return {
+            "status": frappe.db.get_value(DISPATCH, doc.name, "status"),
+            "retry": NotificationDispatchService._retry_of(doc)
+            if decision == "not_sent"
+            else None,
+        }
+
+    @staticmethod
+    def _retry_of(dispatch):
+        """Who will raise this delivery again: the scheduler, or a person repeating the action."""
+        declared = registry.rule(dispatch.rule)
+
+        if not declared or declared.get("kind") != registry.REMINDER:
+            return "manual"
+
+        current = NotificationSettingsService.effective(dispatch.rule)
+        adapter = registry.condition(
+            registry.effective_condition_key(dispatch.rule, current.get("condition_key"))
+        )
+
+        if not adapter or not dispatch.business_doctype or not dispatch.business_name:
+            return "manual"
+
+        if not frappe.db.exists(adapter["doctype"], dispatch.business_name):
+            return "manual"
+
+        for field, wanted in registry.watch_filters(
+            adapter, current.get("stop_condition_key")
+        ).items():
+            if frappe.db.get_value(adapter["doctype"], dispatch.business_name, field) != wanted:
+                return "manual"
+
+        return "scheduled"
 
     # ------------------------------------------------------------------ reconciling
     @staticmethod
@@ -707,17 +742,30 @@ class NotificationDispatchService:
         accepted this morning and rejected by the server this afternoon reads as queued
         until somebody looks.
         """
-        rows = frappe.get_all(
-            DISPATCH,
-            filters={"status": ("in", ("Queued", "Unknown")), "email_queue_id": ("is", "set")},
-            fields=["name", "email_queue_id", "status", "rule", "recipient", "attempt"],
-            order_by="modified asc",
-            limit=limit,
+        after = NotificationDispatchService._cursor()
+        rows = frappe.db.sql(
+            f"""
+            select name, email_queue_id, status, rule, recipient, attempt, creation
+            from `tabMSP Notification Dispatch`
+            where status in ('Queued', 'Unknown')
+              and ifnull(email_queue_id, '') != ''
+              {"and (creation > %(moment)s or (creation = %(moment)s and name > %(last)s))" if after else ""}
+            order by creation asc, name asc
+            limit %(limit)s
+            """,
+            {
+                "moment": after[0] if after else None,
+                "last": after[1] if after else None,
+                "limit": frappe.utils.cint(limit),
+            },
+            as_dict=True,
         )
         moved = 0
         recipients_of = {}
 
         for row in rows:
+            after = (str(row.creation), row.name)
+
             state = frappe.db.get_value(QUEUE, row.email_queue_id, "status")
 
             if not state:
@@ -762,10 +810,31 @@ class NotificationDispatchService:
             )
             moved += 1
 
-        if moved:
-            frappe.db.commit()
+        NotificationDispatchService._remember(after if rows else None)
+        frappe.db.commit()
 
         return moved
+
+    @staticmethod
+    def _cursor():
+        """Where the last pass stopped, kept across restarts.
+
+        Ordering by `modified` would read the same first rows for ever, since a row whose
+        status has not changed keeps its timestamp and stays at the head. Both halves of the
+        creation order are kept: rows written in the same second share a timestamp.
+        """
+        stored = frappe.db.get_default(RECONCILE_CURSOR)
+
+        if not stored or "\t" not in stored:
+            return None
+
+        moment, last = stored.split("\t", 1)
+
+        return (moment, last) if moment and last else None
+
+    @staticmethod
+    def _remember(place):
+        frappe.db.set_default(RECONCILE_CURSOR, f"{place[0]}\t{place[1]}" if place else "")
 
     @staticmethod
     def _queue_recipients(queue_id):

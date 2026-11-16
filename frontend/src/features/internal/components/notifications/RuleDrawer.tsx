@@ -41,6 +41,7 @@ type Draft = {
   repeat_interval_unit: string;
   max_sends: string;
   timezone: string;
+  condition_key: string;
   stop_condition_key: string;
   escalation_audience_key: string;
   escalation_after_iteration: string;
@@ -64,6 +65,7 @@ const draftOf = (rule: NotificationRuleFields): Draft => ({
   repeat_interval_unit: text(rule.repeat_interval_unit),
   max_sends: text(rule.max_sends),
   timezone: text(rule.timezone),
+  condition_key: text(rule.condition_key),
   stop_condition_key: text(rule.stop_condition_key),
   escalation_audience_key: text(rule.escalation_audience_key),
   escalation_after_iteration: text(rule.escalation_after_iteration),
@@ -86,6 +88,7 @@ const REMINDER_ONLY = [
   'repeat_interval_unit',
   'max_sends',
   'timezone',
+  'condition_key',
   'stop_condition_key',
   'escalation_audience_key',
   'escalation_after_iteration',
@@ -240,6 +243,7 @@ const RuleEditor: React.FC<EditorProps> = ({
 
   const templates = [...new Set([draft.template_name, ...choices.templates].filter(Boolean))];
   const audiences = choices.audiences ?? [];
+  const conditions = choices.conditions ?? [];
   const stops = choices.stop_conditions ?? [];
   const zoneList = useMemo(() => timezones(), []);
   const lockId = `${idBase}-lock`;
@@ -438,6 +442,16 @@ const RuleEditor: React.FC<EditorProps> = ({
                         <option key={zone} value={zone} />
                       ))}
                     </datalist>
+                  </Field>
+                  <Field label="Condition" className="sm:col-span-2">
+                    <Select
+                      value={draft.condition_key}
+                      onChange={(value) => set({ condition_key: value })}
+                      options={conditions.map((entry) => ({ value: entry.key, label: entry.label }))}
+                      placeholder="Choose which records are watched"
+                      searchable={false}
+                      className="w-full"
+                    />
                   </Field>
                   <Field label="Stop condition" className="sm:col-span-2">
                     <Select

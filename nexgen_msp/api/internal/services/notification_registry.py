@@ -92,17 +92,25 @@ AUDIENCES = {
 
 
 # --------------------------------------------------------------------------- conditions
+# what each way of stopping adds to the trigger. Leaving the trigger status adds nothing:
+# the trigger filter already tests it, so it is the floor under every other choice
+REQUEST_STOPS = {
+    "left_trigger_status": {},
+    "refused_by_customer": {"refused_by_customer": 0},
+}
+
+
 def _awaiting_customer(rule_key=None):
     """Requests their own company has not yet agreed to."""
     return {
         "doctype": REQUEST,
-        "filters": {"status": "Awaiting Customer Approval", "refused_by_customer": 0},
+        "filters": {"status": "Awaiting Customer Approval"},
         # nothing on the record says when it began waiting for its company: the normal path
         # creates it in that state, so creation is that moment. A draft written days earlier
         # and sent later anchors early by the age of the draft — a known limitation, bounded
         # by the rule's own activation boundary, which never lets a backlog out
         "anchor_fields": ("creation",),
-        "stop_conditions": ("left_trigger_status", "refused_by_customer"),
+        "stops": dict(REQUEST_STOPS),
     }
 
 
@@ -110,10 +118,10 @@ def _waiting_for_us(rule_key=None):
     """Requests that reached us and that nobody has started."""
     return {
         "doctype": REQUEST,
-        "filters": {"status": "Submitted", "refused_by_customer": 0},
+        "filters": {"status": "Submitted"},
         # the day it reached us, which is the field the queue is measured from
         "anchor_fields": ("submitted_on", "customer_approved_at", "creation"),
-        "stop_conditions": ("left_trigger_status", "refused_by_customer"),
+        "stops": dict(REQUEST_STOPS),
     }
 
 
@@ -126,6 +134,11 @@ def trigger_label(trigger_key):
     """The trigger key as words: the underscores are ours, not the reader's."""
     return (trigger_key or "").replace("_", " ").capitalize()
 
+
+CONDITION_LABELS = {
+    "request_approval_pending": "Request waiting for customer approval",
+    "request_waiting_internal": "Submitted request waiting for our team",
+}
 
 STOP_CONDITIONS = {
     "left_trigger_status": "Stop when the record leaves the status that made it eligible",
@@ -150,7 +163,7 @@ def _event(key, name, category, template, audience, source, protected=False, alt
     }
 
 
-def _reminder(key, name, category, template, audience, source, condition):
+def _reminder(key, name, category, template, audience, source, condition, conditions=()):
     return {
         "rule_key": key,
         "kind": REMINDER,
@@ -162,6 +175,7 @@ def _reminder(key, name, category, template, audience, source, condition):
         "audience_key": audience,
         "audiences": (audience,),
         "templates": (template,),
+        "conditions": tuple(conditions) or (condition,),
         "protected": False,
         "source": source,
         # what the two live reminders have always done, kept as the shape of a brand new
@@ -172,7 +186,9 @@ def _reminder(key, name, category, template, audience, source, condition):
             "repeat_interval_value": 3,
             "repeat_interval_unit": "Days",
             "max_sends": 3,
-            "stop_condition_key": "left_trigger_status",
+            # what the two live reminders stop on today: the trigger status and the refusal
+            # both. Seeding the floor alone would start reminding about refused requests
+            "stop_condition_key": "refused_by_customer",
         },
     }
 
@@ -316,6 +332,7 @@ RULES = {
             "approvers",
             "reminders.remind_approvers",
             "request_approval_pending",
+            conditions=("request_approval_pending", "request_waiting_internal"),
         ),
         _reminder(
             "request_waiting_internal",
@@ -325,6 +342,7 @@ RULES = {
             "internal_without_requester",
             "reminders.remind_our_team",
             "request_waiting_internal",
+            conditions=("request_approval_pending", "request_waiting_internal"),
         ),
     )
 }
@@ -376,7 +394,50 @@ def condition(condition_key):
     """The eligibility adapter of a reminder condition, read fresh each time it is asked."""
     builder = CONDITIONS.get(condition_key)
 
-    return builder() if builder else None
+    if not builder:
+        return None
+
+    found = builder()
+    found["stop_conditions"] = tuple(found.get("stops", {}))
+
+    return found
+
+
+def allowed_conditions(rule_key):
+    """The conditions this rule may be pointed at: declared, and watching its own doctype.
+
+    A condition over another doctype is fed a context the rule's template was never built
+    for, so it is never listable however the declaration reads.
+    """
+    found = RULES.get(rule_key)
+
+    if not found or found["kind"] != REMINDER:
+        return ()
+
+    own = (condition(found["condition_key"]) or {}).get("doctype")
+
+    return tuple(
+        key
+        for key in found["conditions"]
+        if key in CONDITIONS and (condition(key) or {}).get("doctype") == own
+    )
+
+
+def effective_condition_key(rule_key, stored=None):
+    """The condition a rule watches: the stored choice when it is still allowed, else the declaration."""
+    if stored and stored in allowed_conditions(rule_key):
+        return stored
+
+    return (RULES.get(rule_key) or {}).get("condition_key")
+
+
+def watch_filters(adapter, stop_condition_key=None):
+    """What a rule watches: the trigger, plus whatever its chosen stop condition adds.
+
+    An unknown key falls back to the trigger alone, which is the floor: a record that left
+    the trigger status is never watched, whichever way the rule was told to stop.
+    """
+    return {**adapter["filters"], **(adapter.get("stops") or {}).get(stop_condition_key, {})}
 
 
 def audience(audience_key):
@@ -413,8 +474,11 @@ def templates_for(rule_key):
     return [name for name in found["templates"] if frappe.db.exists("Email Template", name)]
 
 
-def choices(rule_key):
-    """Everything a rule editor may offer for this rule, and nothing else."""
+def choices(rule_key, condition_key=None):
+    """Everything a rule editor may offer for this rule, and nothing else.
+
+    The stop conditions offered are those of the selected condition's own adapter.
+    """
     found = require(rule_key)
     options = {
         "templates": templates_for(rule_key),
@@ -427,7 +491,11 @@ def choices(rule_key):
     }
 
     if found["kind"] == REMINDER:
-        adapter = condition(found["condition_key"]) or {}
+        adapter = condition(effective_condition_key(rule_key, condition_key)) or {}
+        options["conditions"] = [
+            {"key": key, "label": CONDITION_LABELS.get(key, trigger_label(key))}
+            for key in allowed_conditions(rule_key)
+        ]
         options["stop_conditions"] = [
             {"key": key, "label": STOP_CONDITIONS[key]}
             for key in adapter.get("stop_conditions", ())

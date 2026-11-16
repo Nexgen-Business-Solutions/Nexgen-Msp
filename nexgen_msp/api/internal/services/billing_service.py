@@ -605,7 +605,7 @@ class BillingService:
         return sorted(pieces, key=lambda piece: piece[0])
 
     @staticmethod
-    def _owed_over_paid_days(rate, quantity, discount, paid_basis):
+    def _owed_over_paid_days(rate, quantity, discount, paid_basis, months=1):
         """What is still owed for days already paid for, said as a quantity at this rate.
 
         Both sides are valued on the same days under the same proration, so the months
@@ -630,12 +630,25 @@ class BillingService:
         if abs(equivalent - flt(quantity)) < 0.0001:
             return flt(quantity), None
 
-        # a hundredth of a unit is not a charge. What is already paid for and what is now
-        # owed are each worked out through a proration helper, and the two do not agree to
-        # the last decimal — so a service whose terms came back to exactly what was paid
-        # leaves a fraction of a unit behind. Charging it would put a line on an invoice
-        # for a sum nobody can account for
-        if equivalent < 0.01:
+        # what is already paid for and what is now owed are each read off stored figures of
+        # their own precision, so a service whose terms came back to exactly what was paid
+        # leaves a fraction of a unit behind. A fraction the quantity itself cannot hold is
+        # that fraction and nothing else. A quantity the service could really be held at is
+        # money owed, however small it looks: five thousandths of a terabyte at a hundred
+        # thousand the terabyte is five hundred a month, and a cutoff on the quantity would
+        # hand that back for nothing
+        places = frappe.get_precision("MSP Service Assignment", "quantity")
+        equivalent = flt(equivalent, places)
+
+        if not equivalent:
+            return 0.0, None
+
+        # and what rounds to nothing in money is not a charge either, which is a question
+        # only the period can answer: the quantity is owed for as long as the stretch runs
+        if flt(months) and not flt(
+            flt(rate) * equivalent * flt(months) * net,
+            frappe.get_precision("MSP Billing Run Line", "amount"),
+        ):
             return 0.0, None
 
         # what the difference is made of, said plainly: the issue asks that added units and
@@ -643,13 +656,12 @@ class BillingService:
         paid_units = flt(paid_basis) / (flt(rate) * net)
         note = (
             f"Already paid for these days: charged the difference only — "
-            f"{flt(equivalent, 3)} of {flt(quantity, 3)} units at this rate, "
-            f"the balance of {flt(paid_units, 3)} units already covered."
+            f"{flt(equivalent, places)} of {flt(quantity, places)} units at this rate, "
+            f"the balance of {flt(paid_units, places)} units already covered."
         )
 
-        return flt(equivalent, 6), note
+        return equivalent, note
 
-    @staticmethod
     @staticmethod
     def _successors(assignment, depth=24):
         """The periods that took this one over, in order, each with the terms it runs on."""
@@ -1789,7 +1801,7 @@ class BillingService:
 
                 if paid_basis_here is not None:
                     line_quantity, paid_note = BillingService._owed_over_paid_days(
-                        rate, quantity, discount, paid_basis_here
+                        rate, quantity, discount, paid_basis_here, months
                     )
 
                     if line_quantity <= 0:
@@ -5373,27 +5385,32 @@ class BillingService:
         # the quantity a Sales Invoice Item can hold has three decimals, and a credit of
         # one day out of a month needs more: three thousandths of a month given back at a
         # thousand a month is thirty-three pounds, and the fourth decimal is another
-        # thirty-four pence. The quantity is left as the document can hold it and the rate
-        # carries the remainder, so the line still multiplies out to the money that is owed
-        wanted = flt(flt(bucket["months"], 6) * flt(item["rate"]), 2)
-        written = flt(flt(item["qty"]) * flt(item["rate"]), 2)
+        # thirty-four pence. What the quantity cannot hold is carried by the rate, so the
+        # line still multiplies out to the money that is owed
+        money = frappe.get_precision("Sales Invoice Item", "amount")
+        priced = frappe.get_precision("Sales Invoice Item", "rate")
+        wanted = flt(flt(bucket["months"], 6) * flt(item["rate"]), money)
+        written = flt(flt(item["qty"]) * flt(item["rate"]), money)
 
         if abs(wanted - written) >= 0.01:
-            # a fraction of a month small enough to round away leaves no quantity to carry
-            # the money at all — a hundredth of a unit given back for one day rounds to
-            # nothing, and a credit of thirty-three pence becomes a credit of none. The
-            # line is then written as one of what it is worth, and the months it answers
-            # stay on the billing run line that produced it
-            if not flt(item["qty"]):
-                item["qty"] = 1
-                item["rate"] = flt(wanted, 2)
-                item.pop("price_list_rate", None)
-                item.pop("discount_percentage", None)
-            else:
-                item["rate"] = flt(wanted / flt(item["qty"]), 6)
+            carried = flt(wanted / flt(item["qty"]), priced) if flt(item["qty"]) else 0.0
+
+            if carried and abs(flt(flt(item["qty"]) * carried, money) - wanted) < 0.01:
+                item["rate"] = carried
 
                 if discount:
-                    item["price_list_rate"] = flt(item["rate"] / (1 - flt(discount) / 100.0), 6)
+                    item["price_list_rate"] = flt(carried / (1 - flt(discount) / 100.0), priced)
+            else:
+                # neither side of the multiplication can hold the remainder: a quantity that
+                # rounds away leaves nothing to multiply, and a rate kept to the currency's
+                # own decimals cannot carry a third of a penny either. The line is written
+                # as one of what it is worth, and the months it answers stay on the billing
+                # run line that produced it. A return keeps its money in the quantity and
+                # its rate positive, or ERPNext is handed a return shaped like a charge
+                item["qty"] = -1 if wanted < 0 else 1
+                item["rate"] = flt(abs(wanted), money)
+                item.pop("price_list_rate", None)
+                item.pop("discount_percentage", None)
 
         return item
 

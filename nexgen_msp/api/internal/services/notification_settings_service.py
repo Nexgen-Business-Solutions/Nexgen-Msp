@@ -31,6 +31,7 @@ EDITABLE = (
     "repeat_interval_value",
     "repeat_interval_unit",
     "max_sends",
+    "condition_key",
     "stop_condition_key",
     "timezone",
     "quiet_hours_enabled",
@@ -128,6 +129,7 @@ class NotificationSettingsService:
                 "repeat_interval_value",
                 "repeat_interval_unit",
                 "max_sends",
+                "condition_key",
                 "stop_condition_key",
                 "timezone",
                 "quiet_hours_enabled",
@@ -307,7 +309,11 @@ class NotificationSettingsService:
             "protected": declared["protected"],
             "configured": current["configured"],
             "trigger_key": declared["trigger_key"],
-            "trigger_label": registry.trigger_label(declared["trigger_key"]),
+            "trigger_label": registry.trigger_label(
+                registry.effective_condition_key(rule_key, current.get("condition_key"))
+                if declared["kind"] == registry.REMINDER
+                else declared["trigger_key"]
+            ),
             "template_name": current["template_name"],
             "audience_key": current["audience_key"],
             "audience_label": audience.get("label") or current["audience_key"],
@@ -434,6 +440,7 @@ class NotificationSettingsService:
                         "repeat_interval_value",
                         "repeat_interval_unit",
                         "max_sends",
+                        "condition_key",
                         "stop_condition_key",
                         "timezone",
                         "quiet_hours_enabled",
@@ -446,7 +453,7 @@ class NotificationSettingsService:
                     )
                 },
             },
-            "choices": registry.choices(rule_key),
+            "choices": registry.choices(rule_key, current.get("condition_key")),
             "audit": NotificationSettingsService._recent_audit(rule_key),
         }
 
@@ -532,6 +539,29 @@ class NotificationSettingsService:
                 "VALIDATION_ERROR",
             )
 
+        if "condition_key" in changes and changes["condition_key"] not in (
+            None,
+            *registry.allowed_conditions(rule_key),
+        ):
+            raise ValidationError(
+                f"{changes['condition_key']} is not a condition {declared['display_name']} can watch.",
+                "VALIDATION_ERROR",
+            )
+
+        if declared["kind"] == registry.REMINDER and changes.get("stop_condition_key") not in (
+            None,
+            *(
+                stop["key"]
+                for stop in registry.choices(
+                    rule_key, changes.get("condition_key") or doc.get("condition_key")
+                )["stop_conditions"]
+            ),
+        ):
+            raise ValidationError(
+                f"{changes['stop_condition_key']} is not a way {declared['display_name']} can stop.",
+                "VALIDATION_ERROR",
+            )
+
         before = {field: doc.get(field) for field in EDITABLE}
         was_enabled = bool(doc.enabled)
 
@@ -559,6 +589,16 @@ class NotificationSettingsService:
             not was_enabled and frappe.utils.cint(doc.enabled)
         ):
             doc.schedule_effective_at = frappe.utils.now()
+
+        if any(
+            field in changes and f"{changes[field]}" != f"{before.get(field)}"
+            for field in ("condition_key", "stop_condition_key")
+        ):
+            from nexgen_msp.api.internal.services.notification_reminder_service import (
+                NotificationReminderService,
+            )
+
+            frappe.db.set_default(NotificationReminderService._cursor_key(rule_key), "")
 
         doc.save(ignore_permissions=True)
 
@@ -589,6 +629,8 @@ class NotificationSettingsService:
             "quiet_start",
             "quiet_end",
             "timezone",
+            "condition_key",
+            "stop_condition_key",
         )
 
         return any(

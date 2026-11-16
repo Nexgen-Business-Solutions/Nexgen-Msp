@@ -18,6 +18,7 @@ const InvestigateDelivery: React.FC<Props> = ({ dispatch, onClose }) => {
   const [note, setNote] = useState('');
   const [noteMissing, setNoteMissing] = useState(false);
   const [confirming, setConfirming] = useState<'link' | 'not_sent' | null>(null);
+  const [retry, setRetry] = useState<'scheduled' | 'manual' | null>(null);
   const noteId = useId();
 
   useEffect(() => {
@@ -25,6 +26,7 @@ const InvestigateDelivery: React.FC<Props> = ({ dispatch, onClose }) => {
     setNote('');
     setNoteMissing(false);
     setConfirming(null);
+    setRetry(null);
     resolve.reset();
     // resolve.reset is stable per mutation; the panel state must restart per delivery only
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -46,8 +48,12 @@ const InvestigateDelivery: React.FC<Props> = ({ dispatch, onClose }) => {
         ...(decision === 'link' && chosen ? { email_queue: chosen } : {}),
       },
       {
-        onSuccess: () => {
+        onSuccess: (result) => {
           setConfirming(null);
+          if (decision === 'not_sent' && result.retry) {
+            setRetry(result.retry);
+            return;
+          }
           onClose();
         },
         onError: () => setConfirming(null),
@@ -87,7 +93,7 @@ const InvestigateDelivery: React.FC<Props> = ({ dispatch, onClose }) => {
         onClose={onClose}
         widthClass="max-w-3xl"
         footer={
-          data && (
+          data && !retry && (
             <div className="flex flex-wrap items-center justify-end gap-2">
               <button
                 type="button"
@@ -127,6 +133,23 @@ const InvestigateDelivery: React.FC<Props> = ({ dispatch, onClose }) => {
           <Message tone="error" title="The evidence could not be loaded">
             {errorText(evidence.error)}
           </Message>
+        ) : retry ? (
+          <div className="space-y-4">
+            <Message title="Recorded as not sent">
+              {retry === 'scheduled'
+                ? 'The reminder scheduler will raise this delivery again.'
+                : 'Nothing will resend this on its own — repeat the action that sends it.'}
+            </Message>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={onClose}
+                className="inline-flex h-10 items-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Close
+              </button>
+            </div>
+          </div>
         ) : (
           <div className="space-y-5">
             <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
@@ -252,9 +275,9 @@ const InvestigateDelivery: React.FC<Props> = ({ dispatch, onClose }) => {
         <ConfirmModal
           open={confirming === 'not_sent'}
           tone="warning"
-          title="Send this notification?"
-          description="Recording that nothing was sent puts the delivery back through the normal path, and the recipient will receive the email."
-          confirmLabel="Nothing was sent, send it"
+          title="Record that nothing was sent?"
+          description="This records that nothing was sent and makes the delivery owed again. It does not send anything by itself."
+          confirmLabel="Record that nothing was sent"
           loading={resolve.isLoading}
           onConfirm={() => settle('not_sent')}
           onCancel={() => setConfirming(null)}

@@ -167,6 +167,23 @@ class NotificationCase(MSPTestCase):
             if row.name not in self.audit_before
         ]
 
+    def dispatch_row(
+        self, address, reference, rule="request_received", status="Queued", queue=None, doctype=REFERENCE
+    ):
+        doc = frappe.new_doc(DISPATCH)
+        doc.dedup_key = f"{PREFIX}-{frappe.generate_hash(length=12)}"
+        doc.rule = rule
+        doc.business_doctype = doctype
+        doc.business_name = reference
+        doc.recipient = address
+        doc.status = status
+        doc.email_queue_id = queue
+        doc.reserved_at = frappe.utils.now()
+        doc.attempt = 1
+        doc.insert(ignore_permissions=True)
+
+        return doc
+
     def context(self):
         return {
             "full_name": "Marie",
@@ -234,7 +251,10 @@ class TestSeedingIsIdempotent(NotificationCase):
     def wipe_the_rules(self):
         names = tuple(self.rules_before)
         self.assertEqual(len(names), len(registry.RULES), "the site is expected to carry every rule")
-        frappe.db.sql("delete from `tabMSP Notification Recipient` where parenttype = %s and parent in %s", (RULE, names))
+        frappe.db.sql(
+            "delete from `tabMSP Notification Recipient` where parenttype = %s and parent in %s",
+            (RULE, names),
+        )
         frappe.db.sql("delete from `tabMSP Notification Rule` where name in %s", (names,))
         frappe.db.commit()
 
@@ -408,9 +428,7 @@ class TestEveryChangeLeavesAnAuditLine(NotificationCase):
         before = len(self.audits("request_received"))
         revision = self.stored("request_received", "revision")
 
-        NotificationSettingsService.save(
-            "request_received", changes={"display_name": f"{PREFIX} audited"}
-        )
+        NotificationSettingsService.save("request_received", changes={"display_name": f"{PREFIX} audited"})
 
         rows = self.audits("request_received")
         self.assertEqual(len(rows), before + 1)
@@ -830,12 +848,205 @@ class TestASecurityNotificationReachesNobodyElse(NotificationCase):
 
         for parent in queued:
             written = set(
-                frappe.get_all(
-                    "Email Queue Recipient", filters={"parent": parent}, pluck="recipient"
-                )
+                frappe.get_all("Email Queue Recipient", filters={"parent": parent}, pluck="recipient")
             )
             self.assertEqual(written, {holder}, "and nobody else was")
             frappe.db.sql("delete from `tabEmail Queue Recipient` where parent = %s", parent)
             frappe.db.sql("delete from `tabEmail Queue` where name = %s", parent)
 
         frappe.db.commit()
+
+
+class TestARetriedDeliveryIsQueuedOnce(NotificationCase):
+    def deliver(self, address, reference, **over):
+        return NotificationDispatchService.deliver(
+            "request_received",
+            address,
+            self.context(),
+            business_doctype=REFERENCE,
+            business_name=reference,
+            occurrence="event:1",
+            **over,
+        )
+
+    def fail_the_render_once(self, address, reference):
+        with patch.object(notifications, "render", side_effect=ValueError("broken template")):
+            return self.deliver(address, reference)
+
+    def settle(self, name, note="Looked at the mail log"):
+        return NotificationDispatchService.resolve(name, "not_sent", note=note)
+
+    def test_a_render_failure_then_a_corrected_template_queues_exactly_one_mail(self):
+        address = self.address()
+        reference = self.reference()
+
+        failed = self.fail_the_render_once(address, reference)
+        self.assertEqual(failed["status"], "Failed")
+        self.assertEqual(self.queued_to(address), 0)
+
+        again = self.deliver(address, reference)
+
+        self.assertEqual(again["status"], "Queued")
+        self.assertEqual(again["dispatch"], failed["dispatch"])
+        self.assertEqual(self.queued_to(address), 1)
+        self.assertEqual(frappe.db.get_value(DISPATCH, failed["dispatch"], "status"), "Queued")
+        self.assertEqual(self.deliver(address, reference)["reason"], "already_dispatched")
+        self.assertEqual(self.queued_to(address), 1)
+
+    def test_a_second_delivery_while_the_first_retry_holds_the_claim_queues_nothing(self):
+        address = self.address()
+        reference = self.reference()
+        failed = self.fail_the_render_once(address, reference)
+        held = frappe.get_doc(DISPATCH, failed["dispatch"])
+
+        self.assertTrue(NotificationDispatchService._claim(held))
+        second = self.deliver(address, reference)
+
+        self.assertEqual(second["reason"], "held_by_another_worker")
+        self.assertEqual(second["status"], "Pending")
+        self.assertEqual(self.queued_to(address), 0)
+
+    def test_an_unknown_delivery_is_never_sent_again_on_its_own(self):
+        address = self.address()
+        reference = self.reference()
+        first = self.deliver(address, reference)
+        frappe.db.set_value(DISPATCH, first["dispatch"], "status", "Unknown")
+
+        again = self.deliver(address, reference)
+
+        self.assertEqual(again["reason"], "needs_investigation")
+        self.assertEqual(frappe.db.get_value(DISPATCH, first["dispatch"], "status"), "Unknown")
+        self.assertEqual(self.queued_to(address), 1)
+
+    def test_nothing_was_sent_leaves_the_delivery_failed_and_the_next_delivery_queues_one_mail(self):
+        address = self.address()
+        reference = self.reference()
+        first = self.deliver(address, reference)
+        frappe.db.set_value(DISPATCH, first["dispatch"], {"status": "Unknown", "email_queue_id": None})
+        frappe.db.sql("delete from `tabEmail Queue Recipient` where recipient = %s", address)
+
+        outcome = self.settle(first["dispatch"])
+        row = frappe.db.get_value(
+            DISPATCH, first["dispatch"], ["status", "skip_reason", "email_queue_id"], as_dict=True
+        )
+
+        self.assertEqual(outcome["status"], "Failed")
+        self.assertEqual(outcome["retry"], "manual")
+        self.assertEqual(row.status, "Failed")
+        self.assertEqual(row.skip_reason, "attested_not_sent")
+        self.assertFalse(row.email_queue_id)
+        self.assertEqual(self.queued_to(address), 0)
+
+        again = self.deliver(address, reference)
+
+        self.assertEqual(again["status"], "Queued")
+        self.assertEqual(again["dispatch"], first["dispatch"])
+        self.assertEqual(self.queued_to(address), 1)
+        self.assertEqual(self.deliver(address, reference)["reason"], "already_dispatched")
+        self.assertEqual(self.queued_to(address), 1)
+
+    def test_nothing_was_sent_on_a_reminder_says_the_scheduler_will_raise_it_while_the_record_still_matches(
+        self,
+    ):
+        reminder = registry.keys(registry.REMINDER)[0]
+        address = self.address()
+        row = self.dispatch_row(address, "Administrator", rule=reminder, status="Unknown", doctype="User")
+        adapter = {"doctype": "User", "filters": {"enabled": 1}}
+
+        with patch.object(registry, "condition", return_value=adapter):
+            outcome = self.settle(row.name)
+
+        self.assertEqual(outcome, {"status": "Failed", "retry": "scheduled"})
+
+    def test_nothing_was_sent_on_a_reminder_whose_record_no_longer_matches_says_to_repeat_the_action(self):
+        reminder = registry.keys(registry.REMINDER)[0]
+        address = self.address()
+        row = self.dispatch_row(address, "Administrator", rule=reminder, status="Unknown", doctype="User")
+
+        with patch.object(registry, "condition", return_value={"doctype": "User", "filters": {"enabled": 0}}):
+            self.assertEqual(self.settle(row.name)["retry"], "manual")
+
+    def test_nothing_was_sent_on_a_reminder_whose_record_is_gone_says_to_repeat_the_action(self):
+        reminder = registry.keys(registry.REMINDER)[0]
+        address = self.address()
+        row = self.dispatch_row(address, self.reference(), rule=reminder, status="Unknown")
+
+        with patch.object(registry, "condition", return_value={"doctype": REFERENCE, "filters": {}}):
+            self.assertEqual(self.settle(row.name)["retry"], "manual")
+
+    def test_nothing_was_sent_on_an_event_says_to_repeat_the_action(self):
+        address = self.address()
+        row = self.dispatch_row(address, self.reference(), rule="request_received", status="Unknown")
+
+        self.assertEqual(self.settle(row.name)["retry"], "manual")
+
+
+class TestReconciliationReachesEveryDelivery(NotificationCase):
+    def setUp(self):
+        super().setUp()
+        NotificationDispatchService._remember(None)
+
+    def tearDown(self):
+        NotificationDispatchService._remember(None)
+        super().tearDown()
+
+    def queue_entry(self, address, reference, status):
+        entry = frappe.get_doc(
+            {
+                "doctype": "Email Queue",
+                "sender": "noreply@example.invalid",
+                "message": "x",
+                "status": status,
+                "reference_doctype": REFERENCE,
+                "reference_name": reference,
+                "recipients": [{"recipient": address}],
+            }
+        ).insert(ignore_permissions=True)
+
+        return entry.name
+
+    def make_rows(self, count):
+        address = self.address()
+        reference = self.reference()
+        waiting = self.queue_entry(address, reference, "Not Sent")
+        rows = [
+            self.dispatch_row(address, reference, status="Queued", queue=waiting).name
+            for _ in range(count - 1)
+        ]
+        done = self.queue_entry(address, reference, "Sent")
+        rows.append(self.dispatch_row(address, reference, status="Queued", queue=done).name)
+
+        return rows
+
+    def test_a_delivery_beyond_the_first_two_hundred_is_eventually_reconciled(self):
+        rows = self.make_rows(201)
+
+        for _ in range(100):
+            NotificationDispatchService.reconcile()
+
+            if frappe.db.get_value(DISPATCH, rows[-1], "status") == "Sent":
+                break
+
+        self.assertEqual(frappe.db.get_value(DISPATCH, rows[-1], "status"), "Sent")
+        self.assertEqual(frappe.db.get_value(DISPATCH, rows[0], "status"), "Queued")
+
+    def test_reconciling_twice_over_the_same_data_changes_nothing_the_second_time(self):
+        rows = self.make_rows(3)
+
+        for _ in range(100):
+            NotificationDispatchService.reconcile()
+
+            if frappe.db.get_value(DISPATCH, rows[-1], "status") == "Sent":
+                break
+
+        def snapshot():
+            return {
+                name: frappe.db.get_value(DISPATCH, name, ["status", "modified"], as_dict=True)
+                for name in rows
+            }
+
+        before = snapshot()
+        NotificationDispatchService.reconcile()
+        NotificationDispatchService.reconcile()
+
+        self.assertEqual(snapshot(), before)
