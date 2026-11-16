@@ -10,8 +10,12 @@ def execute():
 	are moved to what they have always done.
 
 	Only those. A rule whose stop condition somebody edited is their decision, and the
-	audit is what says which: every edit through the settings screen writes one, so a rule
-	with no such row carries a value nobody ever chose.
+	audit is what says which: every save through the settings screen writes one row with
+	the fields it changed, so a rule with no such row carries a value nobody ever chose.
+
+	Matched on the reason rather than the action. One save is recorded as `Rule Enabled` or
+	`Rule Disabled` when it also switches the rule, and reading only `Rule Edited` would
+	miss a choice made in the same breath as switching it back on.
 	"""
 	frappe.db.sql(
 		"""
@@ -22,7 +26,7 @@ def execute():
 		  and not exists (
 			select 1 from `tabMSP Notification Audit` audit
 			where audit.rule = rule.name
-			  and audit.action = 'Rule Edited'
+			  and audit.reason_code = 'settings_saved'
 			  and audit.detail like '%stop_condition_key%'
 		  )
 		"""

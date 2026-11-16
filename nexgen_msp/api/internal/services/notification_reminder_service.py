@@ -744,10 +744,12 @@ class NotificationReminderService:
 
     @staticmethod
     def _redeliver(declared, current, adapter, row, owed):
-        """Each delivery still owed, to the address it was owed to and at its own iteration.
+        """Each delivery still owed, at its own iteration, to the address it is owed to.
 
-        The audience is not resolved again: somebody who has since left it must not receive
-        an old iteration, and nothing here creates one, so the record's count is untouched.
+        Who that is gets asked again rather than read off the old attempt: somebody who has
+        since left the audience must not receive a request summary because they were once
+        on the list. Nothing here creates an iteration, so the record's own count is
+        untouched by a reprise.
         """
         doc = frappe.get_doc(adapter["doctype"], row.name)
         sent = skipped = 0
@@ -766,19 +768,11 @@ class NotificationReminderService:
                 )
 
             if address not in allowed[iteration]:
-                # and it is closed rather than left owed: it will never be sent now, and a
-                # delivery that waits for ever would say on every tick that it is waiting
-                frappe.db.set_value(
-                    DISPATCH,
-                    dispatch,
-                    {
-                        "status": "Skipped",
-                        "skip_reason": "no_longer_addressed",
-                        "failure_reason": "This address is no longer one the reminder is "
-                        "addressed to.",
-                    },
-                    update_modified=True,
-                )
+                skipped += 1
+
+                if not NotificationReminderService._close(dispatch):
+                    continue
+
                 NotificationSettingsService._write_audit(
                     action="Skipped",
                     rule=declared["rule_key"],
@@ -791,7 +785,7 @@ class NotificationReminderService:
                     detail="Owed from an earlier attempt, and this address is no longer one "
                     "this reminder is addressed to.",
                 )
-                skipped += 1
+
                 continue
 
             outcome = NotificationDispatchService.deliver(
@@ -814,6 +808,42 @@ class NotificationReminderService:
                 skipped += 1
 
         return {"sent": sent, "skipped": skipped}
+
+    @staticmethod
+    def _close(dispatch):
+        """Shut a delivery nobody may receive now, while it is still nobody's to send.
+
+        Taken under the same row lock a worker holds to claim one. Between reading what was
+        owed and writing this, a worker that resolved the audience a moment earlier may have
+        claimed this very delivery and handed the mail to the queue; writing over that would
+        record a mail somebody really sent as one that was never owed. It is closed rather
+        than left owed because a delivery that can never go would otherwise report itself as
+        waiting on every tick, for ever.
+        """
+        frappe.db.sql(
+            "select name from `tabMSP Notification Dispatch` where name = %(name)s for update",
+            {"name": dispatch},
+        )
+        fresh = frappe.db.get_value(DISPATCH, dispatch, ["status", "skip_reason"], as_dict=True)
+
+        if not fresh or fresh.status != "Failed" or fresh.skip_reason not in (
+            ATTESTED_NOT_SENT,
+            RENDER_FAILED,
+        ):
+            return False
+
+        frappe.db.set_value(
+            DISPATCH,
+            dispatch,
+            {
+                "status": "Skipped",
+                "skip_reason": "no_longer_addressed",
+                "failure_reason": "This address is no longer one the reminder is addressed to.",
+            },
+            update_modified=True,
+        )
+
+        return True
 
     @staticmethod
     def _still_waiting(doc, adapter, stop_key=None):

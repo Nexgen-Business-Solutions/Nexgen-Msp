@@ -774,6 +774,67 @@ class TestTheConditionARuleWatchesIsConfigurable(RequestCase):
         self.assertTrue(any("condition_key" in (detail or "") for detail in details), details)
 
 
+class TestTheMigrationLeavesAChosenStopConditionAlone(NotificationCase):
+    """Moving a value nobody chose is a repair; moving one somebody chose is a reset."""
+
+    def seed_the_floor(self, rule_key=APPROVAL):
+        frappe.db.set_value(RULE, rule_key, "stop_condition_key", "left_trigger_status")
+        frappe.db.commit()
+
+    def chose_it(self, action, rule_key=APPROVAL):
+        self.seed_the_floor(rule_key)
+        NotificationSettingsService._write_audit(
+            action=action,
+            rule=rule_key,
+            reason_code="settings_saved",
+            detail="stop_condition_key: refused_by_customer -> left_trigger_status",
+        )
+        frappe.db.commit()
+
+    def migrate(self):
+        from nexgen_msp.patches import keep_reminders_stopping_on_refusal
+
+        keep_reminders_stopping_on_refusal.execute()
+
+        return self.stored(APPROVAL, "stop_condition_key")
+
+    def stored(self, rule_key, field):
+        return frappe.db.get_value(RULE, rule_key, field)
+
+    def test_a_value_nobody_chose_is_moved_to_what_the_engine_has_always_done(self):
+        self.seed_the_floor()
+
+        self.assertEqual(self.migrate(), "refused_by_customer")
+
+    def test_a_choice_recorded_as_an_edit_is_left_alone(self):
+        self.chose_it("Rule Edited")
+
+        self.assertEqual(self.migrate(), "left_trigger_status")
+
+    def test_a_choice_made_while_switching_the_rule_on_is_left_alone(self):
+        """One save that also switches the rule is recorded as `Rule Enabled`, not an edit."""
+        self.chose_it("Rule Enabled")
+
+        self.assertEqual(self.migrate(), "left_trigger_status")
+
+    def test_a_choice_made_while_switching_the_rule_off_is_left_alone(self):
+        self.chose_it("Rule Disabled")
+
+        self.assertEqual(self.migrate(), "left_trigger_status")
+
+    def test_a_save_that_touched_other_fields_is_no_evidence_of_a_choice(self):
+        self.seed_the_floor()
+        NotificationSettingsService._write_audit(
+            action="Rule Edited",
+            rule=APPROVAL,
+            reason_code="settings_saved",
+            detail="max_sends: 3 -> 5",
+        )
+        frappe.db.commit()
+
+        self.assertEqual(self.migrate(), "refused_by_customer")
+
+
 class TestADeliveryThatNeverReachedAnybodyIsOwedAgain(RequestCase):
     """The record's cadence is one question; whether each address got its mail is another."""
 
@@ -937,6 +998,26 @@ class TestADeliveryThatNeverReachedAnybodyIsOwedAgain(RequestCase):
         self.assertEqual(NotificationReminderService._owed(APPROVAL, [name]), {})
         told = self.audits(APPROVAL, action="Skipped", business_name=name)
         self.assertIn("no_longer_addressed", [row.reason_code for row in told])
+
+    def test_a_delivery_another_worker_has_claimed_is_not_closed_underneath_them(self):
+        """Closing is held under the same lock a claim takes, and only while it is nobody's."""
+        name, dispatch = self.strand_second(max_sends=1)
+
+        frappe.db.set_value(DISPATCH, dispatch, {"status": "Pending", "skip_reason": None})
+        frappe.db.commit()
+
+        self.assertFalse(NotificationReminderService._close(dispatch))
+        self.assertEqual(frappe.db.get_value(DISPATCH, dispatch, "status"), "Pending")
+
+        frappe.db.set_value(
+            DISPATCH, dispatch, {"status": "Failed", "skip_reason": "attested_not_sent"}
+        )
+        frappe.db.commit()
+
+        self.assertTrue(NotificationReminderService._close(dispatch))
+        self.assertEqual(frappe.db.get_value(DISPATCH, dispatch, "status"), "Skipped")
+        self.assertFalse(NotificationReminderService._close(dispatch), "and only once")
+        self.assertEqual(name, frappe.db.get_value(DISPATCH, dispatch, "business_name"))
 
     def test_an_address_put_back_in_the_audience_before_the_tick_is_still_served(self):
         name, _dispatch = self.strand_second(max_sends=1)
