@@ -34,15 +34,9 @@ DISPATCH = "MSP Notification Dispatch"
 UNIT_DAYS = {"Hours": 0, "Days": 1, "Weeks": 7}
 
 # why a record is not being reminded about, in words an administrator can act on
-REASONS = {
-    "eligible": "Due now",
-    "not_due": "Not due yet",
-    "max_reached": "The maximum number of reminders has been sent",
-    "resolved": "The record no longer matches the condition",
-    "quiet_hours": "Deferred until the quiet period ends",
-    "before_activation": "Waiting for the first send under the current settings",
-    "disabled": "This reminder is switched off",
-}
+# said once, in the registry, so a reason read here and a reason read in the history are the
+# same sentence
+REASONS = registry.REASON_LABELS
 
 BATCH = 200
 

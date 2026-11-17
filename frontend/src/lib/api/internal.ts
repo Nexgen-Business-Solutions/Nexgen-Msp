@@ -3614,6 +3614,7 @@ export type NotificationAuditRow = {
   action: string;
   actor: string | null;
   reason_code: string | null;
+  reason_label: string | null;
   detail: string | null;
   attempt: number | null;
   rule_revision: number | null;
@@ -3677,6 +3678,10 @@ export type NotificationHistoryRow = {
   name: string;
   creation: string;
   rule: string;
+  /** the one name every screen shows for this rule */
+  rule_label: string;
+  /** what the stored code means, or the message the mail server gave */
+  reason_label: string | null;
   business_doctype: string | null;
   business_name: string | null;
   recipient: string | null;
@@ -3824,6 +3829,8 @@ export type NotificationDispatchEvidence = {
   dispatch: {
     name: string;
     rule: string;
+    rule_label: string;
+    reason_label: string | null;
     status: string;
     recipient: string | null;
     business_doctype: string | null;

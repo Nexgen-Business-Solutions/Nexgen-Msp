@@ -631,7 +631,8 @@ const RuleEditor: React.FC<EditorProps> = ({
                       <div className="min-w-0">
                         <p className="text-sm font-medium text-slate-800">{row.action}</p>
                         <p className="text-xs text-slate-500">
-                          {[row.actor, row.business_name, row.reason_code].filter(Boolean).join(' · ') || 'System'}
+                          {[row.actor, row.business_name, row.reason_label].filter(Boolean).join(' · ') ||
+                            'System'}
                         </p>
                         {row.detail && <p className="mt-0.5 break-words text-xs text-slate-500">{row.detail}</p>}
                       </div>

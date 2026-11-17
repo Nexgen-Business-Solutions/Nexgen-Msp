@@ -102,14 +102,16 @@ const HistoryTab: React.FC<Props> = ({ active, filters, onFilters, page, onPage 
             </thead>
             <tbody className="divide-y divide-slate-100">
               {rows.map((row) => {
-                const reason = row.failure_reason || row.skip_reason;
+                const reason = row.reason_label;
 
                 return (
                   <tr key={row.name} className="align-top">
                     <td className="whitespace-nowrap px-4 py-3 text-sm tabular-nums text-slate-500">
                       {fmtMoment(row.sent_at || row.queued_at || row.creation)}
                     </td>
-                    <td className="px-4 py-3 text-sm font-medium text-slate-800">{row.rule}</td>
+                    <td className="px-4 py-3 text-sm font-medium text-slate-800">
+                      {row.rule_label}
+                    </td>
                     <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
                       {row.business_name || '—'}
                       {row.business_doctype && <p className="text-xs text-slate-400">{row.business_doctype}</p>}

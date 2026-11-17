@@ -357,6 +357,13 @@ describe('Email Management', () => {
         name: `D-${index}`,
         creation: '2026-11-01 10:00:00',
         rule: 'request_approved',
+        rule_label: 'Request approved',
+        reason_label:
+          status === 'Failed'
+            ? 'SMTP refused'
+            : status === 'Skipped'
+              ? 'Notification disabled'
+              : null,
         business_doctype: 'MSP Request',
         business_name: `REQ-${index}`,
         recipient: 'a@example.com',
@@ -382,7 +389,10 @@ describe('Email Management', () => {
     for (const label of ['Queued', 'Sent', 'Failed', 'Skipped']) {
       expect(within(table).getByText(label)).toBeInTheDocument();
     }
+    expect(within(table).getAllByText('Request approved')).toHaveLength(4);
+    expect(within(table).queryByText('request_approved')).not.toBeInTheDocument();
     expect(within(table).getByText('SMTP refused')).toBeInTheDocument();
+    expect(within(table).getByText('Notification disabled')).toBeInTheDocument();
     expect(within(table).getByText('Queue EQ-9')).toBeInTheDocument();
     expect(within(table).getByText('Sent')).toHaveAttribute(
       'title',
@@ -414,6 +424,8 @@ describe('Email Management', () => {
         name: `D-${index}`,
         creation: '2026-11-01 10:00:00',
         rule: 'request_approved',
+        rule_label: 'Request approved',
+        reason_label: null,
         business_doctype: 'MSP Request',
         business_name: `REQ-${index}`,
         recipient: 'a@example.com',
@@ -577,6 +589,8 @@ describe('Email Management', () => {
       name: `D-${status}`,
       creation: '2026-11-01 10:00:00',
       rule: 'request_approved',
+      rule_label: 'Request approved',
+      reason_label: null,
       business_doctype: 'MSP Request',
       business_name: `REQ-${status}`,
       recipient: 'a@example.com',
@@ -593,6 +607,8 @@ describe('Email Management', () => {
       dispatch: {
         name: 'D-Unknown',
         rule: 'request_approved',
+        rule_label: 'Request approved',
+        reason_label: 'Worker stopped',
         status: 'Unknown',
         recipient: 'a@example.com',
         business_doctype: 'MSP Request',
@@ -745,7 +761,7 @@ describe('Email Management', () => {
       await pickAndWriteNote(dialog);
 
       const confirm = (await screen.findByText('Attach this queue entry?')).closest('[role="dialog"]') as HTMLElement;
-      expect(within(confirm).getByText(/request_approved to a@example\.com/)).toBeInTheDocument();
+      expect(within(confirm).getByText(/Request approved to a@example\.com/)).toBeInTheDocument();
       expect(within(confirm).getByText('EQ-2 · Error · MSP Request')).toBeInTheDocument();
       expect(within(confirm).getByText('Matches the reference')).toBeInTheDocument();
       expect(within(confirm).getByText(/recorded under your name/)).toBeInTheDocument();

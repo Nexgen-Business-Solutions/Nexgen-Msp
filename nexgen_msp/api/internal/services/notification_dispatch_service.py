@@ -22,6 +22,7 @@ from nexgen_msp.utils import notifications
 from nexgen_msp.utils.errors import ValidationError
 
 DISPATCH = "MSP Notification Dispatch"
+RULE = "MSP Notification Rule"
 QUEUE = "Email Queue"
 
 NUL = "\0"
@@ -590,6 +591,9 @@ class NotificationDispatchService:
             "dispatch": {
                 "name": doc.name,
                 "rule": doc.rule,
+                "rule_label": registry.rule_label(
+                    doc.rule, frappe.db.get_value(RULE, doc.rule, "display_name")
+                ),
                 "status": doc.status,
                 "recipient": doc.recipient,
                 "business_doctype": doc.business_doctype,
@@ -598,6 +602,7 @@ class NotificationDispatchService:
                 "subject_snapshot": doc.subject_snapshot,
                 "reserved_at": doc.reserved_at,
                 "failure_reason": doc.failure_reason,
+                "reason_label": registry.reason_label(doc.skip_reason) or doc.failure_reason,
             },
             "candidates": candidates,
             "decisions": ["link", "not_sent"],
@@ -966,15 +971,26 @@ class NotificationDispatchService:
             "sent_at",
         ]
 
+        rows = frappe.get_all(
+            DISPATCH,
+            filters=filters,
+            fields=fields,
+            order_by="creation desc",
+            start=page * page_length,
+            page_length=page_length,
+        )
+        # the names an administrator gave the rules, read once for the page: a delivery and
+        # the rule it came from must be called the same thing on both tables
+        named = dict(frappe.get_all(RULE, fields=["name", "display_name"], as_list=True))
+
+        for row in rows:
+            row["rule_label"] = registry.rule_label(row["rule"], named.get(row["rule"]))
+            row["reason_label"] = registry.reason_label(row.get("skip_reason")) or row.get(
+                "failure_reason"
+            )
+
         return {
-            "rows": frappe.get_all(
-                DISPATCH,
-                filters=filters,
-                fields=fields,
-                order_by="creation desc",
-                start=page * page_length,
-                page_length=page_length,
-            ),
+            "rows": rows,
             "total": frappe.db.count(DISPATCH, filters),
             "page": page,
             "page_length": page_length,

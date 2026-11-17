@@ -180,7 +180,7 @@ const RulesTab: React.FC<Props> = ({ filters, onFilters, page, onPage, data, loa
                       {rule.trigger_label || rule.trigger_key}
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-600">
-                      <p className="whitespace-nowrap">{rule.audience_label || rule.audience_key || '—'}</p>
+                      <p className="whitespace-nowrap">{rule.audience_label || '—'}</p>
                       {rule.cc.length > 0 && (
                         <p className="text-xs text-slate-400">CC {rule.cc.length}</p>
                       )}

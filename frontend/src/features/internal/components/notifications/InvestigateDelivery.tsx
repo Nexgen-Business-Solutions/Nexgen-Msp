@@ -67,7 +67,7 @@ const InvestigateDelivery: React.FC<Props> = ({ dispatch, onClose }) => {
   const chosenEntry = candidates.find((entry) => entry.email_queue === chosen);
   const facts: [string, string][] = delivery
     ? [
-        ['Rule', delivery.rule],
+        ['Rule', delivery.rule_label],
         ['Recipient', delivery.recipient || '—'],
         [
           'Business record',
@@ -78,7 +78,7 @@ const InvestigateDelivery: React.FC<Props> = ({ dispatch, onClose }) => {
         ['Iteration', delivery.reminder_iteration == null ? '—' : String(delivery.reminder_iteration)],
         ['Subject', delivery.subject_snapshot || '—'],
         ['Reserved', fmtMoment(delivery.reserved_at) || '—'],
-        ['Failure reason', delivery.failure_reason || '—'],
+        ['Why it stopped', delivery.reason_label || '—'],
       ]
     : [];
 
@@ -261,7 +261,7 @@ const InvestigateDelivery: React.FC<Props> = ({ dispatch, onClose }) => {
             <div>
               <dt className="text-xs font-medium text-slate-500">Delivery</dt>
               <dd className="break-words text-slate-800">
-                {delivery?.rule} to {delivery?.recipient || '—'}
+                {delivery?.rule_label} to {delivery?.recipient || '—'}
               </dd>
             </div>
             <div>

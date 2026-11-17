@@ -145,6 +145,46 @@ STOP_CONDITIONS = {
     "refused_by_customer": "Stop when the customer refuses the request",
 }
 
+# every code this application writes about a notification, said once. A screen prints what
+# is here and never the code itself: the same fact read on two pages must read the same, and
+# a code invented in one service must not be spelled out again in a table that shows it
+REASON_LABELS = {
+    "eligible": "Due now",
+    "not_due": "Not due yet",
+    "max_reached": "The maximum number of reminders has been sent",
+    "resolved": "The record no longer matches the condition",
+    "quiet_hours": "Deferred until the quiet period ends",
+    "before_activation": "Waiting for the first send under the current settings",
+    "disabled": "This reminder is switched off",
+    "render_failed": "The message could not be built",
+    "attested_not_sent": "Recorded as never sent, after an administrator checked",
+    "no_longer_addressed": "The recipient is no longer in this rule's audience",
+    "no_recipient": "Nobody to write to",
+    "rule_disabled": "The rule was switched off",
+    "enqueue_failed": "The mail queue refused it",
+    "queue_id_unknown": "Handed to the queue, which named no entry to follow",
+    "reservation_abandoned": "A send was started and never finished",
+    "queued": "Handed to the mail queue",
+    "settings_saved": "An administrator saved this rule",
+    "needs_investigation": "Needs a look before anything is sent again",
+}
+
+
+def reason_label(code):
+    """What a code means in words. An unknown one is read out rather than hidden."""
+    if not code:
+        return None
+
+    return REASON_LABELS.get(code) or trigger_label(code)
+
+
+def rule_label(rule_key, stored=None):
+    """What a rule is called, the one name every screen shows for it."""
+    if stored:
+        return stored
+
+    return (RULES.get(rule_key) or {}).get("display_name") or trigger_label(rule_key)
+
 
 # --------------------------------------------------------------------------- the rules
 def _event(key, name, category, template, audience, source, protected=False, alternates=()):

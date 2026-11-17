@@ -327,7 +327,8 @@ class NotificationSettingsService:
             ),
             "template_name": current["template_name"],
             "audience_key": current["audience_key"],
-            "audience_label": audience.get("label") or current["audience_key"],
+            "audience_label": audience.get("label")
+            or registry.reason_label(current["audience_key"]),
             "cc": current.get("cc") or [],
             "extra": current.get("extra") or [],
             "frequency": NotificationSettingsService._frequency(declared, current),
@@ -470,7 +471,7 @@ class NotificationSettingsService:
 
     @staticmethod
     def _recent_audit(rule_key, limit=20):
-        return frappe.get_all(
+        rows = frappe.get_all(
             AUDIT,
             filters={"rule": rule_key},
             fields=[
@@ -488,6 +489,11 @@ class NotificationSettingsService:
             order_by="creation desc",
             limit=limit,
         )
+
+        for row in rows:
+            row["reason_label"] = registry.reason_label(row.get("reason_code"))
+
+        return rows
 
     # ------------------------------------------------------------------ saving
     @staticmethod

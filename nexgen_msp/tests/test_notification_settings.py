@@ -1254,3 +1254,58 @@ class TestEachDeliveryStateIsCountedForWhatItIs(NotificationCase):
 
         self.assertEqual(after["failed"] - before["failed"], 1)
         self.assertEqual(after["unknown"] - before["unknown"], 2)
+
+
+class TestTheSameFactReadsTheSameOnEveryScreen(NotificationCase):
+    """One name per rule, one sentence per code, said in the registry and nowhere else.
+
+    The rules table showed the name an administrator gave a rule; the delivery history
+    showed the key underneath it, and the reason a delivery stopped as the code the engine
+    writes. Two screens, one fact, two texts.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.reference = f"{PREFIX}-LBL-{self.tag}"
+
+    def history_of(self, dispatch):
+        rows = NotificationDispatchService.history(page_length=200)["rows"]
+        mine = [row for row in rows if row["name"] == dispatch]
+
+        self.assertEqual(len(mine), 1)
+
+        return mine[0]
+
+    def test_a_delivery_is_named_after_its_rule_the_way_the_rules_table_names_it(self):
+        row = NotificationSettingsService._row("request_received")
+        sent = self.dispatch_row("someone@example.invalid", self.reference)
+
+        self.assertEqual(self.history_of(sent.name)["rule_label"], row["display_name"])
+
+    def test_a_name_an_administrator_gave_is_the_one_the_history_shows(self):
+        NotificationSettingsService.save("request_received", changes={"display_name": "Ticket opened"})
+        sent = self.dispatch_row("someone@example.invalid", self.reference)
+
+        self.assertEqual(self.history_of(sent.name)["rule_label"], "Ticket opened")
+
+    def test_a_stored_code_is_read_out_in_words(self):
+        sent = self.dispatch_row("someone@example.invalid", self.reference, status="Skipped")
+        frappe.db.set_value(DISPATCH, sent.name, "skip_reason", "no_longer_addressed")
+        frappe.db.commit()
+
+        self.assertEqual(
+            self.history_of(sent.name)["reason_label"],
+            registry.REASON_LABELS["no_longer_addressed"],
+        )
+
+    def test_what_the_mail_server_said_is_not_dressed_up(self):
+        sent = self.dispatch_row("someone@example.invalid", self.reference, status="Failed")
+        frappe.db.set_value(DISPATCH, sent.name, "failure_reason", "550 mailbox unavailable")
+        frappe.db.commit()
+
+        self.assertEqual(self.history_of(sent.name)["reason_label"], "550 mailbox unavailable")
+
+    def test_the_reminder_engine_reads_its_reasons_from_the_same_place(self):
+        from nexgen_msp.api.internal.services.notification_reminder_service import REASONS
+
+        self.assertIs(REASONS, registry.REASON_LABELS)
