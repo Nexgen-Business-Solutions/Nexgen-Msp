@@ -34,6 +34,18 @@ const company = (): RequestOperationDomain => ({
       service_scope: 'Customer',
       current_count: 0,
       without_count: 1,
+      service_status_rows: [
+        {
+          subject_key: 'company',
+          client_user: null,
+          full_name: 'Nexgen SA',
+          target_scope: 'Customer',
+          managed_device: null,
+          device_label: null,
+          status: 'Not subscribed',
+          status_since: null,
+        },
+      ],
       actions: [
         {
           operation_code: 'service.add',

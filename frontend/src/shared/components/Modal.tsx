@@ -38,6 +38,18 @@ const Modal: React.FC<ModalProps> = ({
   widthClass = 'max-w-2xl',
   scroll = true,
 }) => {
+  React.useEffect(() => {
+    if (!open) return;
+
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+
+    document.addEventListener('keydown', onEscape);
+
+    return () => document.removeEventListener('keydown', onEscape);
+  }, [open, onClose]);
+
   if (!open) return null;
 
   return createPortal(

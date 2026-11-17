@@ -996,6 +996,19 @@ export type RequestStockOption = {
   unavailable_reason: string | null;
 };
 
+/** What a service is doing on one selected target today, and since when. */
+export type RequestServiceStatusRow = {
+  subject_key: string;
+  client_user: string | null;
+  full_name: string;
+  target_scope: 'User' | 'Device' | 'Customer';
+  managed_device: string | null;
+  device_label: string | null;
+  device_serial_number?: string | null;
+  status: 'Active' | 'Pending Setup' | 'Suspended' | 'Ended' | 'Not subscribed' | 'No device';
+  status_since: string | null;
+};
+
 export type RequestServiceOption = {
   object_key: string;
   object_label: string;
@@ -1003,6 +1016,7 @@ export type RequestServiceOption = {
   current_count: number;
   without_count: number;
   actions: RequestOperationOption[];
+  service_status_rows: RequestServiceStatusRow[];
 };
 
 export type RequestOperationDomain =

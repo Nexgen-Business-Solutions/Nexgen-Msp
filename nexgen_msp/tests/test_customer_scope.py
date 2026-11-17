@@ -2783,3 +2783,91 @@ class TestACreditThatRoundsToNoQuantityStillReturnsMoney(LedgerCase):
             [round(flt(row.billable_months), 6) for row in rows], [-0.0002, -0.0001]
         )
         self.assertEqual([flt_round(row.amount) for row in rows], [-0.2, -0.1])
+
+
+class TestWhereACompanyServiceStands(CustomerScopeCase):
+    """The company is a target like any other, and its card says since when.
+
+    Nobody is named on a company service, so there is no person's row to read it off. The
+    card carries the company's own line instead, with the day the state it is in began.
+    """
+
+    def person(self):
+        name = self.make_person(self.customer, "Alice")
+        card = frappe.db.get_value(
+            "MSP Client User", name, ["full_name", "department", "email"], as_dict=True
+        )
+
+        return [
+            {
+                "subject_key": f"user:{name}",
+                "client_user": name,
+                "full_name": card.full_name,
+                "department": card.department,
+                "email": card.email,
+                "added_via": "Existing",
+            }
+        ]
+
+    def row(self):
+        from nexgen_msp.api.portal.services.request_scope_service import RequestScopeService
+
+        options = RequestScopeService.operation_options(
+            customer=self.customer, subjects=self.person()
+        )
+        company = next(
+            (domain for domain in options["domains"] if domain["key"] == "Company"), None
+        )
+        card = next(
+            (
+                option
+                for option in (company or {}).get("options", [])
+                if option["object_key"] == self.retainer
+            ),
+            None,
+        )
+
+        self.assertIsNotNone(card, "the company's card is built beside the people's")
+        self.assertEqual(len(card["service_status_rows"]), 1)
+
+        return card["service_status_rows"][0]
+
+    def test_a_service_the_company_runs_is_dated_from_the_day_it_started(self):
+        self.open_one()
+
+        row = self.row()
+
+        self.assertEqual(row["target_scope"], "Customer")
+        self.assertIsNone(row["client_user"], "nobody is named on it")
+        self.assertEqual(row["status"], "Active")
+        self.assertEqual(row["status_since"], "2026-01-01")
+
+    def test_a_service_the_company_never_had_is_not_dated(self):
+        row = self.row()
+
+        self.assertEqual(row["status"], "Not subscribed")
+        self.assertIsNone(row["status_since"])
+
+    def test_a_service_the_company_gave_up_is_dated_from_its_last_day(self):
+        held = self.open_one()
+        ServiceLifecycleService.end(
+            assignment=held, effective_date=frappe.utils.add_days(frappe.utils.today(), -3)
+        )
+
+        row = self.row()
+
+        self.assertEqual(row["status"], "Ended")
+        self.assertEqual(row["status_since"], frappe.utils.add_days(frappe.utils.today(), -3))
+
+    def test_a_paused_company_service_is_dated_from_the_pause(self):
+        held = self.open_one()
+        ServiceLifecycleService.suspend(
+            assignment=held,
+            effective_date=frappe.utils.add_days(frappe.utils.today(), -2),
+            confirm_billed=1,
+        )
+
+        row = self.row()
+
+        self.assertEqual(row["status"], "Suspended")
+        self.assertEqual(row["status_since"], frappe.utils.add_days(frappe.utils.today(), -2))

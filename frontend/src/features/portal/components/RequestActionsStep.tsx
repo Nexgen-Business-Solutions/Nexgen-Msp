@@ -9,6 +9,7 @@ import type {
   RequestOperationDomain,
   RequestOperationOption,
   RequestServiceOption,
+  RequestServiceStatusRow,
   RequestSubjectRow,
   RequestTarget,
   SelectableDevice,
@@ -53,6 +54,32 @@ const quickBtn =
   'rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 transition-colors hover:bg-slate-50';
 const quickPrimary =
   'rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 transition-colors hover:bg-blue-100';
+
+const ACTION_TONE: Record<string, string> = {
+  'service.add':
+    'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 focus-visible:ring-blue-500',
+  'service.suspend':
+    'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 focus-visible:ring-amber-500',
+  'service.resume':
+    'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 focus-visible:ring-emerald-500',
+  'service.end':
+    'border-red-200 bg-red-50 text-red-700 hover:bg-red-100 focus-visible:ring-red-500',
+};
+
+const actionBtn = (code: string) =>
+  `shrink-0 whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 ${
+    ACTION_TONE[code] ??
+    'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 focus-visible:ring-slate-400'
+  }`;
+
+const STATUS_TONE: Record<RequestServiceStatusRow['status'], string> = {
+  Active: 'bg-emerald-50 text-emerald-700',
+  'Pending Setup': 'bg-blue-50 text-blue-700',
+  Suspended: 'bg-amber-50 text-amber-800',
+  Ended: 'bg-red-50 text-red-700',
+  'Not subscribed': 'bg-slate-100 text-slate-600',
+  'No device': 'bg-slate-100 text-slate-600',
+};
 
 const CHANGED_SCOPE =
   'The people in this scope changed after this action was added. Review its impact before submitting.';
@@ -1006,20 +1033,6 @@ type Tally = ReturnType<typeof tally>;
 const counting = (value: number, one: string, many: string) =>
   `${value} ${value === 1 ? one : many}`;
 
-const selectionLine = (counted: Tally) =>
-  [
-    counting(counted.people, 'person selected', 'people selected'),
-    counted.devices > 0 ? counting(counted.devices, 'device selected', 'devices selected') : null,
-    counting(counted.machines, 'linked device', 'linked devices'),
-  ]
-    .filter(Boolean)
-    .join(' · ');
-
-const eligibleLine = (value: number, deviceScoped: boolean) =>
-  deviceScoped
-    ? counting(value, 'eligible device', 'eligible devices')
-    : counting(value, 'eligible person', 'eligible people');
-
 /** What the excluded have in common, when they have something in common. */
 const exclusionNote = (option: RequestOperationOption) => {
   const codes = new Set(option.exclusions.map((row) => row.reason_code));
@@ -1233,6 +1246,76 @@ const ScopePeople: React.FC<{ rows: RequestSubjectRow[]; onClose: () => void }> 
   </Modal>
 );
 
+/**
+ * Where one service stands for every target the server read, in three columns.
+ *
+ * The rows are the server's own reading — excluded and ended targets included — so nothing
+ * is filtered or dated here; a person without a device arrives as such and is shown as such.
+ */
+const ServiceStatus: React.FC<{ card: RequestServiceOption; onClose: () => void }> = ({
+  card,
+  onClose,
+}) => (
+  <Modal
+    open
+    onClose={onClose}
+    icon={Info}
+    tone="slate"
+    title={card.object_label}
+    subtitle="Service status"
+    widthClass="max-w-3xl"
+    scroll={false}
+    footer={
+      <div className="flex items-center justify-end">
+        <button type="button" onClick={onClose} className={primaryBtn}>
+          Done
+        </button>
+      </div>
+    }
+  >
+    {card.service_status_rows.length === 0 ? (
+      <p className="p-5 text-center text-sm text-slate-500">
+        No target has a status for this service yet.
+      </p>
+    ) : (
+      <div className="max-h-[60vh] overflow-auto">
+        <table className="w-full">
+          <thead className="sticky top-0 bg-slate-50">
+            <tr>
+              <Th>Target</Th>
+              <Th>Status</Th>
+              <Th>Since</Th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {card.service_status_rows.map((row) => (
+              <tr key={`${row.subject_key}|${row.managed_device ?? 'none'}`}>
+                <td className="px-3 py-2 text-sm font-medium text-slate-900">
+                  {row.managed_device || row.device_label
+                    ? machineIdentity({
+                        name: row.managed_device,
+                        label: row.device_label,
+                        serial_number: row.device_serial_number,
+                      })
+                    : row.full_name}
+                </td>
+                <td className="px-3 py-2">
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATUS_TONE[row.status]}`}
+                  >
+                    {row.status}
+                  </span>
+                </td>
+                <td className="px-3 py-2 text-sm text-slate-600">{row.status_since ?? '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )}
+  </Modal>
+);
+
 const optionOf = (group: RequestActionGroup, domains: RequestOperationDomain[]) => {
   for (const domain of domains) {
     if (domain.key === 'Service' && group.domain === 'Service') {
@@ -1301,7 +1384,8 @@ const CompanyServices: React.FC<{
     serviceItem?: string | null
   ) => number;
   onAdd: (option: RequestOperationOption, card: RequestServiceOption, quantity: number) => void;
-}> = ({ options, askedHere, onAdd }) => {
+  onStatus: (card: RequestServiceOption) => void;
+}> = ({ options, askedHere, onAdd, onStatus }) => {
   const [amounts, setAmounts] = useState<Record<string, string>>({});
 
   return (
@@ -1358,7 +1442,7 @@ const CompanyServices: React.FC<{
                     )}
                   </td>
                   <td className="px-3 py-2.5 align-middle">
-                    <div className="flex flex-wrap items-center justify-end gap-1.5">
+                    <div className="flex flex-nowrap items-center justify-end gap-1.5 overflow-x-auto max-sm:justify-start">
                       {card.actions.map((action) => {
                         const asked = askedHere(
                           action.targets,
@@ -1370,7 +1454,7 @@ const CompanyServices: React.FC<{
                         return (
                           <React.Fragment key={action.operation_code}>
                             {asked > 0 && (
-                              <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+                              <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
                                 Asked
                               </span>
                             )}
@@ -1379,13 +1463,24 @@ const CompanyServices: React.FC<{
                               disabled={asked > 0 || (adding && impossible)}
                               title={asked > 0 ? 'Already asked for in this request' : undefined}
                               onClick={() => onAdd(action, card, adding ? quantity : 1)}
-                              className={`${adding ? quickPrimary : quickBtn} disabled:cursor-not-allowed disabled:opacity-40`}
+                              className={`${actionBtn(
+                                action.operation_code
+                              )} disabled:cursor-not-allowed disabled:opacity-40`}
                             >
                               {action.operation_label}
                             </button>
                           </React.Fragment>
                         );
                       })}
+                      <button
+                        type="button"
+                        aria-label={`View service status for ${card.object_label}`}
+                        title={`See which targets have ${card.object_label} and since when`}
+                        onClick={() => onStatus(card)}
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+                      >
+                        <Info size={14} />
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -1419,6 +1514,7 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
     label: string;
     deviceScoped: boolean;
   } | null>(null);
+  const [statusOf, setStatusOf] = useState<RequestServiceOption | null>(null);
   const [reviewing, setReviewing] = useState<string | null>(null);
 
   const projection = useRequestScope(builder.subjectDrafts);
@@ -1545,7 +1641,7 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
           </p>
         </div>
 
-        <div className="max-h-[32rem] overflow-auto pb-2">
+        <div className="pb-2 max-lg:max-h-[60dvh] max-lg:overflow-y-auto">
           {(builder.aboutCompany || sellsToCompany) && (
             <>
               <p className="px-4 pb-1 pt-3 text-[9px] font-bold uppercase tracking-wider text-slate-400">
@@ -1695,6 +1791,7 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
                 key={domain.key}
                 options={domain.options}
                 askedHere={askedHere}
+                onStatus={setStatusOf}
                 onAdd={(option, card, quantity) =>
                   add(
                     option,
@@ -1746,7 +1843,7 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
                             </p>
                           </td>
                           <td className="px-3 py-2.5 align-middle">
-                            <div className="flex flex-wrap items-center justify-end gap-1.5">
+                            <div className="flex flex-nowrap items-center justify-end gap-1.5 overflow-x-auto max-sm:justify-start">
                               {card.actions.map((action) => {
                                 const here = askedHere(
                                   action.targets,
@@ -1759,7 +1856,7 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
                                 return (
                                   <React.Fragment key={action.operation_code}>
                                     {here > 0 && (
-                                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+                                      <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
                                         {all ? 'Asked' : `${here} asked`}
                                       </span>
                                     )}
@@ -1768,47 +1865,26 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
                                       disabled={all || operations.isPreviousData}
                                       title={all ? 'Already asked for in this request' : undefined}
                                       onClick={() => setService({ option: action, card })}
-                                      className={`${
-                                        action.operation_code === 'service.add'
-                                          ? quickPrimary
-                                          : quickBtn
-                                      } disabled:cursor-not-allowed disabled:opacity-40`}
+                                      className={`${actionBtn(
+                                        action.operation_code
+                                      )} disabled:cursor-not-allowed disabled:opacity-40`}
                                     >
                                       {action.operation_label}
                                       {action.applicable_target_count > 0 &&
                                         ` · ${all ? action.applicable_target_count : left}`}
                                     </button>
-                                    <p className="w-full text-right text-[10px] text-slate-500">
-                                      {selectionLine(counted)} ·{' '}
-                                      {eligibleLine(
-                                        action.applicable_target_count,
-                                        card.service_scope === 'Device'
-                                      )}
-                                    </p>
-                                    <p className="w-full text-right text-[10px] text-slate-500">
-                                      {action.excluded_subject_count > 0 && (
-                                        <>{exclusionNote(action)} — </>
-                                      )}
-                                      <button
-                                        type="button"
-                                        title={`${action.operation_label} ${card.object_label}`}
-                                        onClick={() =>
-                                          setExplaining({
-                                            option: action,
-                                            label: card.object_label,
-                                            deviceScoped: card.service_scope === 'Device',
-                                          })
-                                        }
-                                        className="font-semibold text-blue-700 hover:underline"
-                                      >
-                                        {action.excluded_subject_count > 0
-                                          ? `Why only ${action.applicable_target_count}?`
-                                          : 'View exclusions'}
-                                      </button>
-                                    </p>
                                   </React.Fragment>
                                 );
                               })}
+                              <button
+                                type="button"
+                                aria-label={`View service status for ${card.object_label}`}
+                                title={`See which targets have ${card.object_label} and since when`}
+                                onClick={() => setStatusOf(card)}
+                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+                              >
+                                <Info size={14} />
+                              </button>
                             </div>
                           </td>
                         </tr>
@@ -2000,6 +2076,8 @@ const RequestActionsStep: React.FC<{ builder: Builder }> = ({ builder }) => {
           onClose={() => setExplaining(null)}
         />
       )}
+
+      {statusOf && <ServiceStatus card={statusOf} onClose={() => setStatusOf(null)} />}
 
       {service && (
         <ServiceImpact
