@@ -246,6 +246,7 @@ const operations = {
           current_count: 1,
           without_count: 1,
           actions: [endNextcloud],
+          service_status_rows: [],
         },
       ],
     },
@@ -2186,6 +2187,26 @@ describe('why an action reaches the targets it reaches', () => {
       ],
     }) as never;
 
+  const asDeviceAct = (operations: {
+    domains: { options: { actions: portal.RequestOperationOption[] }[] }[];
+  }) => ({
+    customer: 'KAKIVU',
+    selected_subject_count: 0,
+    domains: [
+      {
+        key: 'Device' as const,
+        label: 'Devices',
+        options: [
+          {
+            ...operations.domains[0].options[0].actions[0],
+            operation_code: 'device.assign',
+            operation_label: 'Assign Device',
+          },
+        ],
+      },
+    ],
+  });
+
   const scene = (rows: portal.RequestSubjectRow[], operations: unknown) => {
     setUp();
     vi.mocked(portal.getCompanySelection).mockResolvedValue({
@@ -2244,7 +2265,7 @@ describe('why an action reaches the targets it reaches', () => {
     ];
   };
 
-  it('reads 24 people, 22 linked devices and 22 eligible devices on the row itself', async () => {
+  it('reads the server count of an action on its button, and no selection copy beside it', async () => {
     const rows = kakivu();
     scene(
       rows,
@@ -2257,27 +2278,41 @@ describe('why an action reaches the targets it reaches', () => {
 
     const row = await toActions('NAWAZDDINE (Stolen PC)');
 
-    expect(
-      within(row).getByText('24 people selected · 22 linked devices · 22 eligible devices')
-    ).toBeInTheDocument();
-    expect(within(row).getByText(/2 people without a linked device/)).toBeInTheDocument();
     expect(within(row).getByRole('button', { name: 'Add · 22' })).toBeInTheDocument();
-    expect(within(row).getByRole('button', { name: 'Why only 22?' })).toBeInTheDocument();
+    expect(within(row).queryByText(/people selected/)).not.toBeInTheDocument();
+    expect(within(row).queryByText(/without a linked device/)).not.toBeInTheDocument();
+    expect(within(row).queryByRole('button', { name: 'Why only 22?' })).not.toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
+
+  const toDeviceActions = async (last: string) => {
+    show();
+    fireEvent.click(screen.getByRole('button', { name: /Entire company/ }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Add entire company' })).toBeEnabled()
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Add entire company' }));
+    await screen.findByText(last);
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
+    await screen.findByText('Group actions stay explicit');
+
+    return (await screen.findByText('Assign Device')).closest('tr') as HTMLElement;
+  };
 
   it('names who is left out and the reason the server gave, without touching anything', async () => {
     const rows = kakivu();
     scene(
       rows,
-      datto(
-        rows.slice(0, 22).map((row, index) => target(row, machine(index + 1))),
-        rows.slice(22).map((row) => excluded(row, 'NO_CURRENT_DEVICE', 'Person has no current Device.')),
-        24
+      asDeviceAct(
+        datto(
+          rows.slice(0, 22).map((row, index) => target(row, machine(index + 1))),
+          rows.slice(22).map((row) => excluded(row, 'NO_CURRENT_DEVICE', 'Person has no current Device.')),
+          24
+        )
       )
     );
 
-    const row = await toActions('NAWAZDDINE (Stolen PC)');
+    const row = await toDeviceActions('NAWAZDDINE (Stolen PC)');
     fireEvent.click(within(row).getByRole('button', { name: 'Why only 22?' }));
 
     const panel = lastDialog();
@@ -2296,7 +2331,7 @@ describe('why an action reaches the targets it reaches', () => {
     expect(portal.updateRequest).not.toHaveBeenCalled();
   });
 
-  it('counts one person with two machines as one person and two devices', async () => {
+  it('takes the count of an action from the server for one person with two machines', async () => {
     const rows = [person('CU-100', 'Holder 1', [machine(1), machine(2)])];
     scene(
       rows,
@@ -2305,13 +2340,10 @@ describe('why an action reaches the targets it reaches', () => {
 
     const row = await toActions('Holder 1');
 
-    expect(
-      within(row).getByText('1 person selected · 2 linked devices · 2 eligible devices')
-    ).toBeInTheDocument();
-    expect(within(row).getByRole('button', { name: 'View exclusions' })).toBeInTheDocument();
+    expect(within(row).getByRole('button', { name: 'Add · 2' })).toBeInTheDocument();
   });
 
-  it('counts a machine two people share once', async () => {
+  it('takes the count of an action from the server for a machine two people share', async () => {
     const shared = machine(7);
     const rows = [
       person('CU-100', 'Holder 1', [shared]),
@@ -2321,23 +2353,20 @@ describe('why an action reaches the targets it reaches', () => {
 
     const row = await toActions('Holder 2');
 
-    expect(
-      within(row).getByText('2 people selected · 1 linked device · 1 eligible device')
-    ).toBeInTheDocument();
+    expect(within(row).getByRole('button', { name: 'Add · 1' })).toBeInTheDocument();
   });
 
   it('says a person holds nothing rather than offering them a machine service', async () => {
     const rows = [person('CU-100', 'Holder 1', [])];
     scene(
       rows,
-      datto([], [excluded(rows[0], 'NO_CURRENT_DEVICE', 'Person has no current Device.')], 1)
+      asDeviceAct(
+        datto([], [excluded(rows[0], 'NO_CURRENT_DEVICE', 'Person has no current Device.')], 1)
+      )
     );
 
-    const row = await toActions('Holder 1');
+    const row = await toDeviceActions('Holder 1');
 
-    expect(
-      within(row).getByText('1 person selected · 0 linked devices · 0 eligible devices')
-    ).toBeInTheDocument();
     fireEvent.click(within(row).getByRole('button', { name: 'Why only 0?' }));
 
     const panel = lastDialog();
@@ -2359,18 +2388,20 @@ describe('why an action reaches the targets it reaches', () => {
     ];
     scene(
       rows,
-      datto(
-        [target(rows[0], machine(1))],
-        [
-          excluded(rows[1], 'ALREADY_ACTIVE', 'Service is already active.', machine(2)),
-          excluded(rows[2], 'PENDING_CONFLICT', 'Another request is already changing this service.', machine(3)),
-          excluded(rows[3], 'DEVICE_NOT_ACTIVE', 'This Device is not active.'),
-        ],
-        4
+      asDeviceAct(
+        datto(
+          [target(rows[0], machine(1))],
+          [
+            excluded(rows[1], 'ALREADY_ACTIVE', 'Service is already active.', machine(2)),
+            excluded(rows[2], 'PENDING_CONFLICT', 'Another request is already changing this service.', machine(3)),
+            excluded(rows[3], 'DEVICE_NOT_ACTIVE', 'This Device is not active.'),
+          ],
+          4
+        )
       )
     );
 
-    const row = await toActions('Holder 4');
+    const row = await toDeviceActions('Holder 4');
 
     expect(within(row).getByText(/3 not eligible/)).toBeInTheDocument();
     fireEvent.click(within(row).getByRole('button', { name: 'Why only 1?' }));
@@ -2400,8 +2431,6 @@ describe('why an action reaches the targets it reaches', () => {
     );
 
     const row = await toActions('NAWAZDDINE (Stolen PC)');
-    fireEvent.click(within(row).getByRole('button', { name: 'Why only 22?' }));
-    fireEvent.click(within(lastDialog()).getByRole('button', { name: 'Done' }));
     fireEvent.click(within(row).getByRole('button', { name: 'Add · 22' }));
     fireEvent.click(within(lastDialog()).getByRole('button', { name: 'Add action' }));
 
@@ -2568,5 +2597,149 @@ describe('saving a draft', () => {
 
     expect(portal.createRequest).not.toHaveBeenCalled();
     expect(portal.updateRequest).not.toHaveBeenCalled();
+  });
+});
+
+describe('the services table of the Actions step', () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  const eleven = Array.from({ length: 11 }, () => endNextcloud.targets[0]);
+  const suspendNextcloud = {
+    ...endNextcloud,
+    targets: eleven,
+    operation_code: 'service.suspend',
+    operation_label: 'Suspend',
+    operation_label_snapshot: 'Suspend Nextcloud',
+    applicable_target_count: 11,
+  };
+  const addNextcloud = {
+    ...endNextcloud,
+    targets: eleven,
+    operation_code: 'service.add',
+    operation_label: 'Add',
+    operation_label_snapshot: 'Add Nextcloud',
+    applicable_target_count: 11,
+  };
+  const endEleven = { ...endNextcloud, targets: eleven, applicable_target_count: 11 };
+
+  const withStatus = (rows: portal.RequestServiceStatusRow[]) => ({
+    ...operations,
+    domains: [
+      {
+        ...operations.domains[0],
+        options: [
+          {
+            ...operations.domains[0].options[0],
+            actions: [addNextcloud, suspendNextcloud, endEleven],
+            service_status_rows: rows,
+          },
+        ],
+      },
+    ],
+  });
+
+  const rows: portal.RequestServiceStatusRow[] = [
+    {
+      subject_key: 'user:CU-001',
+      client_user: 'CU-001',
+      full_name: 'Alice Ndom',
+      target_scope: 'Device',
+      managed_device: 'MD-1',
+      device_label: 'ACI-LT-011',
+      device_serial_number: 'SN-011',
+      status: 'Active',
+      status_since: '2026-03-02',
+    },
+    {
+      subject_key: 'user:CU-002',
+      client_user: 'CU-002',
+      full_name: 'Brice Mvondo',
+      target_scope: 'User',
+      managed_device: null,
+      device_label: null,
+      status: 'No device',
+      status_since: null,
+    },
+  ];
+
+  const open = async (statusRows = rows) => {
+    setUp();
+    vi.mocked(portal.evaluateRequestOperations).mockResolvedValue(withStatus(statusRows) as never);
+    show();
+    await addAlice();
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
+    await screen.findByText('Group actions stay explicit');
+    await pickScope('All selected');
+
+    return (await screen.findByText('Nextcloud')).closest('tr') as HTMLElement;
+  };
+
+  it('keeps the actions of a service in one group, without repeated selection or exclusion text', async () => {
+    const row = await open();
+    const add = within(row).getByRole('button', { name: 'Add · 11' });
+    const info = within(row).getByRole('button', { name: 'View service status for Nextcloud' });
+
+    expect(add.parentElement).toBe(info.parentElement);
+    expect(add.parentElement).toHaveClass('flex-nowrap');
+    expect(within(row).getByRole('button', { name: 'Suspend · 11' }).parentElement).toBe(
+      add.parentElement
+    );
+    expect(within(row).getByRole('button', { name: 'End · 11' })).toBeInTheDocument();
+    expect(within(row).queryByText(/selected/)).not.toBeInTheDocument();
+    expect(within(row).queryByText(/eligible/)).not.toBeInTheDocument();
+    expect(within(row).queryByText(/Why only/)).not.toBeInTheDocument();
+    expect(within(row).queryByText('View exclusions')).not.toBeInTheDocument();
+  });
+
+  it('keeps the server count on each action', async () => {
+    const row = await open();
+
+    expect(within(row).getByRole('button', { name: 'Add · 11' })).toBeEnabled();
+    expect(within(row).getByRole('button', { name: 'Suspend · 11' })).toBeEnabled();
+    expect(within(row).getByRole('button', { name: 'End · 11' })).toBeEnabled();
+  });
+
+  it('opens the status table with exactly Target, Status and Since, and a dash for no date', async () => {
+    const row = await open();
+    fireEvent.click(within(row).getByRole('button', { name: 'View service status for Nextcloud' }));
+
+    const dialog = lastDialog();
+    const headers = within(dialog).getAllByRole('columnheader');
+
+    expect(headers.map((header) => header.textContent)).toEqual(['Target', 'Status', 'Since']);
+    expect(within(dialog).getByText('ACI-LT-011 · SN: SN-011')).toBeInTheDocument();
+    expect(within(dialog).getByText('2026-03-02')).toBeInTheDocument();
+    const brice = within(dialog).getByText('Brice Mvondo').closest('tr') as HTMLElement;
+    expect(within(brice).getByText('No device')).toBeInTheDocument();
+    expect(within(brice).getByText('—')).toBeInTheDocument();
+  });
+
+  it('closes the status table on Escape', async () => {
+    const row = await open();
+    fireEvent.click(within(row).getByRole('button', { name: 'View service status for Nextcloud' }));
+    expect(lastDialog()).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('says so when the server sends no status rows', async () => {
+    const row = await open([]);
+    fireEvent.click(within(row).getByRole('button', { name: 'View service status for Nextcloud' }));
+
+    expect(within(lastDialog()).queryByRole('table')).not.toBeInTheDocument();
+    expect(within(lastDialog()).getByText(/No target has a status/)).toBeInTheDocument();
+  });
+
+  it('no longer caps the navigation rail at 32rem on a desktop', async () => {
+    await open();
+    const body = within(rail()).getByText('Groups').parentElement as HTMLElement;
+
+    expect(body.className).not.toContain('max-h-[32rem]');
+    expect(body).toHaveClass('max-lg:max-h-[60dvh]');
   });
 });

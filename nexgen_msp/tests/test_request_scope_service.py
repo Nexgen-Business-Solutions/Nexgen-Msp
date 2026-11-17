@@ -686,3 +686,207 @@ class TestAServiceAMachineAlreadyRunsIsNotOfferedAgain(RequestScopeCase):
 
         self.assertNotIn("service.resume", codes, "the pause has not started")
         self.assertEqual(codes, set(), "a pause is already set: nothing more until it starts")
+
+
+class TestWhereAServiceStandsOnEveryTarget(RequestScopeCase):
+    """The three columns the service row answers with: target, status, and since when.
+
+    An act is read from eligibility, which keeps only what it can reach — somebody who
+    already holds the service is left out of Add, somebody who held it once is left out of
+    everything. The row still has to say where the service stands on each of them, so these
+    read the whole selection instead, and every date comes from a record.
+    """
+
+    def day(self, back):
+        return frappe.utils.add_days(frappe.utils.today(), -back)
+
+    def status_rows(self, service, *people):
+        options = self.as_user(
+            self.asker,
+            lambda: RequestScopeService.operation_options(
+                customer=self.customer, subjects=self.subjects(*people)
+            ),
+        )
+        services = next(
+            (domain for domain in options["domains"] if domain["key"] == "Service"), None
+        )
+        card = next(
+            (
+                option
+                for option in (services or {}).get("options", [])
+                if option["object_key"] == service
+            ),
+            None,
+        )
+
+        return card["service_status_rows"] if card else []
+
+    def one_row(self, service, person):
+        rows = [row for row in self.status_rows(service, person) if row["client_user"] == person]
+        self.assertEqual(len(rows), 1, rows)
+
+        return rows[0]
+
+    def opened(self, person, when, service=None):
+        outcome = ServiceLifecycleService.activate(
+            customer=self.customer,
+            service_item=service or self.service,
+            target_scope="User",
+            client_user=person,
+            effective_date=when,
+        )
+
+        return self.track(ASSIGNMENT, outcome["name"])
+
+    def test_a_running_service_is_dated_from_the_day_it_started(self):
+        self.opened(self.alice, self.day(40))
+
+        row = self.one_row(self.service, self.alice)
+
+        self.assertEqual(row["status"], "Active")
+        self.assertEqual(row["status_since"], self.day(40))
+
+    def test_a_target_no_act_can_reach_is_still_answered_for(self):
+        """Already holding it is a reason to be left out of Add, not a reason to be unread."""
+        self.opened(self.alice, self.day(40))
+
+        add = self.evaluate(self.subjects(self.alice, self.brice), "service.add")
+
+        self.assertEqual(
+            [entry["client_user"] for entry in add["targets"]],
+            [self.brice],
+            "only the one who holds nothing can be given it",
+        )
+        self.assertEqual(
+            [(entry["client_user"], entry["reason_code"]) for entry in add["exclusions"]],
+            [(self.alice, "ALREADY_ACTIVE")],
+        )
+
+        rows = {
+            row["client_user"]: row for row in self.status_rows(self.service, self.alice, self.brice)
+        }
+
+        self.assertEqual(rows[self.alice]["status"], "Active", "left out of Add, still read")
+        self.assertEqual(rows[self.alice]["status_since"], self.day(40))
+        self.assertEqual(rows[self.brice]["status"], "Not subscribed")
+
+    def test_a_paused_service_is_dated_from_the_pause(self):
+        assignment = self.opened(self.alice, self.day(40))
+        ServiceLifecycleService.suspend(assignment=assignment, effective_date=self.day(10))
+
+        row = self.one_row(self.service, self.alice)
+
+        self.assertEqual(row["status"], "Suspended")
+        self.assertEqual(row["status_since"], self.day(10))
+
+    def test_a_service_served_again_is_dated_from_the_day_it_came_back(self):
+        assignment = self.opened(self.alice, self.day(40))
+        ServiceLifecycleService.suspend(assignment=assignment, effective_date=self.day(20))
+        ServiceLifecycleService.resume(assignment=assignment, effective_date=self.day(5))
+
+        row = self.one_row(self.service, self.alice)
+
+        self.assertEqual(row["status"], "Active")
+        self.assertEqual(
+            row["status_since"], self.day(5), "the day it came back, not the day it started"
+        )
+
+    def test_a_closed_service_is_dated_from_its_last_day(self):
+        assignment = self.opened(self.alice, self.day(40))
+        ServiceLifecycleService.end(assignment=assignment, effective_date=self.day(10))
+
+        row = self.one_row(self.service, self.alice)
+
+        self.assertEqual(row["status"], "Ended")
+        self.assertEqual(row["status_since"], self.day(10))
+
+    def test_the_last_day_read_is_the_last_one_there_was(self):
+        first = self.opened(self.alice, self.day(60))
+        ServiceLifecycleService.end(assignment=first, effective_date=self.day(50))
+        again = self.opened(self.alice, self.day(40))
+        ServiceLifecycleService.end(assignment=again, effective_date=self.day(20))
+
+        self.assertEqual(self.one_row(self.service, self.alice)["status_since"], self.day(20))
+
+    def test_a_close_set_for_a_day_to_come_leaves_it_running_today(self):
+        assignment = self.opened(self.alice, self.day(40))
+        # closed for a day still ahead, as a request may ask: the lifecycle refuses to end a
+        # service in the future, so the record is written the way a dated request leaves it
+        frappe.db.set_value(
+            ASSIGNMENT,
+            assignment,
+            {
+                "effective_end_date": frappe.utils.add_days(frappe.utils.today(), 10),
+                "operational_status": "Ended",
+            },
+            update_modified=False,
+        )
+        frappe.db.commit()
+
+        rows = {
+            row["client_user"]: row for row in self.status_rows(self.service, self.alice, self.brice)
+        }
+
+        self.assertEqual(
+            rows[self.alice]["status"], "Active", "it is still being provided until that day"
+        )
+        self.assertEqual(rows[self.alice]["status_since"], self.day(40))
+
+    def test_a_service_nobody_holds_is_not_dated(self):
+        row = self.one_row(self.service, self.brice)
+
+        self.assertEqual(row["status"], "Not subscribed")
+        self.assertIsNone(row["status_since"])
+
+    def test_a_person_with_no_machine_says_so_without_one_being_invented(self):
+        service = self.make_service(f"SD{self.tag[:3]}", scope="Device")
+        self.cover_service(self.customer, service)
+
+        row = self.one_row(service, self.brice)
+
+        self.assertEqual(row["status"], "No device")
+        self.assertIsNone(row["managed_device"])
+        self.assertIsNone(row["status_since"])
+
+    def test_each_machine_of_the_same_person_answers_for_itself(self):
+        service = self.make_service(f"SE{self.tag[:3]}", scope="Device")
+        self.cover_service(self.customer, service)
+        running = self.make_device(self.customer, hostname=f"ON{self.tag[:3]}", holder=self.alice)
+        bare = self.make_device(self.customer, hostname=f"OFF{self.tag[:3]}", holder=self.alice)
+        self.track(
+            ASSIGNMENT,
+            ServiceLifecycleService.activate(
+                customer=self.customer,
+                service_item=service,
+                target_scope="Device",
+                managed_device=running,
+                effective_date=self.day(15),
+            )["name"],
+        )
+
+        rows = {row["managed_device"]: row for row in self.status_rows(service, self.alice)}
+
+        self.assertEqual(rows[running]["status"], "Active")
+        self.assertEqual(rows[running]["status_since"], self.day(15))
+        self.assertEqual(rows[bare]["status"], "Not subscribed")
+        self.assertIsNone(rows[bare]["status_since"])
+
+    def test_another_customer_holding_it_is_no_business_of_this_one(self):
+        other = self.make_customer(f"SO{self.tag[:4]}")
+        self.cover_service(other, self.service)
+        stranger = self.make_person(other, "Stranger")
+        self.track(
+            ASSIGNMENT,
+            ServiceLifecycleService.activate(
+                customer=other,
+                service_item=self.service,
+                target_scope="User",
+                client_user=stranger,
+                effective_date=self.day(30),
+            )["name"],
+        )
+
+        rows = self.status_rows(self.service, self.alice)
+
+        self.assertEqual([row["client_user"] for row in rows], [self.alice])
+        self.assertEqual(rows[0]["status"], "Not subscribed")

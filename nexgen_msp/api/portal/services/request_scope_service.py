@@ -237,6 +237,7 @@ def _load_state(customer, drafts, editing=None):
         "holdings": holdings,
         "standalone": standalone,
         "assignments": assignments,
+        "closed": _closed_history(customer, existing, devices),
         "billed": _billed_through(
             [row["assignment"] for rows in assignments["by_user"].values() for row in rows]
         ),
@@ -394,8 +395,8 @@ def _assignments(customer, people, devices):
     rows = frappe.db.sql(
         """
         select sa.name as assignment, sa.service_item, sa.assignment_scope, sa.client_user,
-               sa.managed_device, sa.operational_status, sa.effective_end_date,
-               coalesce(item.item_name, sa.service_item) as label
+               sa.managed_device, sa.operational_status, sa.effective_start_date,
+               sa.effective_end_date, coalesce(item.item_name, sa.service_item) as label
         from `tabMSP Service Assignment` sa
         left join `tabItem` item on item.name = sa.service_item
         where sa.customer = %(customer)s
@@ -446,6 +447,9 @@ def _assignments(customer, people, devices):
         # and a service already spoken for is nobody's to act on until that day comes: the
         # lifecycle reads the record, not the calendar, and would refuse what is offered
         entry["dated_change"] = entry["operational_status"] != row.operational_status
+        entry["status_since"] = _since(
+            entry["operational_status"], row, pauses.get(row.assignment)
+        )
 
         if row.assignment_scope == "User":
             by_user.setdefault(row.client_user, []).append(entry)
@@ -606,6 +610,95 @@ def _project(draft, state):
     }
 
 
+def _since(status, row, pauses):
+    """The day a service reached the state it is in today.
+
+    Active since it started, or since the day it was served again when a pause came before;
+    suspended since the pause in force; ended on its last day. A state no record can date is
+    left undated rather than given a day of its own.
+    """
+    today = frappe.utils.getdate(frappe.utils.today())
+
+    if status == "Suspended":
+        return _pause_in_force(pauses, today)
+
+    if status == "Ended":
+        return row.get("effective_end_date")
+
+    back = [
+        frappe.utils.getdate(pause.get("resumed_on"))
+        for pause in pauses or []
+        if pause.get("resumed_on") and frappe.utils.getdate(pause["resumed_on"]) <= today
+    ]
+    started = row.get("effective_start_date")
+
+    if back and (not started or frappe.utils.getdate(started) < max(back)):
+        return max(back)
+
+    return started
+
+
+def _pause_in_force(pauses, day):
+    """The day the pause covering this day began, read the way eligibility reads it."""
+    for pause in reversed(pauses or []):
+        started = pause.get("suspended_on")
+
+        if not started or frappe.utils.getdate(started) > day:
+            continue
+
+        resumed = pause.get("resumed_on")
+
+        if not resumed or frappe.utils.getdate(resumed) > day:
+            return started
+
+    return None
+
+
+def _closed_history(customer, people, devices):
+    """The last day each service was provided, for the ones no longer being provided.
+
+    A service that has ended leaves the reading the acts are built from, which keeps only
+    what is still running. The screen is asked a different question — where does this
+    service stand on each target — and an ended one has an answer: the day it stopped.
+    """
+    by_user, by_device = {}, {}
+
+    if not people and not devices:
+        return {"by_user": by_user, "by_device": by_device}
+
+    rows = frappe.db.sql(
+        """
+        select sa.assignment_scope, sa.client_user, sa.managed_device, sa.service_item,
+               max(sa.effective_end_date) as ended_on
+        from `tabMSP Service Assignment` sa
+        where sa.customer = %(customer)s
+          and sa.operational_status = 'Ended'
+          and sa.effective_end_date is not null
+          and sa.effective_end_date <= %(today)s
+          and (
+            (sa.assignment_scope = 'User' and sa.client_user in %(people)s)
+            or (sa.assignment_scope = 'Device' and sa.managed_device in %(devices)s)
+          )
+        group by sa.assignment_scope, sa.client_user, sa.managed_device, sa.service_item
+        """,
+        {
+            "customer": customer,
+            "today": frappe.utils.today(),
+            "people": tuple(people) or ("",),
+            "devices": tuple(devices) or ("",),
+        },
+        as_dict=True,
+    )
+
+    for row in rows:
+        if row.assignment_scope == "User":
+            by_user.setdefault(row.client_user, {})[row.service_item] = row.ended_on
+        else:
+            by_device.setdefault(row.managed_device, {})[row.service_item] = row.ended_on
+
+    return {"by_user": by_user, "by_device": by_device}
+
+
 def _project_machine(draft, state):
     """A machine nobody holds, shown in the People table in its own right.
 
@@ -739,6 +832,7 @@ def _service_domain(customer, rows, state):
             "current_count": 0,
             "without_count": 0,
             "actions": [],
+            "service_status_rows": _status_rows(item, scope, rows, state),
         }
         evaluated = {code: _evaluate_service(code, item, scope, rows, state) for code in SERVICE_CODES}
         card["current_count"] = evaluated["service.end"]["applicable_target_count"]
@@ -762,6 +856,107 @@ def _service_domain(customer, rows, state):
             options.append(card)
 
     return {"key": "Service", "label": "Services", "options": options}
+
+
+def _status_rows(item, scope, rows, state):
+    """Where this service stands on every target of the selection, and since when.
+
+    The acts are read from eligibility, which keeps only what each one can reach: a target
+    that already holds the service drops out of Add, and one that holds it no longer drops
+    out of all of them. This answers the question the row raises instead — what is this
+    service doing on each of these people and machines — so it walks the whole selection
+    and never an eligible list.
+    """
+    wanted = ("User", "Device") if scope == "Both" else (scope,)
+    machines_only = wanted == ("Device",)
+    out, seen = [], set()
+
+    for row in rows:
+        held = []
+        machines = _machines_in(row, state) if "Device" in wanted else []
+
+        if "User" in wanted and row["kind"] != "device":
+            personal = _held_by("by_user", row["client_user"], item, state)
+
+            if personal:
+                held.append(("User", None, personal))
+
+        for device in machines:
+            running = _held_by("by_device", device["name"], item, state)
+
+            # a machine of its own is a target of its own: one that runs nothing is read as
+            # running nothing rather than left out with the one next to it
+            if running or machines_only:
+                held.append(("Device", device, running or {"status": "Not subscribed"}))
+
+        for target_scope, device, entry in held:
+            _add_status_row(out, seen, row, target_scope, device, entry)
+
+        if held:
+            continue
+
+        nothing = {"status": "Not subscribed"}
+
+        if machines_only:
+            _add_status_row(out, seen, row, "Device", None, {"status": "No device"})
+        elif row["kind"] == "device":
+            _add_status_row(out, seen, row, "Device", machines[0] if machines else None, nothing)
+        else:
+            _add_status_row(out, seen, row, "User", None, nothing)
+
+    return out
+
+
+def _machines_in(row, state):
+    """The machines of this row a service may run on, the ones arriving included."""
+    held = {device["name"] for device in row["devices"] if device.get("name")}
+
+    return list(row["devices"]) + [
+        device
+        for device in _coming_to(row, state)
+        if device.get("name") and device["name"] not in held
+    ]
+
+
+def _held_by(side, holder, item, state):
+    """What this service is doing on one holder: running, paused, or stopped on a known day."""
+    if not holder:
+        return None
+
+    for entry in state["assignments"][side].get(holder, []):
+        if entry["service_item"] == item:
+            return {
+                "status": entry["operational_status"],
+                "status_since": entry.get("status_since"),
+            }
+
+    ended_on = state["closed"][side].get(holder, {}).get(item)
+
+    return {"status": "Ended", "status_since": ended_on} if ended_on else None
+
+
+def _add_status_row(out, seen, row, target_scope, device, entry):
+    """One line per target, whatever the act it was left out of."""
+    key = (row["subject_key"], target_scope, device["name"] if device else None)
+
+    if key in seen:
+        return
+
+    seen.add(key)
+    since = entry.get("status_since")
+    out.append(
+        {
+            "subject_key": row["subject_key"],
+            "client_user": row["client_user"],
+            "full_name": row["full_name"],
+            "target_scope": target_scope,
+            "managed_device": device["name"] if device else None,
+            "device_label": device["label"] if device else None,
+            "device_serial_number": device.get("serial_number") if device else None,
+            "status": entry["status"],
+            "status_since": str(frappe.utils.getdate(since)) if since else None,
+        }
+    )
 
 
 def _waits_for_a_machine(code, outcome):
@@ -866,6 +1061,7 @@ def _read_arriving_services(customer, state):
 
     if missing:
         known.update(_assignments(customer, [], missing)["by_device"])
+        state["closed"]["by_device"].update(_closed_history(customer, [], missing)["by_device"])
 
 
 def _running_on(device, item, state):
