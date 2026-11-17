@@ -156,7 +156,9 @@ const WorkTable: React.FC<Props> = ({
             <tr key={card.name} data-work-order={card.name} className="border-b border-slate-100 last:border-b-0">
               <td className="px-3 py-2.5 align-middle">
                 <p className="flex flex-wrap items-center gap-1.5 text-xs font-semibold text-slate-900">
-                  {card.managed_device ? (
+                  {card.target.kind === 'customer' ? (
+                    card.target.label
+                  ) : card.managed_device ? (
                     <RecordLink name={card.managed_device} kind="device">
                       {card.target.label}
                     </RecordLink>

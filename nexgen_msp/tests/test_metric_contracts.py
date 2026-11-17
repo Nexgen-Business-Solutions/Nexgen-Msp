@@ -188,3 +188,74 @@ class TestTheCustomerReadsOnlyFacts(MetricCase):
             summary["active_devices"],
             frappe.db.count("MSP Managed Device", {"customer": self.customer, "status": "Active"}),
         )
+
+
+class TestHowManyServicesACustomerHasRunningToday(MetricCase):
+    """The customers list says what is being provided now, not what is on file.
+
+    Billable services counts what may be charged for; this counts what is running, at
+    whatever scope, read on the same clock as everything else: a close or a pause dated
+    ahead has not happened yet, and one in force means the service is not being provided.
+    """
+
+    def row(self):
+        from nexgen_msp.api.internal.services.contract_service import ContractService
+
+        rows = self.as_user(self.admin, lambda: ContractService.list_contracts())
+        mine = [row for row in rows if row["customer"] == self.customer]
+
+        self.assertEqual(len(mine), 1)
+
+        return mine[0]
+
+    def test_a_service_of_each_scope_is_counted_once(self):
+        machine = self.make_device(self.customer, hostname=f"AS{self.tag[:3]}", holder=self.stayer)
+        self.running(self.offering("AS1"), client_user=self.stayer)
+        self.running(self.offering("AS2", scope="Device"), scope="Device", managed_device=machine)
+        self.running(self.offering("AS3", scope="Customer"), scope="Customer")
+
+        self.assertEqual(self.row()["active_services"], 3)
+
+    def test_a_paused_service_is_not_being_provided(self):
+        held = self.running(self.offering("AS4"), client_user=self.stayer)
+        ServiceLifecycleService.suspend(assignment=held, confirm_billed=1)
+
+        self.assertEqual(self.row()["active_services"], 0)
+
+    def test_a_service_served_again_counts_again(self):
+        held = self.running(self.offering("AS5"), client_user=self.stayer)
+        ServiceLifecycleService.suspend(assignment=held, confirm_billed=1)
+        ServiceLifecycleService.resume(assignment=held, confirm_billed=1)
+
+        self.assertEqual(self.row()["active_services"], 1)
+
+    def test_a_service_that_ended_is_not_counted(self):
+        held = self.running(self.offering("AS6"), client_user=self.stayer)
+        ServiceLifecycleService.end(assignment=held, effective_date=frappe.utils.today())
+
+        self.assertEqual(self.row()["active_services"], 0)
+
+    def test_a_close_dated_ahead_is_still_being_provided(self):
+        held = self.running(self.offering("AS7"), client_user=self.stayer)
+        frappe.db.set_value(
+            "MSP Service Assignment",
+            held,
+            {
+                "operational_status": "Ended",
+                "effective_end_date": frappe.utils.add_days(frappe.utils.today(), 15),
+            },
+            update_modified=False,
+        )
+        frappe.db.commit()
+
+        self.assertEqual(self.row()["active_services"], 1)
+
+    def test_a_service_still_being_set_up_is_not_running_yet(self):
+        held = self.running(self.offering("AS8"), client_user=self.stayer)
+        frappe.db.set_value(
+            "MSP Service Assignment", held, "operational_status", "Pending Setup",
+            update_modified=False,
+        )
+        frappe.db.commit()
+
+        self.assertEqual(self.row()["active_services"], 0)

@@ -5,6 +5,7 @@ import { compactBadge, countStatuses, groupKeyOf, type ExecutionSelection } from
 
 type Props = {
   groups: ActionWorkGroup[];
+  companies?: { key: string; label: string; remaining: number }[];
   people: ExecutionPerson[];
   remaining: number;
   pendingByPerson: Record<string, number>;
@@ -27,7 +28,7 @@ const SectionTitle: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{children}</span>
 );
 
-const ExecutionRail: React.FC<Props> = ({ groups, people, remaining, pendingByPerson, selection, onSelect }) => {
+const ExecutionRail: React.FC<Props> = ({ groups, companies = [], people, remaining, pendingByPerson, selection, onSelect }) => {
   const [sectionOpen, setSectionOpen] = useState(true);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
@@ -124,6 +125,40 @@ const ExecutionRail: React.FC<Props> = ({ groups, people, remaining, pendingByPe
             );
           })}
         </div>
+      )}
+
+      {companies.length > 0 && (
+        <>
+          <div className="border-t border-slate-100 px-3 pb-1 pt-2">
+            <SectionTitle>Company</SectionTitle>
+          </div>
+          <div className="space-y-0.5 px-1.5 pb-2" role="list" aria-label="Company">
+            {companies.map((company) => {
+              const on = selection.kind === 'company' && selection.key === company.key;
+
+              return (
+                <div key={company.key} role="listitem">
+                  <button
+                    type="button"
+                    aria-current={on ? 'true' : undefined}
+                    onClick={() => onSelect({ kind: 'company', key: company.key })}
+                    className={navClass(on)}
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-xs font-semibold text-slate-900">{company.label}</span>
+                      <span className="block text-[11px] text-slate-500">
+                        {company.remaining
+                          ? `${company.remaining} item${company.remaining === 1 ? '' : 's'} remaining`
+                          : 'Done'}
+                      </span>
+                    </span>
+                    {company.remaining > 0 && <Count value={company.remaining} />}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
 
       <div className="border-t border-slate-100 px-3 pb-1 pt-2">

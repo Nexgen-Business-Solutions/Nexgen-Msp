@@ -811,9 +811,9 @@ export default function CustomerContract() {
                       <p className="text-sm font-semibold text-slate-900">{row.item_name}</p>
                       <p className="text-xs text-slate-400">{row.service_item}</p>
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-700">
-                      {row.quantity}
-                      {row.uom ? ` ${row.uom}` : ''}
+                    <td className="whitespace-nowrap px-4 py-3">
+                      <p className="text-sm text-slate-700">{row.quantity}</p>
+                      {row.uom && <p className="text-xs text-slate-400">Sold in {row.uom}</p>}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3">
                       <StatusBadge value={row.operational_status} />

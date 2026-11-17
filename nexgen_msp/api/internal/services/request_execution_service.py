@@ -129,6 +129,18 @@ class _Reading:
 		}
 		self._client_users = {}
 		self._devices = {}
+		self._company = None
+
+	@property
+	def company(self):
+		"""The customer as a target of its own, named the way the rest of the screen names it."""
+		if self._company is None:
+			self._company = (
+				frappe.db.get_value("Customer", self.doc.customer, "customer_name")
+				or self.doc.customer
+			)
+
+		return self._company
 
 	def client_user(self, name):
 		"""One Client User's card, read once."""
@@ -711,6 +723,18 @@ class RequestExecutionService:
 	@staticmethod
 	def _target(order, reading, relationship):
 		"""What a work order acts on, as its row names it."""
+		if order.target_scope == "Customer":
+			# nobody is named on a company service: the target is the company, and reading a
+			# person off a line that has none is what put a Client User here
+			return {
+				"kind": "customer",
+				"name": reading.doc.customer,
+				"requested_entity": None,
+				"label": reading.company,
+				"sublabel": "The company itself",
+				"badge": None,
+			}
+
 		if RequestExecutionService._on_machine(order):
 			requested = RequestExecutionService._requested_machine(order, reading)
 			device = reading.device(RequestExecutionService._device_target(order, reading))
@@ -2459,23 +2483,29 @@ class RequestExecutionService:
 	def _already_done(doc, order):
 		"""The service record that already shows what this line asked for, if one does."""
 		if order.action == "Add":
-			target = order.client_user if order.target_scope == "User" else order.managed_device
+			held = {
+				"User": ("client_user", order.client_user),
+				"Device": ("managed_device", order.managed_device),
+				# the company holds it in its own name: there is no person and no machine to
+				# look it up by, and looking for one is what left this line asking forever
+				"Customer": (None, doc.customer),
+			}.get(order.target_scope)
 
-			if not target or not order.service_item:
+			if not held or not held[1] or not order.service_item:
 				return None
 
-			found = frappe.get_all(
-				"MSP Service Assignment",
-				filters={
-					"customer": doc.customer,
-					"service_item": order.service_item,
-					"assignment_scope": order.target_scope,
-					("client_user" if order.target_scope == "User" else "managed_device"): target,
-					"operational_status": "Active",
-				},
-				pluck="name",
-				limit=1,
-			)
+			field, target = held
+			filters = {
+				"customer": doc.customer,
+				"service_item": order.service_item,
+				"assignment_scope": order.target_scope,
+				"operational_status": "Active",
+			}
+
+			if field:
+				filters[field] = target
+
+			found = frappe.get_all("MSP Service Assignment", filters=filters, pluck="name", limit=1)
 
 			return found[0] if found else None
 

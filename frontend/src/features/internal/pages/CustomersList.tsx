@@ -8,7 +8,7 @@ import StatusBadge from '@/shared/components/StatusBadge';
 import { useContractList } from '../hooks/useContracts';
 import CustomerModal from '../components/CustomerModal';
 
-const COLUMNS = ['Customer', 'Contract', 'Frequency', 'Billable services', 'Rates set', 'Billed up to', 'Status', ''];
+const COLUMNS = ['Customer', 'Contract', 'Frequency', 'Active services', 'Billable services', 'Rates set', 'Billed up to', 'Status', ''];
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
 
@@ -246,6 +246,11 @@ export default function CustomersList() {
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
                         {row.billing_frequency || 'N/A'}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3">
+                        <span className="inline-flex min-w-[2rem] justify-center rounded-lg bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 tabular-nums">
+                          {row.active_services}
+                        </span>
                       </td>
                       <td className="whitespace-nowrap px-4 py-3">
                         <span className="inline-flex min-w-[2rem] justify-center rounded-lg bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 tabular-nums">

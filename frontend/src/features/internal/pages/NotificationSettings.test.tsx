@@ -74,7 +74,7 @@ const overviewOf = (
   rules: internal.NotificationRule[],
   can_create: string[] = ['invoice_due']
 ): internal.NotificationOverview => ({
-  figures: { managed: 3, enabled: 3, reminders: 1, queued: 4, failed: 1, unknown: 2 },
+  figures: { managed: 3, enabled: 3, reminders: 1, pending: 2, queued: 4, sent: 9, failed: 1, unknown: 2 },
   rules,
   total: rules.length,
   page: 0,
@@ -157,7 +157,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe('Email & Notification Settings', () => {
+describe('Email Management', () => {
   it('shows the counts the server returned and never invents a date for an event', async () => {
     mockOverview();
     renderPage();

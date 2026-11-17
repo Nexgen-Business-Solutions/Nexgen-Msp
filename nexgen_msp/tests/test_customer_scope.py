@@ -2871,3 +2871,69 @@ class TestWhereACompanyServiceStands(CustomerScopeCase):
 
         self.assertEqual(row["status"], "Suspended")
         self.assertEqual(row["status_since"], frappe.utils.add_days(frappe.utils.today(), -2))
+
+
+class TestTheExecutionViewNamesTheCompany(ExecutionCase):
+    """Nobody is named on a company service, so nobody may be shown as its target.
+
+    The plan read a person off every line that was not about a machine, and a line about
+    the company has none — so it fell through to a Client User that does not exist.
+    """
+
+    def company_line(self, service, **fields):
+        return self.line(service, target_scope="Customer", client_user=None, **fields)
+
+    def card(self, request):
+        from nexgen_msp.api.internal.services.request_execution_service import (
+            RequestExecutionService,
+        )
+
+        plan = self.tech_does(
+            lambda: RequestExecutionService.get_execution_plan(request=request)
+        )
+
+        return plan["action_groups"][0]["work"][0]
+
+    def test_the_target_is_the_company_itself(self):
+        service = self.offering("CEX1", scope="Customer")
+        request = self.approved(self.company_line(service))
+
+        target = self.card(request)["target"]
+
+        self.assertEqual(target["kind"], "customer")
+        self.assertEqual(target["name"], self.customer)
+        self.assertEqual(target["sublabel"], "The company itself")
+
+    def test_a_company_service_opened_by_hand_settles_its_line(self):
+        """The ⋯ menu opens it on the company; the line must stop asking for it again."""
+        from nexgen_msp.api.internal.services.request_execution_service import (
+            RequestExecutionService,
+        )
+
+        service = self.offering("CEX2", scope="Customer")
+        request = self.approved(self.company_line(service))
+        held = self.track(
+            ASSIGNMENT,
+            ServiceLifecycleService.activate(
+                customer=self.customer,
+                service_item=service,
+                target_scope="Customer",
+                effective_date=frappe.utils.today(),
+                quantity=1,
+            )["name"],
+        )
+
+        self.tech_does(
+            lambda: RequestExecutionService.settle_work_done_elsewhere(request=request)
+        )
+
+        order = frappe.get_all(
+            "MSP Work Order",
+            filters={"request": request, "work_type": "Service Action"},
+            fields=["name", "status", "resulting_assignment"],
+        )[0]
+
+        self.assertEqual(
+            order.resulting_assignment, held, "the line is settled by the service that exists"
+        )
+        self.assertNotIn(order.status, ("Pending", "In Progress", "Blocked"))

@@ -1209,3 +1209,48 @@ class TestAQueueEntryIsTiedToItsDeliveryByAMark(NotificationCase):
 
         with patch.object(registry, "condition", return_value=adapter):
             self.assertEqual(NotificationDispatchService._retry_of(row), "manual")
+
+
+class TestEachDeliveryStateIsCountedForWhatItIs(NotificationCase):
+    """A record waiting to be taken is not mail in the queue, and neither one has been sent.
+
+    The page counted the two together under Queued, which read as mail handed to Frappe
+    when nothing had picked it up yet. One counter per state the record really holds.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.reference = f"{PREFIX}-FIG-{self.tag}"
+
+    def figures(self, **counts):
+        for status, total in counts.items():
+            for _ in range(total):
+                self.dispatch_row(
+                    f"{frappe.generate_hash(length=6)}@example.invalid",
+                    self.reference,
+                    status=status,
+                )
+
+        return NotificationSettingsService._figures()
+
+    def test_waiting_to_be_taken_is_not_waiting_in_the_queue(self):
+        before = NotificationSettingsService._figures()
+        after = self.figures(Pending=2, Queued=1)
+
+        self.assertEqual(after["pending"] - before["pending"], 2)
+        self.assertEqual(after["queued"] - before["queued"], 1)
+
+    def test_what_went_out_is_counted_on_its_own(self):
+        before = NotificationSettingsService._figures()
+        after = self.figures(Sent=3)
+
+        self.assertEqual(after["sent"] - before["sent"], 3)
+        self.assertEqual(after["queued"], before["queued"])
+        self.assertEqual(after["pending"], before["pending"])
+
+    def test_the_states_that_need_a_look_keep_their_own_counters(self):
+        before = NotificationSettingsService._figures()
+        after = self.figures(Failed=1, Unknown=2)
+
+        self.assertEqual(after["failed"] - before["failed"], 1)
+        self.assertEqual(after["unknown"] - before["unknown"], 2)

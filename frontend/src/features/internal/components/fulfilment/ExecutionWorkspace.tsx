@@ -16,11 +16,13 @@ import {
 } from '../../hooks/useRequests';
 import {
   allCards,
+  companiesOf,
   compactBadge,
   countStatuses,
   goesWith,
   groupKeyOf,
   involves,
+  isCompanyTarget,
   openEntityCount,
   personTableRows,
   openRequirements,
@@ -95,10 +97,22 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onSaved, onContinue
     return map;
   }, [plan.action_groups]);
 
+  const companies = useMemo(
+    () =>
+      companiesOf(cards).map((company) => ({
+        ...company,
+        remaining: countStatuses(
+          cards.filter((card) => isCompanyTarget(card) && card.target.name === company.key)
+        ).remaining,
+      })),
+    [cards]
+  );
+
   const valid = (selection: ExecutionSelection | null) => {
     if (!selection) return false;
     if (selection.kind === 'all') return true;
     if (selection.kind === 'group') return plan.action_groups.some((group) => groupKeyOf(group) === selection.key);
+    if (selection.kind === 'company') return companies.some((company) => company.key === selection.key);
     return plan.people.some((person) => person.subject_key === selection.key);
   };
   const kept = `msp.request.execution.${plan.request}`;
@@ -116,12 +130,17 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onSaved, onContinue
   const selectedPerson =
     selection.kind === 'person' ? plan.people.find((person) => person.subject_key === selection.key) : undefined;
 
+  const selectedCompany =
+    selection.kind === 'company' ? companies.find((company) => company.key === selection.key) : undefined;
+
   const view =
     selection.kind === 'group'
       ? (selectedGroup?.work ?? [])
       : selectedPerson
         ? cards.filter((card) => involves(card, selectedPerson))
-        : cards;
+        : selectedCompany
+          ? cards.filter((card) => isCompanyTarget(card) && card.target.name === selectedCompany.key)
+          : cards;
 
   const rows = selectedPerson
     ? personTableRows(selectedPerson, view, plan.requested_entities)
@@ -131,14 +150,16 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onSaved, onContinue
   const usernames = openRequirements(view, 'username');
   const serials = openRequirements(view, 'serial_number');
 
-  const title = selectedGroup?.label ?? selectedPerson?.full_name ?? 'All remaining work';
+  const title = selectedGroup?.label ?? selectedPerson?.full_name ?? selectedCompany?.label ?? 'All remaining work';
   const subtitle = selectedGroup
     ? [selectedGroup.scope_label, `${selectedGroup.total} target${selectedGroup.total === 1 ? '' : 's'}`]
         .filter(Boolean)
         .join(' · ')
     : selectedPerson
       ? [selectedPerson.department, 'all accepted work involving this person'].filter(Boolean).join(' · ')
-      : 'Every accepted Work Order';
+      : selectedCompany
+        ? 'The company itself · all accepted work on its own services'
+        : 'Every accepted Work Order';
 
   const refresh = () => {
     queryClient.invalidateQueries(requestKeys.plan(plan.request));
@@ -252,6 +273,7 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onSaved, onContinue
       <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[300px_minmax(0,1fr)]">
         <ExecutionRail
           groups={plan.action_groups}
+          companies={companies}
           people={plan.people}
           remaining={countStatuses(cards).remaining + openEntityCount(workTableRows(cards, plan.requested_entities, false))}
           pendingByPerson={pendingByPerson}

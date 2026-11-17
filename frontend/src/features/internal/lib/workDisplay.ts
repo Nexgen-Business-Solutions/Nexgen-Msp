@@ -11,7 +11,8 @@ import type { RequestedEntityPresentation } from '@/lib/api/requestPresentation'
 export type ExecutionSelection =
   | { kind: 'all' }
   | { kind: 'group'; key: string }
-  | { kind: 'person'; key: string };
+  | { kind: 'person'; key: string }
+  | { kind: 'company'; key: string };
 
 export const UNRESOLVED_TARGET_EXPLANATION =
   'Resolve this requested target before using its standard detail actions.';
@@ -23,6 +24,21 @@ export const isSettled = (card: WorkCard) => SETTLED_STATUSES.includes(card.disp
 export const isUnresolvedTarget = (card: WorkCard) =>
   (card.target.kind === 'requested_client_user' || card.target.kind === 'requested_device') &&
   !card.target.name;
+
+export const isCompanyTarget = (card: WorkCard) => card.target.kind === 'customer';
+
+/** The companies that hold a service themselves in this request, one per customer id. */
+export const companiesOf = (cards: WorkCard[]) => {
+  const found = new Map<string, { key: string; label: string }>();
+
+  for (const card of cards) {
+    if (isCompanyTarget(card) && card.target.name && !found.has(card.target.name)) {
+      found.set(card.target.name, { key: card.target.name, label: card.target.label });
+    }
+  }
+
+  return [...found.values()];
+};
 
 export const groupKeyOf = (group: ActionWorkGroup) =>
   group.group_key ?? `${group.origin}:${group.operation_code ?? ''}:${group.label}`;

@@ -268,19 +268,30 @@ class NotificationSettingsService:
             for row in configured
             if row.enabled or registry.is_protected(row.rule_key)
         )
-        queue = frappe.db.count(
-            DISPATCH, {"status": ("in", ("Pending", "Queued"))}
-        )
-        failed = frappe.db.count(DISPATCH, {"status": "Failed"})
-        unknown = frappe.db.count(DISPATCH, {"status": "Unknown"})
+        # one counter per state the record really holds: waiting to be taken, handed to the
+        # mail queue, gone out, refused, unanswered. Counting the first two together said
+        # mail was queued that nothing had yet picked up
+        tally = {
+            row.status: row.total
+            for row in frappe.db.sql(
+                """
+                select status, count(*) as total
+                from `tabMSP Notification Dispatch`
+                group by status
+                """,
+                as_dict=True,
+            )
+        }
 
         return {
             "managed": managed,
             "enabled": on,
             "reminders": len(registry.keys(registry.REMINDER)),
-            "queued": queue,
-            "failed": failed,
-            "unknown": unknown,
+            "pending": frappe.utils.cint(tally.get("Pending")),
+            "queued": frappe.utils.cint(tally.get("Queued")),
+            "sent": frappe.utils.cint(tally.get("Sent")),
+            "failed": frappe.utils.cint(tally.get("Failed")),
+            "unknown": frappe.utils.cint(tally.get("Unknown")),
         }
 
     @staticmethod

@@ -9,7 +9,7 @@ import {
   type EntityRowAction,
 } from '../actions';
 import type { ServiceAction } from '../components/ServiceActionModal';
-import { isUnresolvedTarget } from './workDisplay';
+import { isCompanyTarget, isUnresolvedTarget } from './workDisplay';
 
 export type WorkRowIntent =
   | { kind: 'service'; card: WorkCard; action: ServiceAction }
@@ -63,6 +63,8 @@ export const workRowMenu = (
       }),
     };
   }
+
+  if (isCompanyTarget(card)) return { kind: 'service', actions: [] };
 
   if (isDeviceTarget(card) || card.work_type === 'Device Operation') {
     const device = (isDeviceTarget(card) ? card.target.name : null) ?? card.managed_device ?? '';

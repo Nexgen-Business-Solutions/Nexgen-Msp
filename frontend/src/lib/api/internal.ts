@@ -225,7 +225,7 @@ export type WorkDisplayStatus =
   | 'Blocked';
 
 export type WorkTarget = {
-  kind: 'client_user' | 'requested_client_user' | 'managed_device' | 'requested_device';
+  kind: 'client_user' | 'requested_client_user' | 'managed_device' | 'requested_device' | 'customer';
   name: string | null;
   requested_entity: string | null;
   label: string;
@@ -1261,6 +1261,7 @@ export type ContractRow = {
   billable_assignments: number;
   services_used: number;
   services_priced: number;
+  active_services: number;
 };
 
 export type ContractProfile = {
@@ -3580,7 +3581,9 @@ export type NotificationFigures = {
   managed: number;
   enabled: number;
   reminders: number;
+  pending: number;
   queued: number;
+  sent: number;
   failed: number;
   unknown: number;
 };

@@ -379,7 +379,23 @@ class ContractService:
                 (select count(distinct ip.item_code) from `tabItem Price` ip
                     where ip.customer = c.name and ip.selling = 1 and ip.price_list_rate > 0
                       and (ip.valid_from is null or ip.valid_from <= curdate())
-                      and (ip.valid_upto is null or ip.valid_upto >= curdate())) as services_priced
+                      and (ip.valid_upto is null or ip.valid_upto >= curdate())) as services_priced,
+                -- what is really being provided today, at whatever scope: a close or a pause
+                -- dated ahead has not happened yet, and one in force is not being provided
+                (select count(*) from `tabMSP Service Assignment` sa
+                    where sa.customer = c.name
+                      and (
+                        sa.operational_status in ('Active', 'Suspended')
+                        or (sa.operational_status = 'Ended' and sa.effective_end_date > curdate())
+                      )
+                      and (sa.effective_start_date is null or sa.effective_start_date <= curdate())
+                      and not exists (
+                        select 1 from `tabMSP Service Suspension` sus
+                        where sus.parenttype = 'MSP Service Assignment'
+                          and sus.parent = sa.name
+                          and sus.suspended_on <= curdate()
+                          and (sus.resumed_on is null or sus.resumed_on > curdate())
+                      )) as active_services
             from `tabCustomer` c
             left join `tabMSP Contract` live
                 on live.name = (

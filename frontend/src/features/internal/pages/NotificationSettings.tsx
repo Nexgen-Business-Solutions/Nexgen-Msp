@@ -6,11 +6,15 @@ import {
   CircleHelp,
   Clock,
   Mail,
+  Hourglass,
+  Info,
   Plus,
   Satellite,
+  Send,
   Check,
 } from 'lucide-react';
 import KpiCard from '@/shared/components/KpiCard';
+import Modal from '@/shared/components/Modal';
 import { useSetPageHeading } from '@/shared/layout/pageHeading';
 import RulesTab from '../components/notifications/RulesTab';
 import { EMPTY_FILTERS, EMPTY_HISTORY_FILTERS, type HistoryFilters, type RuleFilters } from '../components/notifications/format';
@@ -23,8 +27,13 @@ import { useNotificationOverview } from '../components/notifications/useNotifica
 type TabId = 'rules' | 'history' | 'sources';
 
 const PAGE_LENGTH = 50;
-const TITLE = 'Email & Notification Settings';
+const TITLE = 'Email Management';
 const NEW_RULE_REASON = 'Every notification this application owns is already configured.';
+const NEW_RULE_EXPLAINED = [
+  'A rule here stands for something the application already knows how to send. All of them are configured, so there is nothing left to create.',
+  'A new one appears when the application learns to send something new.',
+  'To change who is written to, or how often a reminder repeats, open the rule itself.',
+];
 
 const useDebounced = <T,>(value: T, delay = 300) => {
   const [settled, setSettled] = useState(value);
@@ -74,6 +83,7 @@ export default function NotificationSettings() {
 
   const figures = overview.data?.figures;
   const canCreate = overview.data?.can_create ?? [];
+  const [explainingNewRule, setExplainingNewRule] = useState(false);
   const loading = overview.isLoading;
 
   useEffect(() => {
@@ -120,18 +130,31 @@ export default function NotificationSettings() {
             New rule
           </button>
           {canCreate.length === 0 && (
-            <span id="new-rule-reason" className="sr-only">
-              {NEW_RULE_REASON}
-            </span>
+            <>
+              <button
+                type="button"
+                onClick={() => setExplainingNewRule(true)}
+                aria-label="Why New rule is unavailable"
+                title={NEW_RULE_REASON}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+              >
+                <Info size={15} aria-hidden />
+              </button>
+              <span id="new-rule-reason" className="sr-only">
+                {NEW_RULE_REASON}
+              </span>
+            </>
           )}
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 2xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 2xl:grid-cols-8">
         <KpiCard icon={BellRing} label="Managed" value={figures?.managed ?? 0} caption="Notifications under control" loading={loading} onView={() => showRules(EMPTY_FILTERS)} viewLabel="Show all notification rules" />
         <KpiCard icon={CheckCircle2} accent="emerald" label="Enabled" value={figures?.enabled ?? 0} caption="Currently sending" loading={loading} onView={() => showRules({ ...EMPTY_FILTERS, status: 'enabled' })} viewLabel="Show enabled notification rules" />
         <KpiCard icon={Clock} accent="slate" label="Reminders" value={figures?.reminders ?? 0} caption="Repeat on a schedule" loading={loading} onView={() => showRules({ ...EMPTY_FILTERS, kind: 'Reminder' })} viewLabel="Show reminder rules" />
-        <KpiCard icon={Mail} accent="slate" label="Queued" value={figures?.queued ?? 0} caption="Waiting in the mail queue" loading={loading} onView={() => showHistory('Queued')} viewLabel="Show queued deliveries" />
+        <KpiCard icon={Hourglass} accent="slate" label="Pending" value={figures?.pending ?? 0} caption="Recorded, not yet taken" loading={loading} onView={() => showHistory('Pending')} viewLabel="Show pending deliveries" />
+        <KpiCard icon={Mail} accent="slate" label="Queued" value={figures?.queued ?? 0} caption="Handed to the mail queue" loading={loading} onView={() => showHistory('Queued')} viewLabel="Show queued deliveries" />
+        <KpiCard icon={Send} accent="emerald" label="Sent" value={figures?.sent ?? 0} caption="Left the queue" loading={loading} onView={() => showHistory('Sent')} viewLabel="Show sent deliveries" />
         <KpiCard icon={AlertTriangle} tone="alert" accent="slate" label="Failed" value={figures?.failed ?? 0} caption="Needs a look" loading={loading} onView={() => showHistory('Failed')} viewLabel="Show failed deliveries" />
         <KpiCard icon={CircleHelp} tone="alert" accent="slate" label="Unknown" value={figures?.unknown ?? 0} caption="Outcome not confirmed" loading={loading} onView={() => showHistory('Unknown')} viewLabel="Show deliveries with an unknown outcome" />
       </div>
@@ -196,6 +219,23 @@ export default function NotificationSettings() {
           {tab === 'sources' && <SourcesTab active />}
         </div>
       </div>
+
+      <Modal
+        open={explainingNewRule}
+        onClose={() => setExplainingNewRule(false)}
+        icon={Info}
+        tone="slate"
+        title="Why New rule is unavailable"
+        widthClass="max-w-lg"
+      >
+        <div className="space-y-2 px-5 py-4">
+          {NEW_RULE_EXPLAINED.map((line) => (
+            <p key={line} className="text-sm text-slate-600">
+              {line}
+            </p>
+          ))}
+        </div>
+      </Modal>
 
       <NewRuleModal
         open={creating}

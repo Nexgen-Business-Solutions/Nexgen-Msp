@@ -135,7 +135,7 @@ export const getSectionsForRoles = (roles: string[] = []): NavSection[] => {
     bottom.push({ id: 'accounts', label: 'Accounts', icon: UserCog, path: '/msp/accounts' });
     bottom.push({
       id: 'notifications',
-      label: 'Email & Notifications',
+      label: 'Email Management',
       icon: Mail,
       path: '/msp/notifications',
     });
