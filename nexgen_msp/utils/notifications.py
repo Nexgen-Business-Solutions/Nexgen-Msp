@@ -1,3 +1,4 @@
+import re
 from urllib.parse import urlparse
 
 import frappe
@@ -222,6 +223,63 @@ TEMPLATES = {
 }
 
 
+
+# the HTML this application builds itself and hands a template whole: a summary card, the
+# list of acts, a reason block. They are not escaped on the way in, because they were never
+# anybody's input
+HTML_VARIABLES = ("summary", "acts", "reason_block")
+
+# where a mail sends somebody, which is checked as an address rather than printed as one
+URL_VARIABLES = ("link",)
+
+# supplied on every send, whatever the template asks for
+ALWAYS = ("app_name", "year")
+
+_PLACEHOLDER = re.compile(r"\{\{\s*([a-z_][a-z0-9_]*)\s*\}\}")
+_CONDITION = re.compile(r"\{%\s*if\s+([a-z_][a-z0-9_]*)\s*%\}")
+
+
+def variables_for(template_name):
+    """The names a stored wording of this template may use, and what each one carries.
+
+    Read off the wording this application ships rather than written out a second time next
+    to it. A name an event does not supply would render as a blank line in somebody's mail,
+    so what a template may ask for is exactly what it was built around, and the two cannot
+    drift apart.
+    """
+    spec = TEMPLATES.get(template_name)
+
+    if not spec:
+        return []
+
+    source = f"{spec['subject']} {spec['body']}"
+    found = list(ALWAYS) + _PLACEHOLDER.findall(source) + _CONDITION.findall(source)
+    kinds = []
+
+    for name in dict.fromkeys(found):
+        if name in HTML_VARIABLES:
+            kind = "html"
+        elif name in URL_VARIABLES:
+            kind = "url"
+        else:
+            kind = "text"
+
+        kinds.append({"name": name, "kind": kind})
+
+    return kinds
+
+
+def shipped_html(template_name):
+    """The whole document this application ships for a template, shell and all."""
+    spec = TEMPLATES.get(template_name)
+
+    if not spec:
+        return None
+
+    return SHELL.format(
+        app_name=APP_NAME, tagline=APP_TAGLINE, body=spec["body"], year="{{ year }}"
+    )
+
 def ensure_templates():
     """Create every template this app sends, so a fresh site is never mute.
 
@@ -242,12 +300,7 @@ def ensure_templates():
         doc.name = name
         doc.subject = spec["subject"]
         doc.use_html = 1
-        doc.response_html = SHELL.format(
-            app_name=APP_NAME,
-            tagline=APP_TAGLINE,
-            body=spec["body"],
-            year="{{ year }}",
-        )
+        doc.response_html = shipped_html(name)
         doc.insert(ignore_permissions=True)
         created.append(name)
 
@@ -274,14 +327,7 @@ def drifted_templates():
         if not stored:
             continue
 
-        shipped = SHELL.format(
-            app_name=APP_NAME,
-            tagline=APP_TAGLINE,
-            body=spec["body"],
-            year="{{ year }}",
-        )
-
-        if stored.subject != spec["subject"] or (stored.response_html or "") != shipped:
+        if stored.subject != spec["subject"] or (stored.response_html or "") != shipped_html(name):
             drifted.append(name)
 
     return drifted
@@ -375,6 +421,7 @@ def _record_event_send(
     reference_doctype,
     reference_name,
     occurrence=None,
+    language=None,
 ):
     """Record that this event produced this mail, so the delivery history is the whole story.
 
@@ -398,9 +445,6 @@ def _record_event_send(
             NotificationDispatchService,
         )
 
-        occurrence = (
-            f"event:{occurrence}" if occurrence else f"event:{frappe.generate_hash(length=12)}"
-        )
         queue_id = getattr(queued, "name", None) or (queued if isinstance(queued, str) else None)
 
         for address in recipients:
@@ -415,6 +459,7 @@ def _record_event_send(
                 queue_id=queue_id,
                 business_doctype=reference_doctype,
                 business_name=reference_name,
+                language=language,
             )
     except Exception:
         frappe.log_error(
@@ -459,56 +504,181 @@ def send(
 
         return False
 
-    # the same refusal again at the point of sending, because this is the line that puts an
-    # address on a mail and it must hold even if something above it ever stops holding
-    if settings and settings.get("protected"):
-        cc = []
-    elif settings:
-        cc = cc + [
-            address
-            for address in settings["cc"]
-            if address not in recipients and address not in cc
-        ]
-        recipients = recipients + [
-            address for address in settings["extra"] if address not in recipients
-        ]
+    # every channel of this send, resolved from the record, bounded by the company it is
+    # about and deduplicated. The refusal of a copy on a protected notification is applied
+    # in there as well, because that is the line that puts an address on a mail and it must
+    # hold even if something above it ever stops holding
+    bcc = []
+    customer = _company_of(reference_doctype, reference_name)
+
+    if settings:
+        channels = _channels(
+            settings, name, recipients, cc, reference_doctype, reference_name, customer
+        )
+        recipients, cc, bcc = channels["to"], channels["cc"], channels["bcc"]
+        _record_skips(settings, name, channels["skipped"], reference_doctype, reference_name)
+
+        if not recipients and not cc and not bcc:
+            return False
 
     try:
         # the template the settings name, which is the one an administrator chose. Today the
         # registry permits exactly one per notification, so this is the same template the
         # caller passed — and it stays right the day a second one is registered, instead of
         # silently sending the old one
-        subject, message = render(
-            (settings or {}).get("template_name") or name, context
+        template_name = (settings or {}).get("template_name") or name
+        occurrence = (
+            f"event:{occurrence}" if occurrence else f"event:{frappe.generate_hash(length=12)}"
         )
-        queued = frappe.sendmail(
-            recipients=recipients,
-            cc=cc,
-            subject=subject,
-            message=message,
-            reference_doctype=reference_doctype,
-            reference_name=reference_name,
-            attachments=attachments or None,
-            now=now,
-        )
+        sent = None
 
-        if settings:
-            _record_event_send(
-                settings,
-                name,
-                recipients,
-                cc,
-                subject,
-                queued,
-                reference_doctype,
-                reference_name,
-                occurrence=occurrence,
+        for group in _by_language(template_name, recipients, cc, bcc, customer, context):
+            queued = frappe.sendmail(
+                recipients=group["recipients"],
+                cc=group["cc"] or None,
+                bcc=group["bcc"] or None,
+                subject=group["subject"],
+                message=group["html"],
+                reference_doctype=reference_doctype,
+                reference_name=reference_name,
+                attachments=attachments or None,
+                now=now,
             )
+            sent = sent or queued or True
 
-        return queued or True
+            if settings:
+                _record_event_send(
+                    settings,
+                    name,
+                    group["recipients"] + group["bcc"],
+                    group["cc"],
+                    group["subject"],
+                    queued,
+                    reference_doctype,
+                    reference_name,
+                    occurrence=occurrence,
+                    language=group["language"],
+                )
+
+        return sent or True
     except Exception:
         frappe.log_error(title=f"{name} could not be sent", message=frappe.get_traceback())
         return False
+
+
+def _company_of(reference_doctype, reference_name):
+    """The company this event is about, when its record names one."""
+    from nexgen_msp.api.internal.services.notification_dispatch_service import (
+        NotificationDispatchService,
+    )
+
+    return NotificationDispatchService._customer_of(reference_doctype, reference_name)
+
+
+def _channels(settings, name, recipients, cc, reference_doctype, reference_name, customer):
+    """Who this notification reaches on each channel, or the caller's own list if asking fails.
+
+    Resolving a copy must never be the reason a mail does not go out. When this cannot be
+    answered the notification still reaches the people the call site named, which is what
+    it did before any of this existed.
+    """
+    try:
+        from nexgen_msp.api.internal.services.notification_recipient_policy_service import (
+            NotificationRecipientPolicyService,
+        )
+
+        return NotificationRecipientPolicyService.resolve(
+            settings["rule_key"],
+            recipients,
+            cc=cc,
+            business_doctype=reference_doctype,
+            business_name=reference_name,
+            customer=customer,
+        )
+    except Exception:
+        frappe.log_error(
+            title=f"Could not resolve who {name} goes to",
+            message=frappe.get_traceback(),
+        )
+
+        return {"to": recipients, "cc": cc, "bcc": [], "skipped": []}
+
+
+def _record_skips(settings, name, skipped, reference_doctype, reference_name):
+    """Note every copy that was left out, so "why was nobody told" has an answer.
+
+    One line for all of them rather than one each: they belong to a single send, and a
+    screen reading them wants the send's story and not a row per address.
+    """
+    if not skipped:
+        return
+
+    try:
+        from nexgen_msp.api.internal.services.notification_settings_service import (
+            NotificationSettingsService,
+        )
+
+        NotificationSettingsService._write_audit(
+            action="Skipped",
+            rule=settings["rule_key"],
+            rule_revision=settings.get("revision"),
+            business_doctype=reference_doctype,
+            business_name=reference_name,
+            recipients=", ".join(f"{entry['target']}" for entry in skipped)[:500],
+            template_name=name,
+            reason_code=skipped[0]["reason"],
+            detail="; ".join(
+                f"{entry['channel']} {entry['target']}: {entry['reason']}" for entry in skipped
+            )[:500],
+        )
+    except Exception:
+        frappe.log_error(
+            title=f"Could not record the copies {name} left out",
+            message=frappe.get_traceback(),
+        )
+
+
+def _by_language(template_name, recipients, cc, bcc, customer, context):
+    """One message per language, each addressed only to the people who read it.
+
+    A single message cannot be in two languages, so a mail whose audience does not share
+    one becomes several — each a delivery of its own, recorded with its own language and
+    its own queue entry. Grouping is what keeps that honest: nobody is told in a language
+    they never chose so that somebody else could share their message.
+
+    A language whose group holds only copied addresses is still sent, as copies and
+    nothing else: a blind copy moved onto the To line to give the message a recipient
+    would disclose the one address nobody was meant to see.
+    """
+    from nexgen_msp.api.internal.services.notification_template_service import (
+        NotificationTemplateService,
+    )
+
+    groups = {}
+
+    for channel, addresses in (("recipients", recipients), ("cc", cc), ("bcc", bcc)):
+        for address in addresses:
+            built = NotificationTemplateService.for_delivery(
+                template_name, address, customer, context
+            )
+            key = (built["locale"], built["revision"])
+            group = groups.setdefault(
+                key,
+                {
+                    "recipients": [],
+                    "cc": [],
+                    "bcc": [],
+                    "subject": built["subject"],
+                    "html": built["html"],
+                    "language": built,
+                },
+            )
+            group[channel].append(address)
+
+    # a language whose group holds only copies is sent as copies: Frappe's queue takes a
+    # message with no direct recipient, and a blind copy promoted onto the To line would
+    # disclose exactly what a blind copy is for
+    return list(groups.values())
 
 
 def request_headline(request):

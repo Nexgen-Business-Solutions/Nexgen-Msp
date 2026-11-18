@@ -2008,6 +2008,141 @@ def test_notification_rule(rule_key=None, recipient=None):
 
 @frappe.whitelist()
 @handle_errors
+def notification_rule_recipient_policies(rule_key=None):
+    from nexgen_msp.api.internal.services.notification_recipient_policy_service import (
+        NotificationRecipientPolicyService,
+    )
+
+    return NotificationRecipientPolicyService.policies(rule_key)
+
+
+@frappe.whitelist()
+@handle_errors
+def save_notification_rule_recipient_policies(rule_key=None, expected_revision=None, policies=None):
+    """Who a notification is copied to, saved through the rule itself.
+
+    The same write path as every other setting of a rule, on purpose: one revision, one
+    conflict check and one audit line, rather than a second door that could disagree with
+    the first about what the rule currently says.
+    """
+    from nexgen_msp.api.internal.services.notification_recipient_policy_service import (
+        NotificationRecipientPolicyService,
+    )
+    from nexgen_msp.api.internal.services.notification_settings_service import (
+        NotificationSettingsService,
+    )
+
+    NotificationSettingsService.save(
+        rule_key=rule_key,
+        expected_revision=expected_revision,
+        changes={"recipients": frappe.parse_json(policies) if isinstance(policies, str) else policies},
+    )
+
+    return NotificationRecipientPolicyService.policies(rule_key)
+
+
+# ----------------------------------------------------------------- email templates
+# The wording itself, as opposed to the rules above that decide when it is sent. Same
+# guarding: every one of these is checked inside the service as well.
+@frappe.whitelist()
+@handle_errors
+def notification_templates_overview():
+    from nexgen_msp.api.internal.services.notification_template_service import (
+        NotificationTemplateService,
+    )
+
+    return NotificationTemplateService.overview()
+
+
+@frappe.whitelist()
+@handle_errors
+def notification_template_detail(template_name=None, locale=None):
+    from nexgen_msp.api.internal.services.notification_template_service import (
+        NotificationTemplateService,
+    )
+
+    return NotificationTemplateService.detail(template_name, locale)
+
+
+@frappe.whitelist()
+@handle_errors
+def notification_template_history(template_name=None, locale=None):
+    from nexgen_msp.api.internal.services.notification_template_service import (
+        NotificationTemplateService,
+    )
+
+    return NotificationTemplateService.history(template_name, locale)
+
+
+@frappe.whitelist()
+@handle_errors
+def save_notification_template_draft(
+    template_name=None, locale=None, subject=None, html=None, text=None, draft_revision=None
+):
+    from nexgen_msp.api.internal.services.notification_template_service import (
+        NotificationTemplateService,
+    )
+
+    return NotificationTemplateService.save_draft(
+        template_name,
+        locale,
+        subject=subject,
+        html=html,
+        text=text,
+        draft_revision=draft_revision,
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def publish_notification_template(
+    template_name=None, locale=None, change_note=None, draft_revision=None
+):
+    from nexgen_msp.api.internal.services.notification_template_service import (
+        NotificationTemplateService,
+    )
+
+    return NotificationTemplateService.publish(
+        template_name, locale, change_note=change_note, draft_revision=draft_revision
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def restore_notification_template(
+    template_name=None, locale=None, revision_number=None, draft_revision=None
+):
+    from nexgen_msp.api.internal.services.notification_template_service import (
+        NotificationTemplateService,
+    )
+
+    return NotificationTemplateService.restore(
+        template_name, locale, revision_number, draft_revision=draft_revision
+    )
+
+
+@frappe.whitelist()
+@handle_errors
+def notification_template_preview(template_name=None, locale=None, source="draft"):
+    from nexgen_msp.api.internal.services.notification_template_service import (
+        NotificationTemplateService,
+    )
+
+    return NotificationTemplateService.preview(template_name, locale, source=source)
+
+
+@frappe.whitelist()
+@handle_errors
+def test_notification_template(template_name=None, locale=None, recipient=None, source="draft"):
+    from nexgen_msp.api.internal.services.notification_template_service import (
+        NotificationTemplateService,
+    )
+
+    return NotificationTemplateService.test_send(template_name, locale, recipient, source=source)
+
+
+@frappe.whitelist()
+@handle_errors
 def notification_delivery_history(
     rule_key=None, status=None, search=None, business_name=None, page=0, page_length=50
 ):

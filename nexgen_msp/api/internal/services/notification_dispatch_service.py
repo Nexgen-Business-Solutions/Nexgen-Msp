@@ -18,6 +18,9 @@ from nexgen_msp.api.internal.services import notification_registry as registry
 from nexgen_msp.api.internal.services.notification_settings_service import (
     NotificationSettingsService,
 )
+from nexgen_msp.api.internal.services.notification_template_service import (
+    NotificationTemplateService,
+)
 from nexgen_msp.utils import notifications
 from nexgen_msp.utils.errors import ValidationError
 
@@ -82,8 +85,10 @@ class NotificationDispatchService:
         occurrence=None,
         iteration=0,
         cc=None,
+        bcc=None,
         is_test=False,
         attachments=None,
+        rendered=None,
     ):
         """Queue this notification for this address, once.
 
@@ -177,7 +182,13 @@ class NotificationDispatchService:
                 }
 
         return NotificationDispatchService._queue(
-            held["dispatch"], current, context, cc=cc, attachments=attachments
+            held["dispatch"],
+            current,
+            context,
+            cc=cc,
+            bcc=bcc,
+            attachments=attachments,
+            rendered=rendered,
         )
 
     @staticmethod
@@ -314,14 +325,39 @@ class NotificationDispatchService:
         return True
 
     @staticmethod
-    def _queue(dispatch, current, context, cc=None, attachments=None):
-        """Render the administrator's template and hand the mail to Frappe's own queue."""
+    def _queue(dispatch, current, context, cc=None, bcc=None, attachments=None, rendered=None):
+        """Render the administrator's template and hand the mail to Frappe's own queue.
+
+        `rendered` is wording somebody is testing from the template editor, handed down
+        rather than looked up. It still goes through the reservation, the queue and the
+        audit below: a test that took a shortcut would prove nothing about a real send.
+        """
+        # what the choice of wording was, carried into whichever outcome below is recorded
+        # rather than written on its own. A row is marked exactly once per attempt, and an
+        # extra write here would be a second one on the hot path of every mail
+        language = {}
+
         try:
-            subject, message = notifications.render(current["template_name"], context or {})
+            built = rendered or NotificationTemplateService.for_delivery(
+                current["template_name"],
+                dispatch.recipient,
+                NotificationDispatchService._customer_of(
+                    dispatch.business_doctype, dispatch.business_name
+                ),
+                context or {},
+            )
+            subject, message = built["subject"], built["html"]
+            language = {
+                "resolved_locale": built.get("locale"),
+                "template_revision": frappe.utils.cint(built.get("revision")),
+                "language_source": built.get("language_source"),
+                "fallback_reason": built.get("fallback_reason"),
+            }
         except Exception as error:
             NotificationDispatchService._mark(
                 dispatch,
                 "Failed",
+                **language,
                 failure_reason=f"{error}"[:500],
                 # said on the record, because this is the one failure that is safe to try
                 # again: it happened before anything was handed to the mail queue
@@ -348,11 +384,17 @@ class NotificationDispatchService:
             for address in (cc or [])
             if address and NotificationDispatchService.normalise(address) != dispatch.recipient
         ]
+        blind = [
+            address
+            for address in (bcc or [])
+            if address and NotificationDispatchService.normalise(address) != dispatch.recipient
+        ]
 
         try:
             queued = frappe.sendmail(
                 recipients=[dispatch.recipient],
                 cc=copies or None,
+                bcc=blind or None,
                 subject=f"[Test] {subject}" if dispatch.is_test else subject,
                 message=message,
                 reference_doctype=dispatch.business_doctype or None,
@@ -371,7 +413,7 @@ class NotificationDispatchService:
             # an unknown outcome stays unknown. Resending here is exactly how one mail
             # becomes two
             NotificationDispatchService._mark(
-                dispatch, "Unknown", failure_reason=f"{error}"[:500]
+                dispatch, "Unknown", **language, failure_reason=f"{error}"[:500]
             )
             NotificationSettingsService._write_audit(
                 action="Failed",
@@ -393,7 +435,7 @@ class NotificationDispatchService:
             # reconciled, so calling it Queued would be a claim nobody can ever check
             reason = "The mail was handed to the queue but no queue entry could be identified."
             NotificationDispatchService._mark(
-                dispatch, "Unknown", subject_snapshot=subject[:140], failure_reason=reason
+                dispatch, "Unknown", **language, subject_snapshot=subject[:140], failure_reason=reason
             )
             NotificationSettingsService._write_audit(
                 action="Failed",
@@ -415,6 +457,7 @@ class NotificationDispatchService:
         NotificationDispatchService._mark(
             dispatch,
             "Queued",
+            **language,
             subject_snapshot=subject[:140],
             email_queue_id=queue_id,
             queued_at=frappe.utils.now(),
@@ -436,6 +479,25 @@ class NotificationDispatchService:
         return {"status": "Queued", "dispatch": dispatch.name}
 
     @staticmethod
+    def _customer_of(business_doctype, business_name):
+        """The company a delivery is about, when its record names one.
+
+        Asked of the record rather than carried along, because the one caller that could
+        carry it is the one that has it already. An account notification names no company
+        at all, and that is an answer rather than a gap.
+        """
+        if not business_doctype or not business_name:
+            return None
+
+        try:
+            if not frappe.get_meta(business_doctype).has_field("customer"):
+                return None
+        except Exception:
+            return None
+
+        return frappe.db.get_value(business_doctype, business_name, "customer")
+
+    @staticmethod
     def _mark(dispatch, status, **fields):
         values = {"status": status, **fields}
         frappe.db.set_value(DISPATCH, dispatch.name, values, update_modified=True)
@@ -455,6 +517,7 @@ class NotificationDispatchService:
         cc=None,
         business_doctype=None,
         business_name=None,
+        language=None,
     ):
         """Write down a mail an event already queued, so the history is not only reminders.
 
@@ -487,6 +550,10 @@ class NotificationDispatchService:
         doc.recipient = address
         doc.cc_snapshot = ", ".join(cc or [])
         doc.template_name = template_name
+        doc.resolved_locale = (language or {}).get("locale")
+        doc.template_revision = frappe.utils.cint((language or {}).get("revision"))
+        doc.language_source = (language or {}).get("language_source")
+        doc.fallback_reason = (language or {}).get("fallback_reason")
         doc.subject_snapshot = (subject or "")[:140]
         doc.status = "Queued" if queue_id else "Unknown"
         doc.email_queue_id = queue_id
@@ -603,6 +670,14 @@ class NotificationDispatchService:
                 "reserved_at": doc.reserved_at,
                 "failure_reason": doc.failure_reason,
                 "reason_label": registry.reason_label(doc.skip_reason) or doc.failure_reason,
+                "template_name": doc.template_name,
+                "resolved_locale": doc.resolved_locale,
+                "locale_label": (
+                    registry.locale_label(doc.resolved_locale) if doc.resolved_locale else None
+                ),
+                "template_revision": doc.template_revision,
+                "language_source_label": registry.language_source_label(doc.language_source),
+                "fallback_label": registry.reason_label(doc.fallback_reason),
             },
             "candidates": candidates,
             "decisions": ["link", "not_sent"],
@@ -969,6 +1044,10 @@ class NotificationDispatchService:
             "is_test",
             "queued_at",
             "sent_at",
+            "resolved_locale",
+            "template_revision",
+            "language_source",
+            "fallback_reason",
         ]
 
         rows = frappe.get_all(
@@ -988,6 +1067,11 @@ class NotificationDispatchService:
             row["reason_label"] = registry.reason_label(row.get("skip_reason")) or row.get(
                 "failure_reason"
             )
+            row["locale_label"] = (
+                registry.locale_label(row["resolved_locale"]) if row.get("resolved_locale") else None
+            )
+            row["language_source_label"] = registry.language_source_label(row.get("language_source"))
+            row["fallback_label"] = registry.reason_label(row.get("fallback_reason"))
 
         return {
             "rows": rows,

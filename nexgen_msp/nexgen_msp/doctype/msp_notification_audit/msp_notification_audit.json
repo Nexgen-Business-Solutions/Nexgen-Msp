@@ -27,7 +27,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Action",
-   "options": "Rule Edited\nRule Enabled\nRule Disabled\nEvaluated\nQueued\nSkipped\nFailed\nStatus Changed\nRetry Decided\nTest Sent",
+   "options": "Rule Edited\nRule Enabled\nRule Disabled\nEvaluated\nQueued\nSkipped\nFailed\nStatus Changed\nRetry Decided\nTest Sent\nTemplate Drafted\nTemplate Published\nTemplate Restored",
    "reqd": 1
   },
   {

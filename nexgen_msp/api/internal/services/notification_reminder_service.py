@@ -657,34 +657,40 @@ class NotificationReminderService:
         return {"sent": sent, "skipped": skipped}
 
     @staticmethod
-    def _addresses(current, doc, iteration):
+    def _channels(current, doc, iteration):
         """Who this iteration may reach, read off the record as it stands at this moment.
 
-        The audience the record resolves to, plus the addresses an administrator added by
-        hand. Resolved alone, an extra recipient saved in the screen was stored and never
+        The audience the record resolves to, plus every copy an administrator configured —
+        validated, kept inside the company the record belongs to, and deduplicated across
+        the three channels. Resolved alone, a copy saved in the screen was stored and never
         written to.
 
         Asked again on every send, including a send owed from a week ago: approving for a
         company is an authority people are given and lose, and an address that has lost it
         must not receive a request summary because it was once on the list.
         """
+        from nexgen_msp.api.internal.services.notification_recipient_policy_service import (
+            NotificationRecipientPolicyService,
+        )
+
         audience = current["audience_key"]
         escalating = frappe.utils.cint(current.get("escalation_after_iteration"))
 
         if escalating and iteration > escalating and current.get("escalation_audience_key"):
             audience = current["escalation_audience_key"]
 
-        allowed = []
+        return NotificationRecipientPolicyService.resolve(
+            current["rule_key"],
+            registry.resolve_audience(audience, doc),
+            business_doctype=doc.doctype,
+            business_name=doc.name,
+            customer=doc.get("customer"),
+        )
 
-        for address in list(registry.resolve_audience(audience, doc)) + list(
-            current.get("extra") or []
-        ):
-            normalised = (address or "").strip().lower()
-
-            if normalised and normalised not in allowed:
-                allowed.append(normalised)
-
-        return allowed
+    @staticmethod
+    def _addresses(current, doc, iteration):
+        """The addresses this iteration writes to directly."""
+        return NotificationReminderService._channels(current, doc, iteration)["to"]
 
     @staticmethod
     def _remind(declared, current, adapter, row, iteration):
@@ -710,11 +716,11 @@ class NotificationReminderService:
 
             return {"sent": 0, "skipped": 1}
 
-        addresses = NotificationReminderService._addresses(current, doc, iteration)
+        channels = NotificationReminderService._channels(current, doc, iteration)
         context = NotificationReminderService._context(declared, doc, adapter)
         sent = skipped = 0
 
-        for address in addresses:
+        for address in channels["to"]:
             outcome = NotificationDispatchService.deliver(
                 declared["rule_key"],
                 address,
@@ -726,7 +732,8 @@ class NotificationReminderService:
                 business_name=doc.name,
                 iteration=iteration,
                 occurrence=f"iteration:{iteration}",
-                cc=current.get("cc"),
+                cc=channels["cc"],
+                bcc=channels["bcc"],
             )
 
             if outcome["status"] == "Queued":
@@ -757,11 +764,11 @@ class NotificationReminderService:
 
         for iteration, address, dispatch in owed:
             if iteration not in allowed:
-                allowed[iteration] = NotificationReminderService._addresses(
+                allowed[iteration] = NotificationReminderService._channels(
                     current, doc, iteration
                 )
 
-            if address not in allowed[iteration]:
+            if address not in allowed[iteration]["to"]:
                 skipped += 1
 
                 if not NotificationReminderService._close(dispatch):
@@ -793,7 +800,8 @@ class NotificationReminderService:
                 business_name=doc.name,
                 iteration=frappe.utils.cint(iteration),
                 occurrence=f"iteration:{frappe.utils.cint(iteration)}",
-                cc=current.get("cc"),
+                cc=allowed[iteration]["cc"],
+                bcc=allowed[iteration]["bcc"],
             )
 
             if outcome["status"] == "Queued":

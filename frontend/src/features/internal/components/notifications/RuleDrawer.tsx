@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, FlaskConical, Lock, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, FlaskConical, Lock, Pencil, RefreshCw, X } from 'lucide-react';
 import { FrappeError } from '@/lib/api/client';
 import type {
   NotificationRuleChanges,
@@ -11,11 +11,20 @@ import {
   useNotificationEligibility,
   useNotificationPreview,
   useNotificationRule,
+  useNotificationTemplates,
   useSaveNotificationRule,
   useTestNotificationRule,
 } from './useNotifications';
 import { Field, inputClass, Message, Pill, SkeletonRows, Switch } from './ui';
-import { fmtMoment, healthLabel, healthTone, splitCsv } from './format';
+import RecipientPolicies from './RecipientPolicies';
+import {
+  badPolicyAddresses,
+  fmtMoment,
+  healthLabel,
+  healthTone,
+  incompletePolicies,
+  type PolicyRow,
+} from './format';
 
 type PanelId = 'configuration' | 'preview' | 'activity';
 
@@ -33,8 +42,7 @@ type Draft = {
   display_name: string;
   template_name: string;
   audience_key: string;
-  to: string;
-  cc: string;
+  policies: PolicyRow[];
   initial_delay_value: string;
   initial_delay_unit: string;
   repeat_interval_value: string;
@@ -52,13 +60,12 @@ type Draft = {
 
 const text = (value: unknown) => (value === null || value === undefined ? '' : String(value));
 
-const draftOf = (rule: NotificationRuleFields): Draft => ({
+const draftOf = (rule: NotificationRuleFields, policies: PolicyRow[]): Draft => ({
   enabled: Boolean(rule.enabled),
   display_name: text(rule.display_name),
   template_name: text(rule.template_name),
   audience_key: text(rule.audience_key),
-  to: (rule.extra ?? []).join(', '),
-  cc: (rule.cc ?? []).join(', '),
+  policies: policies.map((row) => ({ ...row })),
   initial_delay_value: text(rule.initial_delay_value),
   initial_delay_unit: text(rule.initial_delay_unit),
   repeat_interval_value: text(rule.repeat_interval_value),
@@ -102,7 +109,7 @@ const changesOf = (before: Draft, now: Draft, reminder: boolean): NotificationRu
   const changes: Record<string, unknown> = {};
 
   const keys = (Object.keys(now) as (keyof Draft)[]).filter(
-    (key) => key !== 'to' && key !== 'cc' && (reminder || !(REMINDER_ONLY as readonly string[]).includes(key))
+    (key) => key !== 'policies' && (reminder || !(REMINDER_ONLY as readonly string[]).includes(key))
   );
 
   for (const key of keys) {
@@ -117,18 +124,19 @@ const changesOf = (before: Draft, now: Draft, reminder: boolean): NotificationRu
     }
   }
 
-  if (now.to !== before.to || now.cc !== before.cc) {
-    changes.recipients = [
-      ...splitCsv(now.to).map((email) => ({ email, kind: 'To' as const })),
-      ...splitCsv(now.cc).map((email) => ({ email, kind: 'CC' as const })),
-    ];
+  if (JSON.stringify(now.policies) !== JSON.stringify(before.policies)) {
+    changes.recipients = now.policies.map((row) => ({
+      channel: row.channel,
+      recipient_source: row.recipient_source,
+      fixed_address: row.recipient_source ? null : (row.fixed_address ?? '').trim(),
+      enabled: row.enabled,
+    }));
   }
 
   return changes as NotificationRuleChanges;
 };
 
-const badAddresses = (draft: Draft) =>
-  [...splitCsv(draft.to), ...splitCsv(draft.cc)].filter((entry) => !EMAIL.test(entry));
+const badAddresses = (draft: Draft) => badPolicyAddresses(draft.policies);
 
 const timezones = (): string[] => {
   const intl = Intl as unknown as { supportedValuesOf?: (key: string) => string[] };
@@ -148,6 +156,7 @@ type EditorProps = {
   onSaved: (message: string) => void;
   onReload: () => void;
   reloading: boolean;
+  onOpenTemplate: (templateName: string) => void;
 };
 
 const Section: React.FC<{ title: string; blurb?: string; children: React.ReactNode }> = ({
@@ -203,12 +212,13 @@ const RuleEditor: React.FC<EditorProps> = ({
   onPanel,
   onClose,
   onSaved,
+  onOpenTemplate,
   onReload,
   reloading,
 }) => {
-  const { rule, choices } = detail;
+  const { rule, choices, policies } = detail;
   const idBase = useId();
-  const original = useMemo(() => draftOf(rule), [rule]);
+  const original = useMemo(() => draftOf(rule, policies.rows), [rule, policies.rows]);
   const [draft, setDraft] = useState<Draft>(original);
   const [testTo, setTestTo] = useState('');
   const save = useSaveNotificationRule();
@@ -222,6 +232,7 @@ const RuleEditor: React.FC<EditorProps> = ({
   const changes = changesOf(original, draft, reminder);
   const dirty = Object.keys(changes).length > 0;
   const invalid = badAddresses(draft);
+  const incomplete = incompletePolicies(draft.policies);
   const conflict = save.error instanceof FrappeError && save.error.code === 'VERSION_CONFLICT';
   const testValid = EMAIL.test(testTo.trim());
 
@@ -229,7 +240,7 @@ const RuleEditor: React.FC<EditorProps> = ({
   const eligibility = useNotificationEligibility(rule.rule_key, panel === 'activity' && reminder);
 
   const submit = () => {
-    if (!dirty || invalid.length) return;
+    if (!dirty || invalid.length || incomplete) return;
 
     save.mutate(
       {
@@ -246,6 +257,10 @@ const RuleEditor: React.FC<EditorProps> = ({
   const conditions = choices.conditions ?? [];
   const stops = choices.stop_conditions ?? [];
   const zoneList = useMemo(() => timezones(), []);
+  const catalogue = useNotificationTemplates(panel === 'configuration');
+  const wording = catalogue.data?.rows.find(
+    (entry) => entry.template_name === draft.template_name
+  );
   const lockId = `${idBase}-lock`;
 
   return (
@@ -358,35 +373,66 @@ const RuleEditor: React.FC<EditorProps> = ({
                 </Field>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field
-                  label="Additional recipients"
-                  htmlFor={`${idBase}-to`}
-                  hint="Separate addresses with commas."
-                >
-                  <input
-                    id={`${idBase}-to`}
-                    type="text"
-                    value={draft.to}
-                    onChange={(event) => set({ to: event.target.value })}
-                    placeholder="ops@example.com"
-                    className={inputClass}
-                  />
-                </Field>
-                <Field label="CC" htmlFor={`${idBase}-cc`} hint="Copied on every send.">
-                  <input
-                    id={`${idBase}-cc`}
-                    type="text"
-                    value={draft.cc}
-                    onChange={(event) => set({ cc: event.target.value })}
-                    placeholder="manager@example.com"
-                    className={inputClass}
-                  />
-                </Field>
-              </div>
+              <RecipientPolicies
+                rows={draft.policies}
+                sources={choices.sources ?? []}
+                audienceLabel={policies.audience_label}
+                precedenceNote={policies.choices.precedence_note}
+                locked={locked}
+                idBase={idBase}
+                onChange={(rows) => set({ policies: rows })}
+              />
               {invalid.length > 0 && (
                 <p role="alert" className="text-sm text-red-700">
                   Not a valid email address: {invalid.join(', ')}
+                </p>
+              )}
+              {incomplete > 0 && (
+                <p role="alert" className="text-sm text-red-700">
+                  {incomplete === 1 ? 'One copy has' : `${incomplete} copies have`} neither an
+                  address nor a source.
+                </p>
+              )}
+            </Section>
+
+            <Section
+              title="Content"
+              blurb="The wording this notification sends, and where each language stands."
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="min-w-0 text-sm font-semibold text-slate-900">{draft.template_name}</p>
+                <button
+                  type="button"
+                  onClick={() => onOpenTemplate(draft.template_name)}
+                  className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-100"
+                >
+                  <Pencil size={14} aria-hidden />
+                  Edit the wording
+                </button>
+              </div>
+              {wording ? (
+                <ul className="divide-y divide-slate-100">
+                  {wording.locales.map((entry) => (
+                    <li key={entry.locale} className="flex flex-wrap items-center gap-2 py-2">
+                      <span className="min-w-20 text-sm text-slate-600">{entry.locale_label}</span>
+                      {entry.configured ? (
+                        <Pill tone="green">Revision {entry.published_revision} published</Pill>
+                      ) : (
+                        <Pill tone="slate">Not configured</Pill>
+                      )}
+                      {entry.has_unpublished_changes && <Pill tone="amber">Unpublished draft</Pill>}
+                      {entry.last_edited_at && (
+                        <span className="text-xs text-slate-400">
+                          edited {fmtMoment(entry.last_edited_at)}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-slate-500">
+                  No language has been published, so this notification goes out in the original
+                  template. Nothing is translated for you.
                 </p>
               )}
             </Section>
@@ -744,7 +790,7 @@ const RuleEditor: React.FC<EditorProps> = ({
           <button
             type="button"
             onClick={submit}
-            disabled={!dirty || invalid.length > 0 || save.isLoading || conflict}
+            disabled={!dirty || invalid.length > 0 || incomplete > 0 || save.isLoading || conflict}
             className="h-10 rounded-lg bg-blue-600 px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {save.isLoading ? 'Saving…' : 'Save'}
@@ -760,9 +806,16 @@ type DrawerProps = {
   fallbackName?: string;
   onClose: () => void;
   onSaved: (message: string) => void;
+  onOpenTemplate: (templateName: string) => void;
 };
 
-const RuleDrawer: React.FC<DrawerProps> = ({ ruleKey, fallbackName, onClose, onSaved }) => {
+const RuleDrawer: React.FC<DrawerProps> = ({
+  ruleKey,
+  fallbackName,
+  onClose,
+  onSaved,
+  onOpenTemplate,
+}) => {
   const detail = useNotificationRule(ruleKey);
   const [panel, setPanel] = useState<PanelId>('configuration');
   const shell = useRef<HTMLDivElement>(null);
@@ -858,6 +911,7 @@ const RuleDrawer: React.FC<DrawerProps> = ({ ruleKey, fallbackName, onClose, onS
             onSaved={onSaved}
             onReload={() => detail.refetch()}
             reloading={detail.isFetching}
+            onOpenTemplate={onOpenTemplate}
           />
         )}
       </div>

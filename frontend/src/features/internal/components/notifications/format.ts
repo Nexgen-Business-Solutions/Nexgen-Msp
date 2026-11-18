@@ -1,4 +1,8 @@
-import type { NotificationHealth, NotificationRule } from '@/lib/api/internal';
+import type {
+  NotificationHealth,
+  NotificationRecipientPolicy,
+  NotificationRule,
+} from '@/lib/api/internal';
 import type { Tone } from './ui';
 
 export const fmtMoment = (value?: string | null) =>
@@ -79,3 +83,18 @@ export const EMPTY_FILTERS: RuleFilters = { search: '', category: '', status: ''
 export type HistoryFilters = { search: string; status: string };
 
 export const EMPTY_HISTORY_FILTERS: HistoryFilters = { search: '', status: '' };
+
+export type PolicyRow = NotificationRecipientPolicy;
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** The addresses an administrator typed that are not addresses. */
+export const badPolicyAddresses = (rows: PolicyRow[]) =>
+  rows
+    .filter((row) => !row.recipient_source)
+    .map((row) => (row.fixed_address ?? '').trim())
+    .filter((address) => address && !EMAIL.test(address));
+
+/** Rows naming neither an address nor a source, which the server would refuse anyway. */
+export const incompletePolicies = (rows: PolicyRow[]) =>
+  rows.filter((row) => !row.recipient_source && !(row.fixed_address ?? '').trim()).length;

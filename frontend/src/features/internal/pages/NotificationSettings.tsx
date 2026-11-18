@@ -20,11 +20,12 @@ import RulesTab from '../components/notifications/RulesTab';
 import { EMPTY_FILTERS, EMPTY_HISTORY_FILTERS, type HistoryFilters, type RuleFilters } from '../components/notifications/format';
 import HistoryTab from '../components/notifications/HistoryTab';
 import SourcesTab from '../components/notifications/SourcesTab';
+import TemplatesTab from '../components/notifications/TemplatesTab';
 import RuleDrawer from '../components/notifications/RuleDrawer';
 import NewRuleModal from '../components/notifications/NewRuleModal';
 import { useNotificationOverview } from '../components/notifications/useNotifications';
 
-type TabId = 'rules' | 'history' | 'sources';
+type TabId = 'rules' | 'templates' | 'history' | 'sources';
 
 const PAGE_LENGTH = 50;
 const TITLE = 'Email Management';
@@ -57,6 +58,7 @@ export default function NotificationSettings() {
   const [historyPage, setHistoryPage] = useState(0);
   const [open, setOpen] = useState<{ key: string; name?: string } | null>(null);
   const [creating, setCreating] = useState(false);
+  const [wording, setWording] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const search = useDebounced(filters.search);
@@ -95,6 +97,7 @@ export default function NotificationSettings() {
 
   const tabs: { id: TabId; label: string; count?: number }[] = [
     { id: 'rules', label: 'Notification rules', count: figures?.managed },
+    { id: 'templates', label: 'Templates' },
     { id: 'history', label: 'Delivery history' },
     { id: 'sources', label: 'Notification sources' },
   ];
@@ -204,6 +207,9 @@ export default function NotificationSettings() {
               onOpen={(rule) => setOpen({ key: rule.rule_key, name: rule.display_name })}
             />
           )}
+          {tab === 'templates' && (
+            <TemplatesTab active open={wording} onOpened={() => setWording(null)} />
+          )}
           {tab === 'history' && (
             <HistoryTab
               active
@@ -254,6 +260,11 @@ export default function NotificationSettings() {
         onSaved={(message) => {
           setOpen(null);
           setToast(message);
+        }}
+        onOpenTemplate={(templateName) => {
+          setOpen(null);
+          setWording(templateName);
+          setTab('templates');
         }}
       />
 

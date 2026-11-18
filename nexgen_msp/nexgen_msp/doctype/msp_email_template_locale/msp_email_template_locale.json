@@ -1,0 +1,121 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:{template_name}::{locale}",
+ "creation": "2026-11-18 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "template_name",
+  "locale",
+  "section_draft",
+  "draft_subject",
+  "draft_html",
+  "draft_text",
+  "section_state",
+  "draft_revision",
+  "published_revision",
+  "last_edited_by",
+  "last_edited_at"
+ ],
+ "fields": [
+  {
+   "fieldname": "template_name",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Template",
+   "options": "Email Template",
+   "reqd": 1
+  },
+  {
+   "fieldname": "locale",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Language",
+   "options": "en\nfr",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_draft",
+   "fieldtype": "Section Break",
+   "label": "Draft"
+  },
+  {
+   "fieldname": "draft_subject",
+   "fieldtype": "Data",
+   "label": "Subject"
+  },
+  {
+   "fieldname": "draft_html",
+   "fieldtype": "Code",
+   "label": "HTML Body",
+   "options": "HTML"
+  },
+  {
+   "fieldname": "draft_text",
+   "fieldtype": "Long Text",
+   "label": "Plain Text Body"
+  },
+  {
+   "fieldname": "section_state",
+   "fieldtype": "Section Break",
+   "label": "State"
+  },
+  {
+   "default": "0",
+   "fieldname": "draft_revision",
+   "fieldtype": "Int",
+   "label": "Draft Revision"
+  },
+  {
+   "default": "0",
+   "fieldname": "published_revision",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Published Revision"
+  },
+  {
+   "fieldname": "last_edited_by",
+   "fieldtype": "Data",
+   "label": "Last Edited By"
+  },
+  {
+   "fieldname": "last_edited_at",
+   "fieldtype": "Datetime",
+   "label": "Last Edited At"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-11-18 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nexgen MSP",
+ "name": "MSP Email Template Locale",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 0,
+   "delete": 0,
+   "email": 0,
+   "print": 0,
+   "read": 1,
+   "role": "System Manager",
+   "share": 0,
+   "write": 0
+  },
+  {
+   "create": 0,
+   "delete": 0,
+   "email": 0,
+   "print": 0,
+   "read": 1,
+   "role": "MSP System Admin",
+   "share": 0,
+   "write": 0
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

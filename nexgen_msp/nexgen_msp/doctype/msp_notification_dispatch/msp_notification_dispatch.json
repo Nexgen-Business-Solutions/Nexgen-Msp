@@ -20,6 +20,10 @@
   "recipient",
   "cc_snapshot",
   "template_name",
+  "resolved_locale",
+  "template_revision",
+  "language_source",
+  "fallback_reason",
   "subject_snapshot",
   "section_timing",
   "due_at",
@@ -112,6 +116,26 @@
    "fieldname": "template_name",
    "fieldtype": "Data",
    "label": "Template"
+  },
+  {
+   "fieldname": "resolved_locale",
+   "fieldtype": "Data",
+   "label": "Language"
+  },
+  {
+   "fieldname": "template_revision",
+   "fieldtype": "Int",
+   "label": "Template Revision"
+  },
+  {
+   "fieldname": "language_source",
+   "fieldtype": "Data",
+   "label": "Language Source"
+  },
+  {
+   "fieldname": "fallback_reason",
+   "fieldtype": "Data",
+   "label": "Fallback Reason"
   },
   {
    "fieldname": "subject_snapshot",

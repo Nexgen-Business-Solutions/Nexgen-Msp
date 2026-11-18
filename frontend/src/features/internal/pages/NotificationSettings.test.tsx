@@ -19,8 +19,57 @@ vi.mock('@/lib/api/internal', async (importOriginal) => {
     getNotificationEligibility: vi.fn(),
     getNotificationDispatchEvidence: vi.fn(),
     resolveNotificationDispatch: vi.fn(),
+    getNotificationTemplates: vi.fn(),
+    getNotificationTemplate: vi.fn(),
   };
 });
+
+const WORDING: internal.NotificationTemplateOverview = {
+  rows: [
+    {
+      template_name: 'Request Approved',
+      rule_key: 'request_approved',
+      rule_label: 'Request approved',
+      category: 'Requests',
+      kind: 'Event',
+      protected: false,
+      locales: [
+        {
+          locale: 'en',
+          locale_label: 'English',
+          configured: true,
+          draft_revision: 1,
+          published_revision: 1,
+          draft_subject: 'Approved',
+          draft_html: '<p>Approved</p>',
+          draft_text: null,
+          last_edited_by: 'admin@example.invalid',
+          last_edited_at: '2026-11-18 09:00:00',
+          has_unpublished_changes: false,
+        },
+        {
+          locale: 'fr',
+          locale_label: 'Fran\u00e7ais',
+          configured: false,
+          draft_revision: 0,
+          published_revision: null,
+          draft_subject: null,
+          draft_html: null,
+          draft_text: null,
+          last_edited_by: null,
+          last_edited_at: null,
+          has_unpublished_changes: false,
+        },
+      ],
+      last_edited_at: '2026-11-18 09:00:00',
+    },
+  ],
+  locales: [
+    { key: 'en', label: 'English' },
+    { key: 'fr', label: 'Fran\u00e7ais' },
+  ],
+  fallback_locale: 'en',
+};
 
 const health = { state: 'Healthy', failed: 0, unknown: 0, queued: 0 };
 
@@ -102,11 +151,26 @@ const detailOf = (
   choices: {
     templates: ['Request Approved'],
     audiences: [{ key: 'requester', label: 'Requester' }],
+    sources: [{ key: 'internal', label: 'MSP internal team' }],
+    channels: ['To', 'CC', 'BCC'],
     categories: ['Requests'],
     protected: base.protected,
     kind: base.kind,
     stop_conditions: [{ key: 'resolved', label: 'Stop when resolved' }],
     units: ['Hours', 'Days', 'Weeks'],
+  },
+  policies: {
+    rule_key: base.rule_key,
+    rows: [],
+    choices: {
+      channels: ['To', 'CC', 'BCC'],
+      sources: [{ key: 'internal', label: 'MSP internal team' }],
+      protected: base.protected,
+      precedence_note:
+        'An address on more than one channel is kept on the most open one it appears on: To, then CC, then BCC.',
+    },
+    audience_key: base.audience_key ?? 'requester',
+    audience_label: base.audience_label ?? 'Requester',
   },
   audit: [],
 });
@@ -818,6 +882,306 @@ describe('Email Management', () => {
         note: 'Matches the reference',
         email_queue: 'EQ-1',
       });
+    });
+  });
+
+  describe('the content of a notification', () => {
+    it('says where each language of its template stands', async () => {
+      mockOverview();
+      mockDetails();
+      vi.mocked(internal.getNotificationTemplates).mockResolvedValue(WORDING);
+      renderPage();
+
+      const dialog = await openRule('Request approved');
+
+      expect(await within(dialog).findByText('Revision 1 published')).toBeInTheDocument();
+      expect(within(dialog).getByText('Not configured')).toBeInTheDocument();
+      expect(within(dialog).getByText('edited 2026-11-18 09:00')).toBeInTheDocument();
+    });
+
+    it('hands the template over to the Templates tab rather than editing it here', async () => {
+      mockOverview();
+      mockDetails();
+      vi.mocked(internal.getNotificationTemplates).mockResolvedValue(WORDING);
+      vi.mocked(internal.getNotificationTemplate).mockResolvedValue({
+        template_name: 'Request Approved',
+        rule_key: 'request_approved',
+        rule_label: 'Request approved',
+        locale: 'en',
+        locales: WORDING.rows[0].locales,
+        variables: [{ name: 'full_name', kind: 'text' }],
+        published: null,
+        legacy: { subject: 'Approved', html: '<p>Approved</p>' },
+        fallback_locale: 'en',
+        revisions: [],
+      });
+      renderPage();
+
+      const dialog = await openRule('Request approved');
+      fireEvent.click(await within(dialog).findByRole('button', { name: /Edit the wording/ }));
+
+      await waitFor(() =>
+        expect(screen.getByRole('tab', { name: /^Templates$/ })).toHaveAttribute(
+          'aria-selected',
+          'true'
+        )
+      );
+      expect(await screen.findByLabelText('HTML body')).toHaveValue('<p>Approved</p>');
+      expect(internal.getNotificationTemplate).toHaveBeenCalledWith(
+        'Request Approved',
+        'en',
+        expect.anything()
+      );
+    });
+  });
+
+  describe('who a notification is copied to', () => {
+    const withPolicies = (rows: internal.NotificationRecipientPolicy[]) =>
+      vi.mocked(internal.getNotificationRule).mockImplementation(async (key) => {
+        const found = ALL.find((entry) => entry.rule_key === key) ?? EVENT;
+        const base = detailOf(found);
+
+        return { ...base, policies: { ...base.policies, rows } };
+      });
+
+    it('names the audience the application resolves and offers to add a copy', async () => {
+      mockOverview();
+      withPolicies([]);
+      renderPage();
+
+      const drawer = await openRule('Request approved');
+
+      expect(within(drawer).getByText(/^Addressed to/)).toHaveTextContent('Requester');
+      expect(within(drawer).getByRole('button', { name: /Add a copy/ })).toBeInTheDocument();
+      expect(
+        within(drawer).getByText(/kept on the most open one it appears on/)
+      ).toBeInTheDocument();
+    });
+
+    it('shows a stored policy on its channel, fixed address or source', async () => {
+      mockOverview();
+      withPolicies([
+        {
+          channel: 'CC',
+          recipient_source: null,
+          recipient_source_label: null,
+          fixed_address: 'ops@example.com',
+          enabled: true,
+        },
+        {
+          channel: 'BCC',
+          recipient_source: 'internal',
+          recipient_source_label: 'MSP internal team',
+          fixed_address: null,
+          enabled: true,
+        },
+      ]);
+      renderPage();
+
+      const drawer = await openRule('Request approved');
+
+      expect(within(drawer).getByLabelText('Address of copy 1')).toHaveValue('ops@example.com');
+      expect(within(drawer).getByText('Resolved from the record on every send')).toBeInTheDocument();
+      expect(
+        within(drawer).getByRole('button', { name: /Channel of copy 1/ })
+      ).toHaveTextContent('CC');
+      expect(
+        within(drawer).getByRole('button', { name: /Channel of copy 2/ })
+      ).toHaveTextContent('BCC');
+    });
+
+    it('sends every policy as one change, with the address on the channel chosen', async () => {
+      mockOverview();
+      withPolicies([]);
+      vi.mocked(internal.saveNotificationRule).mockImplementation(async ({ rule_key }) =>
+        detailOf(ALL.find((entry) => entry.rule_key === rule_key) ?? EVENT)
+      );
+      renderPage();
+
+      const drawer = await openRule('Request approved');
+      fireEvent.click(within(drawer).getByRole('button', { name: /Add a copy/ }));
+      fireEvent.change(await within(drawer).findByLabelText('Address of copy 1'), {
+        target: { value: 'ops@example.com' },
+      });
+      fireEvent.click(within(drawer).getByRole('button', { name: 'Save' }));
+
+      await waitFor(() =>
+        expect(internal.saveNotificationRule).toHaveBeenCalledWith({
+          rule_key: 'request_approved',
+          expected_revision: 4,
+          changes: {
+            recipients: [
+              {
+                channel: 'CC',
+                recipient_source: null,
+                fixed_address: 'ops@example.com',
+                enabled: true,
+              },
+            ],
+          },
+        })
+      );
+    });
+
+    it('will not save a copy that is neither an address nor a source', async () => {
+      mockOverview();
+      withPolicies([]);
+      renderPage();
+
+      const drawer = await openRule('Request approved');
+      fireEvent.click(within(drawer).getByRole('button', { name: /Add a copy/ }));
+
+      expect(await within(drawer).findByText(/neither an address nor a source/)).toBeInTheDocument();
+      expect(within(drawer).getByRole('button', { name: 'Save' })).toBeDisabled();
+    });
+
+    it('will not save an address that is not one', async () => {
+      mockOverview();
+      withPolicies([]);
+      renderPage();
+
+      const drawer = await openRule('Request approved');
+      fireEvent.click(within(drawer).getByRole('button', { name: /Add a copy/ }));
+      fireEvent.change(await within(drawer).findByLabelText('Address of copy 1'), {
+        target: { value: 'nonsense' },
+      });
+
+      expect(await within(drawer).findByText(/Not a valid email address: nonsense/)).toBeInTheDocument();
+      expect(within(drawer).getByRole('button', { name: 'Save' })).toBeDisabled();
+    });
+
+    it('says a protected notification cannot be copied instead of offering to', async () => {
+      mockOverview();
+      vi.mocked(internal.getNotificationRule).mockImplementation(async () => {
+        const base = detailOf(PROTECTED);
+
+        return {
+          ...base,
+          policies: {
+            ...base.policies,
+            choices: { ...base.policies.choices, protected: true, sources: [] },
+          },
+        };
+      });
+      renderPage();
+
+      const drawer = await openRule('Password reset');
+
+      expect(
+        await within(drawer).findByText(/cannot be copied or redirected/)
+      ).toBeInTheDocument();
+      expect(within(drawer).queryByRole('button', { name: /Add a copy/ })).not.toBeInTheDocument();
+    });
+
+    it('removes a copy without touching the others', async () => {
+      mockOverview();
+      withPolicies([
+        {
+          channel: 'CC',
+          recipient_source: null,
+          recipient_source_label: null,
+          fixed_address: 'first@example.com',
+          enabled: true,
+        },
+        {
+          channel: 'CC',
+          recipient_source: null,
+          recipient_source_label: null,
+          fixed_address: 'second@example.com',
+          enabled: true,
+        },
+      ]);
+      renderPage();
+
+      const drawer = await openRule('Request approved');
+      fireEvent.click(within(drawer).getByRole('button', { name: 'Remove copy 1' }));
+
+      expect(within(drawer).getByLabelText('Address of copy 1')).toHaveValue('second@example.com');
+      expect(within(drawer).queryByLabelText('Address of copy 2')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('the language a delivery went out in', () => {
+    it('names the language and the revision beside the template', async () => {
+      mockOverview();
+      vi.mocked(internal.getNotificationHistory).mockResolvedValue({
+        rows: [
+          {
+            name: 'D-1',
+            creation: '2026-11-18 10:00:00',
+            rule: 'request_approved',
+            rule_label: 'Request approved',
+            reason_label: null,
+            business_doctype: 'MSP Request',
+            business_name: 'REQ-1',
+            recipient: 'a@example.com',
+            template_name: 'Request Approved',
+            subject_snapshot: 'Approved',
+            attempt: 1,
+            status: 'Queued',
+            email_queue_id: 'EQ-1',
+            failure_reason: null,
+            skip_reason: null,
+            resolved_locale: 'fr',
+            locale_label: 'Français',
+            template_revision: 3,
+            language_source: 'account',
+            language_source_label: "The recipient's own account setting",
+            fallback_reason: null,
+            fallback_label: null,
+          },
+        ],
+        total: 1,
+        page: 0,
+        page_length: 50,
+        statuses: ['Queued'],
+      });
+      renderPage();
+
+      fireEvent.click(await screen.findByRole('tab', { name: /Delivery history/ }));
+
+      expect(await screen.findByText('Français · revision 3')).toBeInTheDocument();
+    });
+
+    it('says when a delivery fell back rather than leaving the language unexplained', async () => {
+      mockOverview();
+      vi.mocked(internal.getNotificationHistory).mockResolvedValue({
+        rows: [
+          {
+            name: 'D-2',
+            creation: '2026-11-18 10:00:00',
+            rule: 'request_approved',
+            rule_label: 'Request approved',
+            reason_label: null,
+            business_doctype: 'MSP Request',
+            business_name: 'REQ-2',
+            recipient: 'b@example.com',
+            template_name: 'Request Approved',
+            subject_snapshot: 'Approved',
+            attempt: 1,
+            status: 'Queued',
+            email_queue_id: 'EQ-2',
+            failure_reason: null,
+            skip_reason: null,
+            resolved_locale: 'en',
+            locale_label: 'English',
+            template_revision: 1,
+            language_source: 'account',
+            language_source_label: "The recipient's own account setting",
+            fallback_reason: 'variant_not_published',
+            fallback_label: 'That language has no published wording yet',
+          },
+        ],
+        total: 1,
+        page: 0,
+        page_length: 50,
+        statuses: ['Queued'],
+      });
+      renderPage();
+
+      fireEvent.click(await screen.findByRole('tab', { name: /Delivery history/ }));
+
+      expect(await screen.findByText(/English · revision 1 · fell back/)).toBeInTheDocument();
     });
   });
 });

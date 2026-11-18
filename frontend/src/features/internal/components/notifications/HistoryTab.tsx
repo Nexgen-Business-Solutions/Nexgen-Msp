@@ -122,6 +122,20 @@ const HistoryTab: React.FC<Props> = ({ active, filters, onFilters, page, onPage 
                         {row.subject_snapshot || '—'}
                       </p>
                       <p className="truncate text-xs text-slate-400">{row.template_name}</p>
+                      {row.locale_label && (
+                        <p
+                          className="truncate text-xs text-slate-400"
+                          title={
+                            [row.language_source_label, row.fallback_label]
+                              .filter(Boolean)
+                              .join(' · ') || undefined
+                          }
+                        >
+                          {row.locale_label}
+                          {row.template_revision ? ` · revision ${row.template_revision}` : ''}
+                          {row.fallback_label ? ' · fell back' : ''}
+                        </p>
+                      )}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-sm tabular-nums text-slate-600">
                       {row.attempt ?? 1}

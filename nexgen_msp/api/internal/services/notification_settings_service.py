@@ -179,16 +179,22 @@ class NotificationSettingsService:
 
     @staticmethod
     def _extra_recipients(rule_key):
+        """The fixed addresses this rule adds, as the two channels every caller already reads.
+
+        Only addresses: a policy naming a source resolves to nobody until a business record
+        is in hand, so it is not an address and cannot be listed as one here. The whole
+        picture, sources included, is what the policy service resolves at send time.
+        """
         rows = frappe.get_all(
             "MSP Notification Recipient",
-            filters={"parenttype": RULE, "parent": rule_key},
+            filters={"parenttype": RULE, "parent": rule_key, "enabled": 1},
             fields=["email", "kind"],
             order_by="idx asc",
         )
 
         return (
-            [row.email for row in rows if row.kind == "To"],
-            [row.email for row in rows if row.kind == "CC"],
+            [row.email for row in rows if row.kind == "To" and row.email],
+            [row.email for row in rows if row.kind == "CC" and row.email],
         )
 
     # ------------------------------------------------------------------ the list
@@ -438,6 +444,10 @@ class NotificationSettingsService:
         registry.require(rule_key)
         NotificationSettingsService.seed()
 
+        from nexgen_msp.api.internal.services.notification_recipient_policy_service import (
+            NotificationRecipientPolicyService,
+        )
+
         row = NotificationSettingsService._row(rule_key)
         current = NotificationSettingsService.effective(rule_key)
 
@@ -466,6 +476,7 @@ class NotificationSettingsService:
                 },
             },
             "choices": registry.choices(rule_key, current.get("condition_key")),
+            "policies": NotificationRecipientPolicyService.policies(rule_key),
             "audit": NotificationSettingsService._recent_audit(rule_key),
         }
 
@@ -587,15 +598,16 @@ class NotificationSettingsService:
                 doc.set(field, changes[field])
 
         if "recipients" in changes:
+            from nexgen_msp.api.internal.services.notification_recipient_policy_service import (
+                NotificationRecipientPolicyService,
+            )
+
             doc.set("recipients", [])
 
             for entry in changes["recipients"] or []:
                 doc.append(
                     "recipients",
-                    {
-                        "email": (entry or {}).get("email"),
-                        "kind": "CC" if (entry or {}).get("kind") == "CC" else "To",
-                    },
+                    NotificationRecipientPolicyService.validated_row(rule_key, entry),
                 )
 
         doc.revision = frappe.utils.cint(doc.revision) + 1
@@ -678,8 +690,15 @@ class NotificationSettingsService:
         "reason": "This is sample text, not a real dispute.",
         "waiting_since": "1 January 2026 09:00 (24h ago)",
         "headline": "Sample action",
+        "outcome": "Approved",
+        "approver": "Sample Approver",
+        "raised_by": "Sample Requester",
+        "modified_by": "Sample Requester",
+        "missing": "nobody can approve a service request",
+        "accounts": 3,
         "acts": "",
         "summary": "",
+        "reason_block": "",
         "link": "https://example.invalid/sample",
     }
 

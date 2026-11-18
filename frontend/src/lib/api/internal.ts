@@ -3625,6 +3625,9 @@ export type NotificationAuditRow = {
 export type NotificationChoices = {
   templates: string[];
   audiences: { key: string; label: string }[];
+  /** the audiences this notification may also be copied to */
+  sources: { key: string; label: string }[];
+  channels: string[];
   categories: string[];
   protected: boolean;
   kind: string;
@@ -3638,6 +3641,7 @@ export type NotificationChoices = {
 export type NotificationRuleDetail = {
   rule: NotificationRuleFields;
   choices: NotificationChoices;
+  policies: NotificationRecipientPolicies;
   audit: NotificationAuditRow[];
 };
 
@@ -3659,7 +3663,12 @@ export type NotificationRuleChanges = Partial<{
   quiet_end: string;
   escalation_after_iteration: number | null;
   escalation_audience_key: string | null;
-  recipients: { email: string; kind: 'To' | 'CC' }[];
+  recipients: {
+    channel: NotificationChannel;
+    recipient_source: string | null;
+    fixed_address: string | null;
+    enabled: boolean;
+  }[];
 }>;
 
 export type NotificationPreview = {
@@ -3697,6 +3706,14 @@ export type NotificationHistoryRow = {
   is_test?: number | boolean | null;
   queued_at?: string | null;
   sent_at?: string | null;
+  /** which published wording built this mail, and on whose word that language was chosen */
+  resolved_locale?: string | null;
+  locale_label?: string | null;
+  template_revision?: number | null;
+  language_source?: string | null;
+  language_source_label?: string | null;
+  fallback_reason?: string | null;
+  fallback_label?: string | null;
 };
 
 export type NotificationHistory = {
@@ -3839,6 +3856,12 @@ export type NotificationDispatchEvidence = {
     subject_snapshot: string | null;
     reserved_at: string | null;
     failure_reason: string | null;
+    template_name?: string | null;
+    resolved_locale?: string | null;
+    locale_label?: string | null;
+    template_revision?: number | null;
+    language_source_label?: string | null;
+    fallback_label?: string | null;
   };
   candidates: NotificationDispatchCandidate[];
   decisions: string[];
@@ -3859,3 +3882,206 @@ export const resolveNotificationDispatch = (payload: NotificationDispatchDecisio
     `${BASE}.resolve_notification_dispatch`,
     payload
   );
+
+// ----------------------------------------------------------------- email templates
+export type NotificationLocale = 'en' | 'fr';
+
+export type NotificationTemplateVariable = {
+  name: string;
+  /** text is escaped where it lands, html is ours already, url is checked as an address */
+  kind: 'text' | 'html' | 'url';
+};
+
+export type NotificationTemplateLocaleState = {
+  locale: NotificationLocale;
+  /** the one name every screen shows for this language */
+  locale_label: string;
+  /** false reads as Not configured: nothing has ever been published here */
+  configured: boolean;
+  draft_revision: number;
+  published_revision: number | null;
+  draft_subject: string | null;
+  draft_html: string | null;
+  draft_text: string | null;
+  last_edited_by: string | null;
+  last_edited_at: string | null;
+  has_unpublished_changes: boolean;
+};
+
+export type NotificationTemplateRow = {
+  template_name: string;
+  rule_key: string;
+  rule_label: string;
+  category: string;
+  kind: NotificationKind;
+  protected: boolean;
+  locales: NotificationTemplateLocaleState[];
+  last_edited_at: string | null;
+};
+
+export type NotificationTemplateOverview = {
+  rows: NotificationTemplateRow[];
+  locales: { key: NotificationLocale; label: string }[];
+  fallback_locale: NotificationLocale;
+};
+
+export type NotificationTemplateRevision = {
+  name: string;
+  revision_number: number;
+  subject: string;
+  html_body: string | null;
+  text_body: string | null;
+  variables_used: string | null;
+  change_note: string | null;
+  content_checksum: string | null;
+  owner: string;
+  creation: string;
+  is_published: boolean;
+};
+
+export type NotificationTemplatePublication = {
+  subject: string;
+  html_body: string | null;
+  text_body: string | null;
+  revision_number: number;
+} | null;
+
+export type NotificationTemplateDetail = {
+  template_name: string;
+  rule_key: string;
+  rule_label: string;
+  locale: NotificationLocale;
+  locales: NotificationTemplateLocaleState[];
+  variables: NotificationTemplateVariable[];
+  published: NotificationTemplatePublication;
+  /** the original Frappe template, which is what a send falls back to */
+  legacy: { subject: string | null; html: string | null };
+  fallback_locale: NotificationLocale;
+  revisions: NotificationTemplateRevision[];
+};
+
+export type NotificationTemplatePreview = {
+  subject: string;
+  html: string;
+  text: string | null;
+  locale: NotificationLocale;
+  revision: number | null;
+  source: 'draft' | 'published';
+  context_note: string;
+};
+
+export type NotificationTemplateHistory = {
+  rows: NotificationTemplateRevision[];
+  published_revision: number | null;
+};
+
+export const getNotificationTemplates = (signal?: AbortSignal) =>
+  get<NotificationTemplateOverview>(`${BASE}.notification_templates_overview`, undefined, signal);
+
+export const getNotificationTemplate = (
+  templateName: string,
+  locale: NotificationLocale,
+  signal?: AbortSignal
+) =>
+  get<NotificationTemplateDetail>(
+    `${BASE}.notification_template_detail`,
+    { template_name: templateName, locale },
+    signal
+  );
+
+export const getNotificationTemplateHistory = (
+  templateName: string,
+  locale: NotificationLocale,
+  signal?: AbortSignal
+) =>
+  get<NotificationTemplateHistory>(
+    `${BASE}.notification_template_history`,
+    { template_name: templateName, locale },
+    signal
+  );
+
+export const saveNotificationTemplateDraft = (payload: {
+  template_name: string;
+  locale: NotificationLocale;
+  subject: string;
+  html: string;
+  text?: string;
+  draft_revision: number;
+}) => post<NotificationTemplateDetail>(`${BASE}.save_notification_template_draft`, payload);
+
+export const publishNotificationTemplate = (payload: {
+  template_name: string;
+  locale: NotificationLocale;
+  change_note?: string;
+  draft_revision: number;
+}) => post<NotificationTemplateDetail>(`${BASE}.publish_notification_template`, payload);
+
+export const restoreNotificationTemplate = (payload: {
+  template_name: string;
+  locale: NotificationLocale;
+  revision_number: number;
+  draft_revision: number;
+}) => post<NotificationTemplateDetail>(`${BASE}.restore_notification_template`, payload);
+
+export const previewNotificationTemplate = (
+  templateName: string,
+  locale: NotificationLocale,
+  source: 'draft' | 'published',
+  signal?: AbortSignal
+) =>
+  get<NotificationTemplatePreview>(
+    `${BASE}.notification_template_preview`,
+    { template_name: templateName, locale, source },
+    signal
+  );
+
+export const testNotificationTemplate = (payload: {
+  template_name: string;
+  locale: NotificationLocale;
+  recipient: string;
+  source: 'draft' | 'published';
+}) => post<NotificationTestResult>(`${BASE}.test_notification_template`, payload);
+
+// ----------------------------------------------------------------- recipient policies
+export type NotificationChannel = 'To' | 'CC' | 'BCC';
+
+export type NotificationRecipientPolicy = {
+  channel: NotificationChannel;
+  /** an audience resolved from the business record, or null for a fixed address */
+  recipient_source: string | null;
+  recipient_source_label: string | null;
+  fixed_address: string | null;
+  enabled: boolean;
+};
+
+export type NotificationRecipientPolicies = {
+  rule_key: string;
+  rows: NotificationRecipientPolicy[];
+  choices: {
+    channels: NotificationChannel[];
+    sources: { key: string; label: string }[];
+    protected: boolean;
+    precedence_note: string;
+  };
+  /** the audience the notification is addressed to in the first place */
+  audience_key: string;
+  audience_label: string;
+};
+
+export const getNotificationRecipientPolicies = (ruleKey: string, signal?: AbortSignal) =>
+  get<NotificationRecipientPolicies>(
+    `${BASE}.notification_rule_recipient_policies`,
+    { rule_key: ruleKey },
+    signal
+  );
+
+export const saveNotificationRecipientPolicies = (payload: {
+  rule_key: string;
+  expected_revision: number;
+  policies: {
+    channel: NotificationChannel;
+    recipient_source?: string | null;
+    fixed_address?: string | null;
+    enabled: boolean;
+  }[];
+}) => post<NotificationRecipientPolicies>(`${BASE}.save_notification_rule_recipient_policies`, payload);

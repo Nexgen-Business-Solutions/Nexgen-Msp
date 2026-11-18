@@ -12,6 +12,11 @@ export const notificationKeys = {
     [...notificationKeys.all, 'history', params] as const,
   evidence: (dispatch: string) => [...notificationKeys.all, 'evidence', dispatch] as const,
   sources: () => [...notificationKeys.all, 'sources'] as const,
+  templates: () => [...notificationKeys.all, 'templates'] as const,
+  template: (templateName: string, locale: string) =>
+    [...notificationKeys.all, 'template', templateName, locale] as const,
+  templatePreview: (templateName: string, locale: string, source: string) =>
+    [...notificationKeys.all, 'templatePreview', templateName, locale, source] as const,
 };
 
 export const useNotificationOverview = (params: internal.NotificationOverviewParams) =>
@@ -97,6 +102,79 @@ export const useResolveDispatch = () => {
 
   return useMutation({
     mutationFn: internal.resolveNotificationDispatch,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [...notificationKeys.all, 'history'] }),
+  });
+};
+
+export const useNotificationTemplates = (enabled = true) =>
+  useQuery({
+    queryKey: notificationKeys.templates(),
+    queryFn: ({ signal }) => internal.getNotificationTemplates(signal),
+    enabled,
+  });
+
+export const useNotificationTemplate = (
+  templateName: string | null,
+  locale: internal.NotificationLocale
+) =>
+  useQuery({
+    queryKey: notificationKeys.template(templateName ?? '', locale),
+    queryFn: ({ signal }) =>
+      internal.getNotificationTemplate(templateName as string, locale, signal),
+    enabled: Boolean(templateName),
+    cacheTime: 0,
+  });
+
+export const useNotificationTemplatePreview = (
+  templateName: string | null,
+  locale: internal.NotificationLocale,
+  source: 'draft' | 'published',
+  enabled: boolean
+) =>
+  useQuery({
+    queryKey: notificationKeys.templatePreview(templateName ?? '', locale, source),
+    queryFn: ({ signal }) =>
+      internal.previewNotificationTemplate(templateName as string, locale, source, signal),
+    enabled: Boolean(templateName) && enabled,
+    cacheTime: 0,
+    retry: false,
+  });
+
+/** Every write to a template refreshes the same three things, so they share one hook. */
+const useTemplateWrite = <TVariables extends { template_name: string; locale: internal.NotificationLocale }>(
+  mutationFn: (variables: TVariables) => Promise<internal.NotificationTemplateDetail>
+) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn,
+    onSuccess: (detail, variables) => {
+      queryClient.setQueryData(
+        notificationKeys.template(variables.template_name, variables.locale),
+        detail
+      );
+      queryClient.invalidateQueries({ queryKey: notificationKeys.templates() });
+      queryClient.invalidateQueries({
+        queryKey: [...notificationKeys.all, 'templatePreview', variables.template_name],
+      });
+    },
+  });
+};
+
+export const useSaveNotificationTemplateDraft = () =>
+  useTemplateWrite(internal.saveNotificationTemplateDraft);
+
+export const usePublishNotificationTemplate = () =>
+  useTemplateWrite(internal.publishNotificationTemplate);
+
+export const useRestoreNotificationTemplate = () =>
+  useTemplateWrite(internal.restoreNotificationTemplate);
+
+export const useTestNotificationTemplate = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: internal.testNotificationTemplate,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: [...notificationKeys.all, 'history'] }),
   });
 };

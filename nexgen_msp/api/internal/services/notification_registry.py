@@ -167,7 +167,50 @@ REASON_LABELS = {
     "queued": "Handed to the mail queue",
     "settings_saved": "An administrator saved this rule",
     "needs_investigation": "Needs a look before anything is sent again",
+    "draft_saved": "An administrator saved a draft of this wording",
+    "template_published": "An administrator published a new revision of this wording",
+    "template_restored": "An administrator brought an older revision back into the editor",
+    "preferred_variant": "The recipient's own language was published",
+    "no_preference": "No language preference on the account or the customer",
+    "variant_not_published": "That language has no published wording yet",
+    "legacy_template": "No language has been published; the original template was used",
+    "policy_disabled": "This copy is switched off",
+    "unsupported_source": "That source is not one this notification can be copied to",
+    "no_record": "There is no business record to resolve this source against",
+    "invalid_address": "Not an email address",
+    "other_customer": "That address belongs to another company",
+    "already_addressed": "Already written to on a more open channel",
+    "protected_notification": "This notification reaches the account holder and nobody else",
+    "policies_saved": "An administrator changed who this notification is copied to",
 }
+
+
+# the languages a managed template may be published in, and the one a mail falls back to
+# when nobody has told us the recipient's. Decided once here rather than per send path: a
+# language chosen differently in two places is two different mails for the same event
+LOCALES = ("en", "fr")
+LOCALE_LABELS = {"en": "English", "fr": "Français"}
+FALLBACK_LOCALE = "en"
+
+# where the language of a mail came from, said in words on the delivery it produced
+LANGUAGE_SOURCES = {
+    "account": "The recipient's own account setting",
+    "customer": "The customer's language",
+    "fallback": "Nobody has told us this recipient's language",
+}
+
+
+def locale_label(locale):
+    """A language as the screens name it."""
+    return LOCALE_LABELS.get(locale) or (locale or "").upper()
+
+
+def language_source_label(code):
+    """Where a language came from, in words."""
+    if not code:
+        return None
+
+    return LANGUAGE_SOURCES.get(code) or trigger_label(code)
 
 
 def reason_label(code):
@@ -186,8 +229,42 @@ def rule_label(rule_key, stored=None):
     return (RULES.get(rule_key) or {}).get("display_name") or trigger_label(rule_key)
 
 
+# --------------------------------------------------------------------------- copies
+# Who a notification may be copied to, beyond the audience it is addressed to. A source is
+# listable only where its resolver reads fields the rule's own record has: pointing one at
+# a record that cannot answer it would mail nobody and say nothing about why.
+#
+# There is deliberately no assigned-technician source. Nothing in this product assigns a
+# request to anybody — whoever opens it carries it out — so a resolver for it would be a
+# guess wearing the name of a fact.
+REQUEST_SOURCES = (
+    "requester",
+    "approvers",
+    "request_audience",
+    "internal",
+    "internal_without_requester",
+    "billing_contact",
+)
+
+# a record that names a company but no requester and no approvers: an invoice, a dispute
+CUSTOMER_SOURCES = ("billing_contact", "internal")
+
+# raised without any business record at all, so only our own team can be resolved
+INTERNAL_SOURCES = ("internal",)
+
+
 # --------------------------------------------------------------------------- the rules
-def _event(key, name, category, template, audience, source, protected=False, alternates=()):
+def _event(
+    key,
+    name,
+    category,
+    template,
+    audience,
+    source,
+    protected=False,
+    alternates=(),
+    copies=(),
+):
     return {
         "rule_key": key,
         "kind": EVENT,
@@ -199,11 +276,15 @@ def _event(key, name, category, template, audience, source, protected=False, alt
         "audiences": (audience,),
         "templates": (template,) + tuple(alternates),
         "protected": protected,
+        # a notification that carries the means of signing in as somebody is never copied
+        "copies": () if protected else tuple(copies),
         "source": source,
     }
 
 
-def _reminder(key, name, category, template, audience, source, condition, conditions=()):
+def _reminder(
+    key, name, category, template, audience, source, condition, conditions=(), copies=()
+):
     return {
         "rule_key": key,
         "kind": REMINDER,
@@ -217,6 +298,7 @@ def _reminder(key, name, category, template, audience, source, condition, condit
         "templates": (template,),
         "conditions": tuple(conditions) or (condition,),
         "protected": False,
+        "copies": tuple(copies),
         "source": source,
         # what the two live reminders have always done, kept as the shape of a brand new
         # rule only. An existing rule's own numbers are never overwritten by a migration
@@ -272,6 +354,7 @@ RULES = {
             "MSP Request Received",
             "requester",
             "portal_service.create_request",
+            copies=REQUEST_SOURCES,
         ),
         _event(
             "request_for_our_team",
@@ -280,6 +363,7 @@ RULES = {
             "MSP Request For Our Team",
             "internal",
             "portal_service.create_request",
+            copies=REQUEST_SOURCES,
         ),
         _event(
             "request_awaiting_approval",
@@ -288,6 +372,7 @@ RULES = {
             "MSP Request Awaiting Approval",
             "approvers",
             "portal_service.create_request",
+            copies=REQUEST_SOURCES,
         ),
         _event(
             "request_modified",
@@ -296,6 +381,7 @@ RULES = {
             "MSP Request Modified",
             "approvers",
             "portal_service.modify_request",
+            copies=REQUEST_SOURCES,
         ),
         _event(
             "request_approved_by_customer",
@@ -304,6 +390,7 @@ RULES = {
             "MSP Request Approved By Customer",
             "internal",
             "portal_service.approve_request",
+            copies=REQUEST_SOURCES,
         ),
         _event(
             "request_decision",
@@ -312,6 +399,7 @@ RULES = {
             "MSP Request Decision",
             "request_audience",
             "request_service.decide",
+            copies=REQUEST_SOURCES,
         ),
         _event(
             "request_completed",
@@ -320,6 +408,7 @@ RULES = {
             "MSP Request Completed",
             "request_audience",
             "request_service.complete",
+            copies=REQUEST_SOURCES,
         ),
         # ---------------------------------------------------------------- billing
         _event(
@@ -329,6 +418,7 @@ RULES = {
             "MSP Invoice Issued",
             "billing_contact",
             "invoice_email_service.send",
+            copies=CUSTOMER_SOURCES,
         ),
         _event(
             "invoice_disputed",
@@ -337,6 +427,7 @@ RULES = {
             "MSP Invoice Disputed",
             "internal",
             "portal_service.dispute_invoice",
+            copies=CUSTOMER_SOURCES,
         ),
         _event(
             "dispute_acknowledged",
@@ -345,6 +436,7 @@ RULES = {
             "MSP Dispute Acknowledged",
             "billing_contact",
             "portal_service.dispute_invoice",
+            copies=CUSTOMER_SOURCES,
         ),
         _event(
             "dispute_settled",
@@ -353,6 +445,7 @@ RULES = {
             "MSP Dispute Settled",
             "billing_contact",
             "billing_service.settle_dispute",
+            copies=CUSTOMER_SOURCES,
         ),
         # ---------------------------------------------------------------- operations
         _event(
@@ -362,6 +455,7 @@ RULES = {
             "MSP Authority Gap",
             "internal",
             "approval.report_gap",
+            copies=INTERNAL_SOURCES,
         ),
         # ---------------------------------------------------------------- reminders
         _reminder(
@@ -372,6 +466,7 @@ RULES = {
             "approvers",
             "reminders.remind_approvers",
             "request_approval_pending",
+            copies=REQUEST_SOURCES,
         ),
         _reminder(
             "request_waiting_internal",
@@ -381,6 +476,7 @@ RULES = {
             "internal_without_requester",
             "reminders.remind_our_team",
             "request_waiting_internal",
+            copies=REQUEST_SOURCES,
         ),
     )
 }
@@ -422,6 +518,21 @@ def keys(kind=None):
     return tuple(
         key for key, found in RULES.items() if kind is None or found["kind"] == kind
     )
+
+
+def copy_sources(rule_key):
+    """The audiences this notification may also be copied to, and no others.
+
+    A source outside this list is refused when a policy is saved and skipped if one ever
+    reaches a send another way: the addresses of a company's approvers have no business on
+    an invoice notice, whichever table the row sits in.
+    """
+    found = RULES.get(rule_key)
+
+    if not found or found["protected"]:
+        return ()
+
+    return tuple(key for key in found["copies"] if key in AUDIENCES)
 
 
 def is_protected(rule_key):
@@ -527,6 +638,10 @@ def choices(rule_key, condition_key=None):
     found = require(rule_key)
     options = {
         "templates": templates_for(rule_key),
+        "sources": [
+            {"key": key, "label": AUDIENCES[key]["label"]} for key in copy_sources(rule_key)
+        ],
+        "channels": ["To", "CC", "BCC"],
         "audiences": [
             {"key": key, "label": AUDIENCES[key]["label"]} for key in found["audiences"]
         ],

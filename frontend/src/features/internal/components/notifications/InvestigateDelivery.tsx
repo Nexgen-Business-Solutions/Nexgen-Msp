@@ -77,6 +77,18 @@ const InvestigateDelivery: React.FC<Props> = ({ dispatch, onClose }) => {
         ],
         ['Iteration', delivery.reminder_iteration == null ? '—' : String(delivery.reminder_iteration)],
         ['Subject', delivery.subject_snapshot || '—'],
+        [
+          'Wording',
+          [
+            delivery.template_name,
+            delivery.locale_label,
+            delivery.template_revision ? `revision ${delivery.template_revision}` : null,
+          ]
+            .filter(Boolean)
+            .join(' · ') || '—',
+        ],
+        ['Language chosen on', delivery.language_source_label || '—'],
+        ['Fell back because', delivery.fallback_label || 'It did not fall back'],
         ['Reserved', fmtMoment(delivery.reserved_at) || '—'],
         ['Why it stopped', delivery.reason_label || '—'],
       ]

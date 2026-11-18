@@ -4,28 +4,40 @@
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
- "field_order": ["email", "kind"],
+ "field_order": ["kind", "recipient_source", "email", "enabled"],
  "fields": [
+  {
+   "fieldname": "kind",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Channel",
+   "options": "To\nCC\nBCC",
+   "reqd": 1
+  },
+  {
+   "fieldname": "recipient_source",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Recipient Source"
+  },
   {
    "fieldname": "email",
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Email",
-   "options": "Email",
-   "reqd": 1
+   "options": "Email"
   },
   {
-   "fieldname": "kind",
-   "fieldtype": "Select",
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
    "in_list_view": 1,
-   "label": "Kind",
-   "options": "To\nCC",
-   "reqd": 1
+   "label": "Enabled"
   }
  ],
  "istable": 1,
  "links": [],
- "modified": "2026-11-14 00:00:00.000000",
+ "modified": "2026-11-18 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nexgen MSP",
  "name": "MSP Notification Recipient",
