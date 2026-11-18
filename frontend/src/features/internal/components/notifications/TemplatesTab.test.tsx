@@ -417,6 +417,61 @@ describe('the template editor', () => {
     expect(internal.testNotificationTemplate).not.toHaveBeenCalled();
   });
 
+  it('asks for the draft to be saved rather than previewing the wording before the edit', async () => {
+    mockPage();
+    mockTemplates();
+    mockDetail();
+    vi.mocked(internal.previewNotificationTemplate).mockResolvedValue({
+      subject: 'English subject',
+      html: '<p>the wording before the edit</p>',
+      text: null,
+      locale: 'en',
+      revision: 2,
+      source: 'published',
+      context_note: 'Rendered with sample values and sent to nobody.',
+    });
+    renderPage();
+
+    const dialog = await openEditor();
+    fireEvent.change(within(dialog).getByLabelText('HTML body'), {
+      target: { value: '<p>my edit</p>' },
+    });
+    fireEvent.click(within(dialog).getByRole('tab', { name: 'Preview' }));
+
+    expect(await within(dialog).findByText('There are unsaved changes')).toBeInTheDocument();
+    expect(within(dialog).queryByText('the wording before the edit')).not.toBeInTheDocument();
+    expect(internal.previewNotificationTemplate).not.toHaveBeenCalled();
+  });
+
+  it('previews once the draft is saved', async () => {
+    mockPage();
+    mockTemplates();
+    mockDetail();
+    vi.mocked(internal.saveNotificationTemplateDraft).mockResolvedValue(detail());
+    vi.mocked(internal.previewNotificationTemplate).mockResolvedValue({
+      subject: 'English subject',
+      html: '<p>the saved wording</p>',
+      text: null,
+      locale: 'en',
+      revision: 2,
+      source: 'draft',
+      context_note: 'Rendered with sample values and sent to nobody.',
+    });
+    renderPage();
+
+    const dialog = await openEditor();
+    fireEvent.change(within(dialog).getByLabelText('HTML body'), {
+      target: { value: '<p>my edit</p>' },
+    });
+    fireEvent.click(within(dialog).getByRole('tab', { name: 'Preview' }));
+    fireEvent.click(await within(dialog).findByRole('button', { name: /Save draft/ }));
+
+    expect(await within(dialog).findByTitle('Template preview')).toHaveAttribute(
+      'srcdoc',
+      '<p>the saved wording</p>'
+    );
+  });
+
   it('says there is nothing to preview in a language nobody has written', async () => {
     mockPage();
     mockTemplates();

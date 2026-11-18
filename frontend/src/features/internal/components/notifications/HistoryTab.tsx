@@ -116,7 +116,12 @@ const HistoryTab: React.FC<Props> = ({ active, filters, onFilters, page, onPage 
                       {row.business_name || '—'}
                       {row.business_doctype && <p className="text-xs text-slate-400">{row.business_doctype}</p>}
                     </td>
-                    <td className="px-4 py-3 text-sm text-slate-600">{row.recipient || '—'}</td>
+                    <td className="px-4 py-3 text-sm text-slate-600">
+                      <p>{row.recipient || '—'}</p>
+                      {row.channel && row.channel !== 'To' && (
+                        <p className="text-xs text-slate-400">{row.channel}</p>
+                      )}
+                    </td>
                     <td className="max-w-[16rem] px-4 py-3 text-sm text-slate-600">
                       <p className="truncate" title={row.subject_snapshot ?? undefined}>
                         {row.subject_snapshot || '—'}

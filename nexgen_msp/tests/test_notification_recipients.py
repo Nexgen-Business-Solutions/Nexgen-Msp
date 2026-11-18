@@ -5,6 +5,8 @@ delivery: an address copied onto a company's business that belongs to another co
 blind copy that turns out not to be blind, a reset link redirected to somebody helpful.
 """
 
+from unittest.mock import patch
+
 import frappe
 
 from nexgen_msp.api.internal.services import notification_registry as registry
@@ -54,6 +56,10 @@ class PolicyCase(NotificationCase):
     def reasons(self, skipped):
         return {entry["target"]: entry["reason"] for entry in skipped}
 
+    def mailbox(self, suffix):
+        """One of our own mailboxes, the only kind a fixed copy may name."""
+        return self.make_account("internal", "MSP Technician", suffix=f"{suffix}{self.tag[:3]}")
+
 
 class TestWhatMayBeConfigured(PolicyCase):
     def test_the_three_channels_are_offered(self):
@@ -80,6 +86,29 @@ class TestWhatMayBeConfigured(PolicyCase):
 
         self.assertIn("not-an-address", refused.exception.args[0])
 
+    def test_a_mailbox_with_no_account_of_its_own_is_accepted(self):
+        desk = f"{PREFIX.lower()}.rota{self.tag}@example.invalid"
+
+        self.configure(self.policy("CC", address=desk))
+
+        self.assertEqual(self.stored_policies()[0]["fixed_address"], desk)
+
+    def test_a_customers_own_contact_cannot_be_named_as_a_fixed_copy(self):
+        self.customer = self.make_customer(f"RF{self.tag[:4]}")
+        contact = self.make_account(
+            "customer", "MSP Customer Manager", self.customer, suffix=f"rf{self.tag[:3]}"
+        )
+
+        with self.assertRaises(ValidationError):
+            self.configure(self.policy("CC", address=contact))
+
+    def test_one_of_our_own_mailboxes_is_accepted(self):
+        desk = self.mailbox("rk")
+
+        self.configure(self.policy("CC", address=desk))
+
+        self.assertEqual(self.stored_policies()[0]["fixed_address"], desk)
+
     def test_a_source_this_notification_cannot_be_copied_to_is_refused(self):
         with self.assertRaises(ValidationError) as refused:
             self.configure(self.policy("CC", source="account_holder"))
@@ -101,19 +130,21 @@ class TestWhatMayBeConfigured(PolicyCase):
         self.assertEqual(registry.copy_sources("authority_gap"), ("internal",))
 
     def test_what_was_configured_is_what_is_read_back(self):
+        ops = self.mailbox("ro")
+        desk = self.mailbox("rd")
         self.configure(
-            self.policy("CC", address=f"{PREFIX.lower()}.ops@example.invalid"),
+            self.policy("CC", address=ops),
             self.policy("BCC", source="internal"),
-            self.policy("To", address=f"{PREFIX.lower()}.desk@example.invalid", enabled=False),
+            self.policy("To", address=desk, enabled=False),
         )
         rows = self.stored_policies()
 
         self.assertEqual(
             [(row["channel"], row["recipient_source"], row["fixed_address"], row["enabled"]) for row in rows],
             [
-                ("CC", None, f"{PREFIX.lower()}.ops@example.invalid", True),
+                ("CC", None, ops, True),
                 ("BCC", "internal", None, True),
-                ("To", None, f"{PREFIX.lower()}.desk@example.invalid", False),
+                ("To", None, desk, False),
             ],
         )
         self.assertEqual(rows[1]["recipient_source_label"], "MSP internal team")
@@ -185,7 +216,7 @@ class TestAnAddressStaysOnTheMostOpenChannelItIsOn(PolicyCase):
         self.assertEqual(self.reasons(resolved["skipped"])[shared], "already_addressed")
 
     def test_an_address_copied_and_blind_copied_is_only_copied(self):
-        shared = f"{PREFIX.lower()}.cc{self.tag}@example.invalid"
+        shared = self.mailbox("rc")
         self.configure(
             self.policy("CC", address=shared),
             self.policy("BCC", address=shared),
@@ -213,7 +244,7 @@ class TestAnAddressIsCheckedBeforeItIsUsed(PolicyCase):
         self.assertEqual(self.reasons(resolved["skipped"])["nonsense"], "invalid_address")
 
     def test_a_switched_off_policy_writes_to_nobody_and_says_why(self):
-        off = f"{PREFIX.lower()}.off{self.tag}@example.invalid"
+        off = self.mailbox("rv")
         self.configure(self.policy("CC", address=off, enabled=False))
         resolved = self.resolved([f"{PREFIX.lower()}.to{self.tag}@example.invalid"])
 
@@ -231,6 +262,7 @@ class TestAnAddressIsCheckedBeforeItIsUsed(PolicyCase):
         for code in (
             "policy_disabled",
             "unsupported_source",
+            "not_permitted",
             "no_record",
             "invalid_address",
             "other_customer",
@@ -268,19 +300,37 @@ class TestNobodyIsToldAboutAnotherCompanysBusiness(PolicyCase):
 
         self.assertEqual(resolved["to"], [self.technician])
 
-    def test_an_address_an_administrator_typed_belongs_to_no_company(self):
-        fixed = f"{PREFIX.lower()}.ops{self.tag}@example.invalid"
-        self.configure(self.policy("CC", address=fixed))
+    def test_one_of_our_own_mailboxes_may_be_copied_on_any_company(self):
+        desk = self.mailbox("rm")
+        self.configure(self.policy("CC", address=desk))
         resolved = self.resolved([self.ours], customer=self.customer)
 
-        self.assertEqual(resolved["cc"], [fixed])
+        self.assertEqual(resolved["cc"], [desk])
 
-    def test_a_copy_crossing_companies_is_dropped_even_from_a_blind_channel(self):
-        self.configure(self.policy("BCC", address=self.theirs))
+    def test_a_contact_whose_company_links_were_never_set_up_reaches_none(self):
+        unlinked = self.make_account(
+            "customer", "MSP Customer Manager", self.customer, suffix=f"ru{self.tag[:3]}"
+        )
+        frappe.db.sql(
+            "delete from `tabUser Permission` where user = %s and allow = 'Customer'", unlinked
+        )
+        frappe.db.commit()
+        resolved = self.resolved([unlinked], customer=self.customer)
+
+        self.assertEqual(resolved["to"], [])
+        self.assertEqual(self.reasons(resolved["skipped"])[unlinked], "other_customer")
+
+    def test_a_row_written_straight_into_the_database_reaches_no_send(self):
+        doc = frappe.get_doc("MSP Notification Rule", RULE)
+        doc.append("recipients", {"email": self.theirs, "kind": "BCC", "enabled": 1})
+        doc.flags.ignore_validate = True
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+
         resolved = self.resolved([self.ours], customer=self.customer)
 
         self.assertEqual(resolved["bcc"], [])
-        self.assertEqual(self.reasons(resolved["skipped"])[self.theirs], "other_customer")
+        self.assertEqual(self.reasons(resolved["skipped"])[self.theirs], "not_permitted")
 
     def test_with_no_company_in_play_nothing_is_dropped_for_crossing_one(self):
         resolved = self.resolved([self.ours, self.theirs])
@@ -333,8 +383,8 @@ class TestABlindCopyStaysBlind(PolicyCase):
     def setUp(self):
         super().setUp()
         self.reader = f"{PREFIX.lower()}.read{self.tag}@example.invalid"
-        self.copied = f"{PREFIX.lower()}.copied{self.tag}@example.invalid"
-        self.hidden = f"{PREFIX.lower()}.hidden{self.tag}@example.invalid"
+        self.copied = self.mailbox("bc")
+        self.hidden = self.mailbox("bh")
         self.configure(
             self.policy("CC", address=self.copied),
             self.policy("BCC", address=self.hidden),
@@ -398,9 +448,7 @@ class TestOnlyAnAdministratorMaySayWhoIsCopied(PolicyCase):
     def doors(self):
         return {
             "read": lambda: NotificationRecipientPolicyService.policies(RULE),
-            "write": lambda: self.configure(
-                self.policy("CC", address=f"{PREFIX.lower()}.x@example.invalid")
-            ),
+            "write": lambda: self.configure(self.policy("CC", address=self.admin)),
         }
 
     def test_an_administrator_is_let_through(self):
@@ -423,3 +471,190 @@ class TestOnlyAnAdministratorMaySayWhoIsCopied(PolicyCase):
             self.as_user(self.technician, self.doors()["write"])
 
         self.assertEqual(self.stored_policies(), [])
+
+
+class TestAFailureToResolveTheCopiesDropsTheCopies(PolicyCase):
+    """The one line that refuses to copy a password reset must not have a way around it.
+
+    A failure here still writes to the audience the event is about — that was resolved
+    from the record by the service that raised it — and sends no copies at all.
+    """
+
+    def broken(self):
+        return patch.object(
+            NotificationRecipientPolicyService,
+            "resolve",
+            side_effect=RuntimeError("the policy table is unreachable"),
+        )
+
+    def test_the_audience_is_still_written_to(self):
+        holder = f"{PREFIX.lower()}.still{self.tag}@example.invalid"
+        reference = self.reference("broken")
+
+        with self.broken():
+            notifications.send(
+                "MSP Request Received",
+                [holder],
+                self.context(),
+                reference_doctype=REFERENCE,
+                reference_name=reference,
+            )
+
+        self.assertEqual(self.queued_to(holder), 1)
+
+    def test_a_copy_the_caller_passed_is_not_sent(self):
+        holder = f"{PREFIX.lower()}.held{self.tag}@example.invalid"
+        copied = f"{PREFIX.lower()}.lost{self.tag}@example.invalid"
+        reference = self.reference("dropped")
+
+        with self.broken():
+            notifications.send(
+                "MSP Request Received",
+                [holder],
+                self.context(),
+                reference_doctype=REFERENCE,
+                reference_name=reference,
+                cc=[copied],
+            )
+
+        self.assertEqual(self.queued_to(holder), 1)
+        self.assertEqual(self.queued_to(copied), 0)
+
+    def test_the_copies_that_were_dropped_are_recorded(self):
+        holder = f"{PREFIX.lower()}.rec{self.tag}@example.invalid"
+        copied = f"{PREFIX.lower()}.recl{self.tag}@example.invalid"
+        reference = self.reference("recorded")
+
+        with self.broken():
+            notifications.send(
+                "MSP Request Received",
+                [holder],
+                self.context(),
+                reference_doctype=REFERENCE,
+                reference_name=reference,
+                cc=[copied],
+            )
+
+        reasons = [row.reason_code for row in self.audits(RULE, business_name=reference)]
+        self.assertIn("policies_unavailable", reasons)
+
+
+class TestEveryAddressAMailReachedHasItsOwnLine(PolicyCase):
+    def setUp(self):
+        super().setUp()
+        self.reader = f"{PREFIX.lower()}.dr{self.tag}@example.invalid"
+        self.copied = self.mailbox("dc")
+        self.hidden = self.mailbox("dh")
+        self.configure(
+            self.policy("CC", address=self.copied),
+            self.policy("BCC", address=self.hidden),
+        )
+        self.reference_name = self.reference("lines")
+        notifications.send(
+            "MSP Request Received",
+            [self.reader],
+            self.context(),
+            reference_doctype=REFERENCE,
+            reference_name=self.reference_name,
+        )
+
+    def rows(self):
+        return {
+            row.recipient: row
+            for row in frappe.get_all(
+                "MSP Notification Dispatch",
+                filters={"business_name": self.reference_name},
+                fields=["recipient", "channel", "status", "email_queue_id"],
+            )
+        }
+
+    def test_the_direct_recipient_and_both_copies_each_have_a_line(self):
+        self.assertEqual(set(self.rows()), {self.reader, self.copied, self.hidden})
+
+    def test_each_line_names_the_channel_the_address_was_on(self):
+        rows = self.rows()
+
+        self.assertEqual(rows[self.reader].channel, "To")
+        self.assertEqual(rows[self.copied].channel, "CC")
+        self.assertEqual(rows[self.hidden].channel, "BCC")
+
+    def test_all_three_point_at_the_one_mail_they_really_were(self):
+        queues = {row.email_queue_id for row in self.rows().values()}
+
+        self.assertEqual(len(queues), 1)
+        self.assertTrue(all(row.status == "Queued" for row in self.rows().values()))
+
+
+class TestEachAddressKeepsItsOwnLanguageDecision(PolicyCase):
+    def setUp(self):
+        super().setUp()
+        self.customer = self.make_customer(f"RL{self.tag[:4]}")
+        frappe.db.set_value("Customer", self.customer, "language", None, update_modified=False)
+
+    def speaker(self, language, suffix):
+        email = self.make_account("internal", "MSP Technician", suffix=f"{suffix}{self.tag[:3]}")
+        frappe.db.set_value("User", email, "language", language, update_modified=False)
+        self.refs[REFERENCE].add(email)
+
+        return email
+
+    def test_two_readers_of_one_language_keep_the_reason_each_of_them_had(self):
+        from nexgen_msp.api.internal.services.notification_template_service import (
+            NotificationTemplateService,
+        )
+
+        NotificationTemplateService.save_draft(
+            "MSP Request Received",
+            "en",
+            subject=f"{PREFIX} en {{{{ request }}}}",
+            html=f"<p>{PREFIX} en</p>",
+        )
+        NotificationTemplateService.publish("MSP Request Received", "en")
+        chose = self.speaker("en", "lc")
+        silent = self.speaker(None, "ls")
+        reference = self.reference("lang")
+
+        notifications.send(
+            "MSP Request Received",
+            [chose, silent],
+            self.context(),
+            reference_doctype=REFERENCE,
+            reference_name=reference,
+        )
+
+        rows = {
+            row.recipient: row
+            for row in frappe.get_all(
+                "MSP Notification Dispatch",
+                filters={"business_name": reference},
+                fields=["recipient", "resolved_locale", "language_source", "fallback_reason"],
+            )
+        }
+
+        self.assertEqual(rows[chose].resolved_locale, "en")
+        self.assertEqual(rows[silent].resolved_locale, "en")
+        self.assertEqual(rows[chose].language_source, "account")
+        self.assertIsNone(rows[chose].fallback_reason)
+        self.assertEqual(rows[silent].language_source, "fallback")
+        self.assertEqual(rows[silent].fallback_reason, "no_preference")
+
+    def test_they_still_share_the_one_mail_they_both_read(self):
+        chose = self.speaker("en", "sc")
+        silent = self.speaker(None, "ss")
+        reference = self.reference("share")
+
+        notifications.send(
+            "MSP Request Received",
+            [chose, silent],
+            self.context(),
+            reference_doctype=REFERENCE,
+            reference_name=reference,
+        )
+
+        queues = frappe.db.sql_list(
+            """select distinct q.name from `tabEmail Queue` q
+            join `tabEmail Queue Recipient` r on r.parent = q.name
+            where r.recipient in (%s, %s)""",
+            (chose, silent),
+        )
+        self.assertEqual(len(queues), 1)

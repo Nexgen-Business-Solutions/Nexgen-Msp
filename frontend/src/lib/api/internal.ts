@@ -3694,6 +3694,8 @@ export type NotificationHistoryRow = {
   business_doctype: string | null;
   business_name: string | null;
   recipient: string | null;
+  /** which channel this address was on, so a copy reads as a copy */
+  channel?: 'To' | 'CC' | 'BCC' | null;
   cc_snapshot?: string | null;
   template_name: string | null;
   subject_snapshot: string | null;
@@ -3850,6 +3852,7 @@ export type NotificationDispatchEvidence = {
     reason_label: string | null;
     status: string;
     recipient: string | null;
+    channel?: 'To' | 'CC' | 'BCC' | null;
     business_doctype: string | null;
     business_name: string | null;
     reminder_iteration: number | null;

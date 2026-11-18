@@ -85,8 +85,8 @@ const TemplateEditor: React.FC<{
   const preview = useNotificationTemplatePreview(
     templateName,
     locale,
-    dirty || !current?.configured ? 'draft' : 'published',
-    panel === 'preview'
+    current?.has_unpublished_changes || !current?.configured ? 'draft' : 'published',
+    panel === 'preview' && !dirty
   );
 
   useEffect(() => {
@@ -340,7 +340,7 @@ const TemplateEditor: React.FC<{
                 <Field
                   label="Plain text body"
                   htmlFor="template-text"
-                  hint="Optional. Sent to readers whose client shows no HTML."
+                  hint="Optional. Kept with the revision and shown in the preview. The text part of the message itself is derived from the HTML by the mail queue."
                 >
                   <textarea
                     id="template-text"
@@ -438,7 +438,26 @@ const TemplateEditor: React.FC<{
 
             {panel === 'preview' && (
               <>
-                {preview.isLoading ? (
+                {dirty ? (
+                  <Message
+                    tone="empty"
+                    title="There are unsaved changes"
+                    action={
+                      <button
+                        type="button"
+                        onClick={onSaveDraft}
+                        disabled={busy || !draft.html.trim()}
+                        className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-100"
+                      >
+                        <Save size={15} aria-hidden />
+                        Save draft
+                      </button>
+                    }
+                  >
+                    A preview is rendered from the saved draft, so it would show the wording
+                    before your edit. Save the draft and it will show what you wrote.
+                  </Message>
+                ) : preview.isLoading ? (
                   <SkeletonRows rows={4} />
                 ) : preview.isError ? (
                   <Message tone="empty" title="There is nothing to preview in this language yet">

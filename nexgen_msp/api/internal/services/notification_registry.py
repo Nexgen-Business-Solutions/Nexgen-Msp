@@ -176,6 +176,7 @@ REASON_LABELS = {
     "legacy_template": "No language has been published; the original template was used",
     "policy_disabled": "This copy is switched off",
     "unsupported_source": "That source is not one this notification can be copied to",
+    "not_permitted": "That address belongs to a customer's own contact",
     "no_record": "There is no business record to resolve this source against",
     "invalid_address": "Not an email address",
     "other_customer": "That address belongs to another company",

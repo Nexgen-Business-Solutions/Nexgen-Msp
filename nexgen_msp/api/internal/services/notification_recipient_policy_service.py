@@ -136,6 +136,15 @@ class NotificationRecipientPolicyService:
             if not validate_email_address(address, throw=False):
                 raise ValidationError(f"{address} is not an email address.", "VALIDATION_ERROR")
 
+            if not NotificationRecipientPolicyService._permitted_fixed(address):
+                raise ValidationError(
+                    f"{address} belongs to a customer's own contact. A fixed copy is sent "
+                    "for every record this notification fires for, so naming them here "
+                    "would copy them on another company's business. Use a recipient "
+                    "source, which is resolved from the record itself.",
+                    "VALIDATION_ERROR",
+                )
+
         return {
             "email": address or None,
             "kind": channel,
@@ -200,6 +209,15 @@ class NotificationRecipientPolicyService:
                 continue
 
             if row.email:
+                if not NotificationRecipientPolicyService._permitted_fixed(row.email):
+                    # refused when the policy was saved, and refused again here: a row
+                    # written before that refusal existed, or straight into the database,
+                    # must not reach a send either
+                    skipped.append(
+                        {"target": row.email, "channel": row.kind, "reason": "not_permitted"}
+                    )
+                    continue
+
                 channels.setdefault(row.kind, []).append(row.email)
                 continue
 
@@ -297,6 +315,29 @@ class NotificationRecipientPolicyService:
         }
 
     @staticmethod
+    def _permitted_fixed(address):
+        """Whether this address may be named as a fixed copy.
+
+        A customer's own contact may not. A fixed policy has no record behind it: it fires
+        for every record the rule fires for, so naming one company's contact there would
+        copy them on another company's business — which is the one thing isolation exists
+        to prevent.
+
+        An address with no account at all is a mailbox an administrator named on purpose —
+        a desk, a rota, an alias — and stays allowed, because a fixed internal address is
+        exactly what the feature asks for and most of them have no account of their own.
+        What more than that makes an address *permitted* — an explicit allowlist of our own
+        mailboxes — is a product decision, and this code does not invent one.
+        """
+        if not address:
+            return False
+
+        if access.is_staff(address):
+            return True
+
+        return not access.is_customer_account(address)
+
+    @staticmethod
     def _reaches(address, customer):
         """Whether this address may be told about this company's business.
 
@@ -314,6 +355,8 @@ class NotificationRecipientPolicyService:
         if access.is_staff(address):
             return True
 
-        memberships = access.customer_memberships(address)
-
-        return not memberships or customer in memberships
+        # an account that is not ours reaches the companies it is a contact of and no
+        # others. An empty list is not a pass: a contact whose company links were never
+        # set up has not been shown to belong anywhere, and treating "we do not know" as
+        # "anywhere" is how one company's business reaches another's inbox
+        return customer in access.customer_memberships(address)

@@ -33,35 +33,9 @@ PROTECTED = "MSP Password Reset"
 class TemplateCase(NotificationCase):
     """Leaves the site with exactly the localized wording it had before.
 
-    A revision refuses deletion through the ORM on purpose, so what a test published is
-    removed by name with SQL, and only what it published.
+    The removal itself lives in NotificationCase: every suite can publish a wording, and
+    a published wording changes what every later send renders.
     """
-
-    def setUp(self):
-        super().setUp()
-        self.locales_before = set(frappe.get_all(LOCALE, pluck="name"))
-        self.revisions_before = set(frappe.get_all(REVISION, pluck="name"))
-
-    def tearDown(self):
-        frappe.set_user("Administrator")
-        frappe.db.rollback()
-
-        for table, before in (
-            (REVISION, self.revisions_before),
-            (LOCALE, self.locales_before),
-        ):
-            added = [
-                name for name in frappe.get_all(table, pluck="name") if name not in before
-            ]
-
-            for start in range(0, len(added), 100):
-                frappe.db.sql(
-                    f"delete from `tab{table}` where name in %s",
-                    (tuple(added[start : start + 100]),),
-                )
-
-        frappe.db.commit()
-        super().tearDown()
 
     # ------------------------------------------------------------------ helpers
     def wording(self, locale, body=None):

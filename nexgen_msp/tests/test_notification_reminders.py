@@ -1584,3 +1584,85 @@ class TestEligibilityIsExplained(RequestCase):
 
         self.assertEqual(out["rows"], [])
         self.assertEqual(out["total"], 0)
+
+
+class TestACopiedAddressIsOwedOneMailPerIteration(RequestCase):
+    """A reminder is addressed to an audience; a copy rides on that message.
+
+    One iteration is one business event, so however many people the rule is addressed to,
+    an address configured in copy is owed one mail and not one per person.
+    """
+
+    def policies(self, rule_key, *rows):
+        from nexgen_msp.api.internal.services.notification_settings_service import (
+            NotificationSettingsService,
+        )
+
+        NotificationSettingsService.save(rule_key, changes={"recipients": list(rows)})
+        frappe.db.commit()
+
+    def desk(self, suffix):
+        return self.make_account("internal", "MSP Technician", suffix=f"{suffix}{self.tag[:3]}")
+
+    def test_one_copy_however_many_people_are_written_to_directly(self):
+        name = self.submitted()
+        copied = self.desk("cp")
+        self.configure(WAITING)
+        self.policies(
+            WAITING, {"channel": "CC", "recipient_source": None, "fixed_address": copied, "enabled": True}
+        )
+
+        with self.only(name):
+            out = NotificationReminderService.run_one(WAITING)
+
+        reached = self.recipients(name, WAITING)
+        self.assertGreater(len(reached), 1, "the rule is addressed to more than one person")
+        self.assertEqual(self.queued_to(copied), 1)
+        self.assertEqual(out["sent"], len(reached))
+
+    def test_a_blind_copy_is_owed_one_mail_as_well(self):
+        name = self.submitted()
+        hidden = self.desk("bp")
+        self.configure(WAITING)
+        self.policies(
+            WAITING, {"channel": "BCC", "recipient_source": None, "fixed_address": hidden, "enabled": True}
+        )
+
+        with self.only(name):
+            NotificationReminderService.run_one(WAITING)
+
+        self.assertEqual(self.queued_to(hidden), 1)
+
+    def test_running_the_rule_again_sends_the_copy_nothing_more(self):
+        name = self.submitted()
+        copied = self.desk("cr")
+        self.configure(WAITING)
+        self.policies(
+            WAITING, {"channel": "CC", "recipient_source": None, "fixed_address": copied, "enabled": True}
+        )
+
+        with self.only(name):
+            NotificationReminderService.run_one(WAITING)
+            NotificationReminderService.run_one(WAITING)
+
+        self.assertEqual(self.queued_to(copied), 1)
+
+    def test_a_rule_with_copies_and_nobody_to_address_sends_nothing_and_says_so(self):
+        name = self.awaiting()
+        copied = self.desk("cn")
+        # the approval reminder is addressed to the approvers of the request; with none
+        # named there is no message for a copy to ride on
+        self.configure(APPROVAL)
+        self.policies(
+            APPROVAL, {"channel": "CC", "recipient_source": None, "fixed_address": copied, "enabled": True}
+        )
+
+        # the audience resolves to nobody on this record, so there is no message for the
+        # copy to ride on. Stated outright rather than arranged through the authority
+        # matrix, because what is being tested is the engine and not who may approve
+        with self.only(name), patch.object(registry, "resolve_audience", return_value=[]):
+            NotificationReminderService.run_one(APPROVAL)
+
+        self.assertEqual(self.queued_to(copied), 0)
+        reasons = [row.reason_code for row in self.audits(APPROVAL, business_name=name)]
+        self.assertIn("no_recipient", reasons)

@@ -29,6 +29,10 @@ Each template has independent wording per language (`en` and `fr`).
    because you published it there.
 4. Write the subject, the HTML body and, if you want one, the plain-text body. Click a
    variable to insert it where the caret is.
+
+   The plain-text body is kept with the revision and shown in the preview. The text part
+   of the message that actually goes out is derived from the HTML by Frappe's own mail
+   queue, which is the delivery this application reuses rather than replaces.
 5. **Save draft** keeps your work. It changes nothing that is being sent.
 6. **Publish** turns the draft into a numbered revision and points production at it.
 
@@ -50,7 +54,9 @@ event handlers, frames and `javascript:` links are stripped when the draft is sa
 
 ### Preview and test
 
-**Preview** renders the wording with sample values and sends nothing. **Send test** goes
+**Preview** renders the wording with sample values and sends nothing. It is rendered from
+the saved draft, so it asks you to save first rather than showing you the wording from
+before your edit. **Send test** goes
 only to your own address or another administrator's, is marked as a test in the delivery
 history, and never counts towards any record's reminders. A draft can be tested before it
 is published.
@@ -87,6 +93,17 @@ configured. Everything you add in the rule editor is sent **in addition**.
 Each copy is one policy: a channel (**To**, **CC** or **BCC**), either one fixed address or
 one recipient source, and a switch. A policy switched off is kept and written to nobody.
 
+A fixed address may not be a customer's own contact. A fixed policy has no record behind
+it — it fires for every record the rule fires for — so naming one company's contact there
+would copy them on another company's business. That is refused when the policy is saved and
+refused again at the moment of sending, including on a row written straight into the
+database.
+
+An address with no account of its own stays allowed: a desk, a rota or an alias is exactly
+what a fixed internal address means, and most of them have no Frappe account. Whether a
+tighter rule is wanted — an explicit allowlist of permitted internal mailboxes — is a
+product decision, and this application does not invent one.
+
 ### Sources
 
 A source is resolved from the business record on every send, so somebody who has since lost
@@ -106,15 +123,25 @@ guess wearing the name of a fact.
 1. addresses are resolved from the record, never from a list frozen at configuration time;
 2. every address is validated;
 3. an address belonging to another company is dropped. Our own team reaches every company
-   by their role; a customer contact reaches only the companies they are a contact of; an
-   address that is no account at all belongs to no company, so there is nothing for it to
-   cross;
+   by their role; a customer contact reaches only the companies they are a contact of, and
+   a contact whose company links were never set up reaches none — "we do not know" is not
+   read as "anywhere";
 4. an address appearing on more than one channel is kept on the most open one it appears
    on — **To**, then **CC**, then **BCC** — and dropped from the rest. Never the other way
    round: moving somebody from To to BCC would hide a disclosure that already happened;
 5. a blind copy stays blind. It never appears in any header, and a language group holding
    only blind copies is sent as blind copies rather than given a visible recipient;
 6. everything left out is recorded with its reason, so "why was nobody told" has an answer.
+
+If resolving the copies fails for any reason, the notification still reaches the people the
+event is about and **every copy is dropped**. The alternative would make the error path a
+way around the refusal to copy a password reset.
+
+On a reminder, the copies ride on the first message of that iteration that reaches the
+queue. One iteration is one business event, so a rule with two direct recipients owes its
+copied addresses one mail and not two, and a reprise owed to one address sends no copies at
+all. A rule with copies configured and nobody to address directly sends nothing and says so
+in the audit.
 
 Password-reset, portal-invitation and team-invitation notifications cannot be copied or
 redirected at all. The refusal holds in the screen, in the API, on a row written straight
@@ -156,6 +183,51 @@ The migration is additive and idempotent:
 - published revisions, drafts, rules, dispatches, queue references and reminder iteration
   history all survive repeated migrations;
 - no old notification is replayed and no reminder backlog is produced.
+
+## Which recurring senders exist, and which are ours
+
+The feature asks for the source of the recurring reminders the business reported to be
+identified, and for MSP-managed messages to be told apart from external ones. Below is the
+inventory taken on the development site `msp.localhost` on 18 November 2026. It is the
+method as much as the result: re-run the three queries on the site that is actually sending
+the unwanted mail, because that question cannot be answered from another site's data.
+
+**MSP-managed recurring senders: exactly one.**
+
+| Scheduled job | Frequency | Running |
+|---|---|---|
+| `nexgen_msp.utils.reminders.tick` | Cron | yes |
+
+Everything else this application sends is event-triggered, through `notifications.send()`.
+Those cannot acquire a frequency: the registry declares each notification as an event or a
+reminder, and an event rule has no schedule to configure.
+
+**External senders shipped by Frappe and ERPNext, all enabled on this site.** None are
+touched by this feature, and the Notification sources tab lists them read-only:
+
+`frappe.automation.doctype.reminder.reminder.send_reminders` ·
+`frappe...notification.trigger_daily_alerts` · `...trigger_offset_alerts` ·
+`frappe...auto_email_report.send_daily` · `...send_monthly` ·
+`frappe...email_account.notify_unreplied` ·
+`erpnext...email_digest.send` · `erpnext...project.project_status_update_reminder` ·
+`...project.hourly_reminder` · `...project.send_project_status_email_to_users` ·
+`erpnext...email_campaign.send_email_to_leads_or_contacts` ·
+`erpnext...process_statement_of_accounts.send_auto_email`
+
+**What those external senders actually have to send on this site:** nothing recurring. There
+are no `Auto Email Report` records, and the only two enabled `Notification` documents are
+ERPNext's own stock ones — *Material Request Receipt Notification* and *Notification for new
+fiscal year* — both triggered by a document event rather than a schedule.
+
+**Mail actually queued on this site:** 1 135 entries with no business reference, 32 against
+`Sales Invoice`, 14 against `MSP Request`.
+
+So on this site the only MSP recurring sender is the reminder tick, and no external
+recurring sender has anything configured to send. **This does not identify the production
+culprit**, which needs the same three queries run against the production site. The queries
+are: enabled `Notification` documents grouped by channel; all `Scheduled Job Type` rows
+whose method mentions mail, notification or reminder, with their `stopped` flag; and
+`Email Queue` grouped by `reference_doctype`.
 
 ## What the delivery states mean
 

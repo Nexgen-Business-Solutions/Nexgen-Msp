@@ -414,20 +414,19 @@ def _record_refusal(settings, template_name, recipients, reference_doctype, refe
 def _record_event_send(
     settings,
     template_name,
-    recipients,
-    cc,
+    group,
     subject,
     queued,
     reference_doctype,
     reference_name,
     occurrence=None,
-    language=None,
 ):
     """Record that this event produced this mail, so the delivery history is the whole story.
 
-    One row per address written to, all of them pointing at the one queue entry the mail
-    really is: the history question is "was this person told", and that is answered per
-    person even when a single message carried several of them.
+    One row per address the mail reached, on whichever channel it reached them, all of
+    them pointing at the one queue entry the mail really is: the history question is "was
+    this person told", and that is answered per person even when a single message carried
+    several of them. A copied address was told as surely as a direct one.
 
     Events are not deduplicated here, and deliberately so. A business record can legitimately
     produce the same notification twice — a request decided, reopened and decided again — and
@@ -447,20 +446,22 @@ def _record_event_send(
 
         queue_id = getattr(queued, "name", None) or (queued if isinstance(queued, str) else None)
 
-        for address in recipients:
-            NotificationDispatchService.record_event(
-                rule_key=settings["rule_key"],
-                revision=settings.get("revision"),
-                recipient=address,
-                cc=cc,
-                template_name=template_name,
-                subject=subject,
-                occurrence=occurrence,
-                queue_id=queue_id,
-                business_doctype=reference_doctype,
-                business_name=reference_name,
-                language=language,
-            )
+        for field, channel in (("recipients", "To"), ("cc", "CC"), ("bcc", "BCC")):
+            for address in group[field]:
+                NotificationDispatchService.record_event(
+                    rule_key=settings["rule_key"],
+                    revision=settings.get("revision"),
+                    recipient=address,
+                    channel=channel,
+                    cc=group["cc"],
+                    template_name=template_name,
+                    subject=subject,
+                    occurrence=occurrence,
+                    queue_id=queue_id,
+                    business_doctype=reference_doctype,
+                    business_name=reference_name,
+                    language=group["language"].get(address),
+                )
     except Exception:
         frappe.log_error(
             title=f"Could not record the delivery of {template_name}",
@@ -550,14 +551,12 @@ def send(
                 _record_event_send(
                     settings,
                     name,
-                    group["recipients"] + group["bcc"],
-                    group["cc"],
+                    group,
                     group["subject"],
                     queued,
                     reference_doctype,
                     reference_name,
                     occurrence=occurrence,
-                    language=group["language"],
                 )
 
         return sent or True
@@ -576,11 +575,15 @@ def _company_of(reference_doctype, reference_name):
 
 
 def _channels(settings, name, recipients, cc, reference_doctype, reference_name, customer):
-    """Who this notification reaches on each channel, or the caller's own list if asking fails.
+    """Who this notification reaches on each channel, and nobody it cannot be shown may be.
 
-    Resolving a copy must never be the reason a mail does not go out. When this cannot be
-    answered the notification still reaches the people the call site named, which is what
-    it did before any of this existed.
+    Resolving a copy must never be the reason a mail does not go out, so a failure here
+    still writes to the people the call site named — those are the audience the event is
+    about, resolved from the record by the service that raised it.
+
+    Every copy is dropped, on the other hand, including one the caller passed. This is the
+    one line that refuses to copy a password reset, and a failure that waved copies
+    through would turn the error path into the way around that refusal.
     """
     try:
         from nexgen_msp.api.internal.services.notification_recipient_policy_service import (
@@ -601,7 +604,15 @@ def _channels(settings, name, recipients, cc, reference_doctype, reference_name,
             message=frappe.get_traceback(),
         )
 
-        return {"to": recipients, "cc": cc, "bcc": [], "skipped": []}
+        return {
+            "to": recipients,
+            "cc": [],
+            "bcc": [],
+            "skipped": [
+                {"target": address, "channel": "CC", "reason": "policies_unavailable"}
+                for address in cc
+            ],
+        }
 
 
 def _record_skips(settings, name, skipped, reference_doctype, reference_name):
@@ -670,10 +681,15 @@ def _by_language(template_name, recipients, cc, bcc, customer, context):
                     "bcc": [],
                     "subject": built["subject"],
                     "html": built["html"],
-                    "language": built,
+                    # one entry per address. Two people can read the same message for
+                    # different reasons — one because English is their own setting, the
+                    # other because nobody ever told us theirs — and an audit that gave
+                    # them both the first person's reason would be inventing the second
+                    "language": {},
                 },
             )
             group[channel].append(address)
+            group["language"][address] = built
 
     # a language whose group holds only copies is sent as copies: Frappe's queue takes a
     # message with no direct recipient, and a blind copy promoted onto the To line would

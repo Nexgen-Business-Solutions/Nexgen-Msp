@@ -215,6 +215,7 @@ class NotificationDispatchService:
         )
         doc.reminder_iteration = frappe.utils.cint(fields.get("iteration"))
         doc.recipient = fields["recipient"]
+        doc.channel = "To"
         doc.cc_snapshot = ", ".join(fields.get("cc") or [])
         doc.template_name = fields.get("template_name")
         doc.is_test = 1 if fields.get("is_test") else 0
@@ -518,6 +519,7 @@ class NotificationDispatchService:
         business_doctype=None,
         business_name=None,
         language=None,
+        channel="To",
     ):
         """Write down a mail an event already queued, so the history is not only reminders.
 
@@ -533,6 +535,9 @@ class NotificationDispatchService:
         key = NotificationDispatchService.dedup_key(
             rule_key, business_doctype, business_name, occurrence, address
         )
+        # the channel is part of neither the key nor the identity: the question a delivery
+        # answers is "was this person told", and being told twice over on two channels is
+        # one telling. The precedence rule has already settled which channel that was
         # a caller-supplied occurrence can be recorded twice; the second is the same delivery
         held = frappe.db.get_value(DISPATCH, {"dedup_key": key}, "name")
 
@@ -548,6 +553,7 @@ class NotificationDispatchService:
         doc.event_occurrence_key = occurrence
         doc.reminder_iteration = 0
         doc.recipient = address
+        doc.channel = channel
         doc.cc_snapshot = ", ".join(cc or [])
         doc.template_name = template_name
         doc.resolved_locale = (language or {}).get("locale")
@@ -663,6 +669,7 @@ class NotificationDispatchService:
                 ),
                 "status": doc.status,
                 "recipient": doc.recipient,
+                "channel": doc.channel or "To",
                 "business_doctype": doc.business_doctype,
                 "business_name": doc.business_name,
                 "reminder_iteration": doc.reminder_iteration,
@@ -1032,6 +1039,7 @@ class NotificationDispatchService:
             "business_doctype",
             "business_name",
             "recipient",
+            "channel",
             "cc_snapshot",
             "template_name",
             "subject_snapshot",

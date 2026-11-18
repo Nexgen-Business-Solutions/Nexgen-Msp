@@ -719,6 +719,13 @@ class NotificationReminderService:
         channels = NotificationReminderService._channels(current, doc, iteration)
         context = NotificationReminderService._context(declared, doc, adapter)
         sent = skipped = 0
+        # the copies of this iteration, carried by the first message that actually reaches
+        # the queue. One iteration is one business event, so a rule with two direct
+        # recipients owes its copied addresses one mail and not two
+        copies = {"cc": channels["cc"], "bcc": channels["bcc"]}
+
+        if (copies["cc"] or copies["bcc"]) and not channels["to"]:
+            NotificationReminderService._nobody_direct(declared, current, adapter, doc, copies)
 
         for address in channels["to"]:
             outcome = NotificationDispatchService.deliver(
@@ -732,16 +739,39 @@ class NotificationReminderService:
                 business_name=doc.name,
                 iteration=iteration,
                 occurrence=f"iteration:{iteration}",
-                cc=channels["cc"],
-                bcc=channels["bcc"],
+                cc=copies["cc"],
+                bcc=copies["bcc"],
             )
 
             if outcome["status"] == "Queued":
                 sent += 1
+                # they have had their copy of this iteration; the next direct recipient
+                # gets a message addressed to them alone
+                copies = {"cc": [], "bcc": []}
             else:
                 skipped += 1
 
         return {"sent": sent, "skipped": skipped}
+
+    @staticmethod
+    def _nobody_direct(declared, current, adapter, doc, copies):
+        """Note that an iteration had copies configured and nobody to address them with.
+
+        A reminder is addressed to an audience; a copy rides on that message. With the
+        audience empty there is no message for the copies to ride on, and saying so is
+        better than a rule that looks configured and sends nothing.
+        """
+        NotificationSettingsService._write_audit(
+            action="Skipped",
+            rule=declared["rule_key"],
+            rule_revision=current.get("revision"),
+            business_doctype=adapter["doctype"],
+            business_name=doc.name,
+            recipients=", ".join(copies["cc"] + copies["bcc"])[:500],
+            reason_code="no_recipient",
+            detail="Copies are configured, but this reminder is addressed to nobody on "
+            "this record, so there is no message for them to be copied on.",
+        )
 
     @staticmethod
     def _redeliver(declared, current, adapter, row, owed):
@@ -800,8 +830,11 @@ class NotificationReminderService:
                 business_name=doc.name,
                 iteration=frappe.utils.cint(iteration),
                 occurrence=f"iteration:{frappe.utils.cint(iteration)}",
-                cc=allowed[iteration]["cc"],
-                bcc=allowed[iteration]["bcc"],
+                # a reprise is one address catching up on an iteration the others already
+                # had. The copies went out with that iteration, so sending them again
+                # would be the same message twice to somebody who was never missed
+                cc=[],
+                bcc=[],
             )
 
             if outcome["status"] == "Queued":

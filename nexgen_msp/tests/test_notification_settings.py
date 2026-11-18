@@ -23,6 +23,8 @@ RULE = "MSP Notification Rule"
 RECIPIENT = "MSP Notification Recipient"
 AUDIT = "MSP Notification Audit"
 DISPATCH = "MSP Notification Dispatch"
+LOCALE = "MSP Email Template Locale"
+REVISION = "MSP Email Template Revision"
 TEMPLATE = "Email Template"
 REFERENCE = "MSP Request"
 
@@ -53,12 +55,19 @@ class NotificationCase(MSPTestCase):
         )
         self.audit_before = set(frappe.get_all(AUDIT, pluck="name"))
         self.dispatch_before = set(frappe.get_all(DISPATCH, pluck="name"))
+        # any test can publish a wording, and a published wording changes what every
+        # later send renders. Snapshotted here rather than in the one suite that was
+        # written for it, because the suite that leaves a revision behind is never the
+        # suite that notices
+        self.locales_before = set(frappe.get_all(LOCALE, pluck="name"))
+        self.revisions_before = set(frappe.get_all(REVISION, pluck="name"))
 
     def tearDown(self):
         frappe.set_user("Administrator")
         frappe.db.rollback()
         self.restore_rules()
         self.remove_what_the_test_added()
+        self.remove_wording_the_test_published()
         frappe.db.commit()
         super().tearDown()
 
@@ -122,6 +131,26 @@ class NotificationCase(MSPTestCase):
             for start in range(0, len(names), 100):
                 chunk = tuple(names[start : start + 100])
                 frappe.db.sql(f"delete from `tab{table}` where name in %s", (chunk,))
+
+    def remove_wording_the_test_published(self):
+        """Every locale row and revision this test added, by name, and nothing else.
+
+        A revision refuses deletion through the ORM on purpose, so this is SQL — scoped to
+        the names that were not there when the test started.
+        """
+        for table, before in (
+            (REVISION, self.revisions_before),
+            (LOCALE, self.locales_before),
+        ):
+            added = [
+                name for name in frappe.get_all(table, pluck="name") if name not in before
+            ]
+
+            for start in range(0, len(added), 100):
+                frappe.db.sql(
+                    f"delete from `tab{table}` where name in %s",
+                    (tuple(added[start : start + 100]),),
+                )
 
     # ------------------------------------------------------------------ helpers
     def as_user(self, email, fn):

@@ -68,7 +68,12 @@ const InvestigateDelivery: React.FC<Props> = ({ dispatch, onClose }) => {
   const facts: [string, string][] = delivery
     ? [
         ['Rule', delivery.rule_label],
-        ['Recipient', delivery.recipient || '—'],
+        [
+          'Recipient',
+          [delivery.recipient || '—', delivery.channel && delivery.channel !== 'To' ? `(${delivery.channel})` : null]
+            .filter(Boolean)
+            .join(' '),
+        ],
         [
           'Business record',
           [delivery.business_name, delivery.business_doctype && `(${delivery.business_doctype})`]

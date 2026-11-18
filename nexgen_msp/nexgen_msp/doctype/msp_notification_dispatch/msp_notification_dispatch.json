@@ -18,6 +18,7 @@
   "event_occurrence_key",
   "reminder_iteration",
   "recipient",
+  "channel",
   "cc_snapshot",
   "template_name",
   "resolved_locale",
@@ -106,6 +107,13 @@
    "in_list_view": 1,
    "label": "Recipient",
    "reqd": 1
+  },
+  {
+   "default": "To",
+   "fieldname": "channel",
+   "fieldtype": "Select",
+   "label": "Channel",
+   "options": "To\nCC\nBCC"
   },
   {
    "fieldname": "cc_snapshot",
