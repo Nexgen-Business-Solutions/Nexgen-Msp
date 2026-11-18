@@ -1712,6 +1712,83 @@ class TestACopiedAddressIsOwedOneMailPerIteration(RequestCase):
         self.assertGreater(calls["n"], 1, "a second direct recipient was written to")
         self.assertEqual(self.queued_to(copied), 0)
 
+    def test_a_mail_that_reached_the_queue_before_the_failure_leaves_the_copy_on_record(self):
+        """The ambiguous case: the queue took the message, then the send raised anyway.
+
+        Nobody can say whether it went. The copies must not be handed to the next
+        recipient, and must not read as delivered either — but they have to be on the
+        record, or an administrator reconciling the attempt sees only the direct address
+        and has no idea anybody else was on it.
+        """
+        name = self.submitted()
+        copied = self.desk("cq")
+        hidden = self.desk("hq")
+        self.configure(WAITING)
+        self.policies(
+            WAITING,
+            {"channel": "CC", "recipient_source": None, "fixed_address": copied, "enabled": True},
+            {"channel": "BCC", "recipient_source": None, "fixed_address": hidden, "enabled": True},
+        )
+        real = frappe.sendmail
+        calls = {"n": 0}
+
+        def queued_then_unsure(*args, **kwargs):
+            calls["n"] += 1
+            queued = real(*args, **kwargs)
+
+            if calls["n"] == 1:
+                # the message is in the queue; what comes back says nothing about it
+                raise RuntimeError("the queue took it and then said nothing")
+
+            return queued
+
+        with self.only(name), patch.object(frappe, "sendmail", side_effect=queued_then_unsure):
+            NotificationReminderService.run_one(WAITING)
+
+        rows = {
+            row.recipient: row
+            for row in frappe.get_all(
+                DISPATCH,
+                filters={"business_name": name, "rule": WAITING},
+                fields=["recipient", "channel", "status", "email_queue_id", "bcc_snapshot"],
+            )
+        }
+
+        for address, channel in ((copied, "CC"), (hidden, "BCC")):
+            with self.subTest(address=address):
+                self.assertIn(address, rows, "the copy is on the record")
+                self.assertEqual(rows[address].channel, channel)
+                self.assertEqual(rows[address].status, "Unknown", "and not claimed as sent")
+                self.assertIsNone(rows[address].email_queue_id)
+
+        # the copies stopped at the uncertain attempt rather than riding the next one
+        self.assertEqual(self.queued_to(copied), 1)
+        self.assertEqual(self.queued_to(hidden), 1)
+
+    def test_the_addresses_an_attempt_meant_to_reach_are_on_its_own_row(self):
+        name = self.submitted()
+        copied = self.desk("sq")
+        hidden = self.desk("sh")
+        self.configure(WAITING)
+        self.policies(
+            WAITING,
+            {"channel": "CC", "recipient_source": None, "fixed_address": copied, "enabled": True},
+            {"channel": "BCC", "recipient_source": None, "fixed_address": hidden, "enabled": True},
+        )
+
+        with self.only(name):
+            NotificationReminderService.run_one(WAITING)
+
+        carried = frappe.get_all(
+            DISPATCH,
+            filters={"business_name": name, "rule": WAITING, "channel": "To"},
+            fields=["cc_snapshot", "bcc_snapshot"],
+        )
+        bearing = [row for row in carried if copied in (row.cc_snapshot or "")]
+
+        self.assertEqual(len(bearing), 1, "one direct message carried the copies")
+        self.assertIn(hidden, bearing[0].bcc_snapshot or "")
+
     def test_each_copied_address_gets_its_own_line_against_the_one_mail(self):
         name = self.submitted()
         copied = self.desk("cl")

@@ -20,6 +20,7 @@
   "recipient",
   "channel",
   "cc_snapshot",
+  "bcc_snapshot",
   "template_name",
   "resolved_locale",
   "template_revision",
@@ -119,6 +120,11 @@
    "fieldname": "cc_snapshot",
    "fieldtype": "Small Text",
    "label": "CC Snapshot"
+  },
+  {
+   "fieldname": "bcc_snapshot",
+   "fieldtype": "Small Text",
+   "label": "BCC"
   },
   {
    "fieldname": "template_name",

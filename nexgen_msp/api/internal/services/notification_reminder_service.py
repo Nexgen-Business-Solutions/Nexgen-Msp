@@ -761,8 +761,10 @@ class NotificationReminderService:
                 # becomes two, and a send nobody can confirm is exactly what Unknown means
                 if outcome.get("reason") not in QUEUED_NOTHING:
                     copies = {"cc": [], "bcc": []}
-
-                if outcome["status"] == "Queued":
+                    # the copies stopped here, so this attempt is the whole of what they
+                    # were owed and it has to be on the record — whether or not anybody
+                    # can say it went out. A line nobody wrote is indistinguishable from
+                    # a copy nobody ever configured
                     NotificationReminderService._record_copies(
                         declared, current, adapter, doc, iteration, outcome, carried
                     )
@@ -777,6 +779,11 @@ class NotificationReminderService:
         wording. Each still gets a line of its own, because "was this person told" is asked
         per person; and each says so when the language it was written in is not the one that
         address would have chosen, rather than claiming a decision nobody made for them.
+
+        An attempt nobody could confirm is recorded too, and recorded as unconfirmed: the
+        queue entry is handed on only when there is one, so the line reads Unknown rather
+        than claiming a delivery. That is the state an administrator reconciles, and it is
+        also what stops the same copy being sent again to find out.
         """
         row = frappe.db.get_value(
             DISPATCH,
@@ -787,6 +794,8 @@ class NotificationReminderService:
 
         if not row:
             return
+
+        queue_id = row.email_queue_id if outcome["status"] == "Queued" else None
 
         for channel, addresses in (("CC", carried["cc"]), ("BCC", carried["bcc"])):
             for address in addresses:
@@ -800,7 +809,7 @@ class NotificationReminderService:
                     subject=row.subject_snapshot,
                     occurrence=f"iteration:{iteration}",
                     iteration=iteration,
-                    queue_id=row.email_queue_id,
+                    queue_id=queue_id,
                     business_doctype=adapter["doctype"],
                     business_name=doc.name,
                     language={

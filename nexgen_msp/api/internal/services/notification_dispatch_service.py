@@ -139,6 +139,7 @@ class NotificationDispatchService:
             iteration=iteration,
             recipient=address,
             cc=cc,
+            bcc=bcc,
             template_name=current["template_name"],
             is_test=is_test,
         )
@@ -222,7 +223,11 @@ class NotificationDispatchService:
         doc.reminder_iteration = frappe.utils.cint(fields.get("iteration"))
         doc.recipient = fields["recipient"]
         doc.channel = "To"
+        # who this attempt intends to reach, written before anything is sent. An outcome
+        # nobody can confirm leaves this row as the only evidence of what was attempted,
+        # and an administrator reconciling it against the queue needs every address on it
         doc.cc_snapshot = ", ".join(fields.get("cc") or [])
+        doc.bcc_snapshot = ", ".join(fields.get("bcc") or [])
         doc.template_name = fields.get("template_name")
         doc.is_test = 1 if fields.get("is_test") else 0
         doc.status = "Pending"
@@ -522,6 +527,7 @@ class NotificationDispatchService:
         queue_id=None,
         revision=None,
         cc=None,
+        bcc=None,
         business_doctype=None,
         business_name=None,
         language=None,
@@ -562,6 +568,7 @@ class NotificationDispatchService:
         doc.recipient = address
         doc.channel = channel
         doc.cc_snapshot = ", ".join(cc or [])
+        doc.bcc_snapshot = ", ".join(bcc or [])
         doc.template_name = template_name
         doc.resolved_locale = (language or {}).get("locale")
         doc.template_revision = frappe.utils.cint((language or {}).get("revision"))
@@ -1048,6 +1055,7 @@ class NotificationDispatchService:
             "recipient",
             "channel",
             "cc_snapshot",
+            "bcc_snapshot",
             "template_name",
             "subject_snapshot",
             "reminder_iteration",

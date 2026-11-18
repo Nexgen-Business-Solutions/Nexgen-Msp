@@ -154,7 +154,12 @@ mail exists. An **Unknown** outcome means the queue may well hold the message, s
 copies are not handed to the next recipient: that is how one copy would become two.
 
 Each copied address gets its own line in the delivery history, naming its channel and
-pointing at the same queue entry as the message it rode. When the language that message was
+pointing at the same queue entry as the message it rode. An attempt nobody could confirm
+is on the record too, and recorded as unconfirmed: the line reads **Unknown** with no queue
+entry rather than claiming a delivery. That is the state to reconcile, and it is also what
+stops the same copy being sent again to find out. The addresses an attempt meant to reach
+are written on its own row before anything is sent, on both the CC and the BCC side, so an
+attempt whose outcome is unknown still says who was on it. When the language that message was
 written in is not the one that address would have chosen, the line says so rather than
 claiming a decision nobody made for them. Writing each copy in its own language would mean
 a separate message per language, which is a product decision about what CC still means on a
