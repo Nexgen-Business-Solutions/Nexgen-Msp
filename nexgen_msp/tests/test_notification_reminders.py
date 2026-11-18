@@ -1649,6 +1649,34 @@ class TestACopiedAddressIsOwedOneMailPerIteration(RequestCase):
 
         self.assertEqual(self.queued_to(hidden), 1)
 
+    def test_a_copy_added_after_the_mail_went_is_not_recorded_against_it(self):
+        """A send that already happened carried what was configured then, not what is now.
+
+        Writing today's copy against yesterday's queue entry would report a delivery to
+        somebody who was never on that message.
+        """
+        name = self.submitted()
+        self.configure(WAITING)
+
+        with self.only(name):
+            NotificationReminderService.run_one(WAITING)
+
+        late = self.desk("la")
+        self.policies(
+            WAITING, {"channel": "CC", "recipient_source": None, "fixed_address": late, "enabled": True}
+        )
+
+        with self.only(name):
+            NotificationReminderService.run_one(WAITING)
+
+        self.assertEqual(self.queued_to(late), 0, "nothing was sent to them")
+        self.assertFalse(
+            frappe.db.exists(
+                DISPATCH, {"business_name": name, "rule": WAITING, "recipient": late}
+            ),
+            "and nothing claims they were reached",
+        )
+
     def test_running_the_rule_again_sends_the_copy_nothing_more(self):
         name = self.submitted()
         copied = self.desk("cr")

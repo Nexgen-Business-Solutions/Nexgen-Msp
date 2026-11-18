@@ -641,6 +641,12 @@ class NotificationDispatchService:
               and not exists (
                 select 1 from `tabMSP Notification Dispatch` other
                 where other.email_queue_id = queue.name
+                  and (
+                    other.rule != %(rule)s
+                    or ifnull(other.business_doctype, '') != %(business_doctype)s
+                    or ifnull(other.business_name, '') != %(business_name)s
+                    or ifnull(other.event_occurrence_key, '') != %(occurrence)s
+                  )
               )
             order by queue.message_id = %(name)s desc, queue.creation desc
             limit 20
@@ -648,6 +654,10 @@ class NotificationDispatchService:
             {
                 "name": doc.name,
                 "recipient": doc.recipient,
+                "rule": doc.rule,
+                "business_doctype": doc.business_doctype or "",
+                "business_name": doc.business_name or "",
+                "occurrence": doc.event_occurrence_key or "",
                 "since": doc.reserved_at
                 or frappe.utils.add_to_date(doc.creation, hours=-1),
             },
@@ -658,8 +668,12 @@ class NotificationDispatchService:
 
         for row in rows:
             marker = NotificationDispatchService.marker_of(row.message_id)
+            # the mark names the delivery the message was built for. On a copy that is the
+            # direct recipient's delivery, not this one, so the question is whether the
+            # mark belongs to this same attempt rather than to this same row
+            ours = NotificationDispatchService._same_attempt(doc, marker) if marker else False
 
-            if marker and marker != doc.name:
+            if marker and not ours:
                 continue
 
             candidates.append(
@@ -668,7 +682,7 @@ class NotificationDispatchService:
                     "status": row.status,
                     "created": row.creation,
                     "reference": f"{row.reference_doctype or ''} {row.reference_name or ''}".strip(),
-                    "matched": marker == doc.name,
+                    "matched": ours,
                 }
             )
 
@@ -703,6 +717,33 @@ class NotificationDispatchService:
             "candidates": candidates,
             "decisions": ["link", "not_sent"],
         }
+
+    @staticmethod
+    def _same_attempt(doc, other_name):
+        """Whether another delivery is this same attempt, reached at a different address.
+
+        One message carries a direct recipient and its copies, so one queue entry really is
+        the mail of several deliveries — but only of the ones that message was: same rule,
+        same record, same occurrence. Anything else is another message's mail, and wearing
+        its outcome would report a letter as having gone to somebody who never got one.
+        """
+        if not other_name or other_name == doc.name:
+            return True
+
+        other = frappe.db.get_value(
+            DISPATCH,
+            other_name,
+            ["rule", "business_doctype", "business_name", "event_occurrence_key"],
+            as_dict=True,
+        )
+
+        if not other:
+            return False
+
+        return all(
+            (other.get(field) or "") == (doc.get(field) or "")
+            for field in ("rule", "business_doctype", "business_name", "event_occurrence_key")
+        )
 
     @staticmethod
     def resolve(dispatch_name, decision, email_queue=None, note=None):
@@ -744,8 +785,18 @@ class NotificationDispatchService:
             if not email_queue or not frappe.db.exists(QUEUE, email_queue):
                 raise ValidationError("Name the queue entry to attach.", "VALIDATION_ERROR")
 
-            taken = frappe.db.get_value(
-                DISPATCH, {"email_queue_id": email_queue, "name": ("!=", doc.name)}, "name"
+            shared = frappe.get_all(
+                DISPATCH,
+                filters={"email_queue_id": email_queue, "name": ("!=", doc.name)},
+                pluck="name",
+            )
+            taken = next(
+                (
+                    name
+                    for name in shared
+                    if not NotificationDispatchService._same_attempt(doc, name)
+                ),
+                None,
             )
 
             if taken:
@@ -760,7 +811,7 @@ class NotificationDispatchService:
                 frappe.db.get_value(QUEUE, email_queue, "message_id")
             )
 
-            if marked and marked != doc.name:
+            if marked and not NotificationDispatchService._same_attempt(doc, marked):
                 raise ValidationError(
                     f"That queue entry was written for {marked}, not for this delivery.",
                     "VALIDATION_ERROR",

@@ -1004,6 +1004,11 @@ describe('Email Management', () => {
         target: { value: 'ops@example.com' },
       });
       fireEvent.click(within(drawer).getByRole('button', { name: 'Save' }));
+      // adding a copy changes who else receives a customer's mail, so it is confirmed
+      const confirm = (await screen.findByText('Save this change?')).closest(
+        '[role="dialog"]'
+      ) as HTMLElement;
+      fireEvent.click(within(confirm).getByRole('button', { name: /Save the change/ }));
 
       await waitFor(() =>
         expect(internal.saveNotificationRule).toHaveBeenCalledWith({
@@ -1182,6 +1187,66 @@ describe('Email Management', () => {
       fireEvent.click(await screen.findByRole('tab', { name: /Delivery history/ }));
 
       expect(await screen.findByText(/English · revision 1 · fell back/)).toBeInTheDocument();
+    });
+  });
+
+  describe('a change that is not easily undone', () => {
+    it('asks before switching a notification off, and saves nothing until it is confirmed', async () => {
+      mockOverview();
+      mockDetails();
+      vi.mocked(internal.getNotificationTemplates).mockResolvedValue(WORDING);
+      renderPage();
+
+      const drawer = await openRule('Request approved');
+      fireEvent.click(within(drawer).getByRole('switch', { name: 'Enabled' }));
+      fireEvent.click(within(drawer).getByRole('button', { name: 'Save' }));
+
+      expect(await screen.findByText('Save this change?')).toBeInTheDocument();
+      expect(
+        screen.getByText(/stop sending this notification altogether/)
+      ).toBeInTheDocument();
+      expect(internal.saveNotificationRule).not.toHaveBeenCalled();
+    });
+
+    it('saves once the administrator confirms', async () => {
+      mockOverview();
+      mockDetails();
+      vi.mocked(internal.getNotificationTemplates).mockResolvedValue(WORDING);
+      vi.mocked(internal.saveNotificationRule).mockImplementation(async () => detailOf(EVENT));
+      renderPage();
+
+      const drawer = await openRule('Request approved');
+      fireEvent.click(within(drawer).getByRole('switch', { name: 'Enabled' }));
+      fireEvent.click(within(drawer).getByRole('button', { name: 'Save' }));
+      const confirm = (await screen.findByText('Save this change?')).closest(
+        '[role="dialog"]'
+      ) as HTMLElement;
+      fireEvent.click(within(confirm).getByRole('button', { name: /Save the change/ }));
+
+      await waitFor(() =>
+        expect(internal.saveNotificationRule).toHaveBeenCalledWith({
+          rule_key: 'request_approved',
+          expected_revision: 4,
+          changes: { enabled: false },
+        })
+      );
+    });
+
+    it('goes straight through for an ordinary change', async () => {
+      mockOverview();
+      mockDetails();
+      vi.mocked(internal.getNotificationTemplates).mockResolvedValue(WORDING);
+      vi.mocked(internal.saveNotificationRule).mockImplementation(async () => detailOf(EVENT));
+      renderPage();
+
+      const drawer = await openRule('Request approved');
+      fireEvent.change(within(drawer).getByLabelText('Name'), {
+        target: { value: 'Request decided' },
+      });
+      fireEvent.click(within(drawer).getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(internal.saveNotificationRule).toHaveBeenCalled());
+      expect(screen.queryByText('Save this change?')).not.toBeInTheDocument();
     });
   });
 });

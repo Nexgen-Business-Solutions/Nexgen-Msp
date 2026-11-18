@@ -761,13 +761,21 @@ class NotificationReminderService:
                 # becomes two, and a send nobody can confirm is exactly what Unknown means
                 if outcome.get("reason") not in QUEUED_NOTHING:
                     copies = {"cc": [], "bcc": []}
+
                     # the copies stopped here, so this attempt is the whole of what they
                     # were owed and it has to be on the record — whether or not anybody
                     # can say it went out. A line nobody wrote is indistinguishable from
-                    # a copy nobody ever configured
-                    NotificationReminderService._record_copies(
-                        declared, current, adapter, doc, iteration, outcome, carried
-                    )
+                    # a copy nobody ever configured.
+                    #
+                    # Except when the message was already sent before this run: that mail
+                    # carried whatever was configured at the time, which is not necessarily
+                    # what is configured now. The attempt that sent it recorded what it
+                    # really carried, and writing today's list against yesterday's queue
+                    # entry would claim a delivery to somebody who was never on it
+                    if outcome.get("reason") != "already_dispatched":
+                        NotificationReminderService._record_copies(
+                            declared, current, adapter, doc, iteration, outcome, carried
+                        )
 
         return {"sent": sent, "skipped": skipped}
 

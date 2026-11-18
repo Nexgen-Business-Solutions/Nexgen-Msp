@@ -7,6 +7,7 @@ import type {
   NotificationRuleFields,
 } from '@/lib/api/internal';
 import Select from '@/shared/components/Select';
+import ConfirmModal from '@/shared/components/ConfirmModal';
 import {
   useNotificationEligibility,
   useNotificationPreview,
@@ -238,10 +239,27 @@ const RuleEditor: React.FC<EditorProps> = ({
 
   const preview = useNotificationPreview(rule.rule_key, panel === 'preview');
   const eligibility = useNotificationEligibility(rule.rule_key, panel === 'activity' && reminder);
+  const [confirmed, setConfirmed] = useState(false);
+
+  /** What an administrator is about to do that is not easily undone by doing it again. */
+  const sensitive = [
+    changes.enabled === false ? 'stop sending this notification altogether' : '',
+    'recipients' in changes ? 'change who else receives it' : '',
+    changes.audience_key && changes.audience_key !== rule.audience_key
+      ? 'send it to a different audience'
+      : '',
+  ].filter(Boolean);
 
   const submit = () => {
     if (!dirty || invalid.length || incomplete) return;
 
+    if (sensitive.length && !confirmed) {
+      setConfirmed(true);
+
+      return;
+    }
+
+    setConfirmed(false);
     save.mutate(
       {
         rule_key: rule.rule_key,
@@ -797,6 +815,23 @@ const RuleEditor: React.FC<EditorProps> = ({
           </button>
         </div>
       </footer>
+
+      <ConfirmModal
+        open={sensitive.length > 0 && confirmed}
+        title="Save this change?"
+        description={`You are about to ${sensitive.join(', and ')}.`}
+        confirmLabel={save.isLoading ? 'Saving…' : 'Save the change'}
+        tone={changes.enabled === false ? 'danger' : 'warning'}
+        loading={save.isLoading}
+        error={save.error instanceof Error ? save.error.message : null}
+        onConfirm={submit}
+        onCancel={() => setConfirmed(false)}
+      >
+        <p>
+          It takes effect on the next send. Nothing already queued is affected, and the
+          change is recorded against your name in this notification&apos;s history.
+        </p>
+      </ConfirmModal>
     </>
   );
 };

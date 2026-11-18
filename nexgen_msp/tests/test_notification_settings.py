@@ -1338,3 +1338,100 @@ class TestTheSameFactReadsTheSameOnEveryScreen(NotificationCase):
         from nexgen_msp.api.internal.services.notification_reminder_service import REASONS
 
         self.assertIs(REASONS, registry.REASON_LABELS)
+
+
+class TestOneMessageCanBeTheMailOfSeveralDeliveries(NotificationCase):
+    """A reminder writes to one person and copies others, so one queue entry really is the
+    mail of several deliveries. Settling the direct one must not strand the copies."""
+
+    def queue_entry(self, addresses, reference, marker=None):
+        return frappe.get_doc(
+            {
+                "doctype": "Email Queue",
+                "sender": "noreply@example.invalid",
+                "message": "x",
+                "status": "Not Sent",
+                "reference_doctype": REFERENCE,
+                "reference_name": reference,
+                "message_id": marker,
+                "recipients": [{"recipient": address} for address in addresses],
+            }
+        ).insert(ignore_permissions=True).name
+
+    def attempt(self, reference, direct, copied, occurrence="iteration:1"):
+        rows = {}
+
+        for address, channel in ((direct, "To"), (copied, "CC")):
+            doc = self.dispatch_row(address, reference, status="Unknown")
+            frappe.db.set_value(
+                DISPATCH,
+                doc.name,
+                {"channel": channel, "event_occurrence_key": occurrence, "email_queue_id": None},
+            )
+            rows[channel] = doc.name
+
+        frappe.db.commit()
+
+        return rows
+
+    def settle(self, dispatch, queue):
+        return NotificationDispatchService.resolve(
+            dispatch, "link", email_queue=queue, note=f"{PREFIX} looked at the queue"
+        )
+
+    def test_the_copy_can_still_see_the_entry_its_direct_recipient_was_attached_to(self):
+        direct, copied = self.address("d"), self.address("c")
+        reference = self.reference("share")
+        rows = self.attempt(reference, direct, copied)
+        entry = self.queue_entry([direct, copied], reference, marker=rows["To"])
+
+        self.settle(rows["To"], entry)
+        offered = {
+            candidate["email_queue"]
+            for candidate in NotificationDispatchService.evidence(rows["CC"])["candidates"]
+        }
+
+        self.assertIn(entry, offered, "the copy is still offered its own attempt's mail")
+
+    def test_both_can_be_attached_to_it(self):
+        direct, copied = self.address("d"), self.address("c")
+        reference = self.reference("both")
+        rows = self.attempt(reference, direct, copied)
+        entry = self.queue_entry([direct, copied], reference, marker=rows["To"])
+
+        self.settle(rows["To"], entry)
+        self.settle(rows["CC"], entry)
+
+        for channel in ("To", "CC"):
+            with self.subTest(channel=channel):
+                self.assertEqual(frappe.db.get_value(DISPATCH, rows[channel], "email_queue_id"), entry)
+                self.assertEqual(frappe.db.get_value(DISPATCH, rows[channel], "status"), "Queued")
+
+    def test_another_attempts_mail_is_still_refused(self):
+        direct, copied = self.address("d"), self.address("c")
+        reference = self.reference("other")
+        # the same record, a different iteration: another message about the same request,
+        # which is exactly the case the record check alone cannot tell apart
+        mine = self.attempt(reference, direct, copied)
+        theirs = self.attempt(reference, direct, copied, occurrence="iteration:9")
+        entry = self.queue_entry([direct, copied], reference, marker=theirs["To"])
+
+        self.settle(theirs["To"], entry)
+
+        with self.assertRaises(ValidationError) as refused:
+            self.settle(mine["CC"], entry)
+
+        self.assertIn(theirs["To"], refused.exception.args[0])
+        self.assertIsNone(frappe.db.get_value(DISPATCH, mine["CC"], "email_queue_id"))
+
+    def test_an_address_the_entry_never_reached_is_still_refused(self):
+        direct, copied = self.address("d"), self.address("c")
+        stranger = self.address("s")
+        reference = self.reference("stranger")
+        rows = self.attempt(reference, direct, stranger)
+        entry = self.queue_entry([direct, copied], reference, marker=rows["To"])
+
+        self.settle(rows["To"], entry)
+
+        with self.assertRaises(ValidationError):
+            self.settle(rows["CC"], entry)
