@@ -99,10 +99,15 @@ would copy them on another company's business. That is refused when the policy i
 refused again at the moment of sending, including on a row written straight into the
 database.
 
-An address with no account of its own stays allowed: a desk, a rota or an alias is exactly
-what a fixed internal address means, and most of them have no Frappe account. Whether a
-tighter rule is wanted — an explicit allowlist of permitted internal mailboxes — is a
-product decision, and this application does not invent one.
+Belonging is read from the contact record, not from an account. A customer's contact is
+often deliberately not an account at all: the accountant who receives the invoices never
+signs in. Asking only about accounts would make the one kind of recipient this isolation
+exists for the one kind it cannot see.
+
+An address belonging to neither an account nor a contact stays allowed: a desk, a rota or
+an alias is exactly what a fixed internal address means, and most of them have no Frappe
+account. Whether a tighter rule is wanted — an explicit allowlist of permitted internal
+mailboxes — is a product decision, and this application does not invent one.
 
 ### Sources
 
@@ -137,11 +142,23 @@ If resolving the copies fails for any reason, the notification still reaches the
 event is about and **every copy is dropped**. The alternative would make the error path a
 way around the refusal to copy a password reset.
 
-On a reminder, the copies ride on the first message of that iteration that reaches the
-queue. One iteration is one business event, so a rule with two direct recipients owes its
-copied addresses one mail and not two, and a reprise owed to one address sends no copies at
-all. A rule with copies configured and nobody to address directly sends nothing and says so
-in the audit.
+On a reminder, the copies ride the first message of that iteration. One iteration is one
+business event, so a rule with two direct recipients owes its copied addresses one mail and
+not two, and a reprise owed to one address sends no copies at all. A rule with copies
+configured and nobody to address directly sends nothing and says so in the audit.
+
+The copies stop travelling as soon as a message **may** have gone out with them. Only an
+outcome that proves the mail queue was never reached leaves them owed — nobody to write to,
+the rule switched off, or a message that would not render, all of which happen before any
+mail exists. An **Unknown** outcome means the queue may well hold the message, so the
+copies are not handed to the next recipient: that is how one copy would become two.
+
+Each copied address gets its own line in the delivery history, naming its channel and
+pointing at the same queue entry as the message it rode. When the language that message was
+written in is not the one that address would have chosen, the line says so rather than
+claiming a decision nobody made for them. Writing each copy in its own language would mean
+a separate message per language, which is a product decision about what CC still means on a
+reminder, and this application does not take it on its own.
 
 Password-reset, portal-invitation and team-invitation notifications cannot be copied or
 redirected at all. The refusal holds in the screen, in the API, on a row written straight

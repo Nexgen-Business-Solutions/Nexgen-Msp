@@ -658,3 +658,69 @@ class TestEachAddressKeepsItsOwnLanguageDecision(PolicyCase):
             (chose, silent),
         )
         self.assertEqual(len(queues), 1)
+
+
+class TestACustomersContactIsNotAFixedCopy(PolicyCase):
+    """A contact is often deliberately not an account at all — the accountant who receives
+    the invoices never signs in. Belonging therefore has to be read from the contact
+    record, or the one kind of recipient this isolation exists for is the one kind it
+    cannot see."""
+
+    def setUp(self):
+        super().setUp()
+        self.customer = self.make_customer(f"RC{self.tag[:4]}")
+        self.other = self.make_customer(f"RD{self.tag[:4]}")
+        self.accountant = self.contact(self.customer, "pay")
+
+    def contact(self, customer, label):
+        from nexgen_msp.api.internal.services.customer_service import CustomerService
+
+        email = f"{PREFIX.lower()}.{label}{self.tag}@example.invalid"
+        CustomerService.add_billing_contact(
+            customer=customer, full_name=f"{PREFIX} {label}", email=email
+        )
+        frappe.db.commit()
+
+        return email
+
+    def test_the_contact_really_has_no_account(self):
+        self.assertFalse(frappe.db.exists("User", self.accountant))
+
+    def test_it_cannot_be_named_as_a_fixed_copy(self):
+        with self.assertRaises(ValidationError) as refused:
+            self.configure(self.policy("CC", address=self.accountant))
+
+        self.assertIn("customer's own contact", refused.exception.args[0])
+
+    def test_a_row_written_straight_into_the_database_reaches_no_send(self):
+        doc = frappe.get_doc("MSP Notification Rule", RULE)
+        doc.append("recipients", {"email": self.accountant, "kind": "CC", "enabled": 1})
+        doc.flags.ignore_validate = True
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+
+        resolved = self.resolved(
+            [f"{PREFIX.lower()}.to{self.tag}@example.invalid"], customer=self.other
+        )
+
+        self.assertEqual(resolved["cc"], [])
+        self.assertEqual(self.reasons(resolved["skipped"])[self.accountant], "not_permitted")
+
+    def test_it_is_dropped_from_another_companys_mail_even_when_it_got_there(self):
+        resolved = self.resolved([self.accountant], customer=self.other)
+
+        self.assertEqual(resolved["to"], [])
+        self.assertEqual(self.reasons(resolved["skipped"])[self.accountant], "other_customer")
+
+    def test_it_still_reaches_its_own_companys_mail(self):
+        resolved = self.resolved([self.accountant], customer=self.customer)
+
+        self.assertEqual(resolved["to"], [self.accountant])
+
+    def test_an_internal_alias_with_no_account_is_untouched_by_any_of_this(self):
+        alias = f"{PREFIX.lower()}.rota{self.tag}@example.invalid"
+
+        self.configure(self.policy("CC", address=alias))
+        resolved = self.resolved([f"{PREFIX.lower()}.x{self.tag}@example.invalid"], customer=self.other)
+
+        self.assertEqual(resolved["cc"], [alias])

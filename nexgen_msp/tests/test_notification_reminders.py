@@ -21,6 +21,7 @@ from nexgen_msp.api.portal.services.portal_service import PortalService
 from nexgen_msp.utils import notifications, reminders
 from nexgen_msp.utils.errors import ValidationError
 
+from .base import PREFIX
 from .test_notification_settings import (
     AUDIT,
     DISPATCH,
@@ -1602,6 +1603,15 @@ class TestACopiedAddressIsOwedOneMailPerIteration(RequestCase):
         frappe.db.commit()
 
     def desk(self, suffix):
+        """An internal alias with no account of its own — a rota, a shared mailbox.
+
+        Deliberately not a team account: the team is this reminder's own audience, so a
+        colleague named as a copy is deduplicated onto the To channel and there is no copy
+        left to observe. An alias is both permitted and outside the audience.
+        """
+        return f"{PREFIX.lower()}.{suffix}{self.tag}@example.invalid"
+
+    def staff(self, suffix):
         return self.make_account("internal", "MSP Technician", suffix=f"{suffix}{self.tag[:3]}")
 
     def test_one_copy_however_many_people_are_written_to_directly(self):
@@ -1615,10 +1625,16 @@ class TestACopiedAddressIsOwedOneMailPerIteration(RequestCase):
         with self.only(name):
             out = NotificationReminderService.run_one(WAITING)
 
-        reached = self.recipients(name, WAITING)
-        self.assertGreater(len(reached), 1, "the rule is addressed to more than one person")
+        direct = frappe.get_all(
+            DISPATCH,
+            filters={"business_name": name, "rule": WAITING, "channel": "To"},
+            pluck="recipient",
+        )
+
+        self.assertGreater(len(direct), 1, "the rule is addressed to more than one person")
+        self.assertEqual(out["sent"], len(direct))
+        self.assertNotIn(copied, direct, "the alias is a copy and not an audience member")
         self.assertEqual(self.queued_to(copied), 1)
-        self.assertEqual(out["sent"], len(reached))
 
     def test_a_blind_copy_is_owed_one_mail_as_well(self):
         name = self.submitted()
@@ -1666,3 +1682,92 @@ class TestACopiedAddressIsOwedOneMailPerIteration(RequestCase):
         self.assertEqual(self.queued_to(copied), 0)
         reasons = [row.reason_code for row in self.audits(APPROVAL, business_name=name)]
         self.assertIn("no_recipient", reasons)
+
+    def test_an_unconfirmed_first_send_does_not_hand_the_copy_on_to_the_next(self):
+        """An Unknown outcome does not prove the queue was never reached.
+
+        The mail may be sitting in it. Carrying the copies on to the next direct recipient
+        would be the one message this iteration owes them, sent twice.
+        """
+        name = self.submitted()
+        copied = self.desk("cu")
+        self.configure(WAITING)
+        self.policies(
+            WAITING, {"channel": "CC", "recipient_source": None, "fixed_address": copied, "enabled": True}
+        )
+        real = frappe.sendmail
+        calls = {"n": 0}
+
+        def unsure(*args, **kwargs):
+            calls["n"] += 1
+
+            if calls["n"] == 1:
+                raise RuntimeError("the queue answered nothing")
+
+            return real(*args, **kwargs)
+
+        with self.only(name), patch.object(frappe, "sendmail", side_effect=unsure):
+            NotificationReminderService.run_one(WAITING)
+
+        self.assertGreater(calls["n"], 1, "a second direct recipient was written to")
+        self.assertEqual(self.queued_to(copied), 0)
+
+    def test_each_copied_address_gets_its_own_line_against_the_one_mail(self):
+        name = self.submitted()
+        copied = self.desk("cl")
+        hidden = self.desk("hl")
+        self.configure(WAITING)
+        self.policies(
+            WAITING,
+            {"channel": "CC", "recipient_source": None, "fixed_address": copied, "enabled": True},
+            {"channel": "BCC", "recipient_source": None, "fixed_address": hidden, "enabled": True},
+        )
+
+        with self.only(name):
+            NotificationReminderService.run_one(WAITING)
+
+        rows = {
+            row.recipient: row
+            for row in frappe.get_all(
+                DISPATCH,
+                filters={"business_name": name, "rule": WAITING},
+                fields=["recipient", "channel", "status", "email_queue_id", "reminder_iteration"],
+            )
+        }
+
+        self.assertIn(copied, rows)
+        self.assertIn(hidden, rows)
+        self.assertEqual(rows[copied].channel, "CC")
+        self.assertEqual(rows[hidden].channel, "BCC")
+        self.assertEqual(rows[copied].status, "Queued")
+        self.assertEqual(rows[copied].reminder_iteration, 1)
+        direct = [row for address, row in rows.items() if row.channel == "To"]
+        self.assertTrue(direct)
+        self.assertIn(rows[copied].email_queue_id, {row.email_queue_id for row in direct})
+
+    def test_a_copy_written_in_somebody_elses_language_says_so(self):
+        # the approval reminder is addressed to the company's approvers, so one of our own
+        # accounts is a copy here and nothing else
+        name = self.awaiting()
+        copied = self.staff("cf")
+        frappe.db.set_value("User", copied, "language", "fr", update_modified=False)
+        frappe.db.commit()
+        self.configure(APPROVAL)
+        self.policies(
+            APPROVAL, {"channel": "CC", "recipient_source": None, "fixed_address": copied, "enabled": True}
+        )
+
+        with self.only(name):
+            NotificationReminderService.run_one(APPROVAL)
+
+        row = frappe.db.get_value(
+            DISPATCH,
+            {"business_name": name, "rule": APPROVAL, "recipient": copied},
+            ["channel", "language_source", "fallback_reason"],
+            as_dict=True,
+        )
+
+        self.assertEqual(row.channel, "CC")
+        self.assertEqual(row.language_source, "account")
+        self.assertEqual(row.fallback_reason, "shared_message")
+

@@ -21,11 +21,15 @@ import frappe
 from nexgen_msp.api.internal.services import notification_registry as registry
 from nexgen_msp.api.internal.services.notification_dispatch_service import (
     ATTESTED_NOT_SENT,
+    QUEUED_NOTHING,
     RENDER_FAILED,
     NotificationDispatchService,
 )
 from nexgen_msp.api.internal.services.notification_settings_service import (
     NotificationSettingsService,
+)
+from nexgen_msp.api.internal.services.notification_template_service import (
+    NotificationTemplateService,
 )
 from nexgen_msp.utils import notifications
 
@@ -728,6 +732,8 @@ class NotificationReminderService:
             NotificationReminderService._nobody_direct(declared, current, adapter, doc, copies)
 
         for address in channels["to"]:
+            carried = copies
+
             outcome = NotificationDispatchService.deliver(
                 declared["rule_key"],
                 address,
@@ -739,19 +745,73 @@ class NotificationReminderService:
                 business_name=doc.name,
                 iteration=iteration,
                 occurrence=f"iteration:{iteration}",
-                cc=copies["cc"],
-                bcc=copies["bcc"],
+                cc=carried["cc"],
+                bcc=carried["bcc"],
             )
 
             if outcome["status"] == "Queued":
                 sent += 1
-                # they have had their copy of this iteration; the next direct recipient
-                # gets a message addressed to them alone
-                copies = {"cc": [], "bcc": []}
             else:
                 skipped += 1
 
+            if carried["cc"] or carried["bcc"]:
+                # the copies stop travelling as soon as a message may have gone out with
+                # them. Only an outcome that proves the queue was never reached leaves them
+                # owed: carrying them on after a send nobody can confirm is how one copy
+                # becomes two, and a send nobody can confirm is exactly what Unknown means
+                if outcome.get("reason") not in QUEUED_NOTHING:
+                    copies = {"cc": [], "bcc": []}
+
+                if outcome["status"] == "Queued":
+                    NotificationReminderService._record_copies(
+                        declared, current, adapter, doc, iteration, outcome, carried
+                    )
+
         return {"sent": sent, "skipped": skipped}
+
+    @staticmethod
+    def _record_copies(declared, current, adapter, doc, iteration, outcome, carried):
+        """Write a line for every address copied on this iteration, sending nothing more.
+
+        They rode the direct recipient's message, so they share its queue entry and its
+        wording. Each still gets a line of its own, because "was this person told" is asked
+        per person; and each says so when the language it was written in is not the one that
+        address would have chosen, rather than claiming a decision nobody made for them.
+        """
+        row = frappe.db.get_value(
+            DISPATCH,
+            outcome["dispatch"],
+            ["email_queue_id", "subject_snapshot", "resolved_locale", "template_revision"],
+            as_dict=True,
+        )
+
+        if not row:
+            return
+
+        for channel, addresses in (("CC", carried["cc"]), ("BCC", carried["bcc"])):
+            for address in addresses:
+                own = NotificationTemplateService.locale_for(address, doc.get("customer"))
+                NotificationDispatchService.record_event(
+                    rule_key=declared["rule_key"],
+                    revision=current.get("revision"),
+                    recipient=address,
+                    channel=channel,
+                    template_name=current["template_name"],
+                    subject=row.subject_snapshot,
+                    occurrence=f"iteration:{iteration}",
+                    iteration=iteration,
+                    queue_id=row.email_queue_id,
+                    business_doctype=adapter["doctype"],
+                    business_name=doc.name,
+                    language={
+                        "locale": row.resolved_locale,
+                        "revision": row.template_revision,
+                        "language_source": own["source"],
+                        "fallback_reason": None
+                        if own["locale"] == row.resolved_locale
+                        else "shared_message",
+                    },
+                )
 
     @staticmethod
     def _nobody_direct(declared, current, adapter, doc, copies):

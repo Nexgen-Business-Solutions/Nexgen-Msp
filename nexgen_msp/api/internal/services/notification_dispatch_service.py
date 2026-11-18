@@ -24,6 +24,12 @@ from nexgen_msp.api.internal.services.notification_template_service import (
 from nexgen_msp.utils import notifications
 from nexgen_msp.utils.errors import ValidationError
 
+# the only outcomes of `deliver` that prove nothing was handed to the mail queue. Every
+# other one — queued, held by another worker, or an outcome nobody can confirm — may have
+# put a message in front of somebody, and a caller deciding what else to send has to treat
+# it that way. `Unknown` exists precisely because the answer is not known
+QUEUED_NOTHING = ("no_recipient", "rule_disabled", "render_failed")
+
 DISPATCH = "MSP Notification Dispatch"
 RULE = "MSP Notification Rule"
 QUEUE = "Email Queue"
@@ -520,6 +526,7 @@ class NotificationDispatchService:
         business_name=None,
         language=None,
         channel="To",
+        iteration=0,
     ):
         """Write down a mail an event already queued, so the history is not only reminders.
 
@@ -551,7 +558,7 @@ class NotificationDispatchService:
         doc.business_doctype = business_doctype
         doc.business_name = business_name
         doc.event_occurrence_key = occurrence
-        doc.reminder_iteration = 0
+        doc.reminder_iteration = frappe.utils.cint(iteration)
         doc.recipient = address
         doc.channel = channel
         doc.cc_snapshot = ", ".join(cc or [])

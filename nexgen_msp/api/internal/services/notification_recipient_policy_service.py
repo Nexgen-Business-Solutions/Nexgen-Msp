@@ -335,28 +335,65 @@ class NotificationRecipientPolicyService:
         if access.is_staff(address):
             return True
 
-        return not access.is_customer_account(address)
+        if access.is_customer_account(address):
+            return False
+
+        return not NotificationRecipientPolicyService._contact_customers(address)
+
+    @staticmethod
+    def _contact_customers(address):
+        """The companies an address is a contact of, account or no account.
+
+        A customer's contact is often deliberately not an account at all — the accountant
+        who receives the invoices never signs in, and this application takes care not to
+        give them a login just because somebody typed their address. So belonging has to
+        be read from the contact record: asking about a `User` would make the one kind of
+        recipient this isolation exists for the one kind it cannot see.
+        """
+        wanted = (address or "").strip().lower()
+
+        if not wanted:
+            return set()
+
+        return set(
+            frappe.db.sql_list(
+                """
+                select distinct link.link_name
+                from `tabContact` contact
+                join `tabDynamic Link` link
+                  on link.parent = contact.name and link.parenttype = 'Contact'
+                left join `tabContact Email` mail
+                  on mail.parent = contact.name and mail.parenttype = 'Contact'
+                where link.link_doctype = 'Customer'
+                  and ifnull(link.link_name, '') != ''
+                  and (lower(ifnull(contact.email_id, '')) = %(address)s
+                       or lower(ifnull(mail.email_id, '')) = %(address)s)
+                """,
+                {"address": wanted},
+            )
+        )
 
     @staticmethod
     def _reaches(address, customer):
         """Whether this address may be told about this company's business.
 
-        A staff account reaches every company by its role. A customer account reaches the
-        companies it is a contact of and no others. An address that is no account at all
-        is one an administrator typed in on purpose: it belongs to no company, so there is
-        no company whose business it is crossing.
+        A staff account reaches every company by its role. Anybody belonging to a company
+        — through an account or through a contact record — reaches that company and no
+        other. An address belonging to neither is an internal mailbox an administrator
+        named on purpose, and crosses nothing.
         """
         if not customer:
-            return True
-
-        if not frappe.db.exists("User", address):
             return True
 
         if access.is_staff(address):
             return True
 
-        # an account that is not ours reaches the companies it is a contact of and no
-        # others. An empty list is not a pass: a contact whose company links were never
-        # set up has not been shown to belong anywhere, and treating "we do not know" as
-        # "anywhere" is how one company's business reaches another's inbox
-        return customer in access.customer_memberships(address)
+        if frappe.db.exists("User", address):
+            # an empty list is not a pass: a contact whose company links were never set up
+            # has not been shown to belong anywhere, and reading "we do not know" as
+            # "anywhere" is how one company's business reaches another's inbox
+            return customer in access.customer_memberships(address)
+
+        contacts = NotificationRecipientPolicyService._contact_customers(address)
+
+        return not contacts or customer in contacts
