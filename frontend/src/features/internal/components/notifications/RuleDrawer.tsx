@@ -30,9 +30,9 @@ import {
 type PanelId = 'configuration' | 'preview' | 'activity';
 
 const PANELS: { id: PanelId; label: string }[] = [
-  { id: 'configuration', label: 'Configuration' },
-  { id: 'preview', label: 'Preview' },
-  { id: 'activity', label: 'Activity' },
+  { id: 'configuration', label: 'General' },
+  { id: 'preview', label: 'Preview/Test' },
+  { id: 'activity', label: 'History' },
 ];
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -312,7 +312,7 @@ const RuleEditor: React.FC<EditorProps> = ({
       >
         {panel === 'configuration' && (
           <>
-            <Section title="Notification">
+            <Section title="General">
               <div className="flex items-start justify-between gap-4 rounded-lg bg-slate-50 p-3.5">
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-slate-900">Enabled</p>
@@ -380,16 +380,19 @@ const RuleEditor: React.FC<EditorProps> = ({
                     protect
                   />
                 </Field>
-                <Field label="Audience">
-                  <Select
-                    value={draft.audience_key}
-                    onChange={(value) => set({ audience_key: value })}
-                    options={audiences.map((entry) => ({ value: entry.key, label: entry.label }))}
-                    placeholder="Choose an audience"
-                    searchable={false}
-                  />
-                </Field>
               </div>
+            </Section>
+
+            <Section title="Audience" blurb="Who this notification reaches, and who else is copied.">
+              <Field label="Audience" className="sm:max-w-sm">
+                <Select
+                  value={draft.audience_key}
+                  onChange={(value) => set({ audience_key: value })}
+                  options={audiences.map((entry) => ({ value: entry.key, label: entry.label }))}
+                  placeholder="Choose an audience"
+                  searchable={false}
+                />
+              </Field>
 
               <RecipientPolicies
                 rows={draft.policies}
@@ -457,7 +460,7 @@ const RuleEditor: React.FC<EditorProps> = ({
 
             {reminder ? (
               <Section
-                title="Reminder schedule"
+                title="Timing"
                 blurb="When a record first becomes eligible, how often it repeats and when reminders stop."
               >
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -685,7 +688,7 @@ const RuleEditor: React.FC<EditorProps> = ({
 
         {panel === 'activity' && (
           <>
-            <Section title="Recent activity" blurb="Changes and sends recorded for this notification.">
+            <Section title="History" blurb="Changes and sends recorded for this notification.">
               {detail.audit.length === 0 ? (
                 <p className="text-sm text-slate-500">Nothing has been recorded for this notification yet.</p>
               ) : (

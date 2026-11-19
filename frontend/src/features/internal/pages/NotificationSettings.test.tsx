@@ -305,14 +305,14 @@ describe('Email Management', () => {
 
     const eventDrawer = await openRule('Request approved');
     expect(await within(eventDrawer).findByLabelText('Name')).toHaveValue('Request approved');
-    expect(within(eventDrawer).queryByText('Reminder schedule')).not.toBeInTheDocument();
+    expect(within(eventDrawer).queryByText('Timing')).not.toBeInTheDocument();
     expect(within(eventDrawer).queryByLabelText('Maximum reminders')).not.toBeInTheDocument();
     expect(within(eventDrawer).getByText(/no frequency, maximum or reminder schedule/i)).toBeInTheDocument();
     expect(within(eventDrawer).getByLabelText('Trigger')).toBeDisabled();
     fireEvent.click(within(eventDrawer).getByRole('button', { name: 'Close' }));
 
     const reminderDrawer = await openRule('Request waiting for review');
-    expect(await within(reminderDrawer).findByText('Reminder schedule')).toBeInTheDocument();
+    expect(await within(reminderDrawer).findByText('Timing')).toBeInTheDocument();
     expect(within(reminderDrawer).getByLabelText('Maximum reminders')).toBeInTheDocument();
     expect(within(reminderDrawer).getByLabelText('First reminder after')).toHaveValue(2);
     expect(within(reminderDrawer).getByRole('switch', { name: 'Quiet hours' })).toBeInTheDocument();
@@ -396,7 +396,7 @@ describe('Email Management', () => {
     renderPage();
 
     const drawer = await openRule('Request approved');
-    fireEvent.click(within(drawer).getByRole('tab', { name: 'Preview' }));
+    fireEvent.click(within(drawer).getByRole('tab', { name: 'Preview/Test' }));
 
     expect(await within(drawer).findByText('Your request was approved')).toBeInTheDocument();
     expect(within(drawer).getByText(/A test is not a business reminder/i)).toBeInTheDocument();
@@ -1247,6 +1247,39 @@ describe('Email Management', () => {
 
       await waitFor(() => expect(internal.saveNotificationRule).toHaveBeenCalled());
       expect(screen.queryByText('Save this change?')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('the sections of the rule editor', () => {
+    it('carries the six the feature asks for, under those names', async () => {
+      mockOverview();
+      mockDetails();
+      vi.mocked(internal.getNotificationTemplates).mockResolvedValue(WORDING);
+      renderPage();
+
+      const drawer = await openRule('Request waiting for review');
+
+      for (const panel of ['General', 'Preview/Test', 'History']) {
+        expect(within(drawer).getByRole('tab', { name: panel })).toBeInTheDocument();
+      }
+
+      for (const section of ['General', 'Audience', 'Timing', 'Content']) {
+        expect(within(drawer).getByRole('heading', { name: section })).toBeInTheDocument();
+      }
+    });
+
+    it('shows the timing section only where timing means something', async () => {
+      mockOverview();
+      mockDetails();
+      vi.mocked(internal.getNotificationTemplates).mockResolvedValue(WORDING);
+      renderPage();
+
+      const drawer = await openRule('Request approved');
+
+      expect(within(drawer).getByRole('heading', { name: 'Audience' })).toBeInTheDocument();
+      expect(
+        within(drawer).queryByRole('heading', { name: 'Timing' })
+      ).not.toBeInTheDocument();
     });
   });
 });
