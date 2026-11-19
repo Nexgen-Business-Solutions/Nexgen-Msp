@@ -22,9 +22,9 @@ MAX_BODY = 4000
 MSP = "MSP"
 CUSTOMER = "Customer"
 
-FOR_CUSTOMER = "MSP Request Comment For Customer"
-FOR_OUR_TEAM = "MSP Request Comment For Our Team"
-BEFORE_HANDOVER = "MSP Request Comment Before Handover"
+FOR_CUSTOMER = "request_comment_for_customer"
+FOR_OUR_TEAM = "request_comment_for_our_team"
+BEFORE_HANDOVER = "request_comment_before_handover"
 
 
 class RequestCommentService:
@@ -225,6 +225,7 @@ class RequestCommentService:
                 "author_name": frappe.db.get_value("User", author, "full_name") or author,
                 "author_side": side,
                 "body": text,
+                "notification_rule": RequestCommentService._rule_for(doc, side),
                 "idempotency_key": key,
             }
         )
@@ -334,27 +335,70 @@ class RequestCommentService:
 
     # ------------------------------------------------------------------ telling
     @staticmethod
+    def _rule_for(doc, side):
+        """Which notification a comment written now is, decided now and kept.
+
+        While the request is still waiting for its own company's decision, or once that
+        company has refused it, it has not reached us at all: the message stays inside the
+        company under a rule declared with no copy source, so no policy can put one of our
+        addresses on it. What the request becomes afterwards does not change what this
+        message was.
+        """
+        if doc.status == CUSTOMER_APPROVAL or doc.refused_by_customer:
+            return BEFORE_HANDOVER
+
+        return FOR_OUR_TEAM if side == CUSTOMER else FOR_CUSTOMER
+
+    @staticmethod
     def _tell(doc, comment):
         """Everybody the other side of this conversation, and never its author.
 
-        While the request is still waiting for its own company's decision it has not reached
-        us at all, so the message stays inside the company: notifying our team there would
-        hand over a conversation the customer has not yet decided to send.
+        Answers whether this message is settled: handed over, owed to nobody, or stopped by
+        an administrator. Only a send that failed leaves it owed, because only that is worth
+        coming back for.
         """
-        if doc.status == CUSTOMER_APPROVAL or doc.refused_by_customer:
-            # its own notification, declared with no copy sources at all: a fixed internal
-            # address configured on the ordinary comment rule would otherwise read a
-            # conversation the company has not decided to send us
-            template, addresses = BEFORE_HANDOVER, RequestCommentService._company_side(doc)
-        elif comment.author_side == CUSTOMER:
-            template, addresses = FOR_OUR_TEAM, RequestCommentService._our_team()
-        else:
-            template, addresses = FOR_CUSTOMER, RequestCommentService._company_side(doc)
+        from nexgen_msp.api.internal.services import notification_registry as registry
+        from nexgen_msp.api.internal.services.notification_settings_service import (
+            NotificationSettingsService,
+        )
 
+        rule_key = comment.notification_rule or RequestCommentService._rule_for(
+            doc, comment.author_side
+        )
+        addresses = (
+            RequestCommentService._our_team()
+            if rule_key == FOR_OUR_TEAM
+            else RequestCommentService._company_side(doc)
+        )
+        template = registry.rule(rule_key)["template_name"]
+
+        # an administrator who switched this notification off decided something; a message
+        # written while it is off is answered, not held back to go out in a heap the day
+        # somebody switches it on again
+        current = NotificationSettingsService.effective(rule_key)
+
+        if current and not current.get("enabled"):
+            NotificationSettingsService._write_audit(
+                action="Skipped",
+                rule=rule_key,
+                rule_revision=current.get("revision"),
+                business_doctype=REQUEST,
+                business_name=doc.name,
+                reason_code="rule_disabled",
+                detail="A comment was written while this notification was switched off.",
+            )
+
+            return True
+
+        told = RequestCommentService._already_told(comment)
         recipients = [
-            address for address in dict.fromkeys(addresses) if address and address != comment.author_user
+            address
+            for address in dict.fromkeys(addresses)
+            if address and address != comment.author_user and address not in told
         ]
 
+        # nobody left to write to: either this message was addressed to its own author, or
+        # an earlier attempt already handed every address of it to the queue
         if not recipients:
             return True
 
@@ -368,7 +412,7 @@ class RequestCommentService:
             # nobody is told about their own comment, including by a copy policy that
             # happens to resolve to them — nor anybody a previous attempt at this same
             # comment already handed to the queue, which is what makes a retry a retry
-            exclude=[comment.author_user, *RequestCommentService._already_told(comment)],
+            exclude=[comment.author_user, *told],
         )
 
     @staticmethod

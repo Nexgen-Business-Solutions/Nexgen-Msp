@@ -598,3 +598,88 @@ class TestWhenItWasWrittenIsAnInstant(CommentCase):
         written = self.thread(self.tech, name)["comments"][0]["created_at"]
 
         self.assertRegex(written, r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.*(\+|-)\d{2}:\d{2}$")
+
+
+class TestWhatAMessageOwesIsSettledOneWayOrAnother(CommentCase):
+    """Owed means a send that failed. Everything else is an answer, not a wait."""
+
+    def rule_of(self, written):
+        return frappe.db.get_value(COMMENT, written["name"], "notification_rule")
+
+    def test_a_message_written_while_the_rule_is_off_is_not_kept_for_later(self):
+        from nexgen_msp.api.internal.services.notification_settings_service import (
+            NotificationSettingsService,
+        )
+
+        name = self.approved(self.awaiting())
+        NotificationSettingsService.save("request_comment_for_customer", changes={"enabled": 0})
+        frappe.db.commit()
+        before = self.queued_to(self.asker)
+
+        written = self.post(self.tech, name, "Written while it was off.")
+
+        self.assertEqual(frappe.db.get_value(COMMENT, written["name"], "notified"), 1)
+        self.assertEqual(self.queued_to(self.asker), before)
+
+        NotificationSettingsService.save("request_comment_for_customer", changes={"enabled": 1})
+        frappe.db.commit()
+        RequestCommentService.deliver_owed()
+
+        self.assertEqual(
+            self.queued_to(self.asker), before, "switching it back on sends no backlog"
+        )
+
+    def test_a_message_every_address_already_has_is_settled(self):
+        name = self.approved(self.awaiting())
+
+        with patch.object(notifications, "send", return_value=False):
+            written = self.post(self.tech, name, "Already handed over.")
+
+        from nexgen_msp.api.internal.services.notification_dispatch_service import (
+            NotificationDispatchService,
+        )
+
+        for address in RequestCommentService._company_side(frappe.get_doc(REQUEST, name)):
+            NotificationDispatchService.record_event(
+                rule_key="request_comment_for_customer",
+                revision=1,
+                recipient=address,
+                channel="To",
+                template_name="MSP Request Comment For Customer",
+                subject="[MSP Request] New comment",
+                occurrence=f"event:comment:{written['name']}",
+                queue_id=None,
+                business_doctype=REQUEST,
+                business_name=name,
+            )
+
+        frappe.db.commit()
+
+        RequestCommentService.deliver_owed()
+
+        self.assertEqual(frappe.db.get_value(COMMENT, written["name"], "notified"), 1)
+
+
+class TestWhatAMessageWasStaysWhatItWas(CommentCase):
+    """#47 review: approval between writing and sending must not change the audience."""
+
+    def test_a_message_written_before_the_handover_keeps_its_own_notification(self):
+        name = self.awaiting()
+
+        with patch.object(notifications, "send", return_value=False):
+            written = self.post(self.asker, name, "Before we sent it to you.")
+
+        self.assertEqual(
+            frappe.db.get_value(COMMENT, written["name"], "notification_rule"),
+            "request_comment_before_handover",
+        )
+
+        self.approved(name)
+        before = self.queued_to(self.tech)
+
+        RequestCommentService.deliver_owed()
+
+        self.assertEqual(
+            self.queued_to(self.tech), before, "our team is not written to about it afterwards"
+        )
+        self.assertGreater(self.queued_to(self.approver), 0)

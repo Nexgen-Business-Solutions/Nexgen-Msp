@@ -12,6 +12,7 @@
   "author_name",
   "author_side",
   "body",
+  "notification_rule",
   "idempotency_key",
   "notified"
  ],
@@ -52,6 +53,12 @@
    "ignore_xss_filter": 1,
    "label": "Body",
    "reqd": 1
+  },
+  {
+   "fieldname": "notification_rule",
+   "fieldtype": "Data",
+   "label": "Notification Rule",
+   "read_only": 1
   },
   {
    "fieldname": "idempotency_key",
