@@ -43,6 +43,60 @@ TARGET_SQL = {"User": request_targets.line_person_sql, "Device": request_targets
 HOLDER_OPERATIONS = ("device.assign", "device.transfer", "device.repossess")
 
 
+# asking for a different quantity of something already running is the one act whose
+# quantity is the request. Everywhere else a target is one of a thing, and the quantity is
+# a formality worth defaulting
+QUANTITY_IS_THE_ASK = ("service.change",)
+
+
+def asked_quantity(code, asked):
+    """The quantity a line carries, or nothing when the act does not turn on one.
+
+    A target is one person or one machine, so a line that names no quantity means one of
+    it and is worth defaulting. Asking for a different quantity is the opposite: the
+    number *is* the request, and standing in a 1 for a number nobody gave would send a
+    company from five terabytes to one without anybody having asked for it.
+    """
+    if code in QUANTITY_IS_THE_ASK:
+        return frappe.utils.flt(asked) if asked not in (None, "") else None
+
+    return asked or 1
+
+
+def validate_quantity_change(doc, row):
+    """A quantity change has to name a quantity, and a different one.
+
+    Read from the assignment rather than from what the browser said it was: the current
+    quantity is the company's own record, and a request built against a stale screen must
+    not be stored as a change to a number that has since moved.
+    """
+    if operation_of(row) not in QUANTITY_IS_THE_ASK:
+        return
+
+    asked = row.requested_quantity
+
+    if asked in (None, "") or frappe.utils.flt(asked) <= 0:
+        frappe.throw(
+            _("Row {0}: say how much of this service is wanted.").format(row.idx)
+        )
+
+    if not row.source_service_assignment:
+        frappe.throw(
+            _("Row {0}: a quantity change is asked of a service already running.").format(row.idx)
+        )
+
+    running = frappe.utils.flt(
+        frappe.db.get_value(ASSIGNMENT, row.source_service_assignment, "quantity")
+    )
+
+    if running and frappe.utils.flt(asked) == running:
+        frappe.throw(
+            _("Row {0}: this service already runs at {1}. Ask for a different quantity.").format(
+                row.idx, frappe.utils.flt(running)
+            )
+        )
+
+
 def operation_of(row):
 	"""The operation a line asks for, whether it was written as a code or as an old action."""
 	from nexgen_msp.utils import operations

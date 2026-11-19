@@ -1406,9 +1406,14 @@ const CompanyServices: React.FC<{
           </thead>
           <tbody className="divide-y divide-slate-100">
             {options.map((card) => {
-              const typed = amounts[card.object_key] ?? '1';
+              // a service already running starts from what is running, because what is
+              // being asked for is the new total and not the difference
+              const running = card.current_quantity ?? null;
+              const typed = amounts[card.object_key] ?? (running === null ? '1' : String(running));
               const quantity = Number(typed);
               const impossible = !Number.isFinite(quantity) || quantity <= 0;
+              const delta = running === null ? null : quantity - running;
+              const unit = card.quantity_uom ? ` ${card.quantity_uom}` : '';
 
               return (
                 <tr key={card.object_key}>
@@ -1419,7 +1424,13 @@ const CompanyServices: React.FC<{
                     </p>
                   </td>
                   <td className="px-3 py-2.5 align-middle">
-                    {card.current_count ? (
+                    {running !== null && (
+                      <p className="mb-1 text-[11px] text-slate-500">
+                        Running {running}
+                        {unit}
+                      </p>
+                    )}
+                    {card.current_count && running === null ? (
                       <p className="text-[11px] text-slate-500">Already running</p>
                     ) : (
                       <>
@@ -1437,7 +1448,24 @@ const CompanyServices: React.FC<{
                           }
                           className="h-8 w-24 rounded-lg border border-slate-200 px-2 text-sm text-slate-900 outline-none focus:border-blue-500"
                         />
-                        <p className="mt-0.5 text-[10px] text-slate-500">In the unit it is sold in</p>
+                        {delta === null ? (
+                          <p className="mt-0.5 text-[10px] text-slate-500">
+                            In the unit it is sold in
+                          </p>
+                        ) : impossible ? (
+                          <p className="mt-0.5 text-[10px] font-semibold text-red-700">
+                            Say how much is wanted
+                          </p>
+                        ) : delta === 0 ? (
+                          <p className="mt-0.5 text-[10px] text-slate-500">
+                            No change to the quantity
+                          </p>
+                        ) : (
+                          <p className="mt-0.5 text-[10px] font-semibold text-slate-700">
+                            {delta > 0 ? 'Increase' : 'Decrease'} by {Math.abs(delta)}
+                            {unit}
+                          </p>
+                        )}
                       </>
                     )}
                   </td>
@@ -1449,7 +1477,13 @@ const CompanyServices: React.FC<{
                           action.operation_code,
                           card.object_key
                         );
-                        const adding = action.operation_code === 'service.add';
+                        // Suspend, Resume and End are about the whole service, so they are
+                        // never sent the number somebody typed: a pause of five terabytes
+                        // is a pause of five terabytes
+                        const byTheUnit =
+                          action.operation_code === 'service.add' ||
+                          action.operation_code === 'service.change';
+                        const unchanged = action.operation_code === 'service.change' && delta === 0;
 
                         return (
                           <React.Fragment key={action.operation_code}>
@@ -1460,9 +1494,15 @@ const CompanyServices: React.FC<{
                             )}
                             <button
                               type="button"
-                              disabled={asked > 0 || (adding && impossible)}
-                              title={asked > 0 ? 'Already asked for in this request' : undefined}
-                              onClick={() => onAdd(action, card, adding ? quantity : 1)}
+                              disabled={asked > 0 || (byTheUnit && impossible) || unchanged}
+                              title={
+                                asked > 0
+                                  ? 'Already asked for in this request'
+                                  : unchanged
+                                    ? 'This is the quantity it already runs at'
+                                    : undefined
+                              }
+                              onClick={() => onAdd(action, card, byTheUnit ? quantity : 1)}
                               className={`${actionBtn(
                                 action.operation_code
                               )} disabled:cursor-not-allowed disabled:opacity-40`}

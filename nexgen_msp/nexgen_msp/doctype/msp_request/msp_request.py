@@ -182,6 +182,7 @@ class MSPRequest(Document):
 				request_intents.validate_subject(self, row)
 				request_intents.validate_action_against_state(self, row)
 				request_intents.validate_no_open_conflict(self, row)
+				request_intents.validate_quantity_change(self, row)
 
 			if row.requested_quantity is not None and row.requested_quantity <= 0:
 				frappe.throw(_("Row {0}: quantity must be greater than zero.").format(row.idx))

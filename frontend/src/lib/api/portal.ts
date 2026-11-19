@@ -1013,8 +1013,13 @@ export type RequestServiceOption = {
   object_key: string;
   object_label: string;
   service_scope: string;
+  /** how many targets an act can reach, which for the company itself is one */
   current_count: number;
   without_count: number;
+  /** how much of it is running, for a service held by the unit; null when none is */
+  current_quantity?: number | null;
+  /** the unit it is counted in, whether or not any of it is running yet */
+  quantity_uom?: string | null;
   actions: RequestOperationOption[];
   service_status_rows: RequestServiceStatusRow[];
 };

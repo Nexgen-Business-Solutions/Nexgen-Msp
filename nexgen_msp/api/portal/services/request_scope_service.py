@@ -59,6 +59,18 @@ REASON_TEXT = {
 # have never been a request a customer raises. Its absence is a decision, not an oversight
 SERVICE_CODES = ("service.add", "service.suspend", "service.resume", "service.end")
 
+# a service the company holds is one period with a quantity, so asking for a different
+# quantity is an act it can be asked for. A service held per person or per machine is one
+# period each, and a quantity there is not what anybody is asking to change — so the act
+# is offered on the company's own services and on no others
+COMPANY_SERVICE_CODES = (
+    "service.add",
+    "service.change",
+    "service.suspend",
+    "service.resume",
+    "service.end",
+)
+
 # what a target about the company itself is grouped under in the builder
 COMPANY_KEY = "company"
 DEVICE_CODES = ("device.transfer", "device.repossess")
@@ -69,6 +81,9 @@ DEVICE_CODES = ("device.transfer", "device.repossess")
 # what the card offers, in the order the prototype shows them
 SHORT_LABEL = {
     "service.add": "Add",
+    # what is being asked is a different quantity of a service already running, which reads
+    # as updating it rather than changing it for something else
+    "service.change": "Update",
     "service.suspend": "Suspend",
     "service.resume": "Resume",
     "service.end": "End",
@@ -1194,7 +1209,7 @@ def _company_open(customer):
     rows = frappe.db.sql(
         """
         select sa.name, sa.service_item, sa.operational_status, sa.effective_start_date,
-               sa.effective_end_date
+               sa.effective_end_date, sa.quantity, sa.uom
         from `tabMSP Service Assignment` sa
         where sa.customer = %(customer)s
           and sa.assignment_scope = 'Customer'
@@ -1239,9 +1254,20 @@ def _company_open(customer):
             # already carries has not happened yet and the lifecycle would refuse a second one
             "dated_change": reads != row.operational_status,
             "status_since": _since(reads, row, pauses.get(row.name)),
+            # how much of it is running, which is what asking for a different quantity is
+            # asked against. Deliberately not folded into the target counts: those count
+            # the things an act can reach, and a company is one thing however many terabytes
+            # of it are provided
+            "quantity": frappe.utils.flt(row.quantity) or 1,
+            "uom": row.uom,
         }
 
     return found
+
+
+def _service_uom(item):
+    """The unit a service is counted in."""
+    return frappe.db.get_value("Item", item, "stock_uom") or "Unit"
 
 
 def _company_closed(customer):
@@ -1304,6 +1330,7 @@ def _company_entry(label, current, code=None):
         "device_serial_number": None,
         "source_service_assignment": current["assignment"] if current else None,
         "current_state": current["status"] if current else None,
+        "current_quantity": current["quantity"] if current else None,
     }
 
     if code:
@@ -1379,11 +1406,16 @@ def _company_domain(customer, state):
             "service_scope": "Customer",
             "current_count": 1 if current else 0,
             "without_count": 0 if current else 1,
+            "current_quantity": current["quantity"] if current else None,
+            # the unit the service is already provided in, or the unit it would be: the
+            # same `stock_uom` the lifecycle writes onto a new assignment, so asking for a
+            # quantity never quietly asks for it in another unit
+            "quantity_uom": (current or {}).get("uom") or _service_uom(item),
             "actions": [],
             "service_status_rows": [_company_status_row(label, item, current, closed)],
         }
 
-        for code in SERVICE_CODES:
+        for code in COMPANY_SERVICE_CODES:
             outcome = _evaluate_company(
                 code, item, customer, label, current, item in state["offered"], state
             )

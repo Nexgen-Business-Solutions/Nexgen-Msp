@@ -2937,3 +2937,308 @@ class TestTheExecutionViewNamesTheCompany(ExecutionCase):
             order.resulting_assignment, held, "the line is settled by the service that exists"
         )
         self.assertNotIn(order.status, ("Pending", "In Progress", "Blocked"))
+
+
+class TestAskingForADifferentQuantityOfACompanyService(CustomerScopeCase):
+    """Issue #33: a company service runs at a quantity, so a different quantity is an act.
+
+    The chain already carried it — the operation is declared customer-requestable, the
+    lifecycle replaces the period, the billing engine prices the difference. What the
+    builder could not do was offer it: its list of service acts left the change out, so
+    the only way to ask for less was to end the service, and the only way to ask for more
+    was a second assignment nobody wanted.
+    """
+
+    def card(self, item=None):
+        from nexgen_msp.api.portal.services.request_scope_service import RequestScopeService
+
+        # the builder is always asked about somebody; the company's own card is built beside
+        # the people's, and it is that card this reads
+        person = self.make_person(self.customer, "Alice")
+        card = frappe.db.get_value(
+            "MSP Client User", person, ["full_name", "department", "email"], as_dict=True
+        )
+        options = RequestScopeService.operation_options(
+            customer=self.customer,
+            subjects=[
+                {
+                    "subject_key": f"user:{person}",
+                    "client_user": person,
+                    "full_name": card.full_name,
+                    "department": card.department,
+                    "email": card.email,
+                    "added_via": "Existing",
+                }
+            ],
+        )
+        company = next(
+            (domain for domain in options["domains"] if domain["key"] == "Company"), None
+        )
+
+        if not company:
+            return None
+
+        return next(
+            (
+                option
+                for option in company["options"]
+                if option["object_key"] == (item or self.retainer)
+            ),
+            None,
+        )
+
+    def offered(self, item=None):
+        card = self.card(item)
+
+        return [] if not card else [action["operation_code"] for action in card["actions"]]
+
+    # ------------------------------------------------------------------ what is offered
+    def test_a_running_service_can_be_asked_for_a_different_quantity(self):
+        self.open_one(quantity=5)
+
+        self.assertIn("service.change", self.offered())
+
+    def test_it_is_offered_beside_suspend_and_end_and_never_instead_of_them(self):
+        self.open_one(quantity=5)
+
+        self.assertEqual(
+            self.offered(), ["service.change", "service.suspend", "service.end"]
+        )
+
+    def test_a_service_nobody_holds_is_only_offered_to_be_added(self):
+        self.assertEqual(self.offered(), ["service.add"])
+
+    def test_a_suspended_service_is_offered_resume_and_end_and_no_quantity_change(self):
+        held = self.open_one(quantity=5)
+        ServiceLifecycleService.suspend(
+            assignment=held, effective_date=frappe.utils.today()
+        )
+        frappe.db.commit()
+
+        offered = self.offered()
+
+        self.assertEqual(offered, ["service.resume", "service.end"])
+        self.assertNotIn("service.change", offered)
+
+    def test_the_act_is_called_update_rather_than_change(self):
+        from nexgen_msp.api.portal.services.request_scope_service import SHORT_LABEL
+
+        self.open_one(quantity=5)
+        card = self.card()
+        act = next(
+            action for action in card["actions"] if action["operation_code"] == "service.change"
+        )
+
+        self.assertEqual(SHORT_LABEL["service.change"], "Update")
+        self.assertEqual(act["operation_label"], "Update")
+
+    # ------------------------------------------------------------------ what it is asked against
+    def test_the_card_says_how_much_is_running_and_in_what_unit(self):
+        self.open_one(quantity=5)
+        card = self.card()
+
+        self.assertEqual(flt_round(card["current_quantity"]), 5.0)
+        self.assertTrue(card["quantity_uom"])
+
+    def test_a_service_nobody_holds_has_no_current_quantity_but_still_names_its_unit(self):
+        card = self.card()
+
+        self.assertIsNone(card["current_quantity"])
+        self.assertTrue(card["quantity_uom"])
+
+    def test_the_target_names_the_assignment_and_the_quantity_it_would_replace(self):
+        held = self.open_one(quantity=5)
+        card = self.card()
+        act = next(
+            action for action in card["actions"] if action["operation_code"] == "service.change"
+        )
+        target = act["targets"][0]
+
+        self.assertEqual(target["source_service_assignment"], held)
+        self.assertEqual(flt_round(target["current_quantity"]), 5.0)
+        self.assertEqual(target["target_scope"], "Customer")
+
+    def test_the_count_of_targets_still_counts_the_company_and_not_its_terabytes(self):
+        """`current_count` says how many things an act can reach, which is one company."""
+        self.open_one(quantity=5)
+        card = self.card()
+
+        self.assertEqual(card["current_count"], 1)
+        self.assertEqual(flt_round(card["current_quantity"]), 5.0)
+
+    # ------------------------------------------------------------------ nobody else's
+    def test_another_companys_service_is_not_offered(self):
+        other = self.make_customer(f"X{self.tag}")
+        mine = self.open_one(quantity=5)
+        card = self.card()
+        act = next(
+            action for action in card["actions"] if action["operation_code"] == "service.change"
+        )
+
+        self.assertEqual(
+            [target["source_service_assignment"] for target in act["targets"]], [mine]
+        )
+        self.assertNotEqual(other, self.customer)
+
+    def test_a_person_or_a_machine_is_never_offered_a_quantity_change(self):
+        """Nothing a person holds is held by the unit, so there is no quantity to change."""
+        from nexgen_msp.api.portal.services.request_scope_service import SERVICE_CODES
+
+        self.assertNotIn("service.change", SERVICE_CODES)
+
+
+class TestCarryingOutAQuantityChangeOnACompanyService(ExecutionCase):
+    """Issue #33: the quantity asked for has to survive as far as the assignment.
+
+    The execution took the technician's own number and nothing else, so a request for
+    eight terabytes carried out by somebody who typed nothing changed the terms and left
+    the quantity where it was — the one thing that had been asked for.
+    """
+
+    def running(self, service, quantity):
+        return self.track(
+            ASSIGNMENT,
+            ServiceLifecycleService.activate(
+                customer=self.customer,
+                service_item=service,
+                target_scope="Customer",
+                effective_date="2026-01-01",
+                quantity=quantity,
+            )["name"],
+        )
+
+    def change_line(self, service, held, **fields):
+        return self.line(
+            service,
+            action="Change",
+            target_scope="Customer",
+            client_user=None,
+            source_service_assignment=held,
+            **fields,
+        )
+
+    def carry_out(self, request, **over):
+        order = self.work(request, "Service Action")
+        self.tech_does(
+            lambda: RequestExecutionService.execute_service_action(
+                work_order=order.name, **over
+            )
+        )
+        self.sweep(request)
+
+        return order
+
+    def periods(self, service):
+        return frappe.get_all(
+            ASSIGNMENT,
+            filters={"customer": self.customer, "service_item": service},
+            fields=[
+                "name",
+                "quantity",
+                "operational_status",
+                "effective_start_date",
+                "effective_end_date",
+                "replaces_assignment",
+            ],
+            order_by="effective_start_date asc",
+        )
+
+    def test_the_quantity_asked_for_is_what_is_carried_out(self):
+        service = self.offering("CQ1", scope="Customer")
+        held = self.running(service, 5)
+        request = self.approved(
+            self.change_line(service, held, requested_quantity=8)
+        )
+
+        self.carry_out(request)
+        periods = self.periods(service)
+
+        self.assertEqual(len(periods), 2)
+        self.assertEqual(flt_round(periods[0].quantity), 5.0)
+        self.assertEqual(flt_round(periods[1].quantity), 8.0)
+        self.assertEqual(periods[1].replaces_assignment, held)
+
+    def test_a_reduction_is_carried_out_as_a_reduction(self):
+        service = self.offering("CQ2", scope="Customer")
+        held = self.running(service, 5)
+        request = self.approved(
+            self.change_line(service, held, requested_quantity=3)
+        )
+
+        self.carry_out(request)
+        periods = self.periods(service)
+
+        self.assertEqual(flt_round(periods[-1].quantity), 3.0)
+        self.assertEqual(periods[-1].operational_status, "Active")
+
+    def test_the_two_periods_do_not_overlap_and_the_first_is_kept(self):
+        service = self.offering("CQ3", scope="Customer")
+        held = self.running(service, 5)
+        request = self.approved(
+            self.change_line(service, held, requested_quantity=8)
+        )
+
+        self.carry_out(request)
+        periods = self.periods(service)
+
+        self.assertEqual(periods[0].name, held)
+        self.assertTrue(periods[0].effective_end_date)
+        self.assertLess(
+            frappe.utils.getdate(periods[0].effective_end_date),
+            frappe.utils.getdate(periods[1].effective_start_date),
+        )
+
+    def test_a_technician_may_still_carry_out_a_different_quantity(self):
+        service = self.offering("CQ4", scope="Customer")
+        held = self.running(service, 5)
+        request = self.approved(
+            self.change_line(service, held, requested_quantity=8)
+        )
+
+        self.carry_out(request, quantity=7)
+
+        self.assertEqual(flt_round(self.periods(service)[-1].quantity), 7.0)
+
+    def test_the_requested_quantity_is_what_the_technician_is_shown(self):
+        service = self.offering("CQ5", scope="Customer")
+        held = self.running(service, 5)
+        request = self.approved(
+            self.change_line(service, held, requested_quantity=8)
+        )
+        order = self.work(request, "Service Action")
+
+        plan = RequestExecutionService.get_execution_plan(request=request)
+        card = next(
+            card
+            for group in plan["action_groups"]
+            for card in group["work"]
+            if card["name"] == order.name
+        )
+
+        self.assertEqual(flt_round(card["requested_quantity"]), 8.0)
+
+    def test_suspending_and_ending_still_use_their_own_acts(self):
+        service = self.offering("CQ6", scope="Customer")
+        held = self.running(service, 5)
+        request = self.approved(
+            self.line(
+                service,
+                action="Suspend",
+                target_scope="Customer",
+                client_user=None,
+                source_service_assignment=held,
+            )
+        )
+
+        order = self.work(request, "Service Action")
+
+        self.assertEqual(order.action, "Suspend")
+        self.carry_out(request)
+
+        held_now = frappe.db.get_value(
+            ASSIGNMENT, held, ["operational_status", "quantity"], as_dict=True
+        )
+        self.assertEqual(held_now.operational_status, "Suspended")
+        self.assertEqual(
+            flt_round(held_now.quantity), 5.0, "a suspended service is still five of it"
+        )

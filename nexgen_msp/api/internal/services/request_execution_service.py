@@ -2048,7 +2048,13 @@ class RequestExecutionService:
 					outcome = ServiceLifecycleService.change(
 						assignment=assignment,
 						effective_date=on_date,
-						quantity=quantity,
+						# what the technician typed, and otherwise what was asked for. Tested
+						# for having been given rather than for being truthy: a zero is a
+						# quantity somebody meant, and it belongs to the refusals rather than
+						# to the silent substitutions
+						quantity=quantity
+						if quantity is not None
+						else RequestExecutionService._asked_quantity(doc, order),
 						service_item=service_item or RequestExecutionService._replacement(order),
 						source_request=doc.name,
 						notes=notes,
@@ -2551,9 +2557,19 @@ class RequestExecutionService:
 
 	@staticmethod
 	def _asked_quantity(doc, order):
+		"""What the customer asked for on this line, under the same rule the asking used.
+
+		A target is one person or one machine, so a line naming no quantity means one of
+		it. A quantity change is the opposite: the number is the whole request, and
+		standing in a 1 for a number nobody gave would take a company from five terabytes
+		to one on a technician's silence.
+		"""
 		row = next((line for line in doc.lines if line.name == order.request_line_name), None)
 
-		return (row.requested_quantity if row else None) or 1
+		return request_intents.asked_quantity(
+			request_intents.operation_of(row) if row else None,
+			row.requested_quantity if row else None,
+		)
 
 	@staticmethod
 	def _owned_device(customer, device):

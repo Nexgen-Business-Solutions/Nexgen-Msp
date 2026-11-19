@@ -1527,7 +1527,9 @@ class PortalService:
                 "requested_device": line.get("requested_device"),
                 "customer_site": line.get("customer_site"),
                 "requested_service": line.get("requested_service"),
-                "requested_quantity": line.get("requested_quantity") or 1,
+                "requested_quantity": request_intents.asked_quantity(
+                    line.get("operation_code"), line.get("requested_quantity")
+                ),
                 "requested_effective_date": requested_date or line.get("requested_effective_date"),
                 "comment": line.get("comment"),
                 # how this subject came to be in the request, kept exactly as it was selected
@@ -1875,7 +1877,9 @@ class PortalService:
                         "requested_service": group.get("service_item"),
                         # only a company service is asked for by the unit: everything a
                         # person or a machine holds is one of it
-                        "requested_quantity": target.get("requested_quantity") or 1,
+                        "requested_quantity": request_intents.asked_quantity(
+                            code, target.get("requested_quantity")
+                        ),
                         "source_service_assignment": target.get("source_service_assignment"),
                         "requested_holder": target.get("requested_holder"),
                         "requested_holder_subject_key": target.get("requested_holder_subject_key"),
