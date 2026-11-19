@@ -295,10 +295,10 @@ class TestSeedingIsIdempotent(NotificationCase):
         first = NotificationSettingsService.seed()
         second = NotificationSettingsService.seed()
 
-        self.assertEqual(len(registry.RULES), 17)
+        self.assertEqual(len(registry.RULES), 20)
         self.assertEqual(sorted(first), sorted(registry.RULES))
         self.assertEqual(second, [])
-        self.assertEqual(frappe.db.count(RULE), 17)
+        self.assertEqual(frappe.db.count(RULE), 20)
         self.assertEqual(set(frappe.get_all(RULE, pluck="name")), set(registry.RULES))
 
     def test_a_rule_the_administrator_edited_is_not_reset_by_a_later_seed(self):
@@ -320,14 +320,14 @@ class TestSeedingIsIdempotent(NotificationCase):
 
         self.assertEqual(NotificationSettingsService.seed(), ["request_modified"])
 
-        self.assertEqual(frappe.db.count(RULE), 17)
+        self.assertEqual(frappe.db.count(RULE), 20)
         self.assertEqual(self.stored("request_approval_pending", "max_sends"), 9)
 
     def test_the_three_account_notifications_are_protected_and_the_rest_are_not(self):
         self.assertEqual(
             sorted(registry.PROTECTED), ["password_reset", "portal_invitation", "team_invitation"]
         )
-        self.assertEqual(len(registry.keys(registry.EVENT)), 15)
+        self.assertEqual(len(registry.keys(registry.EVENT)), 18)
         self.assertEqual(len(registry.keys(registry.REMINDER)), 2)
 
 

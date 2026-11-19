@@ -1119,3 +1119,29 @@ export const listSelectableDevices = (
   params: { customer?: string; search?: string; limit?: number } = {},
   signal?: AbortSignal
 ) => get<SelectablePage<SelectableDevice>>(`${BASE}.list_selectable_devices`, params, signal);
+
+export type RequestComment = {
+  name: string;
+  author: string;
+  author_name: string;
+  side: 'MSP' | 'Customer';
+  body: string;
+  created_at: string;
+};
+
+export type RequestConversation = {
+  request: string;
+  side: 'MSP' | 'Customer';
+  may_post: boolean;
+  awaiting_customer_approval: boolean;
+  comments: RequestComment[];
+};
+
+export const getRequestComments = (request: string, signal?: AbortSignal) =>
+  get<RequestConversation>(`${BASE}.get_request_comments`, { request }, signal);
+
+export const postRequestComment = (payload: {
+  request: string;
+  body: string;
+  idempotency_key: string;
+}) => post<RequestComment>(`${BASE}.post_request_comment`, payload);

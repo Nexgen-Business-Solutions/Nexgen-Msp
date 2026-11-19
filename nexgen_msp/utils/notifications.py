@@ -36,6 +36,13 @@ HEADING = '<div style="font-size:19px;font-weight:700;color:#0f172a;margin:0 0 1
 
 MUTED = '<div style="color:#64748b;font-size:13px;margin-top:18px;">{text}</div>'
 
+QUOTE = (
+    '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" '
+    'style="margin:18px 0;background:#f8fafc;border:1px solid #e2e8f0;border-left:3px solid '
+    '#2563eb;border-radius:10px;"><tr><td style="padding:14px 16px;font-size:14px;'
+    'line-height:1.65;color:#0f172a;">{{ comment_body }}</td></tr></table>'
+)
+
 
 def _card(rows):
     cells = "".join(
@@ -181,6 +188,39 @@ TEMPLATES = {
         + "{{ summary }}"
         + BUTTON.format(url="link", label="See my services"),
     },
+    "MSP Request Comment For Customer": {
+        "subject": "[MSP Request {{ request }}] New comment from {{ author }}",
+        "body": HEADING.format(text="A new comment on your request")
+        + "<p>Hello {{ full_name }},</p>"
+        + "<p><strong>{{ author }}</strong> ({{ author_side }}) wrote on request "
+        "<strong>{{ request }}</strong> on {{ commented_at }}.</p>"
+        + QUOTE
+        + BUTTON.format(url="link", label="Open the request and reply")
+        + MUTED.format(text="Reply from the request itself: answers by email are not read."),
+    },
+    "MSP Request Comment Before Handover": {
+        "subject": "[MSP Request {{ request }}] New comment from {{ author }}",
+        "body": HEADING.format(text="A new comment on your request")
+        + "<p>Hello {{ full_name }},</p>"
+        + "<p><strong>{{ author }}</strong> ({{ author_side }}) wrote on request "
+        "<strong>{{ request }}</strong> on {{ commented_at }}.</p>"
+        + QUOTE
+        + BUTTON.format(url="link", label="Open the request and reply")
+        + MUTED.format(
+            text="This request has not been sent to Nexgen MSP yet: this conversation stays "
+            "inside your company until it is approved."
+        ),
+    },
+    "MSP Request Comment For Our Team": {
+        "subject": "[MSP Request {{ request }}] New comment from {{ author }}",
+        "body": HEADING.format(text="A customer commented on a request")
+        + "<p>Hello {{ full_name }},</p>"
+        + "<p><strong>{{ author }}</strong> ({{ author_side }}) wrote on request "
+        "<strong>{{ request }}</strong> on {{ commented_at }}.</p>"
+        + QUOTE
+        + BUTTON.format(url="link", label="Open the request and reply")
+        + MUTED.format(text="Reply from the request itself: answers by email are not read."),
+    },
     "MSP Invoice Issued": {
         "subject": "Invoice {{ invoice }} for {{ period }} - {{ app_name }}",
         "body": HEADING.format(text="Your invoice is ready")
@@ -227,7 +267,7 @@ TEMPLATES = {
 # the HTML this application builds itself and hands a template whole: a summary card, the
 # list of acts, a reason block. They are not escaped on the way in, because they were never
 # anybody's input
-HTML_VARIABLES = ("summary", "acts", "reason_block")
+HTML_VARIABLES = ("summary", "acts", "reason_block", "comment_body")
 
 # where a mail sends somebody, which is checked as an address rather than printed as one
 URL_VARIABLES = ("link",)

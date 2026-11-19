@@ -2,6 +2,8 @@ import { useScopedWorkspace } from '@/shared/layout/useScopedWorkspace';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, PencilLine } from 'lucide-react';
 import { RequestApprovalBar, RequestPresentation } from '@/shared/request';
+import RequestComments from '@/shared/components/RequestComments';
+import { getRequestComments, postRequestComment } from '@/lib/api/portal';
 import { useDecideRequest, usePortalRequestPresentation, useServiceRequest } from '../hooks/usePortal';
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
@@ -105,6 +107,11 @@ export default function PortalRequestDetail() {
             />
           ) : undefined
         }
+      />
+
+      <RequestComments
+        requestName={data.name}
+        api={{ list: getRequestComments, post: postRequestComment }}
       />
     </div>
   );

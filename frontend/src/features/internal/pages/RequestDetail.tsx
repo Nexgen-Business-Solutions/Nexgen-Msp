@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AlertCircle, ArrowLeft, Check, ClipboardList, TriangleAlert } from 'lucide-react';
+import RequestComments from '@/shared/components/RequestComments';
 import Modal from '@/shared/components/Modal';
 import WorkflowStepper, { type WorkflowStep } from '@/shared/components/WorkflowStepper';
 import FulfilmentHeader from '../components/fulfilment/FulfilmentHeader';
@@ -17,6 +18,7 @@ import {
   useRunRequestAction,
 } from '../hooks/useRequests';
 import type { ExecutionPlan, RequestDetail as Detail } from '@/lib/api/internal';
+import { getRequestComments, postRequestComment } from '@/lib/api/internal';
 import { pill } from '../lib/fulfilmentStyles';
 
 const STEPS = [
@@ -370,6 +372,11 @@ export default function RequestDetail() {
       </section>
         </>
       )}
+
+      <RequestComments
+        requestName={name}
+        api={{ list: getRequestComments, post: postRequestComment }}
+      />
 
       <Modal
         open={Boolean(prompt)}

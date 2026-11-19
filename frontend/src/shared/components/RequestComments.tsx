@@ -1,0 +1,190 @@
+import React, { useRef, useState } from 'react';
+import { MessageSquare, Send } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { RequestComment, RequestConversation } from '@/lib/api/portal';
+
+type Props = {
+  requestName: string;
+  api: {
+    list: (request: string, signal?: AbortSignal) => Promise<RequestConversation>;
+    post: (payload: {
+      request: string;
+      body: string;
+      idempotency_key: string;
+    }) => Promise<RequestComment>;
+  };
+};
+
+const MAX = 4000;
+
+/** A fresh key per intention to post, so a retry of the same one says it once. */
+const newKey = () =>
+  typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+const initials = (name: string) =>
+  name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? '')
+    .join('') || '?';
+
+const when = (value: string) => {
+  const moment = new Date(value.replace(' ', 'T'));
+
+  return Number.isNaN(moment.getTime()) ? value : moment.toLocaleString();
+};
+
+const Message: React.FC<{ comment: RequestComment }> = ({ comment }) => {
+  const ours = comment.side === 'MSP';
+
+  return (
+    <li className="flex items-start gap-3 border-b border-slate-100 py-4 last:border-b-0">
+      <span
+        className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-[11px] font-bold ${
+          ours ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'
+        }`}
+        aria-hidden="true"
+      >
+        {initials(comment.author_name)}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="flex flex-wrap items-baseline gap-2">
+          <strong className="text-xs font-semibold text-slate-900">{comment.author_name}</strong>
+          <span
+            className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+              ours ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-500'
+            }`}
+          >
+            {ours ? 'Nexgen MSP' : 'Customer'}
+          </span>
+          <time className="ml-auto text-[10px] text-slate-400">{when(comment.created_at)}</time>
+        </p>
+        <p className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-relaxed text-slate-700">
+          {comment.body}
+        </p>
+      </div>
+    </li>
+  );
+};
+
+/** The conversation on one request, the same component wherever the request is read. */
+const RequestComments: React.FC<Props> = ({ requestName, api }) => {
+  const client = useQueryClient();
+  const key = ['request-comments', requestName];
+  const thread = useQuery(key, ({ signal }) => api.list(requestName, signal), {
+    enabled: Boolean(requestName),
+  });
+  const [draft, setDraft] = useState('');
+  const [failed, setFailed] = useState<string | null>(null);
+  const intention = useRef(newKey());
+
+  const post = useMutation(
+    (body: string) =>
+      api.post({ request: requestName, body, idempotency_key: intention.current }),
+    {
+      onSuccess: () => {
+        intention.current = newKey();
+        setDraft('');
+        setFailed(null);
+        client.invalidateQueries(key);
+      },
+      onError: (error) => setFailed(error instanceof Error ? error.message : 'The comment was not posted.'),
+    }
+  );
+
+  const comments = thread.data?.comments ?? [];
+  const sending = post.isLoading;
+  const tooLong = draft.length > MAX;
+
+  return (
+    <section
+      className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white"
+      aria-label="Request comments"
+    >
+      <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+        <div>
+          <p className="flex items-center gap-2">
+            <MessageSquare size={17} className="text-blue-600" />
+            <span className="text-[15px] font-semibold text-slate-900">Comments</span>
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
+              {comments.length}
+            </span>
+          </p>
+          {thread.data?.awaiting_customer_approval && (
+            <p className="ml-7 mt-1 text-[11px] text-slate-500">
+              Visible to authorized customer participants now. This conversation will be visible to
+              Nexgen MSP after approval and submission.
+            </p>
+          )}
+        </div>
+        <span className="text-[11px] text-slate-500">Chronological thread</span>
+      </div>
+
+      <div className="px-5">
+        {thread.isLoading ? (
+          <p className="py-6 text-center text-xs text-slate-500">Loading the conversation…</p>
+        ) : thread.error ? (
+          <p role="alert" className="py-6 text-center text-xs font-semibold text-red-700">
+            {thread.error instanceof Error ? thread.error.message : 'The conversation could not be read.'}
+          </p>
+        ) : comments.length ? (
+          <ul className="list-none" role="log" aria-label="Comments on this request">
+            {comments.map((comment) => (
+              <Message key={comment.name} comment={comment} />
+            ))}
+          </ul>
+        ) : (
+          <p className="py-6 text-center text-xs text-slate-500">
+            No comments yet. Ask a question or add information about this request.
+          </p>
+        )}
+      </div>
+
+      {thread.data && !thread.data.may_post && (
+        <p className="border-t border-slate-200 bg-slate-50/60 px-5 py-3 text-[11px] text-slate-500">
+          This request is completed. The conversation stays readable.
+        </p>
+      )}
+
+      {thread.data?.may_post && (
+        <div className="border-t border-slate-200 bg-slate-50/60 px-5 py-4">
+          <p className="mb-1.5 text-xs font-semibold text-slate-900">Write a comment</p>
+          <textarea
+            rows={4}
+            value={draft}
+            maxLength={MAX}
+            disabled={sending}
+            onChange={(event) => setDraft(event.target.value)}
+            aria-label="New comment"
+            placeholder="Ask a question or add information about this request…"
+            className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs leading-relaxed outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+          />
+          <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[11px] text-slate-500">
+              Visible to authorized participants. Not an internal note.
+            </p>
+            <button
+              type="button"
+              disabled={sending || !draft.trim() || tooLong}
+              onClick={() => post.mutate(draft.trim())}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700 disabled:bg-blue-300"
+            >
+              <Send size={14} />
+              {sending ? 'Posting…' : 'Post comment'}
+            </button>
+          </div>
+          {failed && (
+            <p role="alert" className="mt-2 text-[11px] font-semibold text-red-700">
+              {failed}
+            </p>
+          )}
+        </div>
+      )}
+    </section>
+  );
+};
+
+export default RequestComments;

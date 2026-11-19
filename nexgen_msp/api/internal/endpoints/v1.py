@@ -3,6 +3,7 @@ import frappe
 from nexgen_msp.utils import device_holders as holders
 from nexgen_msp.utils import remarks as remarks_util
 
+from nexgen_msp.api.internal.services.request_comment_service import RequestCommentService
 from nexgen_msp.api.internal.services.request_presentation_service import (
     RequestPresentationService,
 )
@@ -66,6 +67,20 @@ def get_request(name=None):
 @handle_errors
 def get_request_presentation(name=None):
     return RequestPresentationService.for_internal(name=name)
+
+
+@frappe.whitelist()
+@handle_errors
+def get_request_comments(request=None):
+    return RequestCommentService.thread(request=request)
+
+
+@frappe.whitelist()
+@handle_errors
+def post_request_comment(request=None, body=None, idempotency_key=None):
+    return RequestCommentService.post(
+        request=request, body=body, idempotency_key=idempotency_key
+    )
 
 
 @frappe.whitelist()

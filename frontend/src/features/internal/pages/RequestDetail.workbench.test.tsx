@@ -37,6 +37,7 @@ vi.mock('@/lib/api/internal', async (importOriginal) => {
   return {
     ...actual,
     getRequest: vi.fn(),
+    getRequestComments: vi.fn(),
     getRequestExecutionPlan: vi.fn(),
     executeWorkOrders: vi.fn(),
     saveRequiredIdentifiers: vi.fn(),
@@ -516,6 +517,13 @@ const renderPage = async (
 ) => {
   vi.mocked(presentationApi.getInternalRequestPresentation).mockResolvedValue(shown);
   vi.mocked(internal.getRequest).mockResolvedValue(detail);
+  vi.mocked(internal.getRequestComments).mockResolvedValue({
+    request: 'SR-0001',
+    side: 'MSP',
+    may_post: true,
+    awaiting_customer_approval: false,
+    comments: [],
+  });
   vi.mocked(internal.getRequestExecutionPlan).mockResolvedValue(work ?? plan());
   vi.mocked(internal.listCustomerRequests).mockResolvedValue([
     { name: 'SR-0001', request_type: 'Add', customer: 'ACME', status: 'In Progress', creation: '2026-09-01', requester: null },

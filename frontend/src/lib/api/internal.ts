@@ -1,5 +1,12 @@
 import { download, get, post, postForm } from './client';
-import type { Paginated, SelectableClientUser, SelectableDevice, SelectablePage } from './portal';
+import type {
+  Paginated,
+  RequestComment,
+  RequestConversation,
+  SelectableClientUser,
+  SelectableDevice,
+  SelectablePage,
+} from './portal';
 import type { RequestedEntityPresentation, RequestRelationship } from './requestPresentation';
 
 const BASE = 'nexgen_msp.api.internal.endpoints.v1';
@@ -4090,3 +4097,12 @@ export const saveNotificationRecipientPolicies = (payload: {
     enabled: boolean;
   }[];
 }) => post<NotificationRecipientPolicies>(`${BASE}.save_notification_rule_recipient_policies`, payload);
+
+export const getRequestComments = (request: string, signal?: AbortSignal) =>
+  get<RequestConversation>(`${BASE}.get_request_comments`, { request }, signal);
+
+export const postRequestComment = (payload: {
+  request: string;
+  body: string;
+  idempotency_key: string;
+}) => post<RequestComment>(`${BASE}.post_request_comment`, payload);
