@@ -519,6 +519,7 @@ def send(
     cc=None,
     attachments=None,
     occurrence=None,
+    exclude=None,
 ):
     """Queue a branded email. Never let a mail failure break the operation that triggered it.
 
@@ -557,6 +558,27 @@ def send(
             settings, name, recipients, cc, reference_doctype, reference_name, customer
         )
         recipients, cc, bcc = channels["to"], channels["cc"], channels["bcc"]
+
+        # somebody the caller says this event must not reach is kept off every channel,
+        # not only the one it was addressed on: the author of a comment is not told about
+        # their own comment, however a policy resolves
+        if exclude:
+            barred = {address.strip().lower() for address in exclude if address}
+            kept = []
+
+            for channel, addresses in (("To", recipients), ("CC", cc), ("BCC", bcc)):
+                for address in addresses:
+                    if address.strip().lower() in barred:
+                        channels["skipped"].append(
+                            {"target": address, "channel": channel, "reason": "raised_the_event"}
+                        )
+                    else:
+                        kept.append((channel, address))
+
+            recipients = [address for channel, address in kept if channel == "To"]
+            cc = [address for channel, address in kept if channel == "CC"]
+            bcc = [address for channel, address in kept if channel == "BCC"]
+
         _record_skips(settings, name, channels["skipped"], reference_doctype, reference_name)
 
         if not recipients and not cc and not bcc:

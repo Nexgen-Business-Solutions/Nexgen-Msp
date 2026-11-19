@@ -50,7 +50,10 @@ class RequestCommentService:
             raise ValidationError("request is required.", "VALIDATION_ERROR")
 
         doc = frappe.db.get_value(
-            REQUEST, name, ["name", "status", "customer", "requester", "source"], as_dict=True
+            REQUEST,
+            name,
+            ["name", "status", "customer", "requester", "source", "refused_by_customer"],
+            as_dict=True,
         )
 
         if not doc:
@@ -60,8 +63,9 @@ class RequestCommentService:
             RequestService._guard_internal()
 
             # a request still waiting for its own company's decision is not ours to read,
-            # and neither is the conversation on it
-            if doc.status in (DRAFT, CUSTOMER_APPROVAL):
+            # and neither is the conversation on it. Neither is one the company refused
+            # before sending it: it never reached us, and the request page says so too
+            if doc.status in (DRAFT, CUSTOMER_APPROVAL) or doc.refused_by_customer:
                 raise RequestCommentService._missing(name)
 
             return doc, MSP
@@ -167,12 +171,25 @@ class RequestCommentService:
             }
         )
 
+        # two posts of the same intention can both find nothing above and both insert, so
+        # the unique key is what really decides. A duplicate unique *field* raises
+        # UniqueValidationError, a duplicate name DuplicateEntryError, and the savepoint
+        # keeps the refusal from taking the rest of the transaction with it
+        savepoint = "request_comment"
+        frappe.db.savepoint(savepoint)
+
         try:
             comment.insert(ignore_permissions=True)
-        except frappe.exceptions.DuplicateEntryError:
-            frappe.db.rollback()
-            written = frappe.db.get_value(COMMENT, {"idempotency_key": key}, "name")
+        except (frappe.exceptions.DuplicateEntryError, frappe.exceptions.UniqueValidationError):
+            frappe.db.rollback(save_point=savepoint)
+            written = frappe.db.get_value(
+                COMMENT,
+                {"request": doc.name, "author_user": author, "idempotency_key": key},
+                "name",
+            )
 
+            # the same key under another request or another author is not this comment,
+            # and answering with it would hand somebody else's words back
             if not written:
                 raise
 
@@ -205,7 +222,7 @@ class RequestCommentService:
         us at all, so the message stays inside the company: notifying our team there would
         hand over a conversation the customer has not yet decided to send.
         """
-        if doc.status == CUSTOMER_APPROVAL:
+        if doc.status == CUSTOMER_APPROVAL or doc.refused_by_customer:
             # its own notification, declared with no copy sources at all: a fixed internal
             # address configured on the ordinary comment rule would otherwise read a
             # conversation the company has not decided to send us
@@ -229,6 +246,9 @@ class RequestCommentService:
             reference_doctype=REQUEST,
             reference_name=doc.name,
             occurrence=f"comment:{comment.name}",
+            # nobody is told about their own comment, including by a copy policy that
+            # happens to resolve to them
+            exclude=[comment.author_user],
         )
 
     @staticmethod

@@ -106,6 +106,18 @@ class NotificationRecipientPolicyService:
         the mail actually went to.
         """
         entry = entry or {}
+
+        # a notification declared with no copy source is not copied at all. The sources are
+        # only half of what a policy can hold: a fixed address is checked against the
+        # company it would reach and never against the rule, so a rule meant to stay inside
+        # one audience would have admitted an address through that other half
+        if not registry.copy_sources(rule_key):
+            raise ValidationError(
+                f"{registry.rule_label(rule_key)} is not copied to anybody: it reaches only "
+                "the people its own record names.",
+                "VALIDATION_ERROR",
+            )
+
         channel = entry.get("kind") or entry.get("channel")
 
         if channel not in CHANNELS:
@@ -180,18 +192,30 @@ class NotificationRecipientPolicyService:
         }
         skipped = []
 
-        if declared.get("protected"):
+        if not registry.copy_sources(rule_key):
             # the refusal is already in place when a policy is saved; it is here as well
             # because this is the line that puts an address on a mail. Whatever the caller
             # passed in copy goes too: a reset link reaches the account holder and nobody
-            # else, however the call site was written
+            # else, however the call site was written — and a conversation a company has
+            # not sent us reaches that company and nobody else, whatever rows exist
+            reason = (
+                "protected_notification" if declared.get("protected") else "no_copies_permitted"
+            )
+
             for channel in ("CC", "BCC"):
                 for address in channels[channel]:
-                    skipped.append(
-                        {"target": address, "channel": channel, "reason": "protected_notification"}
-                    )
+                    skipped.append({"target": address, "channel": channel, "reason": reason})
 
                 channels[channel] = []
+
+            for row in NotificationRecipientPolicyService.rows(rule_key):
+                skipped.append(
+                    {
+                        "target": row.recipient_source or row.email,
+                        "channel": row.kind,
+                        "reason": reason,
+                    }
+                )
 
             return NotificationRecipientPolicyService._bounded(channels, customer, skipped)
 

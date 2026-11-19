@@ -109,10 +109,12 @@ export default function PortalRequestDetail() {
         }
       />
 
-      <RequestComments
-        requestName={data.name}
-        api={{ list: getRequestComments, post: postRequestComment }}
-      />
+      {data.status !== 'Draft' && (
+        <RequestComments
+          requestName={data.name}
+          api={{ list: getRequestComments, post: postRequestComment }}
+        />
+      )}
     </div>
   );
 }

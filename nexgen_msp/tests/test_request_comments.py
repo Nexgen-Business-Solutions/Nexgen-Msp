@@ -304,3 +304,125 @@ class TestNothingOfOursIsCopiedBeforeTheHandover(CommentCase):
 
         self.assertEqual(self.queued_to(desk), 0)
         self.assertEqual(self.queued_to(self.tech), 0)
+
+
+class TestNoPolicyReachesAConversationThatIsNotOursYet(CommentCase):
+    """A rule declared with no copy source admits no copy at all, fixed addresses included.
+
+    Found by review: refusing the *sources* left the other half of a policy open. A fixed
+    address is checked against the company it would reach, never against the rule, so one
+    of our own aliases could have been copied on a conversation its company had not sent.
+    """
+
+    def desk(self):
+        return f"zztest.alias{self.tag}@example.invalid"
+
+    def policy_row(self, rule_key, address):
+        """A row written straight into the table, as one saved before the refusal existed."""
+        doc = frappe.new_doc("MSP Notification Recipient")
+        doc.parenttype = "MSP Notification Rule"
+        doc.parent = rule_key
+        doc.parentfield = "recipients"
+        doc.kind = "CC"
+        doc.email = address
+        doc.enabled = 1
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        return doc.name
+
+    def test_saving_a_copy_on_it_is_refused(self):
+        from nexgen_msp.api.internal.services.notification_settings_service import (
+            NotificationSettingsService,
+        )
+
+        with self.assertRaises(ValidationError):
+            NotificationSettingsService.save(
+                "request_comment_before_handover",
+                changes={
+                    "recipients": [
+                        {
+                            "channel": "CC",
+                            "recipient_source": None,
+                            "fixed_address": self.desk(),
+                            "enabled": True,
+                        }
+                    ]
+                },
+            )
+
+    def test_a_row_already_in_the_table_reaches_nobody(self):
+        desk = self.desk()
+        row = self.policy_row("request_comment_before_handover", desk)
+
+        try:
+            name = self.awaiting()
+
+            self.post(self.asker, name, "Still ours to decide.")
+
+            self.assertEqual(self.queued_to(desk), 0)
+        finally:
+            frappe.db.sql("delete from `tabMSP Notification Recipient` where name = %s", row)
+            frappe.db.commit()
+
+
+class TestARequestItsCompanyRefusedStaysWithThatCompany(CommentCase):
+    """Refused before it was ever sent: we never saw the request, and never its words."""
+
+    def refused_request(self):
+        name = self.awaiting()
+        self.post(self.asker, name, "Asking the manager.")
+        self.as_user(
+            self.approver,
+            lambda: PortalService.reject_request(name=name, reason="Not this quarter."),
+        )
+        frappe.db.commit()
+
+        return name
+
+    def test_our_team_can_neither_read_it_nor_write_on_it(self):
+        name = self.refused_request()
+
+        self.assertEqual(frappe.db.get_value(REQUEST, name, "refused_by_customer"), 1)
+        self.refused(lambda: self.thread(self.tech, name))
+        self.refused(lambda: self.post(self.tech, name, "Anything?"))
+
+    def test_the_company_keeps_its_conversation_and_we_are_not_told(self):
+        name = self.refused_request()
+        before = self.queued_to(self.tech)
+
+        self.post(self.asker, name, "We will raise it again later.")
+
+        self.assertEqual(len(self.thread(self.asker, name)["comments"]), 2)
+        self.assertEqual(self.queued_to(self.tech), before)
+
+
+class TestNobodyIsCopiedOnTheirOwnComment(CommentCase):
+    def test_a_copy_source_resolving_to_the_author_is_dropped(self):
+        from nexgen_msp.api.internal.services.notification_settings_service import (
+            NotificationSettingsService,
+        )
+
+        name = self.approved(self.awaiting())
+        NotificationSettingsService.save(
+            "request_comment_for_our_team",
+            changes={
+                "recipients": [
+                    {
+                        "channel": "CC",
+                        "recipient_source": "requester",
+                        "fixed_address": None,
+                        "enabled": True,
+                    }
+                ]
+            },
+        )
+        frappe.db.commit()
+        before = self.queued_to(self.asker)
+
+        self.post(self.asker, name, "From the person who raised it.")
+
+        self.assertGreater(self.queued_to(self.tech), 0)
+        self.assertEqual(
+            self.queued_to(self.asker), before, "the requester wrote it, so nobody copies it back"
+        )
