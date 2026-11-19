@@ -20,7 +20,8 @@ const Breadcrumb: React.FC = () => {
 
   return (
     <div className="px-6 pt-6">
-      <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs">
+      {/* on the home page the trail would only repeat the title below it */}
+      {(!isHome || heading) && <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs">
         <button
           type="button"
           onClick={() => navigate(home?.path ?? '/msp')}
@@ -53,10 +54,10 @@ const Breadcrumb: React.FC = () => {
             <span className="truncate font-medium text-slate-600">{heading.crumb}</span>
           </>
         )}
-      </nav>
+      </nav>}
 
       {!heading && (
-        <h1 className="mt-1.5 truncate text-2xl font-bold text-slate-900">{current.label}</h1>
+        <h1 className={`truncate text-2xl font-semibold tracking-tight text-slate-900 ${isHome ? '' : 'mt-1.5'}`}>{current.label}</h1>
       )}
     </div>
   );

@@ -110,7 +110,7 @@ const RowActionsMenu: React.FC<{ actions: RowAction[]; disabledReason?: string }
             role="menu"
             aria-label="More options"
             style={{ top: coords.top, left: coords.left, width: MENU_WIDTH }}
-            className="fixed z-[90] overflow-hidden rounded-lg border border-slate-200 bg-white p-1 shadow-xl"
+            className="fixed z-[90] overflow-hidden rounded-xl bg-white p-1 shadow-lg ring-1 ring-zinc-900/10"
           >
             {visible.map((action, index) => {
               const Icon = action.icon;

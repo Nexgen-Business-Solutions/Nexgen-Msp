@@ -125,7 +125,7 @@ export default function UnauthorizedScreen() {
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-10">
       <main className="w-full max-w-2xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl shadow-slate-950/5">
         <div className="border-t-4 border-blue-600">
-          <AppLogo />
+          <div className="px-7 pt-7 pb-5"><AppLogo /></div>
           <div className="border-t border-slate-100" />
 
           <div className="px-7 pt-6 pb-7">

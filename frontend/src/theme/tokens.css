@@ -1,0 +1,164 @@
+/* Nexgen MSP theme tokens, DeployOps style ("clean mono"): white surfaces, near-black type,
+ * hairline dividers and one accent for actions, selection and progress.
+ *
+ * Every `blue-*` class in the app is pointed at the current accent (`--brand-*`), so the theme
+ * picker (theme/, user menu) recolours the whole app by setting <html data-theme>. */
+
+@theme {
+  --font-sans: "Poppins", ui-sans-serif, system-ui, sans-serif;
+
+  --color-blue-50: var(--brand-50);
+  --color-blue-100: var(--brand-100);
+  --color-blue-200: var(--brand-200);
+  --color-blue-300: var(--brand-300);
+  --color-blue-400: var(--brand-400);
+  --color-blue-500: var(--brand-500);
+  --color-blue-600: var(--brand-600);
+  --color-blue-700: var(--brand-700);
+  --color-blue-800: var(--brand-800);
+  --color-blue-900: var(--brand-900);
+  --color-blue-950: var(--brand-950);
+
+  --color-brand-50: var(--brand-50);
+  --color-brand-100: var(--brand-100);
+  --color-brand-200: var(--brand-200);
+  --color-brand-300: var(--brand-300);
+  --color-brand-400: var(--brand-400);
+  --color-brand-500: var(--brand-500);
+  --color-brand-600: var(--brand-600);
+  --color-brand-700: var(--brand-700);
+  --color-brand-800: var(--brand-800);
+  --color-brand-900: var(--brand-900);
+  --color-brand-950: var(--brand-950);
+
+  --color-ink: var(--color-zinc-950);
+  --color-muted-ink: var(--color-zinc-500);
+  --color-line: var(--color-zinc-200);
+  --color-soft: var(--color-zinc-50);
+
+  /* Fixed blue for meaning (e.g. "in progress" statuses): never follows the accent. */
+  --color-info-50: oklch(97% 0.014 254.604);
+  --color-info-100: oklch(93.2% 0.032 255.585);
+  --color-info-200: oklch(88.2% 0.059 254.128);
+  --color-info-300: oklch(80.9% 0.105 251.813);
+  --color-info-400: oklch(70.7% 0.165 254.624);
+  --color-info-500: oklch(62.3% 0.214 259.815);
+  --color-info-600: oklch(54.6% 0.245 262.881);
+  --color-info-700: oklch(48.8% 0.243 264.376);
+  --color-info-800: oklch(42.4% 0.199 265.638);
+  --color-info-900: oklch(37.9% 0.146 265.522);
+  --color-info-950: oklch(28.2% 0.091 267.935);
+}
+
+:root,
+[data-theme="blue"] {
+  --brand-50: oklch(97% 0.014 254.604);
+  --brand-100: oklch(93.2% 0.032 255.585);
+  --brand-200: oklch(88.2% 0.059 254.128);
+  --brand-300: oklch(80.9% 0.105 251.813);
+  --brand-400: oklch(70.7% 0.165 254.624);
+  --brand-500: oklch(62.3% 0.214 259.815);
+  --brand-600: oklch(54.6% 0.245 262.881);
+  --brand-700: oklch(48.8% 0.243 264.376);
+  --brand-800: oklch(42.4% 0.199 265.638);
+  --brand-900: oklch(37.9% 0.146 265.522);
+  --brand-950: oklch(28.2% 0.091 267.935);
+}
+
+[data-theme="indigo"] {
+  --brand-50: oklch(96.2% 0.018 272.314);
+  --brand-100: oklch(93% 0.034 272.788);
+  --brand-200: oklch(87% 0.065 274.039);
+  --brand-300: oklch(78.5% 0.115 274.713);
+  --brand-400: oklch(67.3% 0.182 276.935);
+  --brand-500: oklch(58.5% 0.233 277.117);
+  --brand-600: oklch(51.1% 0.262 276.966);
+  --brand-700: oklch(45.7% 0.24 277.023);
+  --brand-800: oklch(39.8% 0.195 277.366);
+  --brand-900: oklch(35.9% 0.144 278.697);
+  --brand-950: oklch(25.7% 0.09 281.288);
+}
+
+[data-theme="violet"] {
+  --brand-50: oklch(96.9% 0.016 293.756);
+  --brand-100: oklch(94.3% 0.029 294.588);
+  --brand-200: oklch(89.4% 0.057 293.283);
+  --brand-300: oklch(81.1% 0.111 293.571);
+  --brand-400: oklch(70.2% 0.183 293.541);
+  --brand-500: oklch(60.6% 0.25 292.717);
+  --brand-600: oklch(54.1% 0.281 293.009);
+  --brand-700: oklch(49.1% 0.27 292.581);
+  --brand-800: oklch(43.2% 0.232 292.759);
+  --brand-900: oklch(38% 0.189 293.745);
+  --brand-950: oklch(28.3% 0.141 291.089);
+}
+
+[data-theme="emerald"] {
+  --brand-50: oklch(97.9% 0.021 166.113);
+  --brand-100: oklch(95% 0.052 163.051);
+  --brand-200: oklch(90.5% 0.093 164.15);
+  --brand-300: oklch(84.5% 0.143 164.978);
+  --brand-400: oklch(76.5% 0.177 163.223);
+  --brand-500: oklch(69.6% 0.17 162.48);
+  --brand-600: oklch(59.6% 0.145 163.225);
+  --brand-700: oklch(50.8% 0.118 165.612);
+  --brand-800: oklch(43.2% 0.095 166.913);
+  --brand-900: oklch(37.8% 0.077 168.94);
+  --brand-950: oklch(26.2% 0.051 172.552);
+}
+
+[data-theme="teal"] {
+  --brand-50: oklch(98.4% 0.014 180.72);
+  --brand-100: oklch(95.3% 0.051 180.801);
+  --brand-200: oklch(91% 0.096 180.426);
+  --brand-300: oklch(85.5% 0.138 181.071);
+  --brand-400: oklch(77.7% 0.152 181.912);
+  --brand-500: oklch(70.4% 0.14 182.503);
+  --brand-600: oklch(60% 0.118 184.704);
+  --brand-700: oklch(51.1% 0.096 186.391);
+  --brand-800: oklch(43.7% 0.078 188.216);
+  --brand-900: oklch(38.6% 0.063 188.416);
+  --brand-950: oklch(27.7% 0.046 192.524);
+}
+
+[data-theme="amber"] {
+  --brand-50: oklch(98.7% 0.022 95.277);
+  --brand-100: oklch(96.2% 0.059 95.617);
+  --brand-200: oklch(92.4% 0.12 95.746);
+  --brand-300: oklch(87.9% 0.169 91.605);
+  --brand-400: oklch(82.8% 0.189 84.429);
+  --brand-500: oklch(76.9% 0.188 70.08);
+  --brand-600: oklch(66.6% 0.179 58.318);
+  --brand-700: oklch(55.5% 0.163 48.998);
+  --brand-800: oklch(47.3% 0.137 46.201);
+  --brand-900: oklch(41.4% 0.112 45.904);
+  --brand-950: oklch(27.9% 0.077 45.635);
+}
+
+[data-theme="rose"] {
+  --brand-50: oklch(96.9% 0.015 12.422);
+  --brand-100: oklch(94.1% 0.03 12.58);
+  --brand-200: oklch(89.2% 0.058 10.001);
+  --brand-300: oklch(81% 0.117 11.638);
+  --brand-400: oklch(71.2% 0.194 13.428);
+  --brand-500: oklch(64.5% 0.246 16.439);
+  --brand-600: oklch(58.6% 0.253 17.585);
+  --brand-700: oklch(51.4% 0.222 16.935);
+  --brand-800: oklch(45.5% 0.188 13.697);
+  --brand-900: oklch(41% 0.159 10.272);
+  --brand-950: oklch(27.1% 0.105 12.094);
+}
+
+[data-theme="slate"] {
+  --brand-50: oklch(98.4% 0.003 247.858);
+  --brand-100: oklch(96.8% 0.007 247.896);
+  --brand-200: oklch(92.9% 0.013 255.508);
+  --brand-300: oklch(86.9% 0.022 252.894);
+  --brand-400: oklch(70.4% 0.04 256.788);
+  --brand-500: oklch(55.4% 0.046 257.417);
+  --brand-600: oklch(44.6% 0.043 257.281);
+  --brand-700: oklch(37.2% 0.044 257.287);
+  --brand-800: oklch(27.9% 0.041 260.031);
+  --brand-900: oklch(20.8% 0.042 265.755);
+  --brand-950: oklch(12.9% 0.042 264.695);
+}

@@ -9,7 +9,7 @@ import {
 import { FrappeError } from '@/lib/api/client';
 import { completeLogin, preLogin } from '@/lib/api/auth2fa';
 import { getSessionContext, mayEnterApplication } from '@/lib/api/session';
-import { AppLogo } from '@/shared/components/appLogo';
+import { AuthFrame, AuthHeading } from '../components/AuthShell';
 import LoadingScreen from '@/shared/components/LoadingScreen';
 import { useSession } from '@/shared/hooks/useSession';
 import { rememberRefusal } from '@/router/unauthorized';
@@ -159,23 +159,8 @@ export default function LoginScreen() {
   };
 
   return (
-    <div className="relative h-full w-full overflow-y-auto overflow-x-hidden bg-linear-to-br from-blue-50 via-slate-50 to-slate-100">
-      
-      {/* held in a layer of its own: clipping the page itself is what stopped it scrolling */}
-      <div aria-hidden className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -top-32 -left-24 h-96 w-96 rounded-full bg-blue-300/25 blur-3xl" />
-        <div className="absolute top-1/3 -right-24 h-[28rem] w-[28rem] rounded-full bg-slate-300/20 blur-3xl" />
-        <div className="absolute bottom-0 right-0 h-[70vh] w-[45%] bg-blue-600/90 [clip-path:polygon(100%_0,100%_100%,0%_100%)]" />
-        <div className="absolute -bottom-16 left-1/4 h-72 w-72 rounded-full bg-slate-300/20 blur-3xl" />
-      </div>
-
-      <div className="relative flex min-h-screen items-center justify-center px-4 py-10">
-        <div className="w-full max-w-sm rounded-2xl border border-white/60 bg-white shadow-2xl shadow-blue-950/10">
-          <AppLogo />
-
-          <div className="border-t border-slate-100" />
-
-          <div className="px-7 pt-6 pb-7">
+    <AuthFrame>
+          <div>
             {step === 'code' && pending && (
               <TwoFactorChallenge
                 fullName={pending.fullName}
@@ -202,13 +187,11 @@ export default function LoginScreen() {
 
             {step === 'credentials' && (
             <>
-            <p className="text-xs font-bold tracking-widest text-blue-700">{EYEBROW}</p>
-            <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">{FORM_HEADER}</h1>
-            <p className="mt-2 text-sm leading-relaxed text-slate-500">{FORM_DESCRIPTION}</p>
+            <AuthHeading eyebrow={EYEBROW} title={FORM_HEADER} description={FORM_DESCRIPTION} />
 
-            <form className="mt-6 space-y-5" onSubmit={handleLogin}>
+            <form className="mt-8 space-y-4" onSubmit={handleLogin}>
               {notice && (
-                <div className="flex items-start gap-2.5 rounded-lg border border-emerald-100 bg-emerald-50 p-3 text-emerald-800">
+                <div className="flex items-start gap-2.5 rounded-xl bg-emerald-50 p-3 text-emerald-800">
                   <ShieldCheckIcon className="mt-0.5 h-4 w-4 shrink-0" />
                   <span className="text-sm font-medium">{notice}</span>
                 </div>
@@ -217,7 +200,7 @@ export default function LoginScreen() {
               {error && (
                 <div
                   role="alert"
-                  className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3 text-red-700 animate-shake"
+                  className="flex items-start gap-2.5 rounded-xl bg-red-50 p-3 text-red-700 animate-shake"
                 >
                   <AlertCircleIcon className="mt-0.5 h-4 w-4 shrink-0" />
                   <span className="text-sm font-medium">{error}</span>
@@ -227,7 +210,7 @@ export default function LoginScreen() {
               <div>
                 <label
                   htmlFor="username"
-                  className="mb-1.5 block text-xs font-semibold text-slate-700"
+                  className="ui-label"
                 >
                   Email or username
                 </label>
@@ -240,16 +223,14 @@ export default function LoginScreen() {
                   required
                   value={credentials.username}
                   onChange={handleChange}
-                  className="w-full rounded-lg border border-slate-300 bg-slate-50/60 px-3.5 py-2.5 text-sm text-slate-900
-                    transition-all duration-200 placeholder:text-slate-400
-                    focus:border-blue-500 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-200"
+                  className="ui-input"
                 />
               </div>
 
               <div>
                 <label
                   htmlFor="password"
-                  className="mb-1.5 block text-xs font-semibold text-slate-700"
+                  className="ui-label"
                 >
                   Password
                 </label>
@@ -262,15 +243,13 @@ export default function LoginScreen() {
                     required
                     value={credentials.password}
                     onChange={handleChange}
-                    className="w-full rounded-lg border border-slate-300 bg-slate-50/60 px-3.5 py-2.5 pr-11 text-sm text-slate-900
-                      transition-all duration-200 placeholder:text-slate-400
-                      focus:border-blue-500 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-200"
+                    className="ui-input pr-12"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     aria-label={showPassword ? 'Hide password' : 'Show password'}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-2 text-zinc-400 transition-colors hover:text-ink"
                   >
                     {showPassword ? (
                       <EyeClosed className="h-4 w-4" />
@@ -284,7 +263,7 @@ export default function LoginScreen() {
               <div className="flex justify-end">
                 <Link
                   to="/msp/forgot-password"
-                  className="text-xs font-semibold text-blue-700 transition-colors hover:text-blue-900"
+                  className="ui-link text-[13px]"
                 >
                   Forgot password?
                 </Link>
@@ -293,9 +272,7 @@ export default function LoginScreen() {
               <button
                 type="submit"
                 disabled={loginLoading}
-                className="flex w-full items-center justify-center gap-2 rounded-lg bg-linear-to-br from-blue-600 to-blue-800 px-6 py-3
-                  font-semibold text-white shadow-lg shadow-blue-600/20 transition-all duration-200
-                  hover:shadow-blue-600/30 disabled:cursor-not-allowed disabled:opacity-70"
+                className="ui-btn-primary w-full"
               >
                 {loginLoading ? (
                   <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
@@ -307,20 +284,7 @@ export default function LoginScreen() {
             </>
             )}
 
-            <div className="text-center text-sm text-slate-500 pt-6 border-t border-slate-100/80 flex flex-wrap gap-x-2 gap-y-1 items-center justify-center">
-              <p>Powered by Nexgen</p>
-              <div className="flex items-center gap-1.5">
-                <ShieldCheckIcon className="h-4 w-4 text-blue-500" />
-                <span className="text-xs text-slate-400">Secure sign-in</span>
-              </div>
-            </div>
           </div>
-        </div>
-      </div>
-
-      <footer className="pointer-events-none fixed bottom-0 left-0 p-6 text-sm text-left text-slate-600">
-        &copy; {new Date().getFullYear()} Nexgen Business Solutions. All rights reserved.
-      </footer>
-    </div>
+    </AuthFrame>
   );
 }

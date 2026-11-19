@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Building2,
+  CircleCheck,
   Clock,
   Eye,
   Inbox,
@@ -35,28 +36,43 @@ const Section = ({
   description: string;
   children: React.ReactNode;
 }) => (
-  <section className="space-y-4">
+  <section className="space-y-6">
     <div>
-      <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500">{title}</h2>
-      <p className="mt-0.5 text-sm text-slate-400">{description}</p>
+      <h3 className="text-base font-semibold text-slate-900">{title}</h3>
+      <p className="mt-0.5 text-sm text-slate-500">{description}</p>
     </div>
     {children}
   </section>
 );
 
+// DeployOps panel: a white card, its title, and the content scrolling inside it
 const Panel = ({ title, children }: { title: string; children: React.ReactNode }) => (
-  <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
-    <div className="px-5 py-4">
+  <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/70">
+    <div className="px-5 pb-2 pt-5 sm:px-6">
       <h3 className="text-base font-semibold text-slate-900">{title}</h3>
     </div>
-    <div className="max-h-[26rem] overflow-auto px-5 pb-4">{children}</div>
+    <div className="max-h-[26rem] overflow-auto px-5 pb-4 sm:px-6">{children}</div>
   </div>
 );
 
 const Th = ({ children }: { children?: React.ReactNode }) => (
-  <th className="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 first:rounded-l-lg last:rounded-r-lg">
+  <th className="whitespace-nowrap border-b border-slate-200 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
     {children}
   </th>
+);
+
+/** An empty table, said calmly: a green tick and the line that explains why it is empty. */
+const Quiet = ({ colSpan, children }: { colSpan: number; children: React.ReactNode }) => (
+  <tr>
+    <td colSpan={colSpan} className="px-4 py-10">
+      <div className="flex items-center justify-center gap-3 text-sm text-slate-500">
+        <span className="grid size-9 place-items-center rounded-full bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100">
+          <CircleCheck className="size-[18px]" strokeWidth={1.75} />
+        </span>
+        {children}
+      </div>
+    </td>
+  </tr>
 );
 
 export default function InternalDashboard() {
@@ -75,8 +91,8 @@ export default function InternalDashboard() {
 
   if (error) {
     return (
-      <div className="px-6 pb-6 pt-4">
-        <div className="rounded-xl border border-red-100 bg-red-50 p-6 text-sm text-red-700">
+      <div className="px-6 pb-6 pt-5">
+        <div className="rounded-2xl bg-red-50 p-6 text-sm text-red-700 ring-1 ring-red-100">
           {(error as Error)?.message || 'Failed to load the dashboard.'}
         </div>
       </div>
@@ -85,14 +101,16 @@ export default function InternalDashboard() {
 
   const requests = data?.requests;
   const portfolio = data?.portfolio;
+  const mostAssigned = Math.max(1, ...(portfolio?.by_service ?? []).map((row) => row.total));
 
   return (
-    <div className="space-y-8 px-6 pb-6 pt-4">
+    <div className="space-y-6 px-6 pb-6 pt-5">
+
       <Section
         title="Request queue"
         description="What is waiting on Nexgen right now, most urgent first."
       >
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
           <KpiCard
             icon={Inbox}
             accent="blue"
@@ -134,7 +152,7 @@ export default function InternalDashboard() {
 
         <Panel title="Needs attention">
           <table className="w-full">
-            <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
+            <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-white">
               <tr>
                 <Th>Request</Th>
                 <Th>Users</Th>
@@ -154,17 +172,13 @@ export default function InternalDashboard() {
                 </tr>
               )}
               {!isLoading && (data?.queue.length ?? 0) === 0 && (
-                <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-sm text-slate-500">
-                    Nothing waiting. The queue is clear.
-                  </td>
-                </tr>
+                <Quiet colSpan={7}>Nothing waiting. The queue is clear.</Quiet>
               )}
               {data?.queue.map((row) => (
                 <tr
                   key={row.name}
                   onClick={() => navigate(`/msp/requests/${row.name}`)}
-                  className="cursor-pointer transition-colors hover:bg-slate-50"
+                  className="cursor-pointer transition-colors hover:bg-slate-50/80"
                 >
                   <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
                     {row.name}
@@ -207,7 +221,7 @@ export default function InternalDashboard() {
 
         <Panel title="Work to execute">
           <table className="w-full">
-            <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
+            <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-white">
               <tr>
                 <Th>Request</Th>
                 <Th>User</Th>
@@ -227,17 +241,13 @@ export default function InternalDashboard() {
                 </tr>
               )}
               {!isLoading && (data?.pending_lines.length ?? 0) === 0 && (
-                <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-sm text-slate-500">
-                    No approved line waiting for execution.
-                  </td>
-                </tr>
+                <Quiet colSpan={7}>No approved line waiting for execution.</Quiet>
               )}
               {data?.pending_lines.map((row) => (
                 <tr
                   key={`${row.request}-${row.idx}`}
                   onClick={() => navigate(`/msp/requests/${row.request}`)}
-                  className="cursor-pointer transition-colors hover:bg-slate-50"
+                  className="cursor-pointer transition-colors hover:bg-slate-50/80"
                 >
                   <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
                     {row.request}
@@ -283,7 +293,7 @@ export default function InternalDashboard() {
           title="Portfolio"
           description="The whole managed estate across every customer."
         >
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
             <KpiCard
               icon={Building2}
               accent="indigo"
@@ -328,7 +338,7 @@ export default function InternalDashboard() {
 
           <Panel title="Services in use">
             <table className="w-full">
-              <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
+              <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-white">
                 <tr>
                   <Th>Service</Th>
                   <Th>Open assignments</Th>
@@ -336,13 +346,24 @@ export default function InternalDashboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
+                {portfolio.by_service.length === 0 && (
+                  <Quiet colSpan={3}>No service is assigned yet.</Quiet>
+                )}
                 {portfolio.by_service.map((row) => (
                   <tr key={row.service} className="transition-colors hover:bg-slate-50">
                     <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
                       {row.service}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-700 tabular-nums">
-                      {row.total}
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <span className="h-2 w-full max-w-64 rounded-full bg-slate-100">
+                          <span
+                            className="block h-full rounded-full bg-blue-500 transition-[width] duration-500"
+                            style={{ width: `${(row.total / mostAssigned) * 100}%` }}
+                          />
+                        </span>
+                        <span className="w-10 text-right text-sm font-medium tabular-nums text-slate-700">{row.total}</span>
+                      </div>
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-700 tabular-nums">
                       {row.billable}
@@ -354,7 +375,7 @@ export default function InternalDashboard() {
           </Panel>
 
           {portfolio.rated_services === 0 && (
-            <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <p className="rounded-2xl bg-amber-50 px-5 py-4 text-sm text-amber-800 ring-1 ring-amber-200/70">
               No valid customer service rate is available yet. Configure a rate before generating
               billable coverage for these services.
             </p>

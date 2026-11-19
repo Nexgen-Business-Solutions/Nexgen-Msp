@@ -6,21 +6,21 @@ const APP_NAME = 'Nexgen MSP';
 const APP_TAGLINE = 'Service and billing portal';
 
 const AppHeader: React.FC<{ onMenuClick?: () => void }> = ({ onMenuClick }) => (
-  <div className="border-b border-slate-200 bg-white px-4 py-0 sm:px-6">
-    <div className="flex items-center justify-between gap-2">
+  <div className="border-b border-line bg-white px-4 sm:px-6">
+    <div className="flex h-16 items-center justify-between gap-2">
       <div className="flex min-w-0 items-center gap-2">
         <button
           type="button"
           onClick={onMenuClick}
           aria-label="Open menu"
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition-colors hover:bg-slate-50 lg:hidden"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-ink lg:hidden"
         >
           <Menu size={18} />
         </button>
-        <img src='/assets/nexgen_msp/images/Nexgen-Logo.png' width='80' />
-        <div className="min-w-0">
-          <h1 className="truncate text-lg font-semibold text-slate-900 sm:text-xl">{APP_NAME}</h1>
-          <p className="truncate text-xs text-blue-700">{APP_TAGLINE}</p>
+        <img src='/assets/nexgen_msp/images/Nexgen-Logo.png' width='64' alt="Nexgen" />
+        <div className="min-w-0 border-l border-line pl-3">
+          <h1 className="truncate text-[15px] font-semibold text-ink">{APP_NAME}</h1>
+          <p className="truncate text-xs text-muted-ink">{APP_TAGLINE}</p>
         </div>
       </div>
 

@@ -1,5 +1,5 @@
-export type { Theme, ThemeState } from './types';
+export type { AccentId, Theme, ThemeState } from './types';
 
-export { LOCAL_THEMES } from './constants';
+export { ACCENTS, DEFAULT_ACCENT, LOCAL_THEMES, resolveThemeId } from './constants';
 
 export { useThemeStore, initializeTheme } from './store';

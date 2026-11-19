@@ -32,7 +32,7 @@ const TablePagination: React.FC<TablePaginationProps> = ({
   const atEnd = page >= totalPages;
 
   return (
-    <div className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/40 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-3 border-t border-line px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex items-center gap-3">
         <p className="text-xs text-slate-500">
           {total === 0 ? (
@@ -83,7 +83,7 @@ const TablePagination: React.FC<TablePaginationProps> = ({
             disabled={atStart || loading}
             onClick={onPrevious}
             aria-label="Previous page"
-            className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:border-slate-100 disabled:text-slate-300 disabled:hover:bg-white"
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-white ring-1 ring-line text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-white"
           >
             <ChevronLeft size={15} />
           </button>
@@ -92,7 +92,7 @@ const TablePagination: React.FC<TablePaginationProps> = ({
             disabled={atEnd || loading}
             onClick={onNext}
             aria-label="Next page"
-            className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:border-slate-100 disabled:text-slate-300 disabled:hover:bg-white"
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-white ring-1 ring-line text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-white"
           >
             <ChevronRight size={15} />
           </button>

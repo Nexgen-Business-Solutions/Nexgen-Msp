@@ -39,7 +39,7 @@ const toneStyles: Record<
     icon: Info,
     gradient: 'bg-blue-50',
     iconColor: 'text-blue-600',
-    button: 'bg-blue-600 hover:bg-blue-700 shadow-blue-600/20',
+    button: 'bg-blue-500 hover:bg-blue-600',
   },
 };
 
@@ -73,21 +73,21 @@ const ConfirmModal: React.FC<ConfirmModalProps> = ({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-slate-900/40 p-4 backdrop-blur-[1px] sm:p-8"
+      className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-zinc-950/40 p-4 pt-[12vh] backdrop-blur-[2px] sm:p-8 sm:pt-[12vh]"
       onMouseDown={() => !loading && onCancel()}
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="confirm-modal-title"
-        className="relative my-auto w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+        className="relative mb-auto w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-zinc-900/5"
         onMouseDown={(event) => event.stopPropagation()}
       >
         <button
           type="button"
           onClick={() => !loading && onCancel()}
           aria-label={cancelLabel}
-          className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+          className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-ink"
         >
           <X size={16} />
         </button>
@@ -100,7 +100,7 @@ const ConfirmModal: React.FC<ConfirmModalProps> = ({
               <Icon size={20} className={iconColor} strokeWidth={2.2} />
             </span>
             <div className="min-w-0 pt-0.5">
-              <h2 id="confirm-modal-title" className="text-base font-bold text-slate-900">
+              <h2 id="confirm-modal-title" className="text-base font-semibold text-ink">
                 {title}
               </h2>
               {description && (
@@ -116,12 +116,12 @@ const ConfirmModal: React.FC<ConfirmModalProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-2 px-6 pb-6 pt-4">
+        <div className="mt-4 flex items-center justify-end gap-2 border-t border-line bg-zinc-50/60 px-6 py-3">
           <button
             type="button"
             onClick={onCancel}
             disabled={loading}
-            className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"
+            className="ui-btn-secondary"
           >
             {cancelLabel}
           </button>
@@ -129,7 +129,7 @@ const ConfirmModal: React.FC<ConfirmModalProps> = ({
             type="button"
             onClick={onConfirm}
             disabled={loading}
-            className={`flex min-w-[6rem] items-center justify-center rounded-lg px-4 py-2.5 text-sm font-semibold text-white shadow-lg transition-colors disabled:cursor-not-allowed disabled:opacity-70 ${button}`}
+            className={`flex min-w-[6rem] items-center justify-center rounded-full px-5 py-2.5 text-sm font-medium text-white transition-colors disabled:cursor-not-allowed disabled:opacity-70 ${button}`}
           >
             {loading ? (
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />

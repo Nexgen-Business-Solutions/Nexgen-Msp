@@ -5,8 +5,7 @@ import AuthShell from '../components/AuthShell';
 import { FrappeError } from '@/lib/api/client';
 import { requestPasswordReset } from '@/lib/api/auth';
 
-const inputClass =
-  'w-full rounded-lg border border-slate-300 bg-slate-50/60 px-3.5 py-2.5 text-sm text-slate-900 transition-all duration-200 placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-200';
+const inputClass = 'ui-input';
 
 const errorMessageFor = (err: unknown) => {
   if (err instanceof FrappeError) {
@@ -56,7 +55,7 @@ export default function ForgotPassword() {
     >
       {sent ? (
         <div className="mt-6 space-y-5">
-          <div className="flex items-start gap-2.5 rounded-lg border border-emerald-100 bg-emerald-50 p-3 text-emerald-800">
+          <div className="flex items-start gap-2.5 rounded-xl bg-emerald-50 p-3 text-emerald-800">
             <MailCheck className="mt-0.5 h-4 w-4 shrink-0" />
             <span className="text-sm font-medium">
               Reset instructions are on their way. Check your inbox, and your spam folder.
@@ -65,18 +64,18 @@ export default function ForgotPassword() {
 
           <Link
             to="/msp/login"
-            className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 px-6 py-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+            className="ui-btn-secondary w-full py-3"
           >
             <ArrowLeft className="h-4 w-4" />
             Back to sign in
           </Link>
         </div>
       ) : (
-        <form className="mt-6 space-y-5" onSubmit={submit}>
+        <form className="mt-8 space-y-4" onSubmit={submit}>
           {error && (
             <div
               role="alert"
-              className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3 text-red-700 animate-shake"
+              className="flex items-start gap-2.5 rounded-xl bg-red-50 p-3 text-red-700 animate-shake"
             >
               <AlertCircleIcon className="mt-0.5 h-4 w-4 shrink-0" />
               <span className="text-sm font-medium">{error}</span>
@@ -84,7 +83,7 @@ export default function ForgotPassword() {
           )}
 
           <div>
-            <label htmlFor="email" className="mb-1.5 block text-xs font-semibold text-slate-700">
+            <label htmlFor="email" className="ui-label">
               Email address
             </label>
             <input
@@ -106,7 +105,7 @@ export default function ForgotPassword() {
           <button
             type="submit"
             disabled={loading}
-            className="flex w-full items-center justify-center gap-2 rounded-lg bg-linear-to-br from-blue-600 to-blue-800 px-6 py-3 font-semibold text-white shadow-lg shadow-blue-600/20 transition-all duration-200 hover:shadow-blue-600/30 disabled:cursor-not-allowed disabled:opacity-70"
+            className="ui-btn-primary w-full"
           >
             {loading ? (
               <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
@@ -117,7 +116,7 @@ export default function ForgotPassword() {
 
           <Link
             to="/msp/login"
-            className="flex items-center justify-center gap-1.5 text-sm font-medium text-blue-700 transition-colors hover:text-blue-900"
+            className="ui-link flex items-center justify-center gap-1.5 text-sm"
           >
             <ArrowLeft className="h-4 w-4" />
             Back to sign in

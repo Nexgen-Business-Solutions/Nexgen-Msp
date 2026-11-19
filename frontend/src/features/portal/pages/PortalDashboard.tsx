@@ -86,8 +86,9 @@ export default function PortalDashboard() {
   const requestRows = requests.data?.rows ?? [];
 
   return (
-    <div className="space-y-6 px-6 pb-6 pt-4">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="space-y-6 px-6 pb-6 pt-5">
+
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard
           icon={Layers}
           accent="emerald"
@@ -180,15 +181,15 @@ export default function PortalDashboard() {
         ))}
       </DataTable>
 
-      <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
-        <div className="px-5 py-4">
+      <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/70">
+        <div className="px-5 pb-2 pt-5 sm:px-6">
           <h2 className="text-base font-semibold text-slate-900">Recent activity</h2>
-          <p className="mt-0.5 text-sm text-slate-400">
+          <p className="mt-0.5 text-sm text-slate-500">
             What changed lately across your services, people and invoices.
           </p>
         </div>
 
-        <div className="px-5 pb-5">
+        <div className="px-5 pb-5 sm:px-6">
           {activity.isLoading && <p className="py-8 text-center text-sm text-slate-500">Loading…</p>}
 
           {activity.error instanceof Error && (
@@ -210,10 +211,10 @@ export default function PortalDashboard() {
                     type="button"
                     disabled={!event.link}
                     onClick={() => event.link && navigate(`/msp${event.link}`)}
-                    className="flex w-full items-start gap-3 rounded-lg px-2 py-2.5 text-left transition-colors enabled:hover:bg-slate-50 disabled:cursor-default"
+                    className="-mx-2 flex w-[calc(100%+1rem)] items-start gap-3 rounded-xl px-2 py-3 text-left transition-colors enabled:hover:bg-slate-50 disabled:cursor-default"
                   >
                     <span
-                      className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${tone.surround}`}
+                      className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${tone.surround}`}
                     >
                       <Icon size={15} className={tone.color} />
                     </span>

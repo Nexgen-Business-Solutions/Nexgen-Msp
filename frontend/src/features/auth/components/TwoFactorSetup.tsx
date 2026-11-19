@@ -102,7 +102,7 @@ const TwoFactorSetup: React.FC<Props> = ({ pendingToken, onDone, onCancel }) => 
       {error && (
         <div
           role="alert"
-          className="mt-4 flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3 text-red-700"
+          className="mt-4 flex items-start gap-2.5 rounded-xl bg-red-50 p-3 text-red-700"
         >
           <AlertCircleIcon className="mt-0.5 h-4 w-4 shrink-0" />
           <span className="text-sm font-medium">{error}</span>
@@ -148,7 +148,7 @@ const TwoFactorSetup: React.FC<Props> = ({ pendingToken, onDone, onCancel }) => 
           type="button"
           onClick={() => setStep('verify')}
           disabled={!secret}
-          className="mt-5 flex w-full items-center justify-center gap-2 rounded-lg bg-linear-to-br from-blue-600 to-blue-800 px-6 py-3 font-semibold text-white shadow-lg shadow-blue-600/20 transition-all hover:shadow-blue-600/30 disabled:cursor-not-allowed disabled:opacity-70"
+          className="mt-5 ui-btn-primary w-full"
         >
           Continue
           <ArrowRightIcon className="h-4 w-4" />
@@ -172,7 +172,7 @@ const TwoFactorSetup: React.FC<Props> = ({ pendingToken, onDone, onCancel }) => 
             type="button"
             onClick={() => submit(code)}
             disabled={code.length !== 6 || busy}
-            className="mt-5 flex w-full items-center justify-center gap-2 rounded-lg bg-linear-to-br from-blue-600 to-blue-800 px-6 py-3 font-semibold text-white shadow-lg shadow-blue-600/20 transition-all hover:shadow-blue-600/30 disabled:cursor-not-allowed disabled:opacity-70"
+            className="mt-5 ui-btn-primary w-full"
           >
             {busy ? (
               <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/40 border-t-white" />

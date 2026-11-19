@@ -1,5 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&display=swap');
 @import "tailwindcss";
+@import "./theme/tokens.css";
 
 @theme {
   --radius-lg: var(--radius);
@@ -61,6 +62,14 @@
 
 * {
   font-family: "Poppins", sans-serif !important;
+}
+
+/* In the base layer, so an element's own outline-none / focus ring still wins. */
+@layer base {
+  :focus-visible:not(input, textarea, select) {
+    outline: 2px solid var(--color-brand-500);
+    outline-offset: 2px;
+  }
 }
 
 html,
@@ -166,4 +175,23 @@ body {
 
 .animate-shake {
   animation: shake 0.2s ease-in-out 0s 2;
+}
+
+/* DeployOps-style building blocks. Soft grey inputs, rounded-full buttons in the accent colour. */
+@layer components {
+  .ui-input {
+    @apply w-full rounded-xl border-0 bg-zinc-100/80 px-4 py-3 text-[15px] text-ink transition placeholder:text-zinc-400 focus:bg-white focus:ring-2 focus:ring-brand-500 focus:outline-hidden disabled:opacity-60;
+  }
+  .ui-label {
+    @apply mb-1.5 block text-[13px] font-medium text-zinc-600;
+  }
+  .ui-btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-brand-500 px-6 py-3 text-[15px] font-medium text-white transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+  .ui-btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-zinc-100 px-5 py-2.5 text-sm font-medium text-ink transition-colors hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+  .ui-link {
+    @apply font-medium text-brand-600 transition-colors hover:text-brand-700;
+  }
 }

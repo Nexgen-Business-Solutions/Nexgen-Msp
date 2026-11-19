@@ -6,8 +6,7 @@ import { FrappeError } from '@/lib/api/client';
 import { testPasswordStrength, updatePassword, type PasswordStrength } from '@/lib/api/auth';
 import { useDebouncedValue } from '@/shared/hooks/useDebouncedValue';
 
-const inputClass =
-  'w-full rounded-lg border border-slate-300 bg-slate-50/60 px-3.5 py-2.5 pr-11 text-sm text-slate-900 transition-all duration-200 placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-200';
+const inputClass = 'ui-input pr-12';
 
 const STRENGTH = [
   { label: 'Very weak', bar: 'w-1/5 bg-red-500', text: 'text-red-600' },
@@ -93,7 +92,7 @@ export default function ResetPassword() {
         <div className="mt-6">
           <Link
             to="/msp/forgot-password"
-            className="flex w-full items-center justify-center gap-2 rounded-lg bg-linear-to-br from-blue-600 to-blue-800 px-6 py-3 font-semibold text-white shadow-lg shadow-blue-600/20 transition-all hover:shadow-blue-600/30"
+            className="ui-btn-primary w-full"
           >
             Request a new link
           </Link>
@@ -112,11 +111,11 @@ export default function ResetPassword() {
       title="Choose a password"
       description="Pick a new password for your Nexgen account. You will be signed in straight away."
     >
-      <form className="mt-6 space-y-5" onSubmit={submit}>
+      <form className="mt-8 space-y-4" onSubmit={submit}>
         {error && (
           <div
             role="alert"
-            className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3 text-red-700 animate-shake"
+            className="flex items-start gap-2.5 rounded-xl bg-red-50 p-3 text-red-700 animate-shake"
           >
             <AlertCircleIcon className="mt-0.5 h-4 w-4 shrink-0" />
             <span className="text-sm font-medium">{error}</span>
@@ -124,7 +123,7 @@ export default function ResetPassword() {
         )}
 
         <div>
-          <label htmlFor="password" className="mb-1.5 block text-xs font-semibold text-slate-700">
+          <label htmlFor="password" className="ui-label">
             New password
           </label>
           <div className="relative">
@@ -145,7 +144,7 @@ export default function ResetPassword() {
               type="button"
               onClick={() => setShow(!show)}
               aria-label={show ? 'Hide password' : 'Show password'}
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-2 text-zinc-400 transition-colors hover:text-ink"
             >
               {show ? <EyeClosed className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />}
             </button>
@@ -168,7 +167,7 @@ export default function ResetPassword() {
         </div>
 
         <div>
-          <label htmlFor="confirm" className="mb-1.5 block text-xs font-semibold text-slate-700">
+          <label htmlFor="confirm" className="ui-label">
             Confirm password
           </label>
           <input
@@ -191,7 +190,7 @@ export default function ResetPassword() {
         <button
           type="submit"
           disabled={loading || !password || password !== confirm}
-          className="flex w-full items-center justify-center gap-2 rounded-lg bg-linear-to-br from-blue-600 to-blue-800 px-6 py-3 font-semibold text-white shadow-lg shadow-blue-600/20 transition-all duration-200 hover:shadow-blue-600/30 disabled:cursor-not-allowed disabled:opacity-70"
+          className="ui-btn-primary w-full"
         >
           {loading ? (
             <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
@@ -202,7 +201,7 @@ export default function ResetPassword() {
 
         <Link
           to="/msp/login"
-          className="flex items-center justify-center gap-1.5 text-sm font-medium text-blue-700 transition-colors hover:text-blue-900"
+          className="ui-link flex items-center justify-center gap-1.5 text-sm"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to sign in

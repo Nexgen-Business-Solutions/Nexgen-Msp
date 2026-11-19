@@ -4,7 +4,8 @@ import React from 'react';
 // done or live (emerald), refused or off (red), everything else at rest (slate)
 const WAITING = 'bg-amber-100 text-amber-700';
 const DONE = 'bg-emerald-100 text-emerald-700';
-const UNDERWAY = 'bg-blue-100 text-blue-700';
+// info-*, not blue-*: blue follows the theme accent, and a meaning must not change colour
+const UNDERWAY = 'bg-info-100 text-info-700';
 const OFF = 'bg-red-100 text-red-700';
 
 const PALETTE: Record<string, string> = {

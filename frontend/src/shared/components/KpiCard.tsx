@@ -15,12 +15,17 @@ type KpiCardProps = {
   viewLabel?: string;
 };
 
-const neutralAccents: Record<string, { bg: string; text: string }> = {
-  blue: { bg: 'bg-blue-50', text: 'text-blue-600' },
-  sky: { bg: 'bg-slate-50', text: 'text-slate-600' },
-  emerald: { bg: 'bg-emerald-50', text: 'text-emerald-600' },
-  indigo: { bg: 'bg-slate-50', text: 'text-slate-600' },
-  slate: { bg: 'bg-slate-100', text: 'text-slate-500' },
+// DeployOps stat tile: a soft colour tile for the icon, the label and number beside it, a quiet
+// note underneath. "alert" turns orange while its number is above zero.
+const neutralAccents: Record<string, string> = {
+  blue: 'bg-blue-50 text-blue-600 ring-blue-100',
+  sky: 'bg-sky-50 text-sky-600 ring-sky-100',
+  emerald: 'bg-emerald-50 text-emerald-600 ring-emerald-100',
+  indigo: 'bg-indigo-50 text-indigo-600 ring-indigo-100',
+  violet: 'bg-violet-50 text-violet-600 ring-violet-100',
+  amber: 'bg-amber-50 text-amber-600 ring-amber-100',
+  teal: 'bg-teal-50 text-teal-600 ring-teal-100',
+  slate: 'bg-slate-100 text-slate-600 ring-slate-200',
 };
 
 const KpiCard: React.FC<KpiCardProps> = ({
@@ -36,28 +41,28 @@ const KpiCard: React.FC<KpiCardProps> = ({
 }) => {
   const numeric = typeof value === 'number' ? value : Number(value);
   const raised = tone === 'alert' && Number.isFinite(numeric) && numeric > 0;
-
-  const palette = raised
-    ? { bg: 'bg-amber-50', text: 'text-amber-600' }
-    : neutralAccents[accent] ?? neutralAccents.blue;
+  const tile = raised ? 'bg-orange-50 text-orange-600 ring-orange-100' : neutralAccents[accent] ?? neutralAccents.blue;
 
   return (
     <div
-      className={`flex flex-col justify-between rounded-xl border bg-white p-4 shadow-sm transition-shadow hover:shadow-md ${
-        raised ? 'border-amber-200' : 'border-slate-100'
+      className={`flex h-full flex-col rounded-2xl bg-white p-4 shadow-sm ring-1 ${
+        raised ? 'ring-orange-200' : 'ring-slate-200/70'
       }`}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-xs font-medium text-slate-500" title={label}>
+      <div className="flex items-start gap-3">
+        <span className={`grid size-10 shrink-0 place-items-center rounded-xl ring-1 ${tile}`}>
+          <Icon className="size-5" strokeWidth={1.75} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[13px] text-slate-600" title={label}>
             {label}
           </p>
           {loading ? (
-            <span className="mt-1.5 block h-7 w-16 animate-pulse rounded-md bg-slate-100" />
+            <span className="mt-1 block h-7 w-16 animate-pulse rounded-md bg-slate-100" />
           ) : (
             <p
-              className={`mt-0.5 truncate text-2xl font-bold tabular-nums ${
-                raised ? 'text-amber-700' : 'text-slate-900'
+              className={`truncate text-2xl font-bold leading-tight tabular-nums ${
+                raised ? 'text-orange-700' : 'text-slate-900'
               }`}
               title={String(value)}
             >
@@ -65,34 +70,23 @@ const KpiCard: React.FC<KpiCardProps> = ({
             </p>
           )}
         </div>
-        <span
-          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${palette.bg}`}
-        >
-          <Icon size={20} className={palette.text} />
-        </span>
+        {onView && (
+          <button
+            type="button"
+            onClick={onView}
+            aria-label={viewLabel ?? `View ${label}`}
+            title={viewLabel ?? `View ${label}`}
+            className="grid size-8 shrink-0 place-items-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-blue-600"
+          >
+            <Eye size={16} />
+          </button>
+        )}
       </div>
 
-      {(caption || onView) && (
-        <div className="mt-3 flex items-center justify-between gap-2">
-          <p className={`min-w-0 truncate text-xs ${raised ? 'text-amber-600' : 'text-slate-400'}`}>
-            {caption}
-          </p>
-          {onView && (
-            <button
-              type="button"
-              onClick={onView}
-              aria-label={viewLabel ?? `View ${label}`}
-              title={viewLabel ?? `View ${label}`}
-              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors ${
-                raised
-                  ? 'text-amber-500 hover:bg-amber-100 hover:text-amber-700'
-                  : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700'
-              }`}
-            >
-              <Eye size={15} />
-            </button>
-          )}
-        </div>
+      {caption && (
+        <p className={`mt-3 truncate text-[13px] ${raised ? 'text-orange-600' : 'text-slate-400'}`} title={caption}>
+          {caption}
+        </p>
       )}
     </div>
   );

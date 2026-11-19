@@ -1,172 +1,44 @@
-import type { Theme } from './types';
+import type { AccentId, Theme } from './types';
 
-export const LOCAL_THEMES: Record<string, Theme> = {
-  light: {
-    id: 'light',
-    name: 'Light Blue',
-    background: 'bg-linear-to-br from-blue-50 via-slate-50 to-slate-50',
-    decorativeBlobs: [
-      'top-10 left-10 w-72 h-72 bg-blue-200/20',
-      'top-32 right-20 w-96 h-96 bg-slate-200/15',
-      'bottom-20 left-32 w-80 h-80 bg-slate-200/20',
-      'bottom-10 right-10 w-64 h-64 bg-slate-200/15',
-    ],
-    isDark: false,
-    preview: 'bg-linear-to-r from-blue-100 to-slate-100',
-    loaderColor: '#2563eb',
-  },
-  gray: {
-    id: 'gray',
-    name: 'Soft Gray',
-    background: 'bg-linear-to-br from-slate-100 via-slate-50 to-slate-100',
-    decorativeBlobs: [
-      'top-10 left-10 w-72 h-72 bg-slate-200/20',
-      'top-32 right-20 w-96 h-96 bg-slate-200/15',
-      'bottom-20 left-32 w-80 h-80 bg-slate-300/20',
-      'bottom-10 right-10 w-64 h-64 bg-slate-300/15',
-    ],
-    isDark: false,
-    preview: 'bg-linear-to-r from-slate-200 to-slate-200',
-    loaderColor: '#64748b',
-  },
-  warm: {
-    id: 'warm',
-    name: 'Warm Beige',
-    background: 'bg-linear-to-br from-amber-50 via-amber-50 to-slate-50',
-    decorativeBlobs: [
-      'top-10 left-10 w-72 h-72 bg-amber-200/20',
-      'top-32 right-20 w-96 h-96 bg-amber-200/15',
-      'bottom-20 left-32 w-80 h-80 bg-slate-200/20',
-      'bottom-10 right-10 w-64 h-64 bg-amber-300/15',
-    ],
-    isDark: false,
-    preview: 'bg-linear-to-r from-amber-200 to-amber-200',
-    loaderColor: '#d97706',
-  },
-  cool: {
-    id: 'cool',
-    name: 'Cool Blue-Gray',
-    background: 'bg-linear-to-br from-slate-100 via-blue-50 to-slate-100',
-    decorativeBlobs: [
-      'top-10 left-10 w-72 h-72 bg-slate-200/20',
-      'top-32 right-20 w-96 h-96 bg-blue-200/15',
-      'bottom-20 left-32 w-80 h-80 bg-slate-300/20',
-      'bottom-10 right-10 w-64 h-64 bg-blue-300/15',
-    ],
-    isDark: false,
-    preview: 'bg-linear-to-r from-slate-300 to-blue-300',
-    loaderColor: '#3b82f6',
-  },
-  lavender: {
-    id: 'lavender',
-    name: 'Soft Lavender',
-    background: 'bg-linear-to-br from-slate-50 via-slate-50 to-slate-50',
-    decorativeBlobs: [
-      'top-10 left-10 w-72 h-72 bg-slate-200/20',
-      'top-32 right-20 w-96 h-96 bg-slate-200/15',
-      'bottom-20 left-32 w-80 h-80 bg-slate-200/20',
-      'bottom-10 right-10 w-64 h-64 bg-slate-300/15',
-    ],
-    isDark: false,
-    preview: 'bg-linear-to-r from-slate-200 to-slate-200',
-    loaderColor: '#9333ea',
-  },
-  mint: {
-    id: 'mint',
-    name: 'Mint Green',
-    background: 'bg-linear-to-br from-emerald-50 via-slate-50 to-slate-50',
-    decorativeBlobs: [
-      'top-10 left-10 w-72 h-72 bg-emerald-200/20',
-      'top-32 right-20 w-96 h-96 bg-slate-200/15',
-      'bottom-20 left-32 w-80 h-80 bg-slate-200/20',
-      'bottom-10 right-10 w-64 h-64 bg-emerald-300/15',
-    ],
-    isDark: false,
-    preview: 'bg-linear-to-r from-emerald-200 to-slate-200',
-    loaderColor: '#059669',
-  },
-  twilight: {
-    id: 'twilight',
-    name: 'Twilight',
-    background: 'bg-linear-to-br from-slate-200 via-blue-200 to-slate-300',
-    decorativeBlobs: [
-      'top-10 left-10 w-72 h-72 bg-slate-300/20',
-      'top-32 right-20 w-96 h-96 bg-blue-300/15',
-      'bottom-20 left-32 w-80 h-80 bg-slate-400/20',
-      'bottom-10 right-10 w-64 h-64 bg-blue-400/15',
-    ],
-    isDark: false,
-    preview: 'bg-linear-to-r from-slate-400 to-blue-400',
-    loaderColor: '#475569',
-  },
-  darkBlue: {
-    id: 'darkBlue',
-    name: 'Dark Blue',
-    background: 'bg-linear-to-br from-slate-900 via-blue-900 to-slate-800',
-    decorativeBlobs: [
-      'top-10 left-10 w-72 h-72 bg-slate-700/20',
-      'top-32 right-20 w-96 h-96 bg-blue-700/15',
-      'bottom-20 left-32 w-80 h-80 bg-slate-600/20',
-      'bottom-10 right-10 w-64 h-64 bg-blue-600/15',
-    ],
-    isDark: true,
-    preview: 'bg-linear-to-r from-slate-700 to-blue-700',
-    loaderColor: '#60a5fa',
-  },
-  darkPurple: {
-    id: 'darkPurple',
-    name: 'Dark Purple',
-    background: 'bg-linear-to-br from-slate-900 via-slate-900 to-slate-800',
-    decorativeBlobs: [
-      'top-10 left-10 w-72 h-72 bg-slate-700/20',
-      'top-32 right-20 w-96 h-96 bg-slate-700/15',
-      'bottom-20 left-32 w-80 h-80 bg-slate-600/20',
-      'bottom-10 right-10 w-64 h-64 bg-slate-600/15',
-    ],
-    isDark: true,
-    preview: 'bg-linear-to-r from-slate-700 to-slate-700',
-    loaderColor: '#c084fc',
-  },
-  darkGreen: {
-    id: 'darkGreen',
-    name: 'Dark Green',
-    background: 'bg-linear-to-br from-slate-900 via-emerald-900 to-slate-800',
-    decorativeBlobs: [
-      'top-10 left-10 w-72 h-72 bg-slate-700/20',
-      'top-32 right-20 w-96 h-96 bg-emerald-700/15',
-      'bottom-20 left-32 w-80 h-80 bg-slate-600/20',
-      'bottom-10 right-10 w-64 h-64 bg-emerald-600/15',
-    ],
-    isDark: true,
-    preview: 'bg-linear-to-r from-slate-700 to-emerald-700',
-    loaderColor: '#34d399',
-  },
-  darkCharcoal: {
-    id: 'darkCharcoal',
-    name: 'Dark Charcoal',
-    background: 'bg-linear-to-br from-slate-900 via-slate-800 to-slate-900',
-    decorativeBlobs: [
-      'top-10 left-10 w-72 h-72 bg-slate-600/20',
-      'top-32 right-20 w-96 h-96 bg-slate-600/15',
-      'bottom-20 left-32 w-80 h-80 bg-slate-700/20',
-      'bottom-10 right-10 w-64 h-64 bg-slate-700/15',
-    ],
-    isDark: true,
-    preview: 'bg-linear-to-r from-slate-600 to-slate-600',
-    loaderColor: '#94a3b8',
-  },
-  darkTeal: {
-    id: 'darkTeal',
-    name: 'Dark Teal',
-    background: 'bg-linear-to-br from-slate-900 via-slate-900 to-slate-800',
-    decorativeBlobs: [
-      'top-10 left-10 w-72 h-72 bg-slate-700/20',
-      'top-32 right-20 w-96 h-96 bg-slate-700/15',
-      'bottom-20 left-32 w-80 h-80 bg-slate-600/20',
-      'bottom-10 right-10 w-64 h-64 bg-slate-600/15',
-    ],
-    isDark: true,
-    preview: 'bg-linear-to-r from-slate-700 to-slate-700',
-    loaderColor: '#2dd4bf',
-  },
+/** Picker order: Nexgen Blue (the DeployOps blue) first. Swatches are Tailwind's 500 shades. */
+export const ACCENTS: Record<AccentId, Theme> = {
+  blue: { id: 'blue', name: 'Nexgen Blue', swatch: '#2b7fff' },
+  indigo: { id: 'indigo', name: 'Indigo', swatch: '#615fff' },
+  violet: { id: 'violet', name: 'Violet', swatch: '#8e51ff' },
+  emerald: { id: 'emerald', name: 'Emerald', swatch: '#00bc7d' },
+  teal: { id: 'teal', name: 'Teal', swatch: '#00bba7' },
+  amber: { id: 'amber', name: 'Amber', swatch: '#fe9a00' },
+  rose: { id: 'rose', name: 'Rose', swatch: '#ff2056' },
+  slate: { id: 'slate', name: 'Slate', swatch: '#62748e' },
 };
+
+export const DEFAULT_ACCENT: AccentId = 'blue';
+
+/** Themes saved before the accent picker, mapped to the nearest accent. */
+const LEGACY: Record<string, AccentId> = {
+  light: 'blue',
+  cool: 'blue',
+  darkBlue: 'blue',
+  lavender: 'violet',
+  darkPurple: 'violet',
+  mint: 'emerald',
+  darkGreen: 'emerald',
+  gray: 'slate',
+  twilight: 'slate',
+  warm: 'amber',
+};
+
+/** The accent for a saved value: an id, or a saved theme object of the old or new shape. */
+export function resolveThemeId(saved: unknown): AccentId {
+  const id =
+    typeof saved === 'string'
+      ? saved
+      : saved && typeof saved === 'object' && typeof (saved as { id?: unknown }).id === 'string'
+        ? (saved as { id: string }).id
+        : '';
+  if (id in ACCENTS) return id as AccentId;
+  return LEGACY[id] ?? DEFAULT_ACCENT;
+}
+
+/** @deprecated the old name; kept so existing imports keep working. */
+export const LOCAL_THEMES = ACCENTS;

@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { Building2, ChevronDown, LayoutGrid, LogOut, Mail, ShieldCheck } from 'lucide-react';
+import { Building2, Check, ChevronDown, LayoutGrid, LogOut, Mail, ShieldCheck } from 'lucide-react';
 import { logout } from '@/lib/api/client';
 import MyTwoFactorModal from '@/features/auth/components/MyTwoFactorModal';
 import { useSession } from '@/shared/hooks/useSession';
 import ConfirmModal from '@/shared/components/ConfirmModal';
+import { useThemeStore } from '@/theme';
 
 const getInitials = (fullName?: string | null, email?: string | null) => {
   const source = (fullName || '').trim();
@@ -17,6 +18,39 @@ const getInitials = (fullName?: string | null, email?: string | null) => {
   }
 
   return (email || '?').slice(0, 2).toUpperCase();
+};
+
+/** Accent colour of the whole app; remembered on this device. */
+const Appearance: React.FC = () => {
+  const { currentTheme, availableThemes, changeLocalTheme } = useThemeStore();
+  return (
+    <div className="border-t border-slate-100 px-4 py-3.5">
+      <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Appearance</p>
+      <div role="radiogroup" aria-label="Theme" className="flex flex-wrap gap-2">
+        {availableThemes.map((theme) => {
+          const active = theme.id === currentTheme.id;
+          return (
+            <button
+              key={theme.id}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              aria-label={theme.name}
+              title={theme.name}
+              onClick={() => changeLocalTheme(theme.id)}
+              style={{ backgroundColor: theme.swatch }}
+              className={`flex h-7 w-7 items-center justify-center rounded-full text-white transition-transform hover:scale-110 ${
+                active ? 'ring-2 ring-slate-900/80 ring-offset-2' : ''
+              }`}
+            >
+              {active && <Check size={14} strokeWidth={3} />}
+            </button>
+          );
+        })}
+      </div>
+      <p className="mt-2 text-xs text-slate-500">{currentTheme.name}</p>
+    </div>
+  );
 };
 
 const UserMenu: React.FC = () => {
@@ -77,11 +111,11 @@ const UserMenu: React.FC = () => {
           onClick={() => setOpen((prev) => !prev)}
           aria-haspopup="menu"
           aria-expanded={open}
-          className={`flex items-center gap-2.5 rounded-xl border px-2 py-1.5 transition-colors ${
-            open ? 'border-slate-200 bg-slate-50' : 'border-transparent hover:bg-slate-50'
+          className={`flex items-center gap-2.5 rounded-full py-1 pl-1 pr-2.5 transition-colors ${
+            open ? 'bg-slate-100' : 'hover:bg-slate-100'
           }`}
         >
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-blue-600 to-blue-800 text-xs font-bold text-white">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-500 text-xs font-semibold text-white">
             {initials}
           </span>
           <span className="hidden max-w-[10rem] truncate text-sm font-semibold text-slate-700 md:inline">
@@ -96,9 +130,9 @@ const UserMenu: React.FC = () => {
         </button>
 
         {open && (
-          <div className="absolute right-0 top-full z-50 mt-2 w-72 overflow-hidden rounded-xl border border-slate-100 bg-white shadow-xl">
+          <div className="absolute right-0 top-full z-50 mt-2 w-72 overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-slate-900/5">
             <div className="flex items-center gap-3 border-b border-slate-100 px-4 py-4">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-blue-600 to-blue-800 text-sm font-bold text-white">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-blue-500 text-sm font-semibold text-white">
                 {initials}
               </span>
               <div className="min-w-0">
@@ -117,6 +151,8 @@ const UserMenu: React.FC = () => {
                 </div>
               ))}
             </div>
+
+            <Appearance />
 
             <button
               type="button"

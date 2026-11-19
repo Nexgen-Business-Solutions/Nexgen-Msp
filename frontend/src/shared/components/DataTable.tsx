@@ -68,14 +68,14 @@ const DataTable: React.FC<DataTableProps> = ({
   }, [debouncedSearch, onSearchChange, search]);
 
   return (
-  <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm transition-shadow hover:shadow-md">
+  <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/70">
     <div className="flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-      <h2 className="text-base font-semibold text-slate-900">{title}</h2>
+      <h2 className="text-base font-semibold text-ink">{title}</h2>
       {action && !showToolbar && (
         <button
           type="button"
           onClick={action.onClick}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-blue-600 px-5 py-3 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-blue-500 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-600"
         >
           {action.icon && <action.icon size={14} />}
           {action.label}
@@ -90,7 +90,7 @@ const DataTable: React.FC<DataTableProps> = ({
               value={searchInput}
               onChange={(event) => setSearchInput(event.target.value)}
               placeholder={searchPlaceholder}
-              className="h-10 w-64 rounded-lg border border-slate-200 bg-white pl-10 pr-4 text-sm outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+              className="h-10 w-64 rounded-full border-0 bg-zinc-100/80 pl-10 pr-4 text-sm outline-none transition placeholder:text-zinc-400 focus:bg-white focus:ring-2 focus:ring-blue-500"
             />
           </div>
           <Select
@@ -106,7 +106,7 @@ const DataTable: React.FC<DataTableProps> = ({
             <button
               type="button"
               onClick={action.onClick}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-blue-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-600"
             >
               {action.icon && <action.icon size={15} />}
               {action.label}
@@ -118,12 +118,12 @@ const DataTable: React.FC<DataTableProps> = ({
 
     <div className="max-h-[62vh] overflow-auto px-5 pb-1">
       <table className="w-full">
-        <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
+        <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:border-b [&_th]:border-line [&_th]:bg-white">
           <tr>
             {columns.map((col, index) => (
               <th
                 key={col}
-                className={`whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 ${
+                className={`whitespace-nowrap px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-zinc-500 ${
                   index === 0 ? 'rounded-l-lg' : ''
                 } ${index === columns.length - 1 ? 'rounded-r-lg' : ''}`}
               >
@@ -132,7 +132,7 @@ const DataTable: React.FC<DataTableProps> = ({
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-100">
+        <tbody className="divide-y divide-zinc-100">
           {!!error && (
             <tr>
               <td colSpan={columns.length} className="px-4 py-12 text-center text-sm text-red-600">

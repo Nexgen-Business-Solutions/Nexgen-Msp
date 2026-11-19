@@ -2,13 +2,30 @@ import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { X } from 'lucide-react';
 import { useSession } from '@/shared/hooks/useSession';
-import { getSectionsForRoles, scopedStaffSections } from './navigation';
+import { getSectionsForRoles } from './navigation';
+
+// DeployOps sidebar: the top item(s) with a plain icon, every section item in its own soft colour
+// tile, the current page as a blue gradient pill. Colours go by position down the menu.
+const TILE_COLORS = [
+  'bg-blue-100/80 text-blue-600 ring-blue-200/60',
+  'bg-emerald-100/80 text-emerald-600 ring-emerald-200/60',
+  'bg-violet-100/80 text-violet-600 ring-violet-200/60',
+  'bg-amber-100/80 text-amber-600 ring-amber-200/60',
+  'bg-teal-100/80 text-teal-600 ring-teal-200/60',
+  'bg-rose-100/80 text-rose-600 ring-rose-200/60',
+  'bg-indigo-100/80 text-indigo-600 ring-indigo-200/60',
+  'bg-sky-100/80 text-sky-600 ring-sky-200/60',
+];
 
 const SidebarNav: React.FC<{ onNavigate?: () => void }> = ({ onNavigate }) => {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { data: session } = useSession();
-  const sections = session?.scoped_msp ? scopedStaffSections : getSectionsForRoles(session?.roles);
+  const sections = getSectionsForRoles(session?.roles);
+  // a tile colour per item down the whole menu, so no two neighbours across sections match
+  const tileOf = new Map(
+    sections.flatMap((section) => (section.label ? section.items : [])).map((item, i) => [item.id, TILE_COLORS[i % TILE_COLORS.length]])
+  );
 
   const go = (path: string) => {
     navigate(path);
@@ -19,11 +36,11 @@ const SidebarNav: React.FC<{ onNavigate?: () => void }> = ({ onNavigate }) => {
     end ? pathname === path : pathname === path || pathname.startsWith(`${path}/`);
 
   return (
-    <nav className="flex flex-1 flex-col gap-5 overflow-y-auto px-3 py-4">
+    <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 pb-6 pt-3 lg:pt-4">
       {sections.map((section) => (
-        <div key={section.id} className="space-y-1">
+        <div key={section.id} className="flex flex-col gap-1">
           {section.label && (
-            <p className="px-4 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+            <p className="mt-6 px-4 pb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">
               {section.label}
             </p>
           )}
@@ -34,14 +51,23 @@ const SidebarNav: React.FC<{ onNavigate?: () => void }> = ({ onNavigate }) => {
                 key={id}
                 type="button"
                 onClick={() => go(path)}
-                className={`flex h-11 w-full items-center gap-3 rounded-xl px-4 text-sm transition-all duration-200 ease-out ${
+                aria-current={active ? 'page' : undefined}
+                className={`flex min-h-11 w-full items-center gap-3 rounded-xl px-4 py-2 text-left text-[15px] font-medium transition ${
                   active
-                    ? 'bg-linear-to-r from-blue-600 to-blue-700 font-semibold text-white shadow-md shadow-blue-600/20'
-                    : 'font-medium text-slate-700 hover:bg-slate-100'
+                    ? 'bg-linear-to-r from-blue-600 to-blue-700 text-white shadow-md shadow-blue-600/25'
+                    : 'text-slate-700 hover:bg-slate-100'
                 }`}
               >
-                <Icon size={18} className={active ? 'text-white' : 'text-slate-500'} />
-                <span className="truncate text-left">{label}</span>
+                {section.label ? (
+                  <span
+                    className={`grid size-7 shrink-0 place-items-center rounded-lg ring-1 ${tileOf.get(id)}`}
+                  >
+                    <Icon className="size-4" strokeWidth={1.75} />
+                  </span>
+                ) : (
+                  <Icon className="size-[18px] shrink-0" />
+                )}
+                <span className="min-w-0 flex-1 truncate">{label}</span>
               </button>
             );
           })}
@@ -59,16 +85,16 @@ const AppSidebar: React.FC<{ open: boolean; onClose: () => void }> = ({ open, on
 
     {open && (
       <div className="fixed inset-0 z-[70] lg:hidden">
-        <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} />
-        <aside className="absolute left-0 top-0 flex h-full w-64 flex-col border-r border-slate-200 bg-white shadow-xl">
-          <div className="flex justify-end px-2 pt-2">
+        <div className="absolute inset-0 bg-slate-950/30 backdrop-blur-[2px]" onClick={onClose} />
+        <aside className="absolute left-0 top-0 flex h-full w-72 flex-col border-r border-slate-200 bg-white">
+          <div className="flex justify-end px-3 pt-3">
             <button
               type="button"
               onClick={onClose}
               aria-label="Close menu"
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
+              className="grid size-10 place-items-center rounded-lg text-slate-600 hover:bg-slate-100"
             >
-              <X size={18} />
+              <X className="size-5" />
             </button>
           </div>
           <SidebarNav onNavigate={onClose} />

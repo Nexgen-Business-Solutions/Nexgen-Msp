@@ -91,7 +91,7 @@ const MultiSelect: React.FC<Props> = ({
             role="listbox"
             aria-multiselectable
             style={panelStyle}
-            className="z-[200] overflow-auto rounded-lg border border-slate-200 bg-white p-1 shadow-xl"
+            className="z-[200] overflow-auto rounded-xl bg-white p-1 shadow-lg ring-1 ring-zinc-900/10"
           >
           {withSearch && (
             <div className="sticky top-0 -mx-1 -mt-1 mb-1 border-b border-slate-100 bg-white px-2 pb-2 pt-2">
