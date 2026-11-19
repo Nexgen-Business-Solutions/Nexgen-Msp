@@ -27,8 +27,16 @@ def tick():
     from nexgen_msp.api.internal.services.notification_reminder_service import (
         NotificationReminderService,
     )
+    from nexgen_msp.api.internal.services.request_comment_service import RequestCommentService
 
-    return NotificationReminderService.run()
+    answer = NotificationReminderService.run()
+
+    # a comment written while the mail could not be handed over owes its notification
+    # still; the same tick is what comes back for it. What it finds is its own business:
+    # this answer is the reminder engine's, and a deployed scheduler row reads it
+    RequestCommentService.deliver_owed()
+
+    return answer
 
 
 def ensure_rules():

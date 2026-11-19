@@ -10,6 +10,7 @@ const comment = (over: Partial<RequestComment> = {}): RequestComment => ({
   author: 'tech@example.invalid',
   author_name: 'Tess Technician',
   side: 'MSP',
+  role: 'MSP Technician',
   body: 'We have started on this.',
   created_at: '2026-11-19 09:30:00',
   ...over,
@@ -53,7 +54,13 @@ describe('the conversation on a request', () => {
     show(
       api({
         comments: [
-          comment({ name: 'CM-1', body: 'Before the handover.', side: 'Customer', author_name: 'Carla Customer' }),
+          comment({
+            name: 'CM-1',
+            body: 'Before the handover.',
+            side: 'Customer',
+            author_name: 'Carla Customer',
+            role: 'MSP Customer Manager',
+          }),
           comment({ name: 'CM-2', body: 'We have it now.', side: 'MSP' }),
         ],
       })
@@ -64,10 +71,20 @@ describe('the conversation on a request', () => {
 
     expect(rows).toHaveLength(2);
     expect(within(rows[0]).getByText('Before the handover.')).toBeTruthy();
-    expect(within(rows[0]).getByText('Customer')).toBeTruthy();
+    expect(within(rows[0]).getByText('MSP Customer Manager')).toBeTruthy();
     expect(within(rows[1]).getByText('We have it now.')).toBeTruthy();
-    expect(within(rows[1]).getByText('Nexgen MSP')).toBeTruthy();
+    expect(within(rows[1]).getByText('MSP Technician')).toBeTruthy();
     expect(screen.getByText('2')).toBeTruthy();
+  });
+
+  it('says no role at all where none was recorded', async () => {
+    show(api({ comments: [comment({ role: null })] }));
+
+    const thread = await screen.findByRole('log', { name: 'Comments on this request' });
+
+    expect(within(thread).getByText('We have started on this.')).toBeTruthy();
+    expect(within(thread).queryByText('Nexgen MSP')).toBeNull();
+    expect(within(thread).queryByText('MSP Technician')).toBeNull();
   });
 
   it('says so when nothing has been written yet', async () => {

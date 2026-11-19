@@ -1125,6 +1125,8 @@ export type RequestComment = {
   author: string;
   author_name: string;
   side: 'MSP' | 'Customer';
+  /** the role this person held when they wrote it, as the screens name roles */
+  role: string | null;
   body: string;
   created_at: string;
 };

@@ -6,10 +6,13 @@ exists. The rest is the ordinary life of a thread — written once, read by both
 carried over whole when the company hands the request to us.
 """
 
+from unittest.mock import patch
+
 import frappe
 
 from nexgen_msp.api.internal.services.request_comment_service import RequestCommentService
 from nexgen_msp.api.portal.services.portal_service import PortalService
+from nexgen_msp.utils import notifications, reminders
 from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 from .test_notification_reminders import RequestCase
@@ -426,3 +429,103 @@ class TestNobodyIsCopiedOnTheirOwnComment(CommentCase):
         self.assertEqual(
             self.queued_to(self.asker), before, "the requester wrote it, so nobody copies it back"
         )
+
+
+class TestTheRecordIsNotADoorOfItsOwn(CommentCase):
+    """Found by review: the conversation's own table carried read rights of its own.
+
+    Every read that is allowed goes through the service, which asks the request whether
+    this reader may see it. A table anybody could list beside that service would answer
+    the same question differently, which is the whole of the boundary.
+    """
+
+    def test_nobody_lists_the_comments_outside_the_service(self):
+        name = self.awaiting()
+        self.post(self.asker, name, "Inside the company.")
+
+        for user in (self.tech, self.asker, self.approver):
+            with self.assertRaises(frappe.PermissionError):
+                self.as_user(user, lambda: frappe.get_list(COMMENT, limit_page_length=1))
+
+    def test_the_people_entitled_to_it_still_read_it(self):
+        name = self.awaiting()
+        self.post(self.asker, name, "Inside the company.")
+
+        self.assertEqual(len(self.thread(self.approver, name)["comments"]), 1)
+
+
+class TestANotificationThatNeverLeftIsStillOwed(CommentCase):
+    """A message is written down before anybody is told, so a mail that could not be handed
+    over leaves the message saved and nobody told. The record says which, and the tick that
+    comes round next is what makes good on it."""
+
+    def test_a_comment_whose_mail_failed_is_sent_again_later(self):
+        name = self.approved(self.awaiting())
+
+        with patch.object(notifications, "send", return_value=False):
+            written = self.post(self.tech, name, "The queue was down.")
+
+        self.assertEqual(frappe.db.get_value(COMMENT, written["name"], "notified"), 0)
+        before = self.queued_to(self.asker)
+
+        out = RequestCommentService.deliver_owed()
+
+        self.assertEqual(frappe.db.get_value(COMMENT, written["name"], "notified"), 1)
+        self.assertGreater(self.queued_to(self.asker), before)
+        self.assertEqual(out["sent"], 1)
+
+    def test_a_comment_already_told_is_not_told_twice(self):
+        name = self.approved(self.awaiting())
+        self.post(self.tech, name, "Told the first time.")
+        before = self.queued_to(self.asker)
+
+        RequestCommentService.deliver_owed()
+
+        self.assertEqual(self.queued_to(self.asker), before)
+
+    def test_the_tick_is_what_comes_back_for_it(self):
+        """And it answers what it has always answered: the reminder engine's own count."""
+        with patch.object(RequestCommentService, "deliver_owed") as swept:
+            answer = reminders.tick()
+
+        swept.assert_called_once()
+        self.assertEqual(sorted(answer), ["sent", "skipped"])
+
+
+class TestWhoWroteItIsSaidByTheirRole(CommentCase):
+    """The screens name roles; a conversation names the role somebody wrote under."""
+
+    def test_the_role_is_written_down_with_the_message(self):
+        name = self.approved(self.awaiting())
+
+        self.post(self.tech, name, "From our side.")
+        self.post(self.asker, name, "From theirs.")
+
+        read = self.thread(self.tech, name)["comments"]
+
+        self.assertEqual([row["role"] for row in read], ["MSP Technician", "MSP Customer Manager"])
+        self.assertEqual([row["side"] for row in read], ["MSP", "Customer"])
+
+    def test_an_account_is_named_by_the_msp_role_it_holds(self):
+        """Including the builtin one, which holds MSP System Admin on a working site."""
+        name = self.approved(self.awaiting())
+        written = self.as_user(
+            "Administrator",
+            lambda: RequestCommentService.post(
+                request=name,
+                body="From the console.",
+                idempotency_key=frappe.generate_hash(length=12),
+            ),
+        )
+        self.written.append(written["name"])
+
+        self.assertEqual(written["role"], "MSP System Admin")
+
+    def test_the_mail_says_the_same_role(self):
+        name = self.approved(self.awaiting())
+        written = self.post(self.tech, name, "From our side.")
+        context = RequestCommentService._context(
+            frappe.get_doc(REQUEST, name), frappe.get_doc(COMMENT, written["name"])
+        )
+
+        self.assertEqual(context["author_side"], "MSP Technician")

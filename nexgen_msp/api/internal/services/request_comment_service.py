@@ -101,7 +101,15 @@ class RequestCommentService:
                 for row in frappe.get_all(
                     COMMENT,
                     filters={"request": doc.name},
-                    fields=["name", "author_user", "author_name", "author_side", "body", "creation"],
+                    fields=[
+                        "name",
+                        "author_user",
+                        "author_name",
+                        "author_side",
+                        "author_role",
+                        "body",
+                        "creation",
+                    ],
                     order_by="creation asc, name asc",
                     limit_page_length=0,
                 )
@@ -115,9 +123,29 @@ class RequestCommentService:
             "author": row["author_user"],
             "author_name": row["author_name"] or row["author_user"],
             "side": row["author_side"],
+            "role": row.get("author_role"),
             "body": row["body"],
             "created_at": str(row["creation"]),
         }
+
+    @staticmethod
+    def _role_of(user):
+        """The role this person wrote under, named as every other screen names roles.
+
+        Written down with the message rather than read back later: roles change, and a
+        conversation says who somebody was when they said it.
+        """
+        from nexgen_msp.utils import access
+
+        held = access.roles(user)
+
+        for role in access.STAFF_ROLES + access.CUSTOMER_ROLES:
+            if role in held:
+                return role
+
+        # the built-in account holds none of our roles and is still somebody: it says what
+        # it is rather than a label that is not a role at all
+        return "Administrator" if access.is_administrator(user) else None
 
     # ------------------------------------------------------------------ writing
     @staticmethod
@@ -166,6 +194,7 @@ class RequestCommentService:
                 "author_user": author,
                 "author_name": frappe.db.get_value("User", author, "full_name") or author,
                 "author_side": side,
+                "author_role": RequestCommentService._role_of(author),
                 "body": text,
                 "idempotency_key": key,
             }
@@ -196,18 +225,82 @@ class RequestCommentService:
             return RequestCommentService._written(written)
 
         # the message is on the record before anybody is told about it, and a mail that
-        # cannot be queued never takes it back off
+        # cannot be queued never takes it back off. `notified` is written in the same
+        # transaction as the message itself — it is a field of it — so a send that never
+        # happened leaves a row saying so, and `deliver_owed` finds it later
         frappe.db.commit()
-        RequestCommentService._tell(doc, comment)
+        RequestCommentService._deliver(doc, comment)
 
         return RequestCommentService._written(comment.name)
+
+    @staticmethod
+    def _deliver(doc, comment):
+        """Tell the other side, and write it down only once that has actually been done.
+
+        A send nobody could hand to the queue leaves the message owed, which is what makes
+        it come back. Nobody to tell is settled, not owed: there is no mail to recover.
+        """
+        if not RequestCommentService._tell(doc, comment):
+            return False
+
+        frappe.db.set_value(COMMENT, comment.name, "notified", 1, update_modified=False)
+        frappe.db.commit()
+
+        return True
+
+    @staticmethod
+    def deliver_owed(limit=50):
+        """Every comment whose notification never went out, tried again.
+
+        A process that stops between writing a message and handing it to the mail queue
+        leaves the message on the record and nobody told. Replaying is safe: each send is
+        identified by the comment itself, so the queue recognises one it already holds and
+        nobody is written to twice.
+        """
+        # a day is the bound: beyond it the audit already says why nobody was written to,
+        # and retrying for ever would be a queue of its own
+        owed = frappe.get_all(
+            COMMENT,
+            filters={
+                "notified": 0,
+                "creation": (">", frappe.utils.add_to_date(frappe.utils.now(), days=-1)),
+            },
+            fields=["name", "request"],
+            order_by="creation asc",
+            limit_page_length=limit,
+        )
+        done = 0
+
+        for row in owed:
+            request = frappe.db.get_value(
+                REQUEST,
+                row["request"],
+                ["name", "status", "customer", "refused_by_customer"],
+                as_dict=True,
+            )
+
+            if not request:
+                continue
+
+            try:
+                RequestCommentService._deliver(request, frappe.get_doc(COMMENT, row["name"]))
+                done += 1
+            except Exception:
+                # never rolled back: this runs inside whatever else the tick is doing, and
+                # undoing that to report one mail would cost more than the mail
+                frappe.log_error(
+                    title="MSP comment notification could not be sent",
+                    message=frappe.get_traceback(),
+                )
+
+        return {"owed": len(owed), "sent": done}
 
     @staticmethod
     def _written(name):
         row = frappe.db.get_value(
             COMMENT,
             name,
-            ["name", "author_user", "author_name", "author_side", "body", "creation"],
+            ["name", "author_user", "author_name", "author_side", "author_role", "body", "creation"],
             as_dict=True,
         )
 
@@ -237,9 +330,9 @@ class RequestCommentService:
         ]
 
         if not recipients:
-            return
+            return True
 
-        notifications.send(
+        return notifications.send(
             template,
             recipients,
             RequestCommentService._context(doc, comment),
@@ -271,7 +364,7 @@ class RequestCommentService:
 
     @staticmethod
     def _context(doc, comment):
-        side = "Nexgen MSP" if comment.author_side == MSP else "Customer"
+        side = comment.author_role or ("Nexgen MSP" if comment.author_side == MSP else "Customer")
 
         return {
             "request": doc.name,

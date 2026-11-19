@@ -53,18 +53,20 @@ const Message: React.FC<{ comment: RequestComment }> = ({ comment }) => {
       <div className="min-w-0 flex-1">
         <p className="flex flex-wrap items-baseline gap-2">
           <strong className="text-xs font-semibold text-slate-900">{comment.author_name}</strong>
-          <span
-            className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-              ours ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-500'
-            }`}
-          >
-            {ours ? 'Nexgen MSP' : 'Customer'}
-          </span>
-          <time className="ml-auto text-[10px] text-slate-400">{when(comment.created_at)}</time>
+          {comment.role && (
+            <span
+              className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                ours ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-500'
+              }`}
+            >
+              {comment.role}
+            </span>
+          )}
         </p>
         <p className="mt-1.5 whitespace-pre-wrap break-words text-xs leading-relaxed text-slate-700">
           {comment.body}
         </p>
+        <time className="mt-1.5 block text-[10px] text-slate-400">{when(comment.created_at)}</time>
       </div>
     </li>
   );
