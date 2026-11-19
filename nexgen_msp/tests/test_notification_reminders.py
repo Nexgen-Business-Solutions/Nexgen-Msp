@@ -1793,6 +1793,69 @@ class TestACopiedAddressIsOwedOneMailPerIteration(RequestCase):
         self.assertEqual(self.queued_to(copied), 1)
         self.assertEqual(self.queued_to(hidden), 1)
 
+    def test_a_copy_can_be_reconciled_against_the_entry_it_actually_rode(self):
+        """The real ordering: the queue takes the message, then the send raises.
+
+        The copy is written down after the entry exists, so bounding its evidence by its
+        own creation would hide the one entry it was on — and the administrator would be
+        left unable to settle a line the application itself created.
+        """
+        from nexgen_msp.api.internal.services.notification_dispatch_service import (
+            NotificationDispatchService,
+        )
+
+        name = self.submitted()
+        copied = self.desk("re")
+        self.configure(WAITING)
+        self.policies(
+            WAITING, {"channel": "CC", "recipient_source": None, "fixed_address": copied, "enabled": True}
+        )
+        real = frappe.sendmail
+        calls = {"n": 0}
+
+        def queued_then_unsure(*args, **kwargs):
+            calls["n"] += 1
+            queued = real(*args, **kwargs)
+
+            if calls["n"] == 1:
+                raise RuntimeError("the queue took it and then said nothing")
+
+            return queued
+
+        with self.only(name), patch.object(frappe, "sendmail", side_effect=queued_then_unsure):
+            NotificationReminderService.run_one(WAITING)
+
+        row = frappe.db.get_value(
+            DISPATCH,
+            {"business_name": name, "rule": WAITING, "recipient": copied},
+            ["name", "status"],
+            as_dict=True,
+        )
+        self.assertEqual(row.status, "Unknown")
+
+        entry = frappe.db.sql_list(
+            """select distinct q.name from `tabEmail Queue` q
+            join `tabEmail Queue Recipient` r on r.parent = q.name
+            where r.recipient = %s""",
+            copied,
+        )
+        self.assertEqual(len(entry), 1, "the message really is in the queue")
+
+        offered = {
+            candidate["email_queue"]
+            for candidate in NotificationDispatchService.evidence(row.name)["candidates"]
+        }
+
+        self.assertIn(entry[0], offered, "and the copy is offered it")
+
+        NotificationDispatchService.resolve(
+            row.name, "link", email_queue=entry[0], note=f"{PREFIX} found the entry"
+        )
+
+        settled = frappe.db.get_value(DISPATCH, row.name, ["status", "email_queue_id"], as_dict=True)
+        self.assertEqual(settled.status, "Queued")
+        self.assertEqual(settled.email_queue_id, entry[0])
+
     def test_the_addresses_an_attempt_meant_to_reach_are_on_its_own_row(self):
         name = self.submitted()
         copied = self.desk("sq")

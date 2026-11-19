@@ -796,7 +796,13 @@ class NotificationReminderService:
         row = frappe.db.get_value(
             DISPATCH,
             outcome["dispatch"],
-            ["email_queue_id", "subject_snapshot", "resolved_locale", "template_revision"],
+            [
+                "email_queue_id",
+                "subject_snapshot",
+                "resolved_locale",
+                "template_revision",
+                "reserved_at",
+            ],
             as_dict=True,
         )
 
@@ -818,6 +824,9 @@ class NotificationReminderService:
                     occurrence=f"iteration:{iteration}",
                     iteration=iteration,
                     queue_id=queue_id,
+                    # the attempt's own instant, so the evidence screen looks back far
+                    # enough to find the entry this copy actually rode
+                    reserved_at=row.reserved_at,
                     business_doctype=adapter["doctype"],
                     business_name=doc.name,
                     language={

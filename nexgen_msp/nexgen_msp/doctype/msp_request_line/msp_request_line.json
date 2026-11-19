@@ -124,7 +124,6 @@
    "mandatory_depends_on": "eval:!doc.operation_code || doc.operation_code.indexOf(\"service.\") == 0"
   },
   {
-   "default": "1",
    "fieldname": "requested_quantity",
    "fieldtype": "Float",
    "label": "Quantity"

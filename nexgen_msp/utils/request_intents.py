@@ -49,6 +49,21 @@ HOLDER_OPERATIONS = ("device.assign", "device.transfer", "device.repossess")
 QUANTITY_IS_THE_ASK = ("service.change",)
 
 
+def code_of(row):
+    """The operation a line asks for, as its code.
+
+    `operation_of` answers with the operation's definition, which is what nearly every
+    caller wants. This answers with its name. The two are one step apart and the step
+    matters: a definition is never equal to a code, so a guard written against the wrong
+    one of them is a guard that silently never fires.
+    """
+    from nexgen_msp.utils import operations
+
+    return (row.get("operation_code") or "").strip() or operations.from_legacy_action(
+        row.get("action")
+    )
+
+
 def asked_quantity(code, asked):
     """The quantity a line carries, or nothing when the act does not turn on one.
 
@@ -58,20 +73,59 @@ def asked_quantity(code, asked):
     company from five terabytes to one without anybody having asked for it.
     """
     if code in QUANTITY_IS_THE_ASK:
-        return frappe.utils.flt(asked) if asked not in (None, "") else None
+        # a child row's Float holds 0 for a quantity nobody named, so 0 and absent are the
+        # same answer here. Returning the 0 instead would hand it to the lifecycle, which
+        # refuses it — and a change of *what* is provided legitimately names no quantity
+        return frappe.utils.flt(asked) or None
 
     return asked or 1
 
 
 def validate_quantity_change(doc, row):
-    """A quantity change has to name a quantity, and a different one.
+    """A change asked for the quantity has to name a quantity, and a different one.
 
-    Read from the assignment rather than from what the browser said it was: the current
-    quantity is the company's own record, and a request built against a stale screen must
-    not be stored as a change to a number that has since moved.
+    Not every change is about a quantity. The same act also puts a running period onto
+    another service, and that one names no quantity at all — which is why the requirement
+    reads "the quantity differs from the current quantity *when quantity is the only
+    requested change*". So what is being asked is read off the line before anything is
+    demanded of it.
+
+    The current quantity comes from the assignment rather than from what the browser said
+    it was: it is the company's own record, and a request built against a screen opened an
+    hour ago must not be stored as a change to a number that has since moved.
     """
-    if operation_of(row) not in QUANTITY_IS_THE_ASK:
+    if code_of(row) not in QUANTITY_IS_THE_ASK:
         return
+
+    if not row.source_service_assignment:
+        frappe.throw(
+            _("Row {0}: a change is asked of a service already running.").format(row.idx)
+        )
+
+    held = (
+        frappe.db.get_value(
+            ASSIGNMENT,
+            row.source_service_assignment,
+            ["service_item", "quantity", "assignment_scope"],
+            as_dict=True,
+        )
+        or {}
+    )
+
+    if row.requested_service and row.requested_service != held.get("service_item"):
+        # the period is being moved onto another service, which is a change of what is
+        # provided and not of how much of it
+        return
+
+    if held.get("assignment_scope") != COMPANY_SCOPE:
+        # a service held per person or per machine is one of it each: there is no quantity
+        # to ask for. The builder offers this act on the company's own services only, and
+        # that has to hold for a payload that never came from the builder
+        frappe.throw(
+            _("Row {0}: only a service the company itself holds is counted by the unit.").format(
+                row.idx
+            )
+        )
 
     asked = row.requested_quantity
 
@@ -80,19 +134,12 @@ def validate_quantity_change(doc, row):
             _("Row {0}: say how much of this service is wanted.").format(row.idx)
         )
 
-    if not row.source_service_assignment:
-        frappe.throw(
-            _("Row {0}: a quantity change is asked of a service already running.").format(row.idx)
-        )
-
-    running = frappe.utils.flt(
-        frappe.db.get_value(ASSIGNMENT, row.source_service_assignment, "quantity")
-    )
+    running = frappe.utils.flt(held.get("quantity"))
 
     if running and frappe.utils.flt(asked) == running:
         frappe.throw(
             _("Row {0}: this service already runs at {1}. Ask for a different quantity.").format(
-                row.idx, frappe.utils.flt(running)
+                row.idx, running
             )
         )
 

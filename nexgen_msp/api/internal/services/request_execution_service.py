@@ -858,7 +858,12 @@ class RequestExecutionService:
 
 		if row:
 			card["comment"] = row.comment
-			card["requested_quantity"] = row.requested_quantity
+			# what the customer asked for, under the rule the asking used: a line that
+			# named no quantity means one of it, and a card showing 0 would read as a
+			# request for none
+			card["requested_quantity"] = request_intents.asked_quantity(
+				request_intents.code_of(row), row.requested_quantity
+			)
 
 		requested_machine = reading.machines.get(RequestExecutionService._requested_machine(order, reading))
 
@@ -2567,7 +2572,7 @@ class RequestExecutionService:
 		row = next((line for line in doc.lines if line.name == order.request_line_name), None)
 
 		return request_intents.asked_quantity(
-			request_intents.operation_of(row) if row else None,
+			request_intents.code_of(row) if row else None,
 			row.requested_quantity if row else None,
 		)
 

@@ -1528,7 +1528,7 @@ class PortalService:
                 "customer_site": line.get("customer_site"),
                 "requested_service": line.get("requested_service"),
                 "requested_quantity": request_intents.asked_quantity(
-                    line.get("operation_code"), line.get("requested_quantity")
+                    request_intents.code_of(line), line.get("requested_quantity")
                 ),
                 "requested_effective_date": requested_date or line.get("requested_effective_date"),
                 "comment": line.get("comment"),

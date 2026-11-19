@@ -184,7 +184,15 @@ class MSPRequest(Document):
 				request_intents.validate_no_open_conflict(self, row)
 				request_intents.validate_quantity_change(self, row)
 
-			if row.requested_quantity is not None and row.requested_quantity <= 0:
+			# the act whose quantity *is* the request answers for its own above, where a 0
+			# reads as "nobody named one" — a child row's Float cannot hold the difference.
+			# Everywhere else a 0 is somebody asking for none of something, which is still
+			# refused exactly as it always was
+			if (
+				request_intents.code_of(row) not in request_intents.QUANTITY_IS_THE_ASK
+				and row.requested_quantity is not None
+				and row.requested_quantity <= 0
+			):
 				frappe.throw(_("Row {0}: quantity must be greater than zero.").format(row.idx))
 
 			key = request_intents.target_key(row)

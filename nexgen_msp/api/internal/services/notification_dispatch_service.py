@@ -533,6 +533,7 @@ class NotificationDispatchService:
         language=None,
         channel="To",
         iteration=0,
+        reserved_at=None,
     ):
         """Write down a mail an event already queued, so the history is not only reminders.
 
@@ -577,7 +578,11 @@ class NotificationDispatchService:
         doc.subject_snapshot = (subject or "")[:140]
         doc.status = "Queued" if queue_id else "Unknown"
         doc.email_queue_id = queue_id
-        doc.reserved_at = frappe.utils.now()
+        # when this line belongs to an attempt somebody else made, it is reserved at that
+        # attempt's instant and not at this one. The evidence screen bounds its search by
+        # this moment, and a copy written down after the queue entry was created would
+        # otherwise never be offered the very entry it rode
+        doc.reserved_at = reserved_at or frappe.utils.now()
         doc.queued_at = frappe.utils.now() if queue_id else None
         doc.attempt = 1
         doc.insert(ignore_permissions=True)
@@ -648,7 +653,7 @@ class NotificationDispatchService:
                     or ifnull(other.event_occurrence_key, '') != %(occurrence)s
                   )
               )
-            order by queue.message_id = %(name)s desc, queue.creation desc
+            order by queue.message_id = %(name)s desc, queue.creation desc, queue.name desc
             limit 20
             """,
             {

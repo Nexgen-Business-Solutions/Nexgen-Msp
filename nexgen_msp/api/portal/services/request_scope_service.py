@@ -1213,10 +1213,17 @@ def _company_open(customer):
         from `tabMSP Service Assignment` sa
         where sa.customer = %(customer)s
           and sa.assignment_scope = 'Customer'
+          -- the period in force today, and not the replacement waiting for its day. A
+          -- dated change leaves two rows for one service: the old one ending later and
+          -- the new one starting later. Both answered this question, and whichever the
+          -- database returned last became "what is running" — so a company still being
+          -- provided five of something could be shown as running eight
+          and (sa.effective_start_date is null or sa.effective_start_date <= %(today)s)
           and (
             sa.operational_status in %(open)s
             or (sa.operational_status = 'Ended' and sa.effective_end_date > %(today)s)
           )
+        order by sa.effective_start_date asc, sa.creation asc
         """,
         {
             "customer": customer,

@@ -3217,6 +3217,35 @@ class TestCarryingOutAQuantityChangeOnACompanyService(ExecutionCase):
 
         self.assertEqual(flt_round(card["requested_quantity"]), 8.0)
 
+    def test_moving_the_period_onto_another_service_is_carried_out(self):
+        """The variant that names no quantity, carried out by a technician who types none.
+
+        Found by review: the quantity helper handed the lifecycle the 0 a child row holds
+        for a quantity nobody named, and the assignment refused it. The move could not be
+        carried out at all unless somebody typed a number it never needed.
+        """
+        service = self.offering("CQ7", scope="Customer")
+        other = self.offering("CQ8", scope="Customer")
+        held = self.running(service, 5)
+        request = self.approved(
+            self.change_line(service, held, requested_service=other)
+        )
+
+        self.carry_out(request)
+
+        opened = frappe.get_all(
+            ASSIGNMENT,
+            filters={"customer": self.customer, "service_item": other},
+            fields=["name", "quantity", "operational_status", "replaces_assignment"],
+        )
+
+        self.assertEqual(len(opened), 1)
+        self.assertEqual(opened[0].operational_status, "Active")
+        self.assertEqual(opened[0].replaces_assignment, held)
+        self.assertEqual(
+            flt_round(opened[0].quantity), 5.0, "it keeps the quantity it was running at"
+        )
+
     def test_suspending_and_ending_still_use_their_own_acts(self):
         service = self.offering("CQ6", scope="Customer")
         held = self.running(service, 5)
@@ -3242,3 +3271,227 @@ class TestCarryingOutAQuantityChangeOnACompanyService(ExecutionCase):
         self.assertEqual(
             flt_round(held_now.quantity), 5.0, "a suspended service is still five of it"
         )
+
+
+class TestAQuantityChangeHasToNameAQuantity(ExecutionCase):
+    """The refusals, which are the whole point of asking for a quantity.
+
+    Written after a review found the guard comparing an operation's *definition* against
+    its *code* — always unequal, so the validator returned before doing anything and
+    every one of these payloads was accepted. The happy paths passed throughout, which is
+    exactly why a guard needs tests that make it say no.
+    """
+
+    def running(self, service, quantity=5):
+        return self.track(
+            ASSIGNMENT,
+            ServiceLifecycleService.activate(
+                customer=self.customer,
+                service_item=service,
+                target_scope="Customer",
+                effective_date="2026-01-01",
+                quantity=quantity,
+            )["name"],
+        )
+
+    def change_line(self, service, held, **fields):
+        return self.line(
+            service,
+            action="Change",
+            target_scope="Customer",
+            client_user=None,
+            source_service_assignment=held,
+            **fields,
+        )
+
+    def test_a_change_naming_no_quantity_is_refused(self):
+        service = self.offering("CR1", scope="Customer")
+        held = self.running(service)
+
+        with self.assertRaises(frappe.ValidationError) as refused:
+            self.approved(self.change_line(service, held, requested_quantity=None))
+
+        self.assertIn("how much", str(refused.exception).lower())
+
+    def test_a_change_to_the_quantity_it_already_runs_at_is_refused(self):
+        service = self.offering("CR2", scope="Customer")
+        held = self.running(service, 5)
+
+        with self.assertRaises(frappe.ValidationError) as refused:
+            self.approved(self.change_line(service, held, requested_quantity=5))
+
+        self.assertIn("already runs", str(refused.exception).lower())
+
+    def test_a_change_to_none_of_it_is_refused(self):
+        service = self.offering("CR3", scope="Customer")
+        held = self.running(service)
+
+        with self.assertRaises(frappe.ValidationError):
+            self.approved(self.change_line(service, held, requested_quantity=0))
+
+    def test_a_change_to_less_than_none_is_refused(self):
+        service = self.offering("CR4", scope="Customer")
+        held = self.running(service)
+
+        with self.assertRaises(frappe.ValidationError):
+            self.approved(self.change_line(service, held, requested_quantity=-2))
+
+    def test_a_change_naming_no_assignment_is_refused(self):
+        service = self.offering("CR5", scope="Customer")
+        self.running(service)
+
+        with self.assertRaises(frappe.ValidationError):
+            self.approved(
+                self.line(
+                    service,
+                    action="Change",
+                    target_scope="Customer",
+                    client_user=None,
+                    requested_quantity=8,
+                )
+            )
+
+    def test_the_refusal_reads_the_assignment_and_not_what_was_sent(self):
+        """A draft built against a stale screen must not pass because it says 5 itself."""
+        service = self.offering("CR6", scope="Customer")
+        held = self.running(service, 5)
+        frappe.db.set_value(ASSIGNMENT, held, "quantity", 8)
+        frappe.db.commit()
+
+        with self.assertRaises(frappe.ValidationError) as refused:
+            self.approved(self.change_line(service, held, requested_quantity=8))
+
+        self.assertIn("already runs", str(refused.exception).lower())
+
+    def test_moving_the_period_onto_another_service_names_no_quantity(self):
+        """The same act also changes *what* is provided, and that one is not a quantity.
+
+        The requirement asks for a different quantity only when the quantity is the whole
+        of what is being changed. A guard that demanded one on every change refused a
+        service swap the product has always allowed.
+        """
+        service = self.offering("CR8", scope="Customer")
+        other = self.offering("CR9", scope="Customer")
+        held = self.running(service)
+
+        request = self.approved(
+            self.change_line(service, held, requested_service=other)
+        )
+
+        row = frappe.get_all(
+            "MSP Request Line",
+            filters={"parent": request},
+            fields=["requested_service", "requested_quantity"],
+        )[0]
+
+        self.assertEqual(row.requested_service, other)
+        # a child row's Float holds 0 for a quantity nobody named: the framework cannot
+        # keep the difference, so what is asserted is that none was asked for
+        self.assertFalse(row.requested_quantity)
+
+    def test_a_quantity_change_on_a_persons_service_is_refused(self):
+        """The builder offers it on the company's own services; a payload may say anything.
+
+        Found by review: the scope was held by the card alone, so a crafted line naming a
+        person-scoped assignment got a quantity through both guards and would have opened
+        a person's period at that quantity.
+        """
+        personal = self.offering("CR10", scope="User")
+        held = self.track(
+            ASSIGNMENT,
+            ServiceLifecycleService.activate(
+                customer=self.customer,
+                service_item=personal,
+                target_scope="User",
+                client_user=self.john,
+                effective_date="2026-01-01",
+            )["name"],
+        )
+
+        with self.assertRaises(frappe.ValidationError) as refused:
+            self.approved(
+                self.line(
+                    personal,
+                    action="Change",
+                    source_service_assignment=held,
+                    requested_quantity=3,
+                )
+            )
+
+        self.assertIn("company itself", str(refused.exception))
+
+    def test_an_ordinary_add_still_means_one_of_it(self):
+        """The refusals are the quantity change's own; nothing else acquires them."""
+        service = self.offering("CR7", scope="User")
+        request = self.approved(self.line(service))
+
+        row = frappe.get_all(
+            "MSP Request Line", filters={"parent": request}, fields=["requested_quantity"]
+        )[0]
+
+        self.assertEqual(flt_round(row.requested_quantity), 1.0)
+
+
+class TestWhatIsRunningTodayAndWhatIsWaitingForItsDay(CustomerScopeCase):
+    """A dated change leaves two periods for one service, and only one of them is today's.
+
+    The old one ends on a day still to come; the replacement starts on that day. Both
+    answered "what is running", and whichever the database happened to return last won —
+    so a company still being provided five of something could be shown as running eight,
+    with acts offered against a period that has not begun.
+    """
+
+    def running(self):
+        from nexgen_msp.api.portal.services import request_scope_service
+
+        return request_scope_service._company_open(self.customer)[self.retainer]
+
+    def test_the_lifecycle_refuses_to_date_a_change_into_the_future(self):
+        """Which is why the two periods below are arranged by hand and not asked for."""
+        held = self.open_one(quantity=5)
+        later = frappe.utils.add_days(frappe.utils.today(), 10)
+
+        with self.assertRaises(ServiceRefused):
+            ServiceLifecycleService.change(
+                assignment=held, effective_date=later, quantity=8
+            )
+
+    def test_a_period_that_has_not_begun_is_not_what_is_running(self):
+        """Arranged directly, because the lifecycle refuses to date one into the future."""
+        from nexgen_msp.api.portal.services import request_scope_service
+
+        held = self.open_one(quantity=8)
+        later = frappe.utils.add_days(frappe.utils.today(), 10)
+        frappe.db.set_value(ASSIGNMENT, held, "effective_start_date", later)
+        frappe.db.commit()
+
+        self.assertNotIn(
+            self.retainer, request_scope_service._company_open(self.customer)
+        )
+
+    def test_a_period_closed_for_a_day_to_come_still_says_so(self):
+        held = self.open_one(quantity=5)
+        later = frappe.utils.add_days(frappe.utils.today(), 10)
+        frappe.db.set_value(
+            ASSIGNMENT, held, {"operational_status": "Ended", "effective_end_date": later}
+        )
+        frappe.db.commit()
+
+        reads = self.running()
+
+        self.assertEqual(reads["assignment"], held)
+        self.assertEqual(reads["status"], "Active")
+        self.assertTrue(reads["dated_change"])
+
+    def test_the_replacement_becomes_what_is_running_once_its_day_has_come(self):
+        held = self.open_one(quantity=5)
+        ServiceLifecycleService.change(
+            assignment=held, effective_date=frappe.utils.today(), quantity=8
+        )
+        frappe.db.commit()
+
+        reads = self.running()
+
+        self.assertNotEqual(reads["assignment"], held)
+        self.assertEqual(flt_round(reads["quantity"]), 8.0)
+        self.assertFalse(reads["dated_change"])
