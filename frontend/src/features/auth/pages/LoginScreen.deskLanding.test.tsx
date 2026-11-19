@@ -49,7 +49,7 @@ describe('sign-in applies the server Desk landing', () => {
     show();
     fireEvent.change(screen.getByLabelText('Email or username'), { target: { value: deskSession.user } });
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'password' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Login' }));
     await screen.findByText('Enter your code');
     fireEvent.change(screen.getAllByRole('textbox')[0], { target: { value: '123456' } });
     await waitFor(() => expect(assign).toHaveBeenCalledWith('/app'));

@@ -2,9 +2,12 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, Navigate, useLocation } from 'react-router-dom';
 import {
   AlertCircleIcon,
+  ArrowRightIcon,
   EyeIcon,
   EyeClosed,
+  LockIcon,
   ShieldCheckIcon,
+  UserCircleIcon,
 } from 'lucide-react';
 import { FrappeError } from '@/lib/api/client';
 import { completeLogin, preLogin } from '@/lib/api/auth2fa';
@@ -19,10 +22,12 @@ import TwoFactorChallenge from '../components/TwoFactorChallenge';
 import TwoFactorSetup from '../components/TwoFactorSetup';
 
 
-const EYEBROW = 'WELCOME BACK';
-const FORM_HEADER = 'Sign in';
-const FORM_DESCRIPTION =
-  'Use your Nexgen account to access your users, devices, services and requests.';
+const FORM_HEADER = 'Login';
+
+const inputClass =
+  'w-full rounded-lg border border-gray-300 bg-white/90 py-3.5 pl-12 text-sm text-slate-900 transition-all duration-200 placeholder:text-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 focus:outline-hidden';
+const iconClass = (filled: boolean) =>
+  `pointer-events-none absolute top-1/2 left-4 h-5 w-5 -translate-y-1/2 ${filled ? 'text-blue-500' : 'text-gray-400'}`;
 
 
 export default function LoginScreen() {
@@ -187,9 +192,9 @@ export default function LoginScreen() {
 
             {step === 'credentials' && (
             <>
-            <AuthHeading eyebrow={EYEBROW} title={FORM_HEADER} description={FORM_DESCRIPTION} />
+            <AuthHeading title={FORM_HEADER} />
 
-            <form className="mt-8 space-y-4" onSubmit={handleLogin}>
+            <form className="mt-6 space-y-5" onSubmit={handleLogin}>
               {notice && (
                 <div className="flex items-start gap-2.5 rounded-xl bg-emerald-50 p-3 text-emerald-800">
                   <ShieldCheckIcon className="mt-0.5 h-4 w-4 shrink-0" />
@@ -207,13 +212,11 @@ export default function LoginScreen() {
                 </div>
               )}
 
-              <div>
-                <label
-                  htmlFor="username"
-                  className="ui-label"
-                >
+              <div className="relative">
+                <label htmlFor="username" className="sr-only">
                   Email or username
                 </label>
+                <UserCircleIcon aria-hidden className={iconClass(Boolean(credentials.username))} />
                 <input
                   id="username"
                   type="text"
@@ -221,49 +224,43 @@ export default function LoginScreen() {
                   autoComplete="username"
                   autoFocus
                   required
+                  placeholder="Enter your username"
                   value={credentials.username}
                   onChange={handleChange}
-                  className="ui-input"
+                  className={`${inputClass} pr-4`}
                 />
               </div>
 
-              <div>
-                <label
-                  htmlFor="password"
-                  className="ui-label"
-                >
+              <div className="relative">
+                <label htmlFor="password" className="sr-only">
                   Password
                 </label>
-                <div className="relative">
-                  <input
-                    id="password"
-                    type={showPassword ? 'text' : 'password'}
-                    name="password"
-                    autoComplete="current-password"
-                    required
-                    value={credentials.password}
-                    onChange={handleChange}
-                    className="ui-input pr-12"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    aria-label={showPassword ? 'Hide password' : 'Show password'}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-2 text-zinc-400 transition-colors hover:text-ink"
-                  >
-                    {showPassword ? (
-                      <EyeClosed className="h-4 w-4" />
-                    ) : (
-                      <EyeIcon className="h-4 w-4" />
-                    )}
-                  </button>
-                </div>
+                <LockIcon aria-hidden className={iconClass(Boolean(credentials.password))} />
+                <input
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  name="password"
+                  autoComplete="current-password"
+                  required
+                  placeholder="Enter your password"
+                  value={credentials.password}
+                  onChange={handleChange}
+                  className={`${inputClass} pr-12`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  className="absolute top-1/2 right-4 -translate-y-1/2 rounded-full bg-gray-50 p-1 text-gray-400 transition-colors hover:text-gray-600"
+                >
+                  {showPassword ? <EyeClosed className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />}
+                </button>
               </div>
 
               <div className="flex justify-end">
                 <Link
                   to="/msp/forgot-password"
-                  className="ui-link text-[13px]"
+                  className="text-xs font-semibold text-blue-600 transition-colors hover:text-blue-800"
                 >
                   Forgot password?
                 </Link>
@@ -272,12 +269,16 @@ export default function LoginScreen() {
               <button
                 type="submit"
                 disabled={loginLoading}
-                className="ui-btn-primary w-full"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-linear-to-br from-blue-600 to-blue-800 px-6 py-4 text-white
+                  shadow-lg transition-all duration-300 hover:scale-[1.01] hover:shadow-blue-200/50 disabled:cursor-not-allowed disabled:opacity-80"
               >
                 {loginLoading ? (
                   <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
                 ) : (
-                  <span>Sign in</span>
+                  <>
+                    <ArrowRightIcon className="h-5 w-5" />
+                    <span className="font-semibold">Login</span>
+                  </>
                 )}
               </button>
             </form>
