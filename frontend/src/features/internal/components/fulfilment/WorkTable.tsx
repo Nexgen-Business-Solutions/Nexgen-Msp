@@ -7,6 +7,7 @@ import {
   compactBadge,
   prerequisiteButton,
   primaryButton,
+  quantityLine,
   resolvedLine,
   STATUS_TONE,
   statusBadge,
@@ -146,6 +147,7 @@ const WorkTable: React.FC<Props> = ({
           const menu = workRowMenu(card, people, onIntent);
           const error = errors[card.name] ?? (card.display_status === 'Failed' ? card.failure_reason : null);
           const relation = card.relationship;
+          const quantity = quantityLine(card);
           const waiting = waitsFor(card, entities);
           const prerequisite =
             card.prerequisite_action && !ROW_PREPARED_KINDS.includes(card.prerequisite_action.kind)
@@ -191,6 +193,7 @@ const WorkTable: React.FC<Props> = ({
                   )}
                 </p>
                 {group?.scope_label && <p className="mt-0.5 text-[11px] text-slate-500">{group.scope_label}</p>}
+                {quantity && <p className="mt-0.5 text-[11px] text-slate-500">{quantity}</p>}
               </td>
               <td className="px-3 py-2.5 align-middle text-xs text-slate-700">
                 {waiting ?? card.dependency_label ?? '—'}

@@ -132,6 +132,92 @@ describe('work held by the company itself on the Execute screen', () => {
     expect(screen.getByRole('heading', { name: 'Acme Corp' })).toBeTruthy();
   });
 
+  it('reads a quantity decrease, an increase and an addition under the action', () => {
+    show(
+      plan([
+        companyCard({
+          name: 'WO-DOWN',
+          operation_code: 'service.change',
+          source_service_assignment: 'SA-1',
+          requested_quantity: 8,
+          current: { quantity: 10 } as WorkCard['current'],
+          primary_action: { operation_code: 'service.change', label: 'Change service', enabled: true },
+        }),
+        companyCard({
+          name: 'WO-UP',
+          operation_code: 'service.change',
+          source_service_assignment: 'SA-1',
+          requested_quantity: 12,
+          current: { quantity: 10 } as WorkCard['current'],
+          primary_action: { operation_code: 'service.change', label: 'Change service', enabled: true },
+        }),
+        companyCard({ name: 'WO-ADD', requested_quantity: 8 }),
+      ])
+    );
+
+    const down = document.querySelector('[data-work-order="WO-DOWN"]') as HTMLElement;
+    const up = document.querySelector('[data-work-order="WO-UP"]') as HTMLElement;
+    const added = document.querySelector('[data-work-order="WO-ADD"]') as HTMLElement;
+
+    expect(within(down).getByText('Qty: 10 \u2192 8 (\u22122)')).toBeTruthy();
+    expect(within(up).getByText('Qty: 10 \u2192 12 (+2)')).toBeTruthy();
+    expect(within(added).getByText('Qty: 8')).toBeTruthy();
+    expect(document.querySelectorAll('[data-work-order]')).toHaveLength(3);
+    expect(within(down).getByRole('button', { name: 'Change service' })).toBeTruthy();
+  });
+
+  it('says nothing about a quantity where none was asked for', () => {
+    show(
+      plan([
+        companyCard({ name: 'WO-SUSPEND', operation_code: 'service.suspend', requested_quantity: null }),
+        companyCard({
+          name: 'WO-MOVE',
+          operation_code: 'service.change',
+          source_service_assignment: 'SA-1',
+          requested_quantity: null,
+          current: { quantity: 10 } as WorkCard['current'],
+        }),
+        companyCard({
+          name: 'WO-UNKNOWN',
+          operation_code: 'service.change',
+          source_service_assignment: 'SA-1',
+          requested_quantity: 8,
+          current: null,
+        }),
+      ])
+    );
+
+    expect(screen.queryByText(/Qty:/)).toBeNull();
+    expect(screen.queryByText(/NaN/)).toBeNull();
+  });
+
+  it('leaves a person\u2019s and a machine\u2019s work as it was', () => {
+    const deviceCard = companyCard({
+      name: 'WO-D',
+      target_scope: 'Device',
+      subject_key: 'device:DEV-1',
+      managed_device: 'DEV-1',
+      requested_quantity: 8,
+      current: { quantity: 10 } as WorkCard['current'],
+      target: { kind: 'managed_device', name: 'DEV-1', requested_entity: null, label: 'Laptop 7', sublabel: null, badge: null },
+    });
+
+    show(plan([userCard()]));
+
+    const person = document.querySelector('[data-work-order="WO-U"]') as HTMLElement;
+
+    expect(within(person).queryByText(/Qty:/)).toBeNull();
+    expect(within(person).getByText('John Doe')).toBeTruthy();
+    cleanup();
+
+    show(plan([deviceCard]));
+
+    const machine = document.querySelector('[data-work-order="WO-D"]') as HTMLElement;
+
+    expect(within(machine).queryByText(/Qty:/)).toBeNull();
+    expect(within(machine).getByText('Laptop 7')).toBeTruthy();
+  });
+
   it('offers nothing person-only or machine-only on a company row', () => {
     const open = vi.fn();
 

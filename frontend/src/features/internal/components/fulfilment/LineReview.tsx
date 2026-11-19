@@ -15,6 +15,7 @@ import {
 } from '../../hooks/useRequests';
 import PersonHeader from './PersonHeader';
 import { btnAccept, btnPrimary, btnReject, warnBar } from '../../lib/fulfilmentStyles';
+import { askedQuantity } from '../../lib/workDisplay';
 
 type Props = {
   request: RequestDetail;
@@ -139,8 +140,10 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
 
   const targetControls = (target: RequestTargetPresentation) => {
     const rate = check(target.line_idx);
+    const quantity = askedQuantity(lines.find((line) => line.idx === target.line_idx));
     return (
       <>
+        {quantity && <span className="w-full text-xs font-semibold text-slate-700">{quantity}</span>}
         {rate && (rate.priced || rate.duplicate) && (
           <span className={`w-full text-xs ${rate.priced ? 'text-slate-500' : 'text-amber-700'}`}>
             {rate.priced

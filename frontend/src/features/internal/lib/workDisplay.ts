@@ -2,6 +2,7 @@ import type {
   ActionWorkGroup,
   ExecutionPerson,
   ExecutionPlan,
+  RequestDetailLine,
   WorkCard,
   WorkDisplayStatus,
   WorkRequirement,
@@ -196,6 +197,45 @@ const RESOLVED_NOTE: Record<string, string> = {
   'client_user:Use Existing': 'Existing Client User selected',
   'device:Register New': 'Registered during fulfilment',
   'device:Use Existing': 'Existing Device selected',
+};
+
+const amount = (value: number) => String(Number(value.toFixed(6)));
+
+const QUANTITY_CODES = ['service.add', 'service.change'];
+
+/** How much of a company service a request line asks for, where a line says so. */
+export const askedQuantity = (line: RequestDetailLine | undefined) => {
+  if (!line || line.target_scope !== 'Customer') return null;
+  if (!QUANTITY_CODES.includes(line.operation_code ?? '')) return null;
+
+  const asked = line.requested_quantity;
+
+  if (typeof asked !== 'number' || !Number.isFinite(asked) || asked <= 0) return null;
+
+  return `${line.operation_code === 'service.change' ? 'New qty' : 'Qty'}: ${amount(asked)}`;
+};
+
+/** What a company-scoped order does to the quantity, when a quantity is what it asks. */
+export const quantityLine = (card: WorkCard) => {
+  if (card.target_scope !== 'Customer') return null;
+
+  const asked = card.requested_quantity;
+
+  if (typeof asked !== 'number' || !Number.isFinite(asked)) return null;
+
+  if (card.operation_code === 'service.add') return `Qty: ${amount(asked)}`;
+
+  if (card.operation_code !== 'service.change') return null;
+
+  const running = card.current?.quantity;
+
+  if (typeof running !== 'number' || !Number.isFinite(running)) return null;
+
+  const delta = Number((asked - running).toFixed(6));
+
+  if (!delta) return null;
+
+  return `Qty: ${amount(running)} \u2192 ${amount(asked)} (${delta > 0 ? '+' : '\u2212'}${amount(Math.abs(delta))})`;
 };
 
 export const resolvedLine = (entity: RequestedEntityPresentation) => {
