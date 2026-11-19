@@ -208,7 +208,7 @@ describe('asking for a different quantity of a company service', () => {
     render(<RequestActionsStep builder={builder()} />);
 
     expect(screen.getByLabelText('How much of Cloud Storage')).toHaveValue(5);
-    expect(screen.getByText(/Running 5 TB/)).toBeInTheDocument();
+    expect(screen.getByText(/Running 5/)).toBeInTheDocument();
   });
 
   it('offers Update beside Suspend and End', () => {
@@ -230,10 +230,10 @@ describe('asking for a different quantity of a company service', () => {
     const input = screen.getByLabelText('How much of Cloud Storage');
 
     fireEvent.change(input, { target: { value: '8' } });
-    expect(screen.getByText('Increase by 3 TB')).toBeInTheDocument();
+    expect(screen.getByText('Increase by 3')).toBeInTheDocument();
 
     fireEvent.change(input, { target: { value: '3' } });
-    expect(screen.getByText('Decrease by 2 TB')).toBeInTheDocument();
+    expect(screen.getByText('Decrease by 2')).toBeInTheDocument();
   });
 
   it('will not ask for the quantity it already runs at', () => {

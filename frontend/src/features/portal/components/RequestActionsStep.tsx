@@ -1413,7 +1413,6 @@ const CompanyServices: React.FC<{
               const quantity = Number(typed);
               const impossible = !Number.isFinite(quantity) || quantity <= 0;
               const delta = running === null ? null : quantity - running;
-              const unit = card.quantity_uom ? ` ${card.quantity_uom}` : '';
 
               return (
                 <tr key={card.object_key}>
@@ -1427,7 +1426,6 @@ const CompanyServices: React.FC<{
                     {running !== null && (
                       <p className="mb-1 text-[11px] text-slate-500">
                         Running {running}
-                        {unit}
                       </p>
                     )}
                     {card.current_count && running === null ? (
@@ -1450,7 +1448,7 @@ const CompanyServices: React.FC<{
                         />
                         {delta === null ? (
                           <p className="mt-0.5 text-[10px] text-slate-500">
-                            In the unit it is sold in
+                            How many are wanted
                           </p>
                         ) : impossible ? (
                           <p className="mt-0.5 text-[10px] font-semibold text-red-700">
@@ -1463,7 +1461,6 @@ const CompanyServices: React.FC<{
                         ) : (
                           <p className="mt-0.5 text-[10px] font-semibold text-slate-700">
                             {delta > 0 ? 'Increase' : 'Decrease'} by {Math.abs(delta)}
-                            {unit}
                           </p>
                         )}
                       </>
