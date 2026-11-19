@@ -11,7 +11,6 @@
   "author_user",
   "author_name",
   "author_side",
-  "author_role",
   "body",
   "idempotency_key",
   "notified"
@@ -46,11 +45,6 @@
    "label": "Author Side",
    "options": "MSP\nCustomer",
    "reqd": 1
-  },
-  {
-   "fieldname": "author_role",
-   "fieldtype": "Data",
-   "label": "Author Role"
   },
   {
    "fieldname": "body",

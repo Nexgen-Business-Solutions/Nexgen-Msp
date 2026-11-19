@@ -493,9 +493,9 @@ class TestANotificationThatNeverLeftIsStillOwed(CommentCase):
 
 
 class TestWhoWroteItIsSaidByTheirRole(CommentCase):
-    """The screens name roles; a conversation names the role somebody wrote under."""
+    """The role is read from the account, and the highest one is what somebody is."""
 
-    def test_the_role_is_written_down_with_the_message(self):
+    def test_each_side_is_named_by_the_role_its_author_holds(self):
         name = self.approved(self.awaiting())
 
         self.post(self.tech, name, "From our side.")
@@ -506,20 +506,25 @@ class TestWhoWroteItIsSaidByTheirRole(CommentCase):
         self.assertEqual([row["role"] for row in read], ["MSP Technician", "MSP Customer Manager"])
         self.assertEqual([row["side"] for row in read], ["MSP", "Customer"])
 
-    def test_an_account_is_named_by_the_msp_role_it_holds(self):
-        """Including the builtin one, which holds MSP System Admin on a working site."""
+    def test_an_account_holding_two_roles_is_named_by_the_higher_one(self):
         name = self.approved(self.awaiting())
-        written = self.as_user(
-            "Administrator",
-            lambda: RequestCommentService.post(
-                request=name,
-                body="From the console.",
-                idempotency_key=frappe.generate_hash(length=12),
-            ),
-        )
-        self.written.append(written["name"])
+        frappe.get_doc("User", self.tech).add_roles("MSP System Admin")
+        frappe.db.commit()
+
+        written = self.post(self.tech, name, "Both roles at once.")
 
         self.assertEqual(written["role"], "MSP System Admin")
+
+    def test_a_role_granted_after_the_message_is_what_is_read(self):
+        """Nothing is copied beside the message, so nothing can be out of date."""
+        name = self.approved(self.awaiting())
+        written = self.post(self.tech, name, "Written as a technician.")
+
+        frappe.get_doc("User", self.tech).add_roles("MSP System Admin")
+        frappe.db.commit()
+
+        self.assertEqual(self.thread(self.tech, name)["comments"][0]["role"], "MSP System Admin")
+        self.assertEqual(written["role"], "MSP Technician")
 
     def test_the_mail_says_the_same_role(self):
         name = self.approved(self.awaiting())

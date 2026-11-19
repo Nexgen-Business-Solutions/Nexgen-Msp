@@ -88,6 +88,7 @@ class RequestCommentService:
     def thread(request=None):
         """Every message on this request, oldest first, with who may add to it."""
         doc, side = RequestCommentService._reader(request)
+        seen = {}
 
         return {
             "request": doc.name,
@@ -97,7 +98,7 @@ class RequestCommentService:
             "may_post": doc.status != COMPLETED,
             "awaiting_customer_approval": doc.status == CUSTOMER_APPROVAL,
             "comments": [
-                RequestCommentService._card(row)
+                RequestCommentService._card(row, seen)
                 for row in frappe.get_all(
                     COMMENT,
                     filters={"request": doc.name},
@@ -106,7 +107,6 @@ class RequestCommentService:
                         "author_user",
                         "author_name",
                         "author_side",
-                        "author_role",
                         "body",
                         "creation",
                     ],
@@ -117,35 +117,49 @@ class RequestCommentService:
         }
 
     @staticmethod
-    def _card(row):
+    def _card(row, seen=None):
+        """One message as a reader sees it, named by the role of whoever wrote it.
+
+        The role is read from the account, never copied beside the message: there is one
+        place that says what somebody is, and a second copy of it would be wrong the day
+        it changes.
+        """
+        seen = {} if seen is None else seen
+
+        if row["author_user"] not in seen:
+            seen[row["author_user"]] = RequestCommentService._role_of(row["author_user"])
+
         return {
             "name": row["name"],
             "author": row["author_user"],
             "author_name": row["author_name"] or row["author_user"],
             "side": row["author_side"],
-            "role": row.get("author_role"),
+            "role": seen[row["author_user"]],
             "body": row["body"],
             "created_at": str(row["creation"]),
         }
 
+    # what somebody is, when they hold several: an account with both Technician and System
+    # Admin is a System Admin, the way the person themselves would answer the question
+    ROLES = (
+        "MSP System Admin",
+        "MSP Technician",
+        "MSP Customer Manager",
+        "MSP Customer Operator",
+    )
+
     @staticmethod
     def _role_of(user):
-        """The role this person wrote under, named as every other screen names roles.
-
-        Written down with the message rather than read back later: roles change, and a
-        conversation says who somebody was when they said it.
-        """
+        """The highest role this account holds, read from the account itself."""
         from nexgen_msp.utils import access
 
         held = access.roles(user)
 
-        for role in access.STAFF_ROLES + access.CUSTOMER_ROLES:
+        for role in RequestCommentService.ROLES:
             if role in held:
                 return role
 
-        # the built-in account holds none of our roles and is still somebody: it says what
-        # it is rather than a label that is not a role at all
-        return "Administrator" if access.is_administrator(user) else None
+        return None
 
     # ------------------------------------------------------------------ writing
     @staticmethod
@@ -194,7 +208,6 @@ class RequestCommentService:
                 "author_user": author,
                 "author_name": frappe.db.get_value("User", author, "full_name") or author,
                 "author_side": side,
-                "author_role": RequestCommentService._role_of(author),
                 "body": text,
                 "idempotency_key": key,
             }
@@ -300,7 +313,7 @@ class RequestCommentService:
         row = frappe.db.get_value(
             COMMENT,
             name,
-            ["name", "author_user", "author_name", "author_side", "author_role", "body", "creation"],
+            ["name", "author_user", "author_name", "author_side", "body", "creation"],
             as_dict=True,
         )
 
@@ -364,7 +377,9 @@ class RequestCommentService:
 
     @staticmethod
     def _context(doc, comment):
-        side = comment.author_role or ("Nexgen MSP" if comment.author_side == MSP else "Customer")
+        side = RequestCommentService._role_of(comment.author_user) or (
+            "Nexgen MSP" if comment.author_side == MSP else "Customer"
+        )
 
         return {
             "request": doc.name,
