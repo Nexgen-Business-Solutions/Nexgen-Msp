@@ -534,3 +534,67 @@ class TestWhoWroteItIsSaidByTheirRole(CommentCase):
         )
 
         self.assertEqual(context["author_side"], "MSP Technician")
+
+
+class TestARetrySaysItOnceMore(CommentCase):
+    """A send that fell over halfway is finished, not started again from the top."""
+
+    def test_an_address_already_handed_over_is_not_written_to_twice(self):
+        name = self.approved(self.awaiting())
+
+        with patch.object(notifications, "send", return_value=False):
+            written = self.post(self.tech, name, "Half of it went out.")
+
+        # what the first attempt did reach, as the dispatch history holds it
+        from nexgen_msp.api.internal.services.notification_dispatch_service import (
+            NotificationDispatchService,
+        )
+
+        NotificationDispatchService.record_event(
+            rule_key="request_comment_for_customer",
+            revision=1,
+            recipient=self.asker,
+            channel="To",
+            template_name="MSP Request Comment For Customer",
+            subject="[MSP Request] New comment",
+            occurrence=f"event:comment:{written['name']}",
+            queue_id=None,
+            business_doctype=REQUEST,
+            business_name=name,
+        )
+        frappe.db.commit()
+        before = self.queued_to(self.asker)
+
+        RequestCommentService.deliver_owed()
+
+        self.assertEqual(self.queued_to(self.asker), before)
+
+    def test_a_message_older_than_a_day_is_still_owed_its_notification(self):
+        name = self.approved(self.awaiting())
+
+        with patch.object(notifications, "send", return_value=False):
+            written = self.post(self.tech, name, "An outage that lasted.")
+
+        frappe.db.set_value(
+            COMMENT,
+            written["name"],
+            "creation",
+            frappe.utils.add_to_date(frappe.utils.now(), days=-5),
+            update_modified=False,
+        )
+        frappe.db.commit()
+        before = self.queued_to(self.asker)
+
+        RequestCommentService.deliver_owed()
+
+        self.assertGreater(self.queued_to(self.asker), before)
+
+
+class TestWhenItWasWrittenIsAnInstant(CommentCase):
+    def test_the_time_carries_the_offset_it_was_written_at(self):
+        name = self.approved(self.awaiting())
+        self.post(self.tech, name, "Timed.")
+
+        written = self.thread(self.tech, name)["comments"][0]["created_at"]
+
+        self.assertRegex(written, r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.*(\+|-)\d{2}:\d{2}$")

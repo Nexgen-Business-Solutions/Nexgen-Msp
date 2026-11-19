@@ -136,7 +136,7 @@ class RequestCommentService:
             "side": row["author_side"],
             "role": seen[row["author_user"]],
             "body": row["body"],
-            "created_at": str(row["creation"]),
+            "created_at": RequestCommentService._instant(row["creation"]),
         }
 
     # what somebody is, when they hold several: an account with both Technician and System
@@ -147,6 +147,22 @@ class RequestCommentService:
         "MSP Customer Manager",
         "MSP Customer Operator",
     )
+
+    @staticmethod
+    def _instant(value):
+        """When it was written, as an instant and not as a reading of somebody's clock.
+
+        The database keeps the site's own time with nothing said about which that is, so a
+        reader in another country saw their own hour on somebody else's message.
+        """
+        from zoneinfo import ZoneInfo
+
+        moment = frappe.utils.get_datetime(value)
+
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=ZoneInfo(frappe.utils.get_system_timezone()))
+
+        return moment.isoformat()
 
     @staticmethod
     def _role_of(user):
@@ -270,14 +286,11 @@ class RequestCommentService:
         identified by the comment itself, so the queue recognises one it already holds and
         nobody is written to twice.
         """
-        # a day is the bound: beyond it the audit already says why nobody was written to,
-        # and retrying for ever would be a queue of its own
+        # no age cuts a message off from the notification it is owed: an outage that lasts
+        # a week ends with the week's messages told, not with them quietly dropped
         owed = frappe.get_all(
             COMMENT,
-            filters={
-                "notified": 0,
-                "creation": (">", frappe.utils.add_to_date(frappe.utils.now(), days=-1)),
-            },
+            filters={"notified": 0},
             fields=["name", "request"],
             order_by="creation asc",
             limit_page_length=limit,
@@ -353,8 +366,27 @@ class RequestCommentService:
             reference_name=doc.name,
             occurrence=f"comment:{comment.name}",
             # nobody is told about their own comment, including by a copy policy that
-            # happens to resolve to them
-            exclude=[comment.author_user],
+            # happens to resolve to them — nor anybody a previous attempt at this same
+            # comment already handed to the queue, which is what makes a retry a retry
+            exclude=[comment.author_user, *RequestCommentService._already_told(comment)],
+        )
+
+    @staticmethod
+    def _already_told(comment):
+        """Addresses an earlier attempt at this comment already handed to the mail queue.
+
+        A send that fell over halfway leaves the first messages queued and the rest owed.
+        Only a delivery that certainly never left is tried again: an unconfirmed one may
+        well be sitting in the queue, and sending it twice to find out is how one message
+        becomes two.
+        """
+        return frappe.get_all(
+            "MSP Notification Dispatch",
+            filters={
+                "event_occurrence_key": f"event:comment:{comment.name}",
+                "status": ("!=", "Failed"),
+            },
+            pluck="recipient",
         )
 
     @staticmethod
