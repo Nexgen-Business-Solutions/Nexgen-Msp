@@ -723,16 +723,19 @@ class NotificationReminderService:
         channels = NotificationReminderService._channels(current, doc, iteration)
         context = NotificationReminderService._context(declared, doc, adapter)
         sent = skipped = 0
-        # the copies of this iteration, carried by the first message that actually reaches
-        # the queue. One iteration is one business event, so a rule with two direct
-        # recipients owes its copied addresses one mail and not two
-        copies = {"cc": channels["cc"], "bcc": channels["bcc"]}
+        # the copies of this iteration, each riding the message written in the language
+        # that address would have chosen. One iteration is one business event, so a rule
+        # with two direct recipients owes its copied addresses one mail and not two
+        owed = {"cc": list(channels["cc"]), "bcc": list(channels["bcc"])}
+        addresses = list(channels["to"])
 
-        if (copies["cc"] or copies["bcc"]) and not channels["to"]:
-            NotificationReminderService._nobody_direct(declared, current, adapter, doc, copies)
+        if (owed["cc"] or owed["bcc"]) and not addresses:
+            NotificationReminderService._nobody_direct(declared, current, adapter, doc, owed)
 
-        for address in channels["to"]:
-            carried = copies
+        for index, address in enumerate(addresses):
+            carried = NotificationReminderService._copies_for(
+                address, doc, owed, last=index == len(addresses) - 1
+            )
 
             outcome = NotificationDispatchService.deliver(
                 declared["rule_key"],
@@ -760,7 +763,10 @@ class NotificationReminderService:
                 # owed: carrying them on after a send nobody can confirm is how one copy
                 # becomes two, and a send nobody can confirm is exactly what Unknown means
                 if outcome.get("reason") not in QUEUED_NOTHING:
-                    copies = {"cc": [], "bcc": []}
+                    for channel in ("cc", "bcc"):
+                        owed[channel] = [
+                            copy for copy in owed[channel] if copy not in carried[channel]
+                        ]
 
                     # the copies stopped here, so this attempt is the whole of what they
                     # were owed and it has to be on the record — whether or not anybody
@@ -778,6 +784,29 @@ class NotificationReminderService:
                         )
 
         return {"sent": sent, "skipped": skipped}
+
+    @staticmethod
+    def _copies_for(address, doc, owed, last):
+        """The copies this message is the right one to carry.
+
+        A copy rides exactly one of the iteration's messages. Riding the one written in
+        the language that address would have chosen is what keeps a French reader from
+        being reminded in English because somebody else was addressed first. What no
+        message of this iteration is written for rides the last one, as it always did,
+        and its line says the wording was not its own.
+        """
+        customer = doc.get("customer")
+        locale = NotificationTemplateService.locale_for(address, customer)["locale"]
+        carried = {"cc": [], "bcc": []}
+
+        for channel in ("cc", "bcc"):
+            for copy in owed[channel]:
+                own = NotificationTemplateService.locale_for(copy, customer)["locale"]
+
+                if own == locale or last:
+                    carried[channel].append(copy)
+
+        return carried
 
     @staticmethod
     def _record_copies(declared, current, adapter, doc, iteration, outcome, carried):

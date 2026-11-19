@@ -50,6 +50,24 @@ def _request_audience(doc):
     return RequestService._people_to_tell(doc)
 
 
+def _work_technicians(doc):
+    """The technicians who carried out this request's work.
+
+    Nothing in this product assigns a request to anybody, so there is nobody to name
+    before the work is done. What can be named is who did it, read from the work orders
+    themselves — which is empty until somebody has.
+    """
+    if not doc.get("name"):
+        return []
+
+    return frappe.get_all(
+        "MSP Work Order",
+        filters={"request": doc.name, "completed_by": ("is", "set")},
+        pluck="completed_by",
+        distinct=True,
+    )
+
+
 def _account_holder(doc):
     """The one account a security or invitation mail is about."""
     return [doc.name] if doc.get("name") else []
@@ -85,6 +103,10 @@ AUDIENCES = {
     "request_audience": {
         "label": "Everyone the request concerns",
         "resolver": _request_audience,
+    },
+    "work_technicians": {
+        "label": "Technicians who carried out the work",
+        "resolver": _work_technicians,
     },
     "account_holder": {"label": "The account holder", "resolver": _account_holder},
     "billing_contact": {"label": "Customer billing contact", "resolver": _billing_contact},
@@ -236,15 +258,16 @@ def rule_label(rule_key, stored=None):
 # listable only where its resolver reads fields the rule's own record has: pointing one at
 # a record that cannot answer it would mail nobody and say nothing about why.
 #
-# There is deliberately no assigned-technician source. Nothing in this product assigns a
-# request to anybody — whoever opens it carries it out — so a resolver for it would be a
-# guess wearing the name of a fact.
+# The technicians a request can name are the ones who carried its work out. Nothing in
+# this product assigns a request to anybody beforehand — whoever opens it carries it out —
+# so a source promising an assigned technician would be a guess wearing the name of a fact.
 REQUEST_SOURCES = (
     "requester",
     "approvers",
     "request_audience",
     "internal",
     "internal_without_requester",
+    "work_technicians",
     "billing_contact",
 )
 

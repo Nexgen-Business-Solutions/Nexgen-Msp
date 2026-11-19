@@ -152,3 +152,52 @@ class TestTheCountIsWhatIsOwed(ReadyToBillCase):
         self.drawn(start=start, end=end)
 
         self.assertEqual(self.owed(start, end), 0)
+
+
+class TestWhatAChargedPeriodLeftBehindIsShownWhateverComesNext(ReadyToBillCase):
+    """A period already charged can owe something while the next one is still far off.
+
+    Ready to bill read the adjustments only for the contracts whose next period was near
+    enough, so a quantity that dropped inside a period paid in advance waited for the
+    following cycle to come into view before anybody was told to give the days back.
+    """
+
+    def setUp(self):
+        super().setUp()
+        frappe.db.set_value(
+            "MSP Contract",
+            self.contract,
+            {"billing_frequency": "Quarterly", "billing_timing": "In Advance"},
+        )
+        charged = self.drawn(
+            start=self.today,
+            end=frappe.utils.add_days(self.today, 90),
+            include=[self.assignment],
+        )
+        frappe.db.set_value("MSP Billing Run", charged, "status", "Invoiced")
+        self.newcomer = self.make_person(self.customer, "Newcomer")
+        self.running(self.service, started=0, client_user=self.newcomer)
+        frappe.db.commit()
+
+    def row(self, horizon):
+        return next(
+            row
+            for row in BillingService.due(horizon_days=horizon)["rows"]
+            if row["customer"] == self.customer
+        )
+
+    def test_the_catch_up_is_read_whether_the_next_period_is_near_or_months_away(self):
+        near, far = self.row(3650), self.row(1)
+
+        self.assertEqual(far["state"], "Scheduled")
+        self.assertGreater(near["catch_up"]["lines"], 0)
+        self.assertEqual(far["catch_up"], near["catch_up"])
+
+    def test_it_is_a_thing_to_do_although_nothing_is_due_yet(self):
+        answer = BillingService.due(horizon_days=1)
+        mine = [
+            action for action in answer["actions"] if action["customer"] == self.customer
+        ]
+
+        self.assertTrue([action for action in mine if action["kind"] == "additions"])
+        self.assertGreater(answer["action_needed"], 0)

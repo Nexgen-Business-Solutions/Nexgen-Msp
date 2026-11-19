@@ -6340,12 +6340,10 @@ class BillingService:
                     "next_period_end": end,
                     "days_left": days_left,
                     "state": state,
-                    # scanning is expensive and only the rows somebody acts on are shown
-                    **(
-                        BillingService.pending_adjustments(row.contract, row.customer)
-                        if state != "Scheduled"
-                        else BillingService._nothing_pending()
-                    ),
+                    # what a charged period left behind is owed whatever the next one does:
+                    # a quantity that dropped inside a period paid in advance has to be
+                    # given back now, not when the following period comes near enough
+                    **BillingService.pending_adjustments(row.contract, row.customer),
                     "billable_assignments": owed_over,
                 }
             )
@@ -6360,7 +6358,15 @@ class BillingService:
             "rows": due,
             # one line per thing to do, which is how the screen reads it
             "actions": BillingService._actions_from(due),
-            "action_needed": len([e for e in due if e["state"] != "Scheduled"]),
+            "action_needed": len(
+                [
+                    e
+                    for e in due
+                    if e["state"] != "Scheduled"
+                    or e["owed_back"]["lines"]
+                    or e["catch_up"]["lines"]
+                ]
+            ),
             # what the last charged period left behind, across every contract
             "catch_up_lines": sum(e["catch_up"]["lines"] for e in due),
             "owed_back_lines": sum(e["owed_back"]["lines"] for e in due),

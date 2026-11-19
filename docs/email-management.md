@@ -119,9 +119,13 @@ concerns, our team or the billing contact; an invoice notice, which names a comp
 requester, can be copied to the billing contact or our team; a notification raised without
 any record at all can only be copied to our team.
 
+A request can also be copied to **the technicians who carried the work out**, read from
+the `completed_by` of its work orders and deduplicated. Before anybody has done anything
+that source names nobody, and the delivery record says so.
+
 There is deliberately **no assigned-technician source**. Nothing in this product assigns a
-request to anybody — whoever opens it carries it out — so a resolver for it would be a
-guess wearing the name of a fact.
+request to anybody in advance — whoever opens it carries it out — so a source promising one
+would be a guess wearing the name of a fact. The technicians above are the fact that exists.
 
 ### What happens at send time
 
@@ -142,10 +146,13 @@ If resolving the copies fails for any reason, the notification still reaches the
 event is about and **every copy is dropped**. The alternative would make the error path a
 way around the refusal to copy a password reset.
 
-On a reminder, the copies ride the first message of that iteration. One iteration is one
-business event, so a rule with two direct recipients owes its copied addresses one mail and
-not two, and a reprise owed to one address sends no copies at all. A rule with copies
-configured and nobody to address directly sends nothing and says so in the audit.
+On a reminder, each copy rides **the message written in its own language**, when the
+iteration wrote one: an audience that does not share a language becomes one message per
+language, and a French copy rides the French one instead of whichever went out first. One
+iteration is still one business event, so a rule with two direct recipients owes its copied
+addresses one mail and not two, and a reprise owed to one address sends no copies at all. A
+rule with copies configured and nobody to address directly sends nothing and says so in the
+audit.
 
 The copies stop travelling as soon as a message **may** have gone out with them. Only an
 outcome that proves the mail queue was never reached leaves them owed — nobody to write to,
@@ -161,9 +168,10 @@ stops the same copy being sent again to find out. The addresses an attempt meant
 are written on its own row before anything is sent, on both the CC and the BCC side, so an
 attempt whose outcome is unknown still says who was on it. When the language that message was
 written in is not the one that address would have chosen, the line says so rather than
-claiming a decision nobody made for them. Writing each copy in its own language would mean
-a separate message per language, which is a product decision about what CC still means on a
-reminder, and this application does not take it on its own.
+claiming a decision nobody made for them. That is still the case for a copy whose language
+no direct recipient of that iteration shares: there is no message in that language for it to
+ride, and giving it one of its own would mean a mail addressed to nobody, which is a product
+decision about what CC means on a reminder rather than a bug to fix here.
 
 Password-reset, portal-invitation and team-invitation notifications cannot be copied or
 redirected at all. The refusal holds in the screen, in the API, on a row written straight

@@ -724,3 +724,64 @@ class TestACustomersContactIsNotAFixedCopy(PolicyCase):
         resolved = self.resolved([f"{PREFIX.lower()}.x{self.tag}@example.invalid"], customer=self.other)
 
         self.assertEqual(resolved["cc"], [alias])
+
+
+class TestTheTechniciansACopyCanName(PolicyCase):
+    """Issue #40 asks for the technician as a copy source; nothing here assigns one.
+
+    What a request can name is who carried its work out, which is nobody until somebody
+    has — so the source answers the work orders and never a guess.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.customer = self.make_customer(f"WT{self.tag[:4]}")
+        self.technician = self.make_account(
+            "internal", "MSP Technician", suffix=f"wt{self.tag[:3]}"
+        )
+        self.request = self.reference("tech")
+        doc = frappe.new_doc(REFERENCE)
+        doc.name = self.request
+        doc.customer = self.customer
+        doc.status = "In Progress"
+        doc.flags.ignore_validate = True
+        doc.flags.ignore_mandatory = True
+        doc.insert(ignore_permissions=True, set_name=self.request)
+        self.order = self.work_order(completed_by=None)
+        frappe.db.commit()
+
+    def work_order(self, completed_by=None):
+        doc = frappe.new_doc("MSP Work Order")
+        doc.request = self.request
+        doc.customer = self.customer
+        doc.work_type = "Service Action"
+        doc.completed_by = completed_by
+        doc.flags.ignore_validate = True
+        doc.flags.ignore_mandatory = True
+        doc.insert(ignore_permissions=True)
+
+        return self.track("MSP Work Order", doc.name)
+
+    def copies(self):
+        self.configure(self.policy("CC", source="work_technicians"))
+
+        return self.resolved(
+            [f"{PREFIX.lower()}.to{self.tag}@example.invalid"],
+            reference=self.request,
+            customer=self.customer,
+        )
+
+    def test_work_nobody_has_carried_out_names_nobody(self):
+        resolved = self.copies()
+
+        self.assertEqual(resolved["cc"], [])
+        self.assertEqual(
+            self.reasons(resolved["skipped"])["work_technicians"], "no_recipient"
+        )
+
+    def test_whoever_carried_the_work_out_is_copied_once(self):
+        self.work_order(completed_by=self.technician)
+        self.work_order(completed_by=self.technician)
+        frappe.db.commit()
+
+        self.assertEqual(self.copies()["cc"], [self.technician])

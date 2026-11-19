@@ -1939,3 +1939,93 @@ class TestACopiedAddressIsOwedOneMailPerIteration(RequestCase):
         self.assertEqual(row.language_source, "account")
         self.assertEqual(row.fallback_reason, "shared_message")
 
+
+
+class TestACopyIsWrittenInItsOwnLanguageWhereOneWasWritten(RequestCase):
+    """#40: a copy rides a message, and which message it rides is a decision.
+
+    An iteration addressed to people who do not share a language becomes one message per
+    language. A copy riding whichever went out first was reminded in a language nobody
+    chose for it, while the very wording it reads was already being sent to somebody else.
+    """
+
+    def policies(self, rule_key, *rows):
+        from nexgen_msp.api.internal.services.notification_settings_service import (
+            NotificationSettingsService,
+        )
+
+        NotificationSettingsService.save(rule_key, changes={"recipients": list(rows)})
+        frappe.db.commit()
+
+    def speaks(self, user, language):
+        frappe.db.set_value("User", user, "language", language, update_modified=False)
+        frappe.db.commit()
+
+    def wording(self, locale):
+        """Published wording in both languages, so the iteration really writes two mails."""
+        from nexgen_msp.api.internal.services.notification_template_service import (
+            NotificationTemplateService,
+        )
+
+        template = registry.RULES[APPROVAL]["template_name"]
+        NotificationTemplateService.save_draft(
+            template,
+            locale,
+            subject=f"{PREFIX} {locale}",
+            html=f"<p>{PREFIX} {locale}</p>",
+            text=f"{PREFIX} {locale}",
+        )
+        NotificationTemplateService.publish(template, locale)
+        frappe.db.commit()
+
+    def rows(self, name):
+        return {
+            row.recipient: row
+            for row in frappe.get_all(
+                DISPATCH,
+                filters={"business_name": name, "rule": APPROVAL},
+                fields=[
+                    "recipient",
+                    "channel",
+                    "email_queue_id",
+                    "resolved_locale",
+                    "fallback_reason",
+                ],
+            )
+        }
+
+    def test_it_rides_the_message_of_the_approver_who_reads_the_same_language(self):
+        self.wording("en")
+        self.wording("fr")
+        french = self.make_account(
+            "customer", "MSP Customer Manager", self.customer, suffix=f"fr{self.tag[:3]}"
+        )
+        self.grant(french, can_submit=1, can_approve=1)
+        self.speaks(french, "fr")
+        copied = self.make_account(
+            "internal", "MSP Technician", suffix=f"cp{self.tag[:3]}"
+        )
+        self.speaks(copied, "fr")
+        name = self.awaiting()
+        self.configure(APPROVAL)
+        self.policies(
+            APPROVAL,
+            {
+                "channel": "CC",
+                "recipient_source": None,
+                "fixed_address": copied,
+                "enabled": True,
+            },
+        )
+
+        with self.only(name):
+            NotificationReminderService.run_one(APPROVAL)
+
+        rows = self.rows(name)
+
+        self.assertEqual(rows[copied].resolved_locale, "fr")
+        self.assertIsNone(rows[copied].fallback_reason)
+        self.assertEqual(rows[copied].email_queue_id, rows[french].email_queue_id)
+        self.assertNotEqual(
+            rows[copied].email_queue_id, rows[self.approver].email_queue_id
+        )
