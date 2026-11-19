@@ -309,6 +309,8 @@ export type WorkCard = {
   waiting_on: string | null;
   comment?: string | null;
   requested_quantity?: number | null;
+  /** how much was running before this work put the service onto another assignment */
+  previous_quantity?: number | null;
   asked_hostname?: string | null;
   asked_serial?: string | null;
   asked_device_type?: string | null;

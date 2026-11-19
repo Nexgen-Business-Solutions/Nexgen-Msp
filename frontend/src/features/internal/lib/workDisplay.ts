@@ -227,7 +227,8 @@ export const quantityLine = (card: WorkCard) => {
 
   if (card.operation_code !== 'service.change') return null;
 
-  const running = card.current?.quantity;
+  const running =
+    typeof card.previous_quantity === 'number' ? card.previous_quantity : card.current?.quantity;
 
   if (typeof running !== 'number' || !Number.isFinite(running)) return null;
 

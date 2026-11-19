@@ -883,6 +883,7 @@ class RequestExecutionService:
 			RequestExecutionService._device_target(order, reading)
 		)
 		card["current"] = RequestExecutionService._current_service(order)
+		card["previous_quantity"] = RequestExecutionService._previous_quantity(order)
 		card["service_scope"] = (
 			RequestService._service_scope(order.service_item) if order.service_item else None
 		)
@@ -1562,6 +1563,21 @@ class RequestExecutionService:
 			return None
 
 		return frappe.db.get_value("MSP Client User", client_user, "full_name") or client_user
+
+	@staticmethod
+	def _previous_quantity(order):
+		"""How much was running before this work put the service onto another assignment."""
+		source = order.source_service_assignment
+
+		if (
+			order.work_type != SERVICE_ACTION
+			or not order.resulting_assignment
+			or not source
+			or source == order.resulting_assignment
+		):
+			return None
+
+		return frappe.db.get_value("MSP Service Assignment", source, "quantity")
 
 	@staticmethod
 	def _current_service(order):

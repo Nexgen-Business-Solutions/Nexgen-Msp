@@ -36,7 +36,13 @@ describe('the quantity a company service order carries', () => {
     );
   });
 
-  it('names the quantity alone once the work has been carried out', () => {
+  it('still reads the change once the work has been carried out', () => {
+    expect(
+      quantityLine(card({ requested_quantity: 7, previous_quantity: 10, current: { quantity: 7 } as WorkCard['current'] }))
+    ).toBe('10 → 7 (−3)');
+  });
+
+  it('names the quantity alone where nothing says what it was before', () => {
     expect(quantityLine(card({ requested_quantity: 10 }))).toBe('10');
   });
 

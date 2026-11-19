@@ -3217,6 +3217,33 @@ class TestCarryingOutAQuantityChangeOnACompanyService(ExecutionCase):
 
         self.assertEqual(flt_round(card["requested_quantity"]), 8.0)
 
+    def test_what_was_running_is_still_read_once_the_change_is_carried_out(self):
+        service = self.offering("CQ9", scope="Customer")
+        held = self.running(service, 10)
+        request = self.approved(
+            self.change_line(service, held, requested_quantity=7)
+        )
+
+        def card_of(order):
+            plan = RequestExecutionService.get_execution_plan(request=request)
+
+            return next(
+                card
+                for group in plan["action_groups"]
+                for card in group["work"]
+                if card["name"] == order.name
+            )
+
+        waiting = self.work(request, "Service Action")
+
+        self.assertIsNone(card_of(waiting)["previous_quantity"])
+        self.assertEqual(flt_round(card_of(waiting)["current"]["quantity"]), 10.0)
+
+        carried = card_of(self.carry_out(request))
+
+        self.assertEqual(flt_round(carried["previous_quantity"]), 10.0)
+        self.assertEqual(flt_round(carried["current"]["quantity"]), 7.0)
+
     def test_moving_the_period_onto_another_service_is_carried_out(self):
         """The variant that names no quantity, carried out by a technician who types none.
 
