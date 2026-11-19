@@ -130,7 +130,6 @@ const RetireDeviceModal: React.FC<Props> = ({
           <input
             type="date"
             value={effectiveDate}
-            max={today()}
             onChange={(event) => setEffectiveDate(event.target.value)}
             className={inputClass}
           />

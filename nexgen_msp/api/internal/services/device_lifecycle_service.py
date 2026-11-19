@@ -271,20 +271,17 @@ class DeviceLifecycleService:
 
     @staticmethod
     def _day(effective_date, within_request=None):
-        """The day it happened; tomorrow only for the work of a request, never before it was made."""
+        """The day the act takes effect, which may be one still to come.
+
+        Read the same way as a service act: a request cannot name a day before it was made,
+        and outside one the past records what already happened and the future what is planned.
+        """
         if within_request:
             from nexgen_msp.api.internal.services.user_service import UserService
 
             return UserService._request_day(effective_date, within_request)
 
-        on_date = frappe.utils.getdate(effective_date or frappe.utils.today())
-
-        if on_date > frappe.utils.getdate(frappe.utils.today()):
-            raise ValidationError(
-                "A device cannot change hands on a future date.", "VALIDATION_ERROR"
-            )
-
-        return on_date
+        return frappe.utils.getdate(effective_date or frappe.utils.today())
 
     @staticmethod
     def _holder(doc, client_user):

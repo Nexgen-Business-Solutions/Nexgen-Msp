@@ -391,12 +391,11 @@ const AddDeviceModal: React.FC<Props> = ({
               <input
                 type="date"
                 value={handOverDate}
-                max={today()}
                 onChange={(event) => setHandOverDate(event.target.value)}
                 className={inputClass}
               />
               <p className="mt-1.5 text-xs text-slate-400">
-                Today by default. Set it back if it changed hands earlier.
+                Today by default. Set it back if it changed hands earlier, or ahead if it is planned.
               </p>
             </div>
 

@@ -3473,18 +3473,22 @@ class TestWhatIsRunningTodayAndWhatIsWaitingForItsDay(CustomerScopeCase):
 
         return request_scope_service._company_open(self.customer)[self.retainer]
 
-    def test_the_lifecycle_refuses_to_date_a_change_into_the_future(self):
-        """Which is why the two periods below are arranged by hand and not asked for."""
+    def test_a_change_dated_ahead_leaves_today_with_the_period_it_had(self):
+        """The two periods of the class, as the lifecycle itself leaves them."""
         held = self.open_one(quantity=5)
         later = frappe.utils.add_days(frappe.utils.today(), 10)
 
-        with self.assertRaises(ServiceRefused):
-            ServiceLifecycleService.change(
-                assignment=held, effective_date=later, quantity=8
-            )
+        ServiceLifecycleService.change(assignment=held, effective_date=later, quantity=8)
+        frappe.db.commit()
+
+        reads = self.running()
+
+        self.assertEqual(reads["assignment"], held)
+        self.assertEqual(flt_round(reads["quantity"]), 5.0)
+        self.assertTrue(reads["dated_change"])
 
     def test_a_period_that_has_not_begun_is_not_what_is_running(self):
-        """Arranged directly, because the lifecycle refuses to date one into the future."""
+        """Read on its own, without the closing period a change would leave beside it."""
         from nexgen_msp.api.portal.services import request_scope_service
 
         held = self.open_one(quantity=8)

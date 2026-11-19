@@ -192,7 +192,7 @@ class ServiceLifecycleService:
             },
         )
         doc.operational_status = "Suspended"
-        doc.flags.dated_by_request = bool(_within_request)
+        doc.flags.dated_by_lifecycle = True
 
         ServiceLifecycleService._write(
             doc,
@@ -561,18 +561,16 @@ class ServiceLifecycleService:
 
     @staticmethod
     def _day(effective_date, within_request=None):
-        """The day it happened; tomorrow only for the work of a request, never before it was made."""
+        """The day the act takes effect, which may be one still to come.
+
+        An act is the same act whether a request asked for it or somebody carried it out
+        directly. A request cannot name a day before it was made; outside one, the past
+        records what was already true in the world and the future what has been decided.
+        """
         if within_request:
             return UserService._request_day(effective_date, within_request)
 
-        on_date = frappe.utils.getdate(effective_date or frappe.utils.today())
-
-        if on_date > frappe.utils.getdate(frappe.utils.today()):
-            raise ValidationError(
-                "A service cannot change on a future date.", "VALIDATION_ERROR"
-            )
-
-        return on_date
+        return frappe.utils.getdate(effective_date or frappe.utils.today())
 
     @staticmethod
     def _planned_day(doc, effective_date):

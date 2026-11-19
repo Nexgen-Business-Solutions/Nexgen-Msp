@@ -18,9 +18,6 @@ from .test_requested_execution import RequestedWorkCase
 from .writer_case import REQUEST, REQUESTED_DEVICE
 
 HOLDER = "MSP Device Holder"
-SERVICE_FUTURE = "A service cannot change on a future date."
-END_FUTURE = "A service cannot be ended in the future."
-DEVICE_FUTURE = "A device cannot change hands on a future date."
 ADMIN_ONLY = "Only an administrator can end a service on a past date."
 
 
@@ -454,65 +451,71 @@ class TestABatchCarriesEachRowOnItsOwnDay(DatedRequestCase):
         self.assertEqual(self.added_to(self.alice, self.personal) + self.added_to(self.bruno, self.personal), [])
 
 
-class TestOutsideARequestNothingChanged(DatedRequestCase):
-    def test_a_service_act_on_a_future_day_is_refused_as_before(self):
+class TestOutsideARequestTheDayIsReadTheSameWay(DatedRequestCase):
+    """An act is the same act with or without a request; only the floor differs.
+
+    A request cannot name a day before it was made. Outside one there is no such floor:
+    the past records what was already true in the world and the future what has been
+    decided, which is what the service's own page is for.
+    """
+
+    def test_a_service_opened_for_a_day_to_come_starts_on_that_day(self):
+        ServiceLifecycleService.activate(
+            customer=self.customer,
+            service_item=self.personal,
+            target_scope="User",
+            client_user=self.bruno,
+            effective_date=str(day(1)),
+        )
+
+        [opened] = self.added_to(self.bruno, self.personal)
+        record = self.assignment(self.track(ASSIGNMENT, opened))
+
+        self.assertEqual(record.operational_status, "Active")
+        self.assertEqual(getdate(record.effective_start_date), day(1))
+
+    def test_a_pause_a_resume_and_a_close_are_written_on_the_days_they_are_dated(self):
         running = self.running(self.personal)
 
-        self.refused(
-            lambda: ServiceLifecycleService.activate(
-                customer=self.customer, service_item=self.personal, target_scope="User",
-                client_user=self.bruno, effective_date=str(day(1)),
-            ),
-            SERVICE_FUTURE,
-        )
-        self.refused(lambda: ServiceLifecycleService.suspend(assignment=running, effective_date=str(day(1))), SERVICE_FUTURE)
-        self.refused(lambda: ServiceLifecycleService.end(assignment=running, effective_date=str(day(1))), END_FUTURE)
-        self.refused(
-            lambda: ServiceLifecycleService.change(assignment=running, quantity=2, effective_date=str(day(1))),
-            SERVICE_FUTURE,
-        )
-        ServiceLifecycleService.suspend(assignment=running, effective_date=str(day(-2)))
-        self.refused(lambda: ServiceLifecycleService.resume(assignment=running, effective_date=str(day(1))), SERVICE_FUTURE)
+        ServiceLifecycleService.suspend(assignment=running, effective_date=str(day(3)))
+        ServiceLifecycleService.resume(assignment=running, effective_date=str(day(5)))
+        ServiceLifecycleService.end(assignment=running, effective_date=str(day(8)))
 
-        self.assertEqual(self.added_to(self.bruno, self.personal), [])
         record = self.assignment(running)
-        self.assertEqual(record.operational_status, "Suspended")
-        self.assertIsNone(record.effective_end_date)
 
-    def test_a_direct_act_that_only_names_a_request_is_still_refused_in_the_future(self):
+        self.assertEqual(
+            [(getdate(row.suspended_on), getdate(row.resumed_on)) for row in record.suspension_log],
+            [(day(3), day(5))],
+        )
+        self.assertEqual(record.operational_status, "Ended")
+        self.assertEqual(getdate(record.effective_end_date), day(8))
+
+    def test_a_change_dated_ahead_closes_the_running_period_the_day_before(self):
         running = self.running(self.personal)
-        name = self.started(self.service_line("service.end", assignment=running))
 
-        self.refused(
-            lambda: self.as_user(
-                self.admin,
-                lambda: UserService.change_service(
-                    assignment=running, action="End", effective_date=str(day(2)), source_request=name
-                ),
-            ),
-            END_FUTURE,
-        )
-        self.refused(
-            lambda: ServiceLifecycleService.suspend(assignment=running, effective_date=str(day(2)), source_request=name),
-            SERVICE_FUTURE,
-        )
-        self.assertEqual(self.assignment(running).operational_status, "Active")
+        ServiceLifecycleService.change(assignment=running, quantity=2, effective_date=str(day(4)))
 
-    def test_a_machine_act_on_a_future_day_is_refused_as_before(self):
-        self.refused(
-            lambda: DeviceLifecycleService.assign(device=self.spare, client_user=self.bruno, effective_date=str(day(1))),
-            DEVICE_FUTURE,
-        )
-        self.refused(
-            lambda: DeviceLifecycleService.transfer(device=self.laptop, client_user=self.bruno, effective_date=str(day(1))),
-            DEVICE_FUTURE,
-        )
-        self.refused(lambda: DeviceLifecycleService.repossess(device=self.laptop, effective_date=str(day(1))), DEVICE_FUTURE)
+        [opened] = [name for name in self.added_to(self.alice, self.personal) if name != running]
+        old = self.assignment(running)
+        new = self.assignment(self.track(ASSIGNMENT, opened))
 
-        self.assertEqual(self.holder_of(self.laptop), self.alice)
-        self.assertIsNone(self.holder_of(self.spare))
+        self.assertEqual(old.operational_status, "Ended")
+        self.assertEqual(getdate(old.effective_end_date), day(3))
+        self.assertEqual(getdate(new.effective_start_date), day(4))
+        self.assertEqual(frappe.utils.flt(new.quantity), 2.0)
+        self.assertEqual(new.replaces_assignment, running)
 
-    def test_a_pause_written_in_the_future_outside_a_request_is_refused_by_the_record_itself(self):
+    def test_a_machine_changes_hands_on_the_day_it_is_dated(self):
+        DeviceLifecycleService.assign(
+            device=self.spare, client_user=self.bruno, effective_date=str(day(1))
+        )
+
+        self.assertEqual(
+            [(row.client_user, getdate(row.from_date)) for row in self.spells(self.spare)],
+            [(self.bruno, day(1))],
+        )
+
+    def test_a_pause_written_straight_onto_the_record_in_the_future_is_refused_by_the_record(self):
         running = self.running(self.personal)
         doc = self.assignment(running)
         doc.append("suspension_log", {"suspended_on": day(5)})

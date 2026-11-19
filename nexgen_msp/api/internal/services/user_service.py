@@ -533,8 +533,6 @@ class UserService:
 
         if within_request and not allow_past:
             UserService._request_day(end_on, within_request)
-        elif not within_request and end_on > today:
-            raise ValidationError("A service cannot be ended in the future.", "VALIDATION_ERROR")
 
         if end_on < today and not allow_past and not within_request:
             if not RequestService._roles().intersection(ADMIN_ROLES):
