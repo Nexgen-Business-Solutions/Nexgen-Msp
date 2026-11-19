@@ -212,7 +212,7 @@ export const askedQuantity = (line: RequestDetailLine | undefined) => {
 
   if (typeof asked !== 'number' || !Number.isFinite(asked) || asked <= 0) return null;
 
-  return `${line.operation_code === 'service.change' ? 'New qty' : 'Qty'}: ${amount(asked)}`;
+  return line.operation_code === 'service.change' ? `\u2192 ${amount(asked)}` : amount(asked);
 };
 
 /** What a company-scoped order does to the quantity, when a quantity is what it asks. */
@@ -223,7 +223,7 @@ export const quantityLine = (card: WorkCard) => {
 
   if (typeof asked !== 'number' || !Number.isFinite(asked)) return null;
 
-  if (card.operation_code === 'service.add') return `Qty: ${amount(asked)}`;
+  if (card.operation_code === 'service.add') return amount(asked);
 
   if (card.operation_code !== 'service.change') return null;
 
@@ -233,9 +233,9 @@ export const quantityLine = (card: WorkCard) => {
 
   const delta = Number((asked - running).toFixed(6));
 
-  if (!delta) return null;
+  if (!delta) return amount(asked);
 
-  return `Qty: ${amount(running)} \u2192 ${amount(asked)} (${delta > 0 ? '+' : '\u2212'}${amount(Math.abs(delta))})`;
+  return `${amount(running)} \u2192 ${amount(asked)} (${delta > 0 ? '+' : '\u2212'}${amount(Math.abs(delta))})`;
 };
 
 export const resolvedLine = (entity: RequestedEntityPresentation) => {

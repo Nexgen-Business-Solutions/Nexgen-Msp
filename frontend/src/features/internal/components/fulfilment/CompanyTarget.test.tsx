@@ -159,9 +159,9 @@ describe('work held by the company itself on the Execute screen', () => {
     const up = document.querySelector('[data-work-order="WO-UP"]') as HTMLElement;
     const added = document.querySelector('[data-work-order="WO-ADD"]') as HTMLElement;
 
-    expect(within(down).getByText('Qty: 10 \u2192 8 (\u22122)')).toBeTruthy();
-    expect(within(up).getByText('Qty: 10 \u2192 12 (+2)')).toBeTruthy();
-    expect(within(added).getByText('Qty: 8')).toBeTruthy();
+    expect(within(down).getByText('10 \u2192 8 (\u22122)')).toBeTruthy();
+    expect(within(up).getByText('10 \u2192 12 (+2)')).toBeTruthy();
+    expect(within(added).getByText('8')).toBeTruthy();
     expect(document.querySelectorAll('[data-work-order]')).toHaveLength(3);
     expect(within(down).getByRole('button', { name: 'Change service' })).toBeTruthy();
   });
@@ -187,7 +187,7 @@ describe('work held by the company itself on the Execute screen', () => {
       ])
     );
 
-    expect(screen.queryByText(/Qty:/)).toBeNull();
+    expect(screen.queryByText(/\u2192/)).toBeNull();
     expect(screen.queryByText(/NaN/)).toBeNull();
   });
 
@@ -206,7 +206,7 @@ describe('work held by the company itself on the Execute screen', () => {
 
     const person = document.querySelector('[data-work-order="WO-U"]') as HTMLElement;
 
-    expect(within(person).queryByText(/Qty:/)).toBeNull();
+    expect(within(person).queryByText(/\u2192/)).toBeNull();
     expect(within(person).getByText('John Doe')).toBeTruthy();
     cleanup();
 
@@ -214,7 +214,7 @@ describe('work held by the company itself on the Execute screen', () => {
 
     const machine = document.querySelector('[data-work-order="WO-D"]') as HTMLElement;
 
-    expect(within(machine).queryByText(/Qty:/)).toBeNull();
+    expect(within(machine).queryByText(/\u2192/)).toBeNull();
     expect(within(machine).getByText('Laptop 7')).toBeTruthy();
   });
 
