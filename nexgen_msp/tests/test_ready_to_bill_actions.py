@@ -201,3 +201,81 @@ class TestWhatAChargedPeriodLeftBehindIsShownWhateverComesNext(ReadyToBillCase):
 
         self.assertTrue([action for action in mine if action["kind"] == "additions"])
         self.assertGreater(answer["action_needed"], 0)
+
+
+class TestAQuantityDroppedInsideAPaidPeriodIsOwedBack(ReadyToBillCase):
+    """#33: a quantity reduced inside a quarter paid in advance owes the days nobody held.
+
+    The credit and the charge for the smaller quantity are two separate things to do, and
+    both have to be proposed while the period they belong to is the one already paid for —
+    not when the following quarter finally comes into view.
+    """
+
+    def setUp(self):
+        super().setUp()
+        frappe.db.set_value(
+            "MSP Contract",
+            self.contract,
+            {"billing_frequency": "Quarterly", "billing_timing": "In Advance"},
+        )
+        self.company_service = self.offering("RTBQ", scope="Customer")
+        self.held = self.running(
+            self.company_service, scope="Customer", started=0, quantity=10
+        )
+        charged = self.drawn(
+            start=self.today,
+            end=frappe.utils.add_days(self.today, 90),
+            include=[self.assignment, self.held],
+        )
+        BillingService.finalise(charged)
+        BillingService.submit_invoice(name=charged, notify=0)
+        frappe.db.commit()
+
+    def reduce_to(self, quantity, on_day):
+        from nexgen_msp.api.internal.services.service_lifecycle_service import (
+            ServiceLifecycleService,
+        )
+
+        ServiceLifecycleService.change(
+            assignment=self.held,
+            quantity=quantity,
+            effective_date=frappe.utils.add_days(self.today, on_day),
+        )
+        frappe.db.commit()
+
+    def answer(self):
+        out = BillingService.due(horizon_days=1)
+
+        return (
+            next(row for row in out["rows"] if row["customer"] == self.customer),
+            [action for action in out["actions"] if action["customer"] == self.customer],
+        )
+
+    def test_the_days_paid_for_at_the_old_quantity_are_proposed_as_a_credit(self):
+        self.reduce_to(8, on_day=30)
+
+        row, actions = self.answer()
+        credits = [action for action in actions if action["kind"] == "credit_note"]
+
+        self.assertEqual(row["state"], "Scheduled", "the next quarter is still far off")
+        self.assertGreater(row["owed_back"]["lines"], 0)
+        self.assertTrue(credits, "a credit note is proposed for the days nobody will hold")
+        self.assertLess(credits[0]["amount"], 0)
+
+    def test_the_days_already_paid_for_are_not_charged_a_second_time(self):
+        """Only the difference comes back: the quarter's money already covers those days."""
+        self.reduce_to(8, on_day=30)
+
+        _row, actions = self.answer()
+
+        self.assertEqual(
+            [action["kind"] for action in actions if action["kind"] == "additions"], []
+        )
+
+    def test_nothing_is_owed_back_while_the_quantity_stands(self):
+        row, actions = self.answer()
+
+        self.assertEqual(row["owed_back"]["lines"], 0)
+        self.assertEqual(
+            [action["kind"] for action in actions if action["kind"] == "credit_note"], []
+        )
