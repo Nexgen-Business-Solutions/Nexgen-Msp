@@ -6,7 +6,12 @@ import type { RequestComment, RequestConversation } from '@/lib/api/portal';
 type Props = {
   requestName: string;
   api: {
-    list: (request: string, limit?: number, signal?: AbortSignal) => Promise<RequestConversation>;
+    list: (
+      request: string,
+      limit?: number,
+      before?: string,
+      signal?: AbortSignal
+    ) => Promise<RequestConversation>;
     post: (payload: {
       request: string;
       body: string;
@@ -76,11 +81,12 @@ const Message: React.FC<{ comment: RequestComment }> = ({ comment }) => {
 /** The conversation on one request, the same component wherever the request is read. */
 const RequestComments: React.FC<Props> = ({ requestName, api }) => {
   const client = useQueryClient();
-  const [page, setPage] = useState(PAGE);
-  const key = ['request-comments', requestName, page];
-  const thread = useQuery(key, ({ signal }) => api.list(requestName, page, signal), {
+  const key = ['request-comments', requestName];
+  // the page being answered, and the pages already asked for behind it
+  const [older, setOlder] = useState<RequestComment[]>([]);
+  const [fetching, setFetching] = useState(false);
+  const thread = useQuery(key, ({ signal }) => api.list(requestName, PAGE, undefined, signal), {
     enabled: Boolean(requestName),
-    keepPreviousData: true,
   });
   const [draft, setDraft] = useState('');
   const [failed, setFailed] = useState<string | null>(null);
@@ -94,13 +100,25 @@ const RequestComments: React.FC<Props> = ({ requestName, api }) => {
         intention.current = newKey();
         setDraft('');
         setFailed(null);
-        client.invalidateQueries(['request-comments', requestName]);
+        client.invalidateQueries(key);
       },
       onError: (error) => setFailed(error instanceof Error ? error.message : 'The comment was not posted.'),
     }
   );
 
-  const comments = thread.data?.comments ?? [];
+  const comments = [...older, ...(thread.data?.comments ?? [])];
+  const earlier = Math.max((thread.data?.held ?? comments.length) - comments.length, 0);
+
+  const loadEarlier = async () => {
+    if (!comments.length || fetching) return;
+    setFetching(true);
+    try {
+      const page = await api.list(requestName, PAGE, comments[0].name);
+      setOlder((shown) => [...page.comments, ...shown]);
+    } finally {
+      setFetching(false);
+    }
+  };
   const sending = post.isLoading;
   const tooLong = draft.length > MAX;
 
@@ -137,13 +155,14 @@ const RequestComments: React.FC<Props> = ({ requestName, api }) => {
           </p>
         ) : comments.length ? (
           <>
-            {Boolean(thread.data?.earlier) && (
+            {Boolean(earlier) && (
               <button
                 type="button"
-                onClick={() => setPage((shown) => shown + PAGE)}
-                className="mt-3 w-full rounded-lg border border-slate-200 py-2 text-[11px] font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+                disabled={fetching}
+                onClick={loadEarlier}
+                className="mt-3 w-full rounded-lg border border-slate-200 py-2 text-[11px] font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:text-slate-400"
               >
-                Show {thread.data?.earlier} earlier {thread.data?.earlier === 1 ? 'comment' : 'comments'}
+                {fetching ? 'Loading…' : `Show ${earlier} earlier ${earlier === 1 ? 'comment' : 'comments'}`}
               </button>
             )}
             <ul className="list-none" role="log" aria-label="Comments on this request">

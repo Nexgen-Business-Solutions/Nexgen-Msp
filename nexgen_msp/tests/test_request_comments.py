@@ -289,6 +289,45 @@ class TestALongConversationIsReadFromItsEnd(CommentCase):
         self.assertEqual(bounded["earlier"], 2)
         self.assertEqual(bounded["held"], 4)
 
+    def test_the_page_before_a_message_is_the_one_in_front_of_it(self):
+        name = self.approved(self.awaiting())
+
+        for number in range(4):
+            self.post(self.tech, name, f"Message {number}.")
+
+        latest = self.as_user(
+            self.tech, lambda: RequestCommentService.thread(request=name, limit=2)
+        )
+        earlier = self.as_user(
+            self.tech,
+            lambda: RequestCommentService.thread(
+                request=name, limit=2, before=latest["comments"][0]["name"]
+            ),
+        )
+        first = self.as_user(
+            self.tech,
+            lambda: RequestCommentService.thread(
+                request=name, limit=2, before=earlier["comments"][0]["name"]
+            ),
+        )
+
+        self.assertEqual([row["body"] for row in earlier["comments"]], ["Message 0.", "Message 1."])
+        self.assertEqual(earlier["earlier"], 0)
+        self.assertEqual(first["comments"], [], "nothing in front of the first one")
+
+    def test_a_page_larger_than_the_most_it_answers_is_bounded(self):
+        name = self.approved(self.awaiting())
+
+        for number in range(3):
+            self.post(self.tech, name, f"Message {number}.")
+
+        asked = self.as_user(
+            self.tech, lambda: RequestCommentService.thread(request=name, limit=100000)
+        )
+
+        self.assertEqual(len(asked["comments"]), 3)
+        self.assertEqual(RequestCommentService.MOST, 200)
+
 
 class TestNothingOfOursIsCopiedBeforeTheHandover(CommentCase):
     """A copy policy is a standing instruction; it must not reach a conversation that is
@@ -733,18 +772,33 @@ class TestEveryMessageIsReachable(CommentCase):
 
         return rows
 
-    def test_a_conversation_longer_than_the_old_ceiling_is_read_to_its_end(self):
+    def test_a_long_conversation_is_read_to_its_end_one_page_at_a_time(self):
         name = self.approved(self.awaiting())
         self.many(name, 501)
 
-        whole = self.as_user(
-            self.tech, lambda: RequestCommentService.thread(request=name, limit=600)
-        )
+        read = []
+        before = None
+        pages = 0
 
-        self.assertEqual(whole["held"], 501)
-        self.assertEqual(whole["earlier"], 0)
-        self.assertEqual(len(whole["comments"]), 501)
-        self.assertEqual(whole["comments"][0]["body"], "Message 0.")
+        while True:
+            page = self.as_user(
+                self.tech,
+                lambda: RequestCommentService.thread(request=name, limit=200, before=before),
+            )
+
+            if not page["comments"]:
+                break
+
+            self.assertLessEqual(len(page["comments"]), RequestCommentService.MOST)
+            read = page["comments"] + read
+            before = page["comments"][0]["name"]
+            pages += 1
+
+            self.assertLess(pages, 10, "the paging terminates")
+
+        self.assertEqual(len(read), 501)
+        self.assertEqual(read[0]["body"], "Message 0.")
+        self.assertEqual(read[-1]["body"], "Message 500.")
 
 
 class TestTheMailCarriesTheCommentInBothForms(CommentCase):

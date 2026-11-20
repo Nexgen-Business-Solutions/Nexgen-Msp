@@ -266,8 +266,8 @@ def get_request_presentation(name=None):
 
 @frappe.whitelist()
 @handle_errors
-def get_request_comments(request=None, limit=None):
-    return RequestCommentService.thread(request=request, limit=limit)
+def get_request_comments(request=None, limit=None, before=None):
+    return RequestCommentService.thread(request=request, limit=limit, before=before)
 
 
 @frappe.whitelist(methods=["POST"])

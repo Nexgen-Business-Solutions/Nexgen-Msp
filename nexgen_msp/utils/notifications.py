@@ -613,17 +613,7 @@ def send(
         sent = None
 
         for group in _by_language(template_name, recipients, cc, bcc, customer, context):
-            queued = frappe.sendmail(
-                recipients=group["recipients"],
-                cc=group["cc"] or None,
-                bcc=group["bcc"] or None,
-                subject=group["subject"],
-                message=group["html"],
-                reference_doctype=reference_doctype,
-                reference_name=reference_name,
-                attachments=attachments or None,
-                now=now,
-            )
+            queued = _hand_over(group, reference_doctype, reference_name, attachments, now)
             sent = sent or queued or True
 
             if settings:
@@ -642,6 +632,44 @@ def send(
     except Exception:
         frappe.log_error(title=f"{name} could not be sent", message=frappe.get_traceback())
         return False
+
+
+def _hand_over(group, reference_doctype, reference_name, attachments, now):
+    """One language group handed to the mail queue, with its own plain text when it has one.
+
+    A wording published through this application carries a text body an administrator
+    wrote. `frappe.sendmail` has no way to pass it on, so the queue entry is built with the
+    same builder it uses itself — the same queue, the same workers, the same history. With
+    nothing published, Frappe derives the text part from the HTML as it always has.
+    """
+    if not group.get("text"):
+        return frappe.sendmail(
+            recipients=group["recipients"],
+            cc=group["cc"] or None,
+            bcc=group["bcc"] or None,
+            subject=group["subject"],
+            message=group["html"],
+            reference_doctype=reference_doctype,
+            reference_name=reference_name,
+            attachments=attachments or None,
+            now=now,
+        )
+
+    from frappe.email.doctype.email_queue.email_queue import QueueBuilder
+
+    builder = QueueBuilder(
+        recipients=group["recipients"],
+        cc=group["cc"] or None,
+        bcc=group["bcc"] or None,
+        subject=group["subject"],
+        message=group["html"],
+        text_content=group["text"],
+        reference_doctype=reference_doctype,
+        reference_name=reference_name,
+        attachments=attachments or None,
+    )
+
+    return builder.process(send_now=now)
 
 
 def _company_of(reference_doctype, reference_name):
@@ -760,6 +788,7 @@ def _by_language(template_name, recipients, cc, bcc, customer, context):
                     "bcc": [],
                     "subject": built["subject"],
                     "html": built["html"],
+                    "text": built.get("text") or None,
                     # one entry per address. Two people can read the same message for
                     # different reasons — one because English is their own setting, the
                     # other because nobody ever told us theirs — and an audit that gave

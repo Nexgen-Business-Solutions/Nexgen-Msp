@@ -1142,8 +1142,12 @@ export type RequestConversation = {
   comments: RequestComment[];
 };
 
-export const getRequestComments = (request: string, limit?: number, signal?: AbortSignal) =>
-  get<RequestConversation>(`${BASE}.get_request_comments`, { request, limit }, signal);
+export const getRequestComments = (
+  request: string,
+  limit?: number,
+  before?: string,
+  signal?: AbortSignal
+) => get<RequestConversation>(`${BASE}.get_request_comments`, { request, limit, before }, signal);
 
 export const postRequestComment = (payload: {
   request: string;

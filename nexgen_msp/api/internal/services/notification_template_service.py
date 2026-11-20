@@ -204,6 +204,21 @@ class NotificationTemplateService:
         return "\n".join(line for line in lines if line)
 
     @staticmethod
+    def _fallback_source(template_name):
+        """The wording a preview or a test is built from when nothing has been saved."""
+        shipped = NotificationTemplateService._shipped(template_name)
+
+        if not shipped["html"]:
+            raise NotFoundError("There is no wording to show for this template.", "NOT_FOUND")
+
+        return {
+            "subject": shipped["subject"] or "",
+            "html_body": shipped["html"],
+            "text_body": shipped["text"] or "",
+            "from_shipped": True,
+        }
+
+    @staticmethod
     def _shipped(template_name):
         """The wording this application ships for a template, as the editor would hold it.
 
@@ -214,10 +229,21 @@ class NotificationTemplateService:
         from nexgen_msp.utils import notifications
 
         spec = notifications.TEMPLATES.get(template_name) or {}
+        subject = spec.get("subject")
         html = notifications.shipped_html(template_name) or ""
 
+        # the record is what the mail falls back to, and an administrator may have edited
+        # it in the desk years ago. Showing the wording shipped in the code instead would
+        # offer to "take over" a letter nobody is being sent
+        if frappe.db.exists("Email Template", template_name):
+            doc = frappe.db.get_value(
+                "Email Template", template_name, ["subject", "response_html", "response"], as_dict=True
+            )
+            subject = doc.subject or subject
+            html = doc.response_html or doc.response or html
+
         return {
-            "subject": spec.get("subject"),
+            "subject": subject,
             "html": html or None,
             "text": NotificationTemplateService._as_text(html) if html else None,
         }
@@ -913,12 +939,10 @@ class NotificationTemplateService:
         if source == "published":
             found = NotificationTemplateService.published(template_name, locale)
 
-            if not found:
-                raise NotFoundError(
-                    "Nothing is published in this language yet.", "NOT_FOUND"
-                )
-
-            return found
+            # nothing published yet is not nothing to show: what goes out today is the
+            # wording this application falls back to, and that is what a preview of "what
+            # is being sent" has to be built from
+            return found or NotificationTemplateService._fallback_source(template_name)
 
         row = frappe.db.get_value(
             LOCALE,
@@ -928,7 +952,7 @@ class NotificationTemplateService:
         )
 
         if not row or not (row.draft_html or "").strip():
-            raise NotFoundError("There is no draft in this language yet.", "NOT_FOUND")
+            return NotificationTemplateService._fallback_source(template_name)
 
         return {
             "subject": row.draft_subject,

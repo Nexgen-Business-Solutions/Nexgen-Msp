@@ -733,12 +733,14 @@ class TestAPreviewSendsNothing(TemplateCase):
             NotificationTemplateService.preview(TEMPLATE, "en", source="draft")["html"],
         )
 
-    def test_a_preview_of_a_language_with_nothing_in_it_says_so(self):
-        with self.assertRaises(NotFoundError):
-            NotificationTemplateService.preview(TEMPLATE, "fr", source="draft")
+    def test_a_preview_of_a_language_with_nothing_in_it_shows_what_goes_out(self):
+        """Nothing saved is not nothing sent: the letter of last resort is what it shows."""
+        for source in ("draft", "published"):
+            with self.subTest(source=source):
+                shown = NotificationTemplateService.preview(TEMPLATE, "fr", source=source)
 
-        with self.assertRaises(NotFoundError):
-            NotificationTemplateService.preview(TEMPLATE, "fr", source="published")
+                self.assertIn("Nexgen MSP", shown["html"])
+                self.assertTrue(shown["subject"])
 
     def test_every_managed_template_previews_with_the_sample_values(self):
         for name in registry.BY_TEMPLATE:

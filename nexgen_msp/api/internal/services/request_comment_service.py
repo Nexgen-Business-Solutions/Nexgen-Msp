@@ -84,22 +84,22 @@ class RequestCommentService:
 
     # ------------------------------------------------------------------ reading
     PAGE = 50
+    MOST = 200
 
     @staticmethod
-    def thread(request=None, limit=None):
-        """The conversation on this request, oldest first, bounded.
+    def thread(request=None, limit=None, before=None):
+        """The conversation on this request, oldest first, one bounded page at a time.
 
         A thread that has run for months is read from its end: the latest page is what
-        somebody opening the request is answering. `earlier` says whether there is more
-        behind it, and a larger `limit` is how the screen asks for it.
+        somebody opening the request is answering. `before` names the oldest message
+        already read, and the page before it is answered — so every message stays
+        reachable however long the conversation is, and no single answer is unbounded.
         """
         doc, side = RequestCommentService._reader(request)
         seen = {}
-        # no ceiling of its own: a page can never answer with more than the conversation
-        # holds, and a ceiling the screen could not reach left the last messages behind a
-        # button that asked for them for ever
-        page = max(1, frappe.utils.cint(limit) or RequestCommentService.PAGE)
+        page = min(max(1, frappe.utils.cint(limit) or RequestCommentService.PAGE), RequestCommentService.MOST)
         held = frappe.db.count(COMMENT, {"request": doc.name})
+        rows = RequestCommentService._page(doc.name, page, before)
 
         return {
             "request": doc.name,
@@ -107,27 +107,54 @@ class RequestCommentService:
             "may_post": True,
             "awaiting_customer_approval": doc.status == CUSTOMER_APPROVAL,
             "held": held,
-            "earlier": max(held - page, 0),
-            "comments": [
-                RequestCommentService._card(row, seen)
-                for row in reversed(
-                    frappe.get_all(
-                        COMMENT,
-                        filters={"request": doc.name},
-                        fields=[
-                            "name",
-                            "author_user",
-                            "author_name",
-                            "author_side",
-                            "body",
-                            "creation",
-                        ],
-                        order_by="creation desc, name desc",
-                        limit_page_length=page,
-                    )
-                )
-            ],
+            "earlier": RequestCommentService._earlier(doc.name, rows),
+            "comments": [RequestCommentService._card(row, seen) for row in rows],
         }
+
+    @staticmethod
+    def _page(request, page, before):
+        """The page of messages ending just before `before`, oldest first."""
+        bound = ""
+        values = {"request": request, "page": page}
+
+        if before:
+            anchor = frappe.db.get_value(COMMENT, before, ["name", "creation"], as_dict=True)
+
+            if anchor:
+                # the pair, not the instant: two messages written in the same second are
+                # still two messages, and paging by time alone would skip one of them
+                bound = "and (c.creation, c.name) < (%(creation)s, %(anchor)s)"
+                values.update({"creation": anchor.creation, "anchor": anchor.name})
+
+        rows = frappe.db.sql(
+            f"""
+            select c.name, c.author_user, c.author_name, c.author_side, c.body, c.creation
+            from `tabMSP Request Comment` c
+            where c.request = %(request)s {bound}
+            order by c.creation desc, c.name desc
+            limit %(page)s
+            """,
+            values,
+            as_dict=True,
+        )
+
+        return list(reversed(rows))
+
+    @staticmethod
+    def _earlier(request, rows):
+        """How many messages are still behind the page just answered."""
+        if not rows:
+            return 0
+
+        return frappe.db.sql(
+            """
+            select count(*)
+            from `tabMSP Request Comment` c
+            where c.request = %(request)s
+              and (c.creation, c.name) < (%(creation)s, %(anchor)s)
+            """,
+            {"request": request, "creation": rows[0]["creation"], "anchor": rows[0]["name"]},
+        )[0][0]
 
     @staticmethod
     def _card(row, seen=None):

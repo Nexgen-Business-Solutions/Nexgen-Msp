@@ -167,19 +167,21 @@ describe('the conversation on a request', () => {
     expect(screen.queryByLabelText('New comment')).toBeNull();
   });
 
-  it('asks for the earlier comments only when there are some', async () => {
-    const calls = api({ comments: [comment()], held: 60, earlier: 59 });
+  it('asks for the page before the oldest it holds, and only when there is one', async () => {
+    const calls = api({ comments: [comment({ name: 'CM-9' })], held: 3, earlier: 2 });
+    calls.list.mockResolvedValueOnce(conversation({ comments: [comment({ name: 'CM-9' })], held: 3 }));
+    calls.list.mockResolvedValueOnce(
+      conversation({ comments: [comment({ name: 'CM-1', body: 'Older.' })], held: 3 })
+    );
     show(calls);
 
-    fireEvent.click(await screen.findByRole('button', { name: /Show 59 earlier comments/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Show 2 earlier comments/ }));
 
-    await waitFor(() =>
-      expect(calls.list.mock.calls.at(-1)?.slice(0, 2)).toEqual(['SR-0001', 100])
-    );
-    expect(screen.getByText('60')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('Older.')).toBeTruthy());
+    expect(calls.list.mock.calls.at(-1)?.slice(0, 3)).toEqual(['SR-0001', 50, 'CM-9']);
     cleanup();
 
-    show(api({ comments: [comment()] }));
+    show(api({ comments: [comment()], held: 1 }));
     await screen.findByRole('log', { name: 'Comments on this request' });
     expect(screen.queryByRole('button', { name: /earlier/ })).toBeNull();
   });
