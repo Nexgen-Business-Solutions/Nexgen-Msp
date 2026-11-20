@@ -899,8 +899,13 @@ class TestAWriteIsAskedForAsAWrite(CommentCase):
             internal_v1.post_request_comment,
             portal_v1.post_request_comment,
             internal_v1.save_notification_rule,
+            internal_v1.save_notification_rule_recipient_policies,
             internal_v1.publish_notification_template,
             internal_v1.resolve_notification_dispatch,
+            internal_v1.test_notification_rule,
+            internal_v1.save_notification_template_draft,
+            internal_v1.restore_notification_template,
+            internal_v1.test_notification_template,
         ):
             self.assertEqual(
                 frappe.allowed_http_methods_for_whitelisted_func.get(door),

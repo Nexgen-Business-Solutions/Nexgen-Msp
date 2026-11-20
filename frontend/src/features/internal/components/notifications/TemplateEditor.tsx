@@ -239,6 +239,7 @@ const TemplateEditor: React.FC<{
               {locales.find((entry) => entry.locale === detail.data?.fallback_locale)?.locale_label ??
                 detail.data?.fallback_locale}{' '}
               where it is published, and otherwise in the original template.
+              {current?.from_shipped && ' The wording below is that original: edit it and publish to take it over.'}
             </p>
           )}
 

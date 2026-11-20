@@ -2011,7 +2011,7 @@ def preview_notification_rule(rule_key=None):
     return NotificationSettingsService.preview(rule_key)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 @handle_errors
 def test_notification_rule(rule_key=None, recipient=None):
     from nexgen_msp.api.internal.services.notification_settings_service import (
@@ -2089,7 +2089,7 @@ def notification_template_history(template_name=None, locale=None):
     return NotificationTemplateService.history(template_name, locale)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 @handle_errors
 def save_notification_template_draft(
     template_name=None, locale=None, subject=None, html=None, text=None, draft_revision=None
@@ -2122,7 +2122,7 @@ def publish_notification_template(
     )
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 @handle_errors
 def restore_notification_template(
     template_name=None, locale=None, revision_number=None, draft_revision=None
@@ -2146,7 +2146,7 @@ def notification_template_preview(template_name=None, locale=None, source="draft
     return NotificationTemplateService.preview(template_name, locale, source=source)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 @handle_errors
 def test_notification_template(template_name=None, locale=None, recipient=None, source="draft"):
     from nexgen_msp.api.internal.services.notification_template_service import (

@@ -78,14 +78,14 @@ class TestEachLanguageIsWrittenOnItsOwn(TemplateCase):
         for entry in NotificationTemplateService.detail(TEMPLATE)["locales"]:
             self.assertFalse(entry["configured"])
             self.assertIsNone(entry["published_revision"])
-            self.assertIsNone(entry["draft_html"])
+            self.assertTrue(entry["from_shipped"], "it opens on the letter going out today")
 
     def test_publishing_one_language_leaves_the_other_untouched(self):
         self.publish("fr")
 
         self.assertTrue(self.state("fr")["configured"])
         self.assertFalse(self.state("en")["configured"])
-        self.assertIsNone(self.state("en")["draft_subject"])
+        self.assertTrue(self.state("en")["from_shipped"])
 
     def test_each_language_keeps_its_own_wording(self):
         self.publish("en")
@@ -876,7 +876,7 @@ class TestLocalizedWordingSurvivesAMigration(TemplateCase):
         for entry in NotificationTemplateService.detail(TEMPLATE)["locales"]:
             with self.subTest(locale=entry["locale"]):
                 self.assertFalse(entry["configured"])
-                self.assertIsNone(entry["draft_html"])
+                self.assertTrue(entry["from_shipped"], "it still opens on the shipped wording")
 
     def test_the_original_template_is_left_exactly_as_it_was(self):
         before = frappe.db.get_value(
@@ -900,3 +900,39 @@ class TestLocalizedWordingSurvivesAMigration(TemplateCase):
         NotificationSettingsService.seed()
 
         self.assertEqual(len(NotificationTemplateService.history(TEMPLATE, "en")["rows"]), 1)
+
+
+class TestAnUntouchedWordingOpensOnWhatIsBeingSent(TemplateCase):
+    """Editing a notification means taking over the letter that goes out, not writing one.
+
+    The screen used to open empty on a wording nobody had published, which asked an
+    administrator to retype from memory a letter the application was already sending —
+    and a letter retyped is a different letter.
+    """
+
+    def shipped(self):
+        from nexgen_msp.utils import notifications
+
+        return notifications.TEMPLATES[TEMPLATE]
+
+    def test_the_editor_holds_the_shipped_wording_and_says_so(self):
+        state = self.state("en")
+
+        self.assertFalse(state["configured"])
+        self.assertTrue(state["from_shipped"])
+        self.assertEqual(state["draft_subject"], self.shipped()["subject"])
+        self.assertIn("{{ full_name }}", state["draft_html"])
+        self.assertTrue(state["draft_text"])
+
+    def test_what_it_holds_is_what_the_mail_falls_back_to(self):
+        from nexgen_msp.utils import notifications
+
+        self.assertEqual(self.state("en")["draft_html"], notifications.shipped_html(TEMPLATE))
+
+    def test_a_saved_draft_takes_over_from_it(self):
+        self.publish("en")
+        state = self.state("en")
+
+        self.assertTrue(state["configured"])
+        self.assertFalse(state["from_shipped"])
+        self.assertIn(PREFIX, state["draft_subject"])

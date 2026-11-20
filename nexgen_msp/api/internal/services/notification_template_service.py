@@ -203,6 +203,25 @@ class NotificationTemplateService:
 
         return "\n".join(line for line in lines if line)
 
+    @staticmethod
+    def _shipped(template_name):
+        """The wording this application ships for a template, as the editor would hold it.
+
+        One place says what is being sent when nobody has published anything: the same
+        source the mail itself falls back to. Read rather than copied, so the two cannot
+        drift apart.
+        """
+        from nexgen_msp.utils import notifications
+
+        spec = notifications.TEMPLATES.get(template_name) or {}
+        html = notifications.shipped_html(template_name) or ""
+
+        return {
+            "subject": spec.get("subject"),
+            "html": html or None,
+            "text": NotificationTemplateService._as_text(html) if html else None,
+        }
+
     # ------------------------------------------------------------------ validation
     @staticmethod
     def _allowed(template_name):
@@ -392,18 +411,24 @@ class NotificationTemplateService:
         for a whole list: two readings of the same fact that disagree are worse than a
         slower page.
         """
-        if not row:
+        if not row or not (row.draft_html or "").strip():
+            # a wording nobody has edited yet opens on the letter that is going out today,
+            # not on an empty page: taking over what is being sent is the whole point of
+            # the screen, and retyping it by hand would be a different letter by accident
+            shipped = NotificationTemplateService._shipped(template_name)
+
             return {
                 "locale": locale,
                 "locale_label": registry.locale_label(locale),
                 "configured": False,
-                "draft_revision": 0,
+                "draft_revision": frappe.utils.cint(row.draft_revision) if row else 0,
                 "published_revision": None,
-                "draft_subject": None,
-                "draft_html": None,
-                "draft_text": None,
-                "last_edited_by": None,
-                "last_edited_at": None,
+                "draft_subject": shipped["subject"],
+                "draft_html": shipped["html"],
+                "draft_text": shipped["text"],
+                "from_shipped": True,
+                "last_edited_by": row.last_edited_by if row else None,
+                "last_edited_at": row.last_edited_at if row else None,
                 "has_unpublished_changes": False,
             }
 
@@ -418,6 +443,7 @@ class NotificationTemplateService:
             "draft_subject": row.draft_subject,
             "draft_html": row.draft_html,
             "draft_text": row.draft_text,
+            "from_shipped": False,
             "last_edited_by": row.last_edited_by,
             "last_edited_at": row.last_edited_at,
             "has_unpublished_changes": NotificationTemplateService._differs(

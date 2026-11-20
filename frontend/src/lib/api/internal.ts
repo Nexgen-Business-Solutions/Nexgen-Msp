@@ -3915,6 +3915,8 @@ export type NotificationTemplateLocaleState = {
   draft_subject: string | null;
   draft_html: string | null;
   draft_text: string | null;
+  /** the wording shown is the one this application ships, not one somebody saved */
+  from_shipped?: boolean;
   last_edited_by: string | null;
   last_edited_at: string | null;
   has_unpublished_changes: boolean;
