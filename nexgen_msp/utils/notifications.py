@@ -45,9 +45,13 @@ QUOTE = (
 
 
 def _card(rows):
+    # what goes in these cells comes from records people fill in — a name, a reference, a
+    # count — and it is placed inside a variable the template inserts as HTML. Escaped
+    # here, because this is the line that writes the markup
     cells = "".join(
-        f'<tr><td style="padding:6px 0;color:#64748b;width:42%;">{label}</td>'
-        f'<td style="padding:6px 0;color:#0f172a;font-weight:600;">{value}</td></tr>'
+        f'<tr><td style="padding:6px 0;color:#64748b;width:42%;">{frappe.utils.escape_html(str(label))}</td>'
+        f'<td style="padding:6px 0;color:#0f172a;font-weight:600;">'
+        f"{frappe.utils.escape_html(str(value))}</td></tr>"
         for label, value in rows
     )
     return (
@@ -374,6 +378,13 @@ def drifted_templates():
 
 
 def render(name, context):
+    """The template this application ships, filled in.
+
+    What fills it comes from records people write in — a name, a reference, a note — and
+    the body it fills is HTML. Every value but the ones this application builds as markup
+    itself is escaped before it is placed there, so a name holding a tag arrives as that
+    name and not as markup. The subject is a line of text and is filled as written.
+    """
     if not frappe.db.exists("Email Template", name):
         ensure_templates()
 
@@ -383,10 +394,16 @@ def render(name, context):
         "year": frappe.utils.now_datetime().year,
         **context,
     }
+    body = {
+        key: value
+        if key in HTML_VARIABLES or not isinstance(value, str)
+        else frappe.utils.escape_html(value)
+        for key, value in context.items()
+    }
 
     return (
         frappe.render_template(template.subject, context),
-        frappe.render_template(template.response_html or template.response, context),
+        frappe.render_template(template.response_html or template.response, body),
     )
 
 
@@ -824,7 +841,7 @@ def request_briefing(request):
         rows.append(("To create first", to_create))
 
     if doc.details:
-        rows.append(("Note", frappe.utils.escape_html(doc.details)))
+        rows.append(("Note", doc.details))
 
     return {"summary": _card(rows), "acts": _acts(doc)}
 

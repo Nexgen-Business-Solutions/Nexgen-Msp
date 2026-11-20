@@ -839,3 +839,79 @@ class TestOneMessageIsQueuedOnce(CommentCase):
             locking[0],
             "the state is read by the locking statement, not by a second read of a stale snapshot",
         )
+
+
+class TestNothingOfSomebodysNameIsMarkup(CommentCase):
+    """#47 review: the body was escaped and the name beside it was not."""
+
+    def test_a_name_with_tags_in_it_reaches_the_mail_as_text(self):
+        frappe.db.set_value(
+            "User", self.tech, "full_name", "<b>Tess</b><script>x</script>", update_modified=False
+        )
+        frappe.db.commit()
+        name = self.approved(self.awaiting())
+
+        self.post(self.tech, name, "Said plainly.")
+
+        queued = frappe.db.sql(
+            """
+            select eq.message
+            from `tabEmail Queue` eq
+            join `tabEmail Queue Recipient` r on r.parent = eq.name
+            where r.recipient = %s
+            order by eq.creation desc
+            limit 1
+            """,
+            self.asker,
+        )
+
+        self.assertTrue(queued, "the comment was handed to the mail queue")
+        message = queued[0][0]
+
+        self.assertNotIn("<script>x</script>", message)
+        self.assertIn("&lt;b&gt;Tess&lt;/b&gt;", message.replace("=\n", ""))
+
+
+class TestARuleIsWrittenThroughTheServiceThatAuditsIt(CommentCase):
+    def test_the_desk_cannot_edit_one_directly(self):
+        def edit():
+            doc = frappe.get_doc("MSP Notification Rule", "request_comment_for_customer")
+            doc.enabled = 0
+            doc.save()
+
+        with self.assertRaises(frappe.PermissionError):
+            self.as_user(self.tech, edit)
+
+        with self.assertRaises(frappe.PermissionError):
+            self.as_user(
+                self.make_account("internal", "MSP System Admin", suffix=f"sa{self.tag[:3]}"), edit
+            )
+
+
+class TestAWriteIsAskedForAsAWrite(CommentCase):
+    """A state change answered on GET is a change somebody can be made to make."""
+
+    def test_the_comment_endpoints_answer_post_only(self):
+        from nexgen_msp.api.internal.endpoints import v1 as internal_v1
+        from nexgen_msp.api.portal.endpoints import v1 as portal_v1
+
+        for door in (
+            internal_v1.post_request_comment,
+            portal_v1.post_request_comment,
+            internal_v1.save_notification_rule,
+            internal_v1.publish_notification_template,
+            internal_v1.resolve_notification_dispatch,
+        ):
+            self.assertEqual(
+                frappe.allowed_http_methods_for_whitelisted_func.get(door),
+                ["POST"],
+                door.__name__,
+            )
+
+    def test_reading_the_conversation_is_still_a_read(self):
+        from nexgen_msp.api.portal.endpoints import v1 as portal_v1
+
+        self.assertIn(
+            "GET",
+            frappe.allowed_http_methods_for_whitelisted_func.get(portal_v1.get_request_comments),
+        )

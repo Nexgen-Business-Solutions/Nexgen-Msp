@@ -270,7 +270,7 @@ def get_request_comments(request=None, limit=None):
     return RequestCommentService.thread(request=request, limit=limit)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 @handle_errors
 def post_request_comment(request=None, body=None, idempotency_key=None):
     return RequestCommentService.post(

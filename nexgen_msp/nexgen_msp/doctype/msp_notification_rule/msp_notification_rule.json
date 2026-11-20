@@ -226,24 +226,24 @@
  "owner": "Administrator",
  "permissions": [
   {
-   "create": 1,
+   "create": 0,
    "delete": 0,
    "email": 1,
    "print": 1,
    "read": 1,
    "role": "System Manager",
-   "share": 1,
-   "write": 1
+   "share": 0,
+   "write": 0
   },
   {
-   "create": 1,
+   "create": 0,
    "delete": 0,
    "email": 1,
    "print": 1,
    "read": 1,
    "role": "MSP System Admin",
-   "share": 1,
-   "write": 1
+   "share": 0,
+   "write": 0
   }
  ],
  "sort_field": "modified",

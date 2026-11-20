@@ -75,7 +75,7 @@ def get_request_comments(request=None, limit=None):
     return RequestCommentService.thread(request=request, limit=limit)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 @handle_errors
 def post_request_comment(request=None, body=None, idempotency_key=None):
     return RequestCommentService.post(
@@ -1989,7 +1989,7 @@ def notification_rule_detail(rule_key=None):
     return NotificationSettingsService.detail(rule_key)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 @handle_errors
 def save_notification_rule(rule_key=None, expected_revision=None, changes=None):
     from nexgen_msp.api.internal.services.notification_settings_service import (
@@ -2031,7 +2031,7 @@ def notification_rule_recipient_policies(rule_key=None):
     return NotificationRecipientPolicyService.policies(rule_key)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 @handle_errors
 def save_notification_rule_recipient_policies(rule_key=None, expected_revision=None, policies=None):
     """Who a notification is copied to, saved through the rule itself.
@@ -2108,7 +2108,7 @@ def save_notification_template_draft(
     )
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 @handle_errors
 def publish_notification_template(
     template_name=None, locale=None, change_note=None, draft_revision=None
@@ -2207,7 +2207,7 @@ def notification_dispatch_evidence(dispatch=None):
     return NotificationDispatchService.evidence(dispatch)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 @handle_errors
 def resolve_notification_dispatch(dispatch=None, decision=None, email_queue=None, note=None):
     from nexgen_msp.api.internal.services.notification_dispatch_service import (
