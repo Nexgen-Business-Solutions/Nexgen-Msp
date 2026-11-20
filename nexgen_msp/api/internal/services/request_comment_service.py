@@ -338,6 +338,11 @@ class RequestCommentService:
                 continue
 
             try:
+                # the listing above opened this transaction's snapshot, and everything read
+                # after it would be served from that instant — including the delivery
+                # history, which another worker may have written to since. Each delivery
+                # starts its own transaction so that what it reads is what is committed
+                frappe.db.commit()
                 RequestCommentService._deliver(request, frappe.get_doc(COMMENT, row["name"]))
                 done += 1
             except Exception:
