@@ -359,6 +359,7 @@ class NotificationDispatchService:
                 context or {},
             )
             subject, message = built["subject"], built["html"]
+            published_text = built.get("text")
             language = {
                 "resolved_locale": built.get("locale"),
                 "template_revision": frappe.utils.cint(built.get("revision")),
@@ -403,12 +404,17 @@ class NotificationDispatchService:
         ]
 
         try:
-            queued = frappe.sendmail(
+            queued = notifications.hand_to_queue(
                 recipients=[dispatch.recipient],
+                subject=f"[Test] {subject}" if dispatch.is_test else subject,
+                html=message,
+                # the plain-text body of the wording that was published, which is the one
+                # thing `sendmail` cannot carry. Reminders and tests are sent from here,
+                # and a letter that loses its text part on this road is not the letter
+                # the administrator published
+                text=published_text,
                 cc=copies or None,
                 bcc=blind or None,
-                subject=f"[Test] {subject}" if dispatch.is_test else subject,
-                message=message,
                 reference_doctype=dispatch.business_doctype or None,
                 reference_name=dispatch.business_name or None,
                 attachments=attachments or None,

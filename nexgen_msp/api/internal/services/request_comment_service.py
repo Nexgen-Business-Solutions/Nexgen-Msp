@@ -118,13 +118,22 @@ class RequestCommentService:
         values = {"request": request, "page": page}
 
         if before:
-            anchor = frappe.db.get_value(COMMENT, before, ["name", "creation"], as_dict=True)
+            # asked for within this conversation: a cursor from another request, or one
+            # that names nothing, would answer with a window nobody asked for rather than
+            # say that the question was wrong
+            anchor = frappe.db.get_value(
+                COMMENT, {"name": before, "request": request}, ["name", "creation"], as_dict=True
+            )
 
-            if anchor:
-                # the pair, not the instant: two messages written in the same second are
-                # still two messages, and paging by time alone would skip one of them
-                bound = "and (c.creation, c.name) < (%(creation)s, %(anchor)s)"
-                values.update({"creation": anchor.creation, "anchor": anchor.name})
+            if not anchor:
+                raise ValidationError(
+                    "That message is not part of this conversation.", "VALIDATION_ERROR"
+                )
+
+            # the pair, not the instant: two messages written in the same second are
+            # still two messages, and paging by time alone would skip one of them
+            bound = "and (c.creation, c.name) < (%(creation)s, %(anchor)s)"
+            values.update({"creation": anchor.creation, "anchor": anchor.name})
 
         rows = frappe.db.sql(
             f"""

@@ -3981,6 +3981,9 @@ export type NotificationTemplatePreview = {
   locale: NotificationLocale;
   revision: number | null;
   source: 'draft' | 'published';
+  /** the language this wording was published in, which a send may fall back to */
+  built_from_locale: NotificationLocale | null;
+  from_shipped: boolean;
   context_note: string;
 };
 

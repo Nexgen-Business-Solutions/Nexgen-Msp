@@ -635,38 +635,71 @@ def send(
 
 
 def _hand_over(group, reference_doctype, reference_name, attachments, now):
-    """One language group handed to the mail queue, with its own plain text when it has one.
+    """One language group handed to the mail queue, with its own plain text when it has one."""
+    return hand_to_queue(
+        recipients=group["recipients"],
+        subject=group["subject"],
+        html=group["html"],
+        text=group.get("text"),
+        cc=group["cc"] or None,
+        bcc=group["bcc"] or None,
+        reference_doctype=reference_doctype,
+        reference_name=reference_name,
+        attachments=attachments or None,
+        now=now,
+    )
 
-    A wording published through this application carries a text body an administrator
-    wrote. `frappe.sendmail` has no way to pass it on, so the queue entry is built with the
-    same builder it uses itself — the same queue, the same workers, the same history. With
+
+def hand_to_queue(
+    recipients,
+    subject,
+    html,
+    text=None,
+    cc=None,
+    bcc=None,
+    reference_doctype=None,
+    reference_name=None,
+    attachments=None,
+    message_id=None,
+    now=False,
+):
+    """One mail handed to Frappe's own queue, carrying the text an administrator published.
+
+    A wording published through this application carries a text body somebody wrote.
+    `frappe.sendmail` has no way to pass it on, so the queue entry is built with the same
+    builder it uses itself — the same queue, the same workers, the same history. With
     nothing published, Frappe derives the text part from the HTML as it always has.
+
+    Every mail this application sends goes through here, events and reminders alike: a
+    second road to the queue is how one of them quietly stops carrying what was published.
     """
-    if not group.get("text"):
+    if not text:
         return frappe.sendmail(
-            recipients=group["recipients"],
-            cc=group["cc"] or None,
-            bcc=group["bcc"] or None,
-            subject=group["subject"],
-            message=group["html"],
+            recipients=recipients,
+            cc=cc or None,
+            bcc=bcc or None,
+            subject=subject,
+            message=html,
             reference_doctype=reference_doctype,
             reference_name=reference_name,
             attachments=attachments or None,
+            message_id=message_id,
             now=now,
         )
 
     from frappe.email.doctype.email_queue.email_queue import QueueBuilder
 
     builder = QueueBuilder(
-        recipients=group["recipients"],
-        cc=group["cc"] or None,
-        bcc=group["bcc"] or None,
-        subject=group["subject"],
-        message=group["html"],
-        text_content=group["text"],
+        recipients=recipients,
+        cc=cc or None,
+        bcc=bcc or None,
+        subject=subject,
+        message=html,
+        text_content=text,
         reference_doctype=reference_doctype,
         reference_name=reference_name,
         attachments=attachments or None,
+        message_id=message_id,
     )
 
     return builder.process(send_now=now)

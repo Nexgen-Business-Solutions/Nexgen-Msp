@@ -169,7 +169,9 @@ describe('the conversation on a request', () => {
 
   it('asks for the page before the oldest it holds, and only when there is one', async () => {
     const calls = api({ comments: [comment({ name: 'CM-9' })], held: 3, earlier: 2 });
-    calls.list.mockResolvedValueOnce(conversation({ comments: [comment({ name: 'CM-9' })], held: 3 }));
+    calls.list.mockResolvedValueOnce(
+      conversation({ comments: [comment({ name: 'CM-9' })], held: 3, earlier: 2 })
+    );
     calls.list.mockResolvedValueOnce(
       conversation({ comments: [comment({ name: 'CM-1', body: 'Older.' })], held: 3 })
     );
@@ -183,6 +185,47 @@ describe('the conversation on a request', () => {
 
     show(api({ comments: [comment()], held: 1 }));
     await screen.findByRole('log', { name: 'Comments on this request' });
+    expect(screen.queryByRole('button', { name: /earlier/ })).toBeNull();
+  });
+
+  it('keeps every message readable when one is written after earlier pages were read', async () => {
+    const window = 5;
+    const held: RequestComment[] = Array.from({ length: 7 }, (_unused, index) =>
+      comment({ name: `CM-${index + 1}`, body: `Message ${index + 1}.` })
+    );
+    const page = (before?: string) => {
+      const end = before ? held.findIndex((row) => row.name === before) : held.length;
+      const start = Math.max(end - window, 0);
+
+      return conversation({ comments: held.slice(start, end), held: held.length, earlier: start });
+    };
+    const calls = {
+      list: vi.fn((_request: string, _limit?: number, before?: string) =>
+        Promise.resolve(page(before))
+      ),
+      post: vi.fn(() => {
+        held.push(comment({ name: 'CM-8', body: 'The latest word.' }));
+
+        return Promise.resolve(comment({ name: 'CM-8' }));
+      }),
+    };
+    show(calls as unknown as Parameters<typeof show>[0]);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Show 2 earlier comments/ }));
+    await waitFor(() => expect(screen.getByText('Message 1.')).toBeTruthy());
+
+    fireEvent.change(screen.getByLabelText('New comment'), { target: { value: 'The latest word.' } });
+    fireEvent.click(screen.getByRole('button', { name: /Post comment/ }));
+
+    await waitFor(() => expect(screen.getByText('The latest word.')).toBeTruthy());
+
+    const thread = screen.getByRole('log', { name: 'Comments on this request' });
+    const rows = within(thread).getAllByRole('listitem');
+
+    expect(rows).toHaveLength(8);
+    expect(rows.map((row) => row.textContent?.includes('Message 3.'))).toContain(true);
+    expect(within(rows[0]).getByText('Message 1.')).toBeTruthy();
+    expect(within(rows[7]).getByText('The latest word.')).toBeTruthy();
     expect(screen.queryByRole('button', { name: /earlier/ })).toBeNull();
   });
 });

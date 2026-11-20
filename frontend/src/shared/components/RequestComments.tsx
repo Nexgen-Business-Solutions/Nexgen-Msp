@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { MessageSquare, Send } from 'lucide-react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { RequestComment, RequestConversation } from '@/lib/api/portal';
 
 type Props = {
@@ -78,16 +78,38 @@ const Message: React.FC<{ comment: RequestComment }> = ({ comment }) => {
   );
 };
 
+/** The pages read, oldest message first and each message once. */
+const sequence = (pages: RequestConversation[]) => {
+  const said = new Set<string>();
+
+  return [...pages]
+    .reverse()
+    .flatMap((page) => page.comments)
+    .filter((comment) => {
+      if (said.has(comment.name)) return false;
+
+      said.add(comment.name);
+
+      return true;
+    });
+};
+
 /** The conversation on one request, the same component wherever the request is read. */
 const RequestComments: React.FC<Props> = ({ requestName, api }) => {
   const client = useQueryClient();
   const key = ['request-comments', requestName];
-  // the page being answered, and the pages already asked for behind it
-  const [older, setOlder] = useState<RequestComment[]>([]);
-  const [fetching, setFetching] = useState(false);
-  const thread = useQuery(key, ({ signal }) => api.list(requestName, PAGE, undefined, signal), {
-    enabled: Boolean(requestName),
-  });
+  // every page read so far, held as one sequence: a refresh re-reads them all in order,
+  // from the latest backwards, so a message written meanwhile cannot fall between two of
+  // them and become unreachable
+  const thread = useInfiniteQuery<RequestConversation, Error>(
+    key,
+    ({ pageParam, signal }) => api.list(requestName, PAGE, pageParam, signal),
+    {
+      enabled: Boolean(requestName),
+      getNextPageParam: (page) =>
+        page.earlier > 0 && page.comments.length ? page.comments[0].name : undefined,
+    }
+  );
   const [draft, setDraft] = useState('');
   const [failed, setFailed] = useState<string | null>(null);
   const intention = useRef(newKey());
@@ -106,19 +128,11 @@ const RequestComments: React.FC<Props> = ({ requestName, api }) => {
     }
   );
 
-  const comments = [...older, ...(thread.data?.comments ?? [])];
-  const earlier = Math.max((thread.data?.held ?? comments.length) - comments.length, 0);
-
-  const loadEarlier = async () => {
-    if (!comments.length || fetching) return;
-    setFetching(true);
-    try {
-      const page = await api.list(requestName, PAGE, comments[0].name);
-      setOlder((shown) => [...page.comments, ...shown]);
-    } finally {
-      setFetching(false);
-    }
-  };
+  const pages = thread.data?.pages ?? [];
+  const head = pages[0];
+  const comments = sequence(pages);
+  const earlier = pages.length ? pages[pages.length - 1].earlier : 0;
+  const fetching = thread.isFetchingNextPage;
   const sending = post.isLoading;
   const tooLong = draft.length > MAX;
 
@@ -133,10 +147,10 @@ const RequestComments: React.FC<Props> = ({ requestName, api }) => {
             <MessageSquare size={17} className="text-blue-600" />
             <span className="text-[15px] font-semibold text-slate-900">Comments</span>
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
-              {thread.data?.held ?? comments.length}
+              {head?.held ?? comments.length}
             </span>
           </p>
-          {thread.data?.awaiting_customer_approval && (
+          {head?.awaiting_customer_approval && (
             <p className="ml-7 mt-1 text-[11px] text-slate-500">
               Visible to authorized customer participants now. This conversation will be visible to
               Nexgen MSP after approval and submission.
@@ -155,11 +169,11 @@ const RequestComments: React.FC<Props> = ({ requestName, api }) => {
           </p>
         ) : comments.length ? (
           <>
-            {Boolean(earlier) && (
+            {Boolean(earlier) && thread.hasNextPage && (
               <button
                 type="button"
                 disabled={fetching}
-                onClick={loadEarlier}
+                onClick={() => thread.fetchNextPage()}
                 className="mt-3 w-full rounded-lg border border-slate-200 py-2 text-[11px] font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:text-slate-400"
               >
                 {fetching ? 'Loading…' : `Show ${earlier} earlier ${earlier === 1 ? 'comment' : 'comments'}`}
@@ -178,7 +192,7 @@ const RequestComments: React.FC<Props> = ({ requestName, api }) => {
         )}
       </div>
 
-      {thread.data?.may_post && (
+      {head?.may_post && (
         <div className="border-t border-slate-200 bg-slate-50/60 px-5 py-4">
           <p className="mb-1.5 text-xs font-semibold text-slate-900">Write a comment</p>
           <textarea

@@ -760,7 +760,7 @@ class TestEveryMessageIsReachable(CommentCase):
                     "author_side": "MSP",
                     "body": f"Message {number}.",
                     "notification_rule": "request_comment_for_customer",
-                    "idempotency_key": f"{self.tag}-{number}",
+                    "idempotency_key": f"{self.tag}-{request}-{number}",
                     "notified": 1,
                 }
             )
@@ -799,6 +799,30 @@ class TestEveryMessageIsReachable(CommentCase):
         self.assertEqual(len(read), 501)
         self.assertEqual(read[0]["body"], "Message 0.")
         self.assertEqual(read[-1]["body"], "Message 500.")
+
+    def test_a_cursor_from_another_conversation_is_refused(self):
+        mine = self.approved(self.awaiting())
+        elsewhere = self.many(self.approved(self.awaiting()), 1)[0]
+
+        self.many(mine, 3)
+
+        with self.assertRaises(ValidationError):
+            self.as_user(
+                self.tech,
+                lambda: RequestCommentService.thread(request=mine, limit=2, before=elsewhere),
+            )
+
+    def test_a_cursor_that_names_no_message_is_refused(self):
+        name = self.approved(self.awaiting())
+        self.many(name, 3)
+
+        with self.assertRaises(ValidationError):
+            self.as_user(
+                self.tech,
+                lambda: RequestCommentService.thread(
+                    request=name, limit=2, before=f"{COMMENT}-nowhere"
+                ),
+            )
 
 
 class TestTheMailCarriesTheCommentInBothForms(CommentCase):

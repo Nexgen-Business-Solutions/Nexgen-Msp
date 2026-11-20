@@ -939,10 +939,21 @@ class NotificationTemplateService:
         if source == "published":
             found = NotificationTemplateService.published(template_name, locale)
 
-            # nothing published yet is not nothing to show: what goes out today is the
-            # wording this application falls back to, and that is what a preview of "what
-            # is being sent" has to be built from
-            return found or NotificationTemplateService._fallback_source(template_name)
+            if found:
+                return {**found, "locale": locale}
+
+            # nothing published in this language is not nothing to show, and it is not the
+            # shipped wording either: a send falls back to the original language first, and
+            # a preview of "what is being sent" has to follow the same road to the end
+            if locale != registry.FALLBACK_LOCALE:
+                original = NotificationTemplateService.published(
+                    template_name, registry.FALLBACK_LOCALE
+                )
+
+                if original:
+                    return {**original, "locale": registry.FALLBACK_LOCALE}
+
+            return NotificationTemplateService._fallback_source(template_name)
 
         row = frappe.db.get_value(
             LOCALE,
@@ -988,6 +999,11 @@ class NotificationTemplateService:
         return {
             **rendered,
             "source": source,
+            # which wording this was built from, which is not always the language asked
+            # for: a send falls back, and a preview that hid that would show a letter
+            # nobody receives
+            "built_from_locale": content.get("locale"),
+            "from_shipped": bool(content.get("from_shipped")),
             "context_note": "Rendered with sample values and sent to nobody. A real send "
             "uses the record's own data.",
         }

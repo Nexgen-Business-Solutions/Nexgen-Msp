@@ -938,3 +938,102 @@ class TestAnUntouchedWordingOpensOnWhatIsBeingSent(TemplateCase):
         self.assertTrue(state["configured"])
         self.assertFalse(state["from_shipped"])
         self.assertIn(PREFIX, state["draft_subject"])
+class TestAPreviewSaysWhatIsReallySent(TemplateCase):
+    """English published and French not is the ordinary day a translation is started.
+
+    A send falls back to the English revision then, so a preview of "what is being sent"
+    has to be built from that revision. Showing the shipped original instead would offer
+    an administrator a letter nobody receives.
+    """
+
+    def test_an_unpublished_language_is_previewed_as_the_published_original(self):
+        self.publish("en")
+        out = NotificationTemplateService.preview(TEMPLATE, "fr", source="published")
+
+        self.assertEqual(out["built_from_locale"], "en")
+        self.assertFalse(out["from_shipped"])
+        self.assertIn(f"{PREFIX} en", out["subject"])
+
+    def test_a_language_of_its_own_is_previewed_in_that_language(self):
+        self.publish("en")
+        self.publish("fr")
+        out = NotificationTemplateService.preview(TEMPLATE, "fr", source="published")
+
+        self.assertEqual(out["built_from_locale"], "fr")
+        self.assertIn(f"{PREFIX} fr", out["subject"])
+
+    def test_with_nothing_published_anywhere_it_is_the_shipped_wording(self):
+        out = NotificationTemplateService.preview(TEMPLATE, "fr", source="published")
+
+        self.assertTrue(out["from_shipped"])
+        self.assertIsNone(out["built_from_locale"])
+
+    def test_what_the_preview_shows_is_what_the_send_builds(self):
+        self.publish("en")
+        shown = NotificationTemplateService.preview(TEMPLATE, "fr", source="published")
+        sent = NotificationTemplateService.for_delivery(
+            TEMPLATE,
+            self.speaker("fr", f"pv{self.tag[:3]}"),
+            None,
+            dict(NotificationSettingsService.SAMPLE),
+        )
+
+        self.assertEqual(sent["subject"], shown["subject"])
+        self.assertEqual(sent["html"], shown["html"])
+
+
+class TestThePublishedTextIsTheTextThatGoesOut(TemplateCase):
+    """The plain-text body is wording somebody published, not a by-product of the HTML.
+
+    Every road to the queue carries it. This one is the test send an administrator uses to
+    read the letter before trusting it — the same road every reminder takes.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.admin = self.make_account("internal", "MSP System Admin", suffix=f"pt{self.tag[:3]}")
+        self.written = f"{PREFIX} plain readers are told this and nothing else."
+        NotificationTemplateService.save_draft(
+            TEMPLATE,
+            "en",
+            subject=f"{PREFIX} en subject",
+            html=f"<p>{PREFIX} en markup for {{{{ full_name }}}}</p>",
+            text=self.written,
+        )
+        NotificationTemplateService.publish(TEMPLATE, "en")
+
+    def parts(self, address):
+        import email
+
+        row = frappe.db.sql(
+            """
+            select eq.name
+            from `tabEmail Queue` eq
+            join `tabEmail Queue Recipient` r on r.parent = eq.name
+            where r.recipient = %s
+            order by eq.creation desc
+            limit 1
+            """,
+            address,
+        )
+
+        self.assertTrue(row, "the mail was handed to the queue")
+        message = email.message_from_string(
+            frappe.db.get_value("Email Queue", row[0][0], "message")
+        )
+
+        return {
+            part.get_content_type(): part.get_payload(decode=True).decode("utf-8", "replace")
+            for part in message.walk()
+            if part.get_content_maintype() == "text"
+        }
+
+    def test_the_text_part_is_the_published_one_and_not_one_read_off_the_html(self):
+        NotificationTemplateService.test_send(TEMPLATE, "en", self.admin, source="published")
+        parts = self.parts(self.admin)
+
+        self.assertIn("text/plain", parts)
+        self.assertIn("text/html", parts)
+        self.assertIn(self.written, parts["text/plain"])
+        self.assertIn("en markup", parts["text/html"])
+        self.assertNotIn("en markup", parts["text/plain"])

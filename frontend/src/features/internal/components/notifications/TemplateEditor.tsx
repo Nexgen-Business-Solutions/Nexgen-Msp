@@ -467,6 +467,15 @@ const TemplateEditor: React.FC<{
                 ) : (
                   <div className="space-y-3">
                     <p className="text-xs text-slate-500">{preview.data?.context_note}</p>
+                    {preview.data?.built_from_locale &&
+                      preview.data.built_from_locale !== locale && (
+                        <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+                          Nothing is published in this language, so a real send falls back to{' '}
+                          {locales.find((entry) => entry.locale === preview.data?.built_from_locale)
+                            ?.locale_label ?? preview.data.built_from_locale}
+                          . That is the wording shown here.
+                        </p>
+                      )}
                     <Field label="Subject">
                       <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
                         {preview.data?.subject}

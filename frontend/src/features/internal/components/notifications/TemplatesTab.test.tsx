@@ -401,6 +401,8 @@ describe('the template editor', () => {
       locale: 'en',
       revision: 2,
       source: 'published',
+      built_from_locale: 'en',
+      from_shipped: false,
       context_note: 'Rendered with sample values and sent to nobody.',
     });
     renderPage();
@@ -417,6 +419,34 @@ describe('the template editor', () => {
     expect(internal.testNotificationTemplate).not.toHaveBeenCalled();
   });
 
+  it('says which language a preview fell back to when this one publishes nothing', async () => {
+    mockPage();
+    mockTemplates();
+    mockDetail();
+    vi.mocked(internal.previewNotificationTemplate).mockResolvedValue({
+      subject: 'English subject',
+      html: '<p>English wording</p>',
+      text: null,
+      locale: 'fr',
+      revision: 2,
+      source: 'published',
+      built_from_locale: 'en',
+      from_shipped: false,
+      context_note: 'Rendered with sample values and sent to nobody.',
+    });
+    renderPage();
+
+    const dialog = await openEditor();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Français' }));
+    fireEvent.click(await within(dialog).findByRole('tab', { name: 'Preview' }));
+
+    expect(await within(dialog).findByText(/falls back to/)).toHaveTextContent('English');
+    expect(within(dialog).getByTitle('Template preview')).toHaveAttribute(
+      'srcdoc',
+      '<p>English wording</p>'
+    );
+  });
+
   it('asks for the draft to be saved rather than previewing the wording before the edit', async () => {
     mockPage();
     mockTemplates();
@@ -428,6 +458,8 @@ describe('the template editor', () => {
       locale: 'en',
       revision: 2,
       source: 'published',
+      built_from_locale: 'en',
+      from_shipped: false,
       context_note: 'Rendered with sample values and sent to nobody.',
     });
     renderPage();
@@ -455,6 +487,8 @@ describe('the template editor', () => {
       locale: 'en',
       revision: 2,
       source: 'draft',
+      built_from_locale: 'en',
+      from_shipped: false,
       context_note: 'Rendered with sample values and sent to nobody.',
     });
     renderPage();
