@@ -827,7 +827,15 @@ class TestOneMessageIsQueuedOnce(CommentCase):
             except Exception:
                 pass
 
-        self.assertTrue(
-            any("for update" in str(query).lower() for query in held),
-            "the comment's row is taken before the mail is",
+        locking = [
+            str(query).lower()
+            for query in held
+            if "for update" in str(query).lower()
+        ]
+
+        self.assertTrue(locking, "the comment's row is taken before the mail is")
+        self.assertIn(
+            "notified",
+            locking[0],
+            "the state is read by the locking statement, not by a second read of a stale snapshot",
         )

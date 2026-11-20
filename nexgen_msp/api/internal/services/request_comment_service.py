@@ -282,14 +282,23 @@ class RequestCommentService:
         two mails. Whoever takes the row sends; the other waits, reads that it is done
         and goes away.
         """
-        frappe.db.sql(
-            "select name from `tabMSP Request Comment` where name = %s for update", comment.name
+        # the state is read by the locking statement itself. A plain read after the wait
+        # would be served the transaction's own snapshot, which still says nobody has been
+        # told — the lock would be taken correctly and the decision made on stale news
+        held = frappe.db.sql(
+            "select notified from `tabMSP Request Comment` where name = %s for update",
+            comment.name,
+            as_dict=True,
         )
 
-        if frappe.db.get_value(COMMENT, comment.name, "notified"):
+        if held and held[0].notified:
             return True
 
         if not RequestCommentService._tell(doc, comment):
+            # nothing of ours was written, and the row is let go rather than held for the
+            # rest of a sweep that still has other messages to deliver
+            frappe.db.commit()
+
             return False
 
         frappe.db.set_value(COMMENT, comment.name, "notified", 1, update_modified=False)
