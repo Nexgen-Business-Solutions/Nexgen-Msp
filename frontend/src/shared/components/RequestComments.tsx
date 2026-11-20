@@ -6,7 +6,7 @@ import type { RequestComment, RequestConversation } from '@/lib/api/portal';
 type Props = {
   requestName: string;
   api: {
-    list: (request: string, signal?: AbortSignal) => Promise<RequestConversation>;
+    list: (request: string, limit?: number, signal?: AbortSignal) => Promise<RequestConversation>;
     post: (payload: {
       request: string;
       body: string;
@@ -16,6 +16,7 @@ type Props = {
 };
 
 const MAX = 4000;
+const PAGE = 50;
 
 /** A fresh key per intention to post, so a retry of the same one says it once. */
 const newKey = () =>
@@ -75,9 +76,11 @@ const Message: React.FC<{ comment: RequestComment }> = ({ comment }) => {
 /** The conversation on one request, the same component wherever the request is read. */
 const RequestComments: React.FC<Props> = ({ requestName, api }) => {
   const client = useQueryClient();
-  const key = ['request-comments', requestName];
-  const thread = useQuery(key, ({ signal }) => api.list(requestName, signal), {
+  const [page, setPage] = useState(PAGE);
+  const key = ['request-comments', requestName, page];
+  const thread = useQuery(key, ({ signal }) => api.list(requestName, page, signal), {
     enabled: Boolean(requestName),
+    keepPreviousData: true,
   });
   const [draft, setDraft] = useState('');
   const [failed, setFailed] = useState<string | null>(null);
@@ -91,7 +94,7 @@ const RequestComments: React.FC<Props> = ({ requestName, api }) => {
         intention.current = newKey();
         setDraft('');
         setFailed(null);
-        client.invalidateQueries(key);
+        client.invalidateQueries(['request-comments', requestName]);
       },
       onError: (error) => setFailed(error instanceof Error ? error.message : 'The comment was not posted.'),
     }
@@ -112,7 +115,7 @@ const RequestComments: React.FC<Props> = ({ requestName, api }) => {
             <MessageSquare size={17} className="text-blue-600" />
             <span className="text-[15px] font-semibold text-slate-900">Comments</span>
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
-              {comments.length}
+              {thread.data?.held ?? comments.length}
             </span>
           </p>
           {thread.data?.awaiting_customer_approval && (
@@ -133,23 +136,28 @@ const RequestComments: React.FC<Props> = ({ requestName, api }) => {
             {thread.error instanceof Error ? thread.error.message : 'The conversation could not be read.'}
           </p>
         ) : comments.length ? (
-          <ul className="list-none" role="log" aria-label="Comments on this request">
+          <>
+            {Boolean(thread.data?.earlier) && (
+              <button
+                type="button"
+                onClick={() => setPage((shown) => shown + PAGE)}
+                className="mt-3 w-full rounded-lg border border-slate-200 py-2 text-[11px] font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+              >
+                Show {thread.data?.earlier} earlier {thread.data?.earlier === 1 ? 'comment' : 'comments'}
+              </button>
+            )}
+            <ul className="list-none" role="log" aria-label="Comments on this request">
             {comments.map((comment) => (
               <Message key={comment.name} comment={comment} />
             ))}
-          </ul>
+            </ul>
+          </>
         ) : (
           <p className="py-6 text-center text-xs text-slate-500">
             No comments yet. Ask a question or add information about this request.
           </p>
         )}
       </div>
-
-      {thread.data && !thread.data.may_post && (
-        <p className="border-t border-slate-200 bg-slate-50/60 px-5 py-3 text-[11px] text-slate-500">
-          This request is completed. The conversation stays readable.
-        </p>
-      )}
 
       {thread.data?.may_post && (
         <div className="border-t border-slate-200 bg-slate-50/60 px-5 py-4">

@@ -16,7 +16,6 @@ COMMENT = "MSP Request Comment"
 REQUEST = "MSP Request"
 DRAFT = "Draft"
 CUSTOMER_APPROVAL = "Awaiting Customer Approval"
-COMPLETED = "Completed"
 MAX_BODY = 4000
 
 MSP = "MSP"
@@ -84,34 +83,45 @@ class RequestCommentService:
         return doc, CUSTOMER
 
     # ------------------------------------------------------------------ reading
+    PAGE = 50
+
     @staticmethod
-    def thread(request=None):
-        """Every message on this request, oldest first, with who may add to it."""
+    def thread(request=None, limit=None):
+        """The conversation on this request, oldest first, bounded.
+
+        A thread that has run for months is read from its end: the latest page is what
+        somebody opening the request is answering. `earlier` says whether there is more
+        behind it, and a larger `limit` is how the screen asks for it.
+        """
         doc, side = RequestCommentService._reader(request)
         seen = {}
+        page = max(1, min(frappe.utils.cint(limit) or RequestCommentService.PAGE, 500))
+        held = frappe.db.count(COMMENT, {"request": doc.name})
 
         return {
             "request": doc.name,
             "side": side,
-            # the work is done and the exchange about it with it; what was said stays
-            # readable, which is the whole point of writing it down
-            "may_post": doc.status != COMPLETED,
+            "may_post": True,
             "awaiting_customer_approval": doc.status == CUSTOMER_APPROVAL,
+            "held": held,
+            "earlier": max(held - page, 0),
             "comments": [
                 RequestCommentService._card(row, seen)
-                for row in frappe.get_all(
-                    COMMENT,
-                    filters={"request": doc.name},
-                    fields=[
-                        "name",
-                        "author_user",
-                        "author_name",
-                        "author_side",
-                        "body",
-                        "creation",
-                    ],
-                    order_by="creation asc, name asc",
-                    limit_page_length=0,
+                for row in reversed(
+                    frappe.get_all(
+                        COMMENT,
+                        filters={"request": doc.name},
+                        fields=[
+                            "name",
+                            "author_user",
+                            "author_name",
+                            "author_side",
+                            "body",
+                            "creation",
+                        ],
+                        order_by="creation desc, name desc",
+                        limit_page_length=page,
+                    )
                 )
             ],
         }
@@ -187,13 +197,6 @@ class RequestCommentService:
         rather than saying it again to everybody.
         """
         doc, side = RequestCommentService._reader(request)
-
-        if doc.status == COMPLETED:
-            raise ValidationError(
-                "This request is completed; its conversation is closed to new comments.",
-                "VALIDATION_ERROR",
-            )
-
         text = (body or "").strip()
 
         if not text:

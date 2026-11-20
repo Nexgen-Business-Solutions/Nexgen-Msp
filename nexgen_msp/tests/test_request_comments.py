@@ -241,8 +241,8 @@ class TestAWrittenCommentStays(CommentCase):
             frappe.delete_doc(COMMENT, written["name"], ignore_permissions=True)
 
 
-class TestWhatIsClosedWhenTheWorkIsDone(CommentCase):
-    """The exchange about a request ends with the request; what was said stays readable."""
+class TestAClosedRequestStillCarriesItsConversation(CommentCase):
+    """Closing the work does not close the exchange about it: both sides keep writing."""
 
     def completed(self):
         name = self.approved(self.awaiting())
@@ -252,12 +252,14 @@ class TestWhatIsClosedWhenTheWorkIsDone(CommentCase):
 
         return name
 
-    def test_a_completed_request_takes_no_new_comment(self):
+    def test_both_sides_may_still_write_on_a_completed_request(self):
         name = self.completed()
 
-        self.refused(lambda: self.post(self.tech, name, "One more thing."))
-        self.refused(lambda: self.post(self.asker, name, "And from us."))
-        self.assertEqual(len(self.rows(name)), 1)
+        self.post(self.tech, name, "One more thing.")
+        self.post(self.asker, name, "And from us.")
+
+        self.assertEqual(len(self.rows(name)), 3)
+        self.assertTrue(self.thread(self.asker, name)["may_post"])
 
     def test_what_was_said_is_still_read_by_both_sides(self):
         name = self.completed()
@@ -267,8 +269,25 @@ class TestWhatIsClosedWhenTheWorkIsDone(CommentCase):
 
         self.assertEqual([row["body"] for row in ours["comments"]], ["Done on our side."])
         self.assertEqual([row["body"] for row in theirs["comments"]], ["Done on our side."])
-        self.assertFalse(ours["may_post"])
-        self.assertFalse(theirs["may_post"])
+
+
+class TestALongConversationIsReadFromItsEnd(CommentCase):
+    def test_the_page_holds_the_latest_and_says_what_is_behind_it(self):
+        name = self.approved(self.awaiting())
+
+        for number in range(4):
+            self.post(self.tech, name, f"Message {number}.")
+
+        page = self.thread(self.tech, name)
+        bounded = self.as_user(
+            self.tech, lambda: RequestCommentService.thread(request=name, limit=2)
+        )
+
+        self.assertEqual(page["held"], 4)
+        self.assertEqual(page["earlier"], 0)
+        self.assertEqual([row["body"] for row in bounded["comments"]], ["Message 2.", "Message 3."])
+        self.assertEqual(bounded["earlier"], 2)
+        self.assertEqual(bounded["held"], 4)
 
 
 class TestNothingOfOursIsCopiedBeforeTheHandover(CommentCase):

@@ -522,6 +522,8 @@ const renderPage = async (
     side: 'MSP',
     may_post: true,
     awaiting_customer_approval: false,
+    held: 0,
+    earlier: 0,
     comments: [],
   });
   vi.mocked(internal.getRequestExecutionPlan).mockResolvedValue(work ?? plan());

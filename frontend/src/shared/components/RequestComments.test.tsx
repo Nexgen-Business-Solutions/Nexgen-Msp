@@ -21,6 +21,8 @@ const conversation = (over: Partial<RequestConversation> = {}): RequestConversat
   side: 'Customer',
   may_post: true,
   awaiting_customer_approval: false,
+  held: over.comments?.length ?? 0,
+  earlier: 0,
   comments: [],
   ...over,
 });
@@ -157,12 +159,28 @@ describe('the conversation on a request', () => {
     expect(calls.post).not.toHaveBeenCalled();
   });
 
-  it('offers no composer once the request is completed, and says why', async () => {
+  it('offers no composer where this reader may not post', async () => {
     show(api({ may_post: false, comments: [comment()] }));
 
     await screen.findByRole('log', { name: 'Comments on this request' });
 
     expect(screen.queryByLabelText('New comment')).toBeNull();
-    expect(screen.getByText(/completed\. The conversation stays readable/)).toBeTruthy();
+  });
+
+  it('asks for the earlier comments only when there are some', async () => {
+    const calls = api({ comments: [comment()], held: 60, earlier: 59 });
+    show(calls);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Show 59 earlier comments/ }));
+
+    await waitFor(() =>
+      expect(calls.list.mock.calls.at(-1)?.slice(0, 2)).toEqual(['SR-0001', 100])
+    );
+    expect(screen.getByText('60')).toBeTruthy();
+    cleanup();
+
+    show(api({ comments: [comment()] }));
+    await screen.findByRole('log', { name: 'Comments on this request' });
+    expect(screen.queryByRole('button', { name: /earlier/ })).toBeNull();
   });
 });

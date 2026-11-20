@@ -1136,11 +1136,14 @@ export type RequestConversation = {
   side: 'MSP' | 'Customer';
   may_post: boolean;
   awaiting_customer_approval: boolean;
+  /** how many the conversation holds, and how many are behind the page read */
+  held: number;
+  earlier: number;
   comments: RequestComment[];
 };
 
-export const getRequestComments = (request: string, signal?: AbortSignal) =>
-  get<RequestConversation>(`${BASE}.get_request_comments`, { request }, signal);
+export const getRequestComments = (request: string, limit?: number, signal?: AbortSignal) =>
+  get<RequestConversation>(`${BASE}.get_request_comments`, { request, limit }, signal);
 
 export const postRequestComment = (payload: {
   request: string;
