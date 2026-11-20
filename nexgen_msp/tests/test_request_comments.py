@@ -702,3 +702,86 @@ class TestWhatAMessageWasStaysWhatItWas(CommentCase):
             self.queued_to(self.tech), before, "our team is not written to about it afterwards"
         )
         self.assertGreater(self.queued_to(self.approver), 0)
+
+
+class TestEveryMessageIsReachable(CommentCase):
+    """A page the screen cannot ask for is a message nobody can read again."""
+
+    def many(self, request, count):
+        """Written straight to the table: this is about reading them, not writing them."""
+        rows = []
+
+        for number in range(count):
+            doc = frappe.get_doc(
+                {
+                    "doctype": COMMENT,
+                    "request": request,
+                    "author_user": self.tech,
+                    "author_name": "Tess",
+                    "author_side": "MSP",
+                    "body": f"Message {number}.",
+                    "notification_rule": "request_comment_for_customer",
+                    "idempotency_key": f"{self.tag}-{number}",
+                    "notified": 1,
+                }
+            )
+            doc.insert(ignore_permissions=True)
+            rows.append(doc.name)
+
+        frappe.db.commit()
+        self.written.extend(rows)
+
+        return rows
+
+    def test_a_conversation_longer_than_the_old_ceiling_is_read_to_its_end(self):
+        name = self.approved(self.awaiting())
+        self.many(name, 501)
+
+        whole = self.as_user(
+            self.tech, lambda: RequestCommentService.thread(request=name, limit=600)
+        )
+
+        self.assertEqual(whole["held"], 501)
+        self.assertEqual(whole["earlier"], 0)
+        self.assertEqual(len(whole["comments"]), 501)
+        self.assertEqual(whole["comments"][0]["body"], "Message 0.")
+
+
+class TestTheMailCarriesTheCommentInBothForms(CommentCase):
+    """#47 asks for HTML and plain text. What Frappe really queues is what is asked here."""
+
+    def queued_for(self, address):
+        import email
+
+        name = frappe.db.sql(
+            """
+            select eq.name
+            from `tabEmail Queue` eq
+            join `tabEmail Queue Recipient` r on r.parent = eq.name
+            where r.recipient = %s
+            order by eq.creation desc
+            limit 1
+            """,
+            address,
+        )
+
+        self.assertTrue(name, "the comment was handed to the mail queue")
+
+        return email.message_from_string(frappe.db.get_value("Email Queue", name[0][0], "message"))
+
+    def test_the_whole_comment_is_in_the_text_part_as_well_as_the_html(self):
+        name = self.approved(self.awaiting())
+        written = "Please confirm the second address before Friday."
+
+        self.post(self.tech, name, written)
+        message = self.queued_for(self.asker)
+        parts = {
+            part.get_content_type(): part.get_payload(decode=True).decode("utf-8", "replace")
+            for part in message.walk()
+            if part.get_content_maintype() == "text"
+        }
+
+        self.assertIn("text/plain", parts)
+        self.assertIn("text/html", parts)
+        self.assertIn("confirm the second address", parts["text/plain"])
+        self.assertIn("confirm the second address", parts["text/html"])

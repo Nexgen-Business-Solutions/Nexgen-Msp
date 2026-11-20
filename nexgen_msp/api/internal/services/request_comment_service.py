@@ -95,7 +95,10 @@ class RequestCommentService:
         """
         doc, side = RequestCommentService._reader(request)
         seen = {}
-        page = max(1, min(frappe.utils.cint(limit) or RequestCommentService.PAGE, 500))
+        # no ceiling of its own: a page can never answer with more than the conversation
+        # holds, and a ceiling the screen could not reach left the last messages behind a
+        # button that asked for them for ever
+        page = max(1, frappe.utils.cint(limit) or RequestCommentService.PAGE)
         held = frappe.db.count(COMMENT, {"request": doc.name})
 
         return {
