@@ -275,7 +275,20 @@ class RequestCommentService:
 
         A send nobody could hand to the queue leaves the message owed, which is what makes
         it come back. Nobody to tell is settled, not owed: there is no mail to recover.
+
+        The message's own row is held first. The send that follows a post and the sweep
+        that comes round for what is owed can meet on the same comment, and both would
+        have read "nobody told yet" before either had queued anything — one message,
+        two mails. Whoever takes the row sends; the other waits, reads that it is done
+        and goes away.
         """
+        frappe.db.sql(
+            "select name from `tabMSP Request Comment` where name = %s for update", comment.name
+        )
+
+        if frappe.db.get_value(COMMENT, comment.name, "notified"):
+            return True
+
         if not RequestCommentService._tell(doc, comment):
             return False
 

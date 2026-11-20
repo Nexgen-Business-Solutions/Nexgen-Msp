@@ -783,5 +783,51 @@ class TestTheMailCarriesTheCommentInBothForms(CommentCase):
 
         self.assertIn("text/plain", parts)
         self.assertIn("text/html", parts)
-        self.assertIn("confirm the second address", parts["text/plain"])
-        self.assertIn("confirm the second address", parts["text/html"])
+        self.assertIn(written, parts["text/plain"])
+        self.assertIn(written, parts["text/html"])
+
+
+class TestOneMessageIsQueuedOnce(CommentCase):
+    """The send that follows a post and the sweep can meet on the same comment.
+
+    They are kept apart by the message's own row: whoever holds it sends, and whoever
+    arrives after reads that it is done rather than sending it a second time.
+    """
+
+    def test_a_message_already_told_is_not_sent_again_by_the_other_worker(self):
+        name = self.approved(self.awaiting())
+        written = self.post(self.tech, name, "Said once.")
+        comment = frappe.get_doc(COMMENT, written["name"])
+
+        with patch.object(notifications, "send") as sent:
+            settled = RequestCommentService._deliver(frappe.get_doc(REQUEST, name), comment)
+
+        self.assertTrue(settled)
+        sent.assert_not_called()
+
+    def test_the_row_is_held_before_anything_is_queued(self):
+        name = self.approved(self.awaiting())
+
+        with patch.object(notifications, "send", return_value=False):
+            written = self.post(self.tech, name, "Owed for now.")
+
+        held = []
+
+        def remember(query, *args, **kwargs):
+            held.append(query)
+
+            return []
+
+        with patch.object(frappe.db, "sql", side_effect=remember):
+            try:
+                RequestCommentService._deliver(
+                    frappe._dict({"name": name, "status": "Submitted", "refused_by_customer": 0}),
+                    frappe._dict({"name": written["name"]}),
+                )
+            except Exception:
+                pass
+
+        self.assertTrue(
+            any("for update" in str(query).lower() for query in held),
+            "the comment's row is taken before the mail is",
+        )
