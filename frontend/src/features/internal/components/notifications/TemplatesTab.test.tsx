@@ -441,6 +441,11 @@ describe('the template editor', () => {
     fireEvent.click(await within(dialog).findByRole('tab', { name: 'Preview' }));
 
     expect(await within(dialog).findByText(/falls back to/)).toHaveTextContent('English');
+    expect(vi.mocked(internal.previewNotificationTemplate).mock.calls.at(-1)?.slice(0, 3)).toEqual([
+      'MSP Request Received',
+      'fr',
+      'published',
+    ]);
     expect(within(dialog).getByTitle('Template preview')).toHaveAttribute(
       'srcdoc',
       '<p>English wording</p>'

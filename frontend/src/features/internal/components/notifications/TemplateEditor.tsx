@@ -85,7 +85,7 @@ const TemplateEditor: React.FC<{
   const preview = useNotificationTemplatePreview(
     templateName,
     locale,
-    current?.has_unpublished_changes || !current?.configured ? 'draft' : 'published',
+    current?.has_unpublished_changes ? 'draft' : 'published',
     panel === 'preview' && !dirty
   );
 
