@@ -51,6 +51,7 @@ def execute():
                 groups += 1
 
         doc.flags.ignore_validate = True
+        doc.flags.ignore_mandatory = True
         doc.flags.ignore_permissions = True
         doc.save()
 
