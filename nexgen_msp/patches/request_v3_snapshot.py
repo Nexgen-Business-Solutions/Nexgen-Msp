@@ -157,6 +157,7 @@ def _groups_of(lines):
                 "group_origin": "LegacyMigration",
                 "source_scope_type": "All",
                 "source_scope_label": "Legacy request",
+                "configuration_snapshot_json": json.dumps({}),
                 "selected_subject_count": 0,
                 "applicable_target_count": 0,
                 "excluded_subject_count": 0,
