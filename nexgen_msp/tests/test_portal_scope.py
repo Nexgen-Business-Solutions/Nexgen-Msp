@@ -7,7 +7,7 @@ from nexgen_msp.api.internal.services.request_service import RequestService
 from nexgen_msp.api.internal.services.user_service import UserService
 from nexgen_msp.api.portal.services.portal_service import PortalService
 from nexgen_msp.utils import permissions
-from nexgen_msp.utils.errors import ValidationError
+from nexgen_msp.utils.errors import NotFoundError, ValidationError
 
 from .base import MSPTestCase
 
@@ -37,6 +37,43 @@ class TestPortalScope(MSPTestCase):
     def test_asking_for_another_company_is_refused(self):
         with self.assertRaises(ValidationError):
             self.as_manager(lambda: PortalService.list_client_users(customer=self.theirs))
+
+    def test_another_companys_request_is_answered_as_one_that_does_not_exist(self):
+        """Refusal and absence read the same, or the numbering can be walked."""
+        theirs = frappe.get_doc(
+            {
+                "doctype": "MSP Request",
+                "customer": self.theirs,
+                "request_type": "Add",
+                "priority": "Medium",
+                "status": "Submitted",
+                "source": "Internal",
+                "requester": "Administrator",
+                "lines": [
+                    {
+                        "target_scope": "User",
+                        "client_user": self.their_person,
+                        "requested_service": self.make_service("PS", scope="User"),
+                        "operation_code": "service.add",
+                        "action": "Add",
+                    }
+                ],
+            }
+        ).insert(ignore_permissions=True)
+        frappe.db.commit()
+        self.track("MSP Request", theirs.name)
+
+        with self.assertRaises(NotFoundError) as refused:
+            self.as_manager(lambda: PortalService.get_request(theirs.name))
+
+        with self.assertRaises(NotFoundError) as missing:
+            self.as_manager(lambda: PortalService.get_request("SR-0000-00000"))
+
+        self.assertEqual(refused.exception.http_status_code, missing.exception.http_status_code)
+        self.assertEqual(
+            f"{refused.exception}".replace(theirs.name, "X"),
+            f"{missing.exception}".replace("SR-0000-00000", "X"),
+        )
 
     def test_opening_someone_of_another_company_is_refused(self):
         with self.assertRaises(ValidationError):

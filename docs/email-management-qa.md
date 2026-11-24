@@ -32,11 +32,13 @@ The letter produced by a step is shown as an overlay over the page it came from.
 | EM-14 | Another customer sees nothing of it | Second customer account |
 | EM-15 | A conversation before handover stays on the customer side | Customer account |
 
-Run on 2026-11-24 against `msp.localhost`, in a browser: EM-01 to EM-07, EM-09, EM-11 and
-EM-12 green. EM-08 and EM-13 to EM-15 were not run — one needs a rule that admits copies,
-the others a customer account. EM-10 cannot be reached from the screen at all: sending
-once is an identity held in the service, and only its own tests can put two workers on the
-same occurrence.
+Run on 2026-11-24 against `msp.localhost`, in a browser: EM-01 to EM-07, EM-09, EM-11
+to EM-14 green. EM-14 failed on the first run — a request belonging to another company was
+refused with a different answer from one that does not exist, which told a reader the
+request existed; it passes since the refusal and the absence read alike. EM-08 and EM-15
+were not run — one needs a rule that admits copies, the other an operator account on the
+customer side. EM-10 cannot be reached from the screen at all: sending once is an identity
+held in the service, and only its own tests can put two workers on the same occurrence.
 
 ---
 

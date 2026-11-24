@@ -792,7 +792,14 @@ class PortalService:
             raise NotFoundError(f"Request {name} does not exist.", "NOT_FOUND")
 
         doc = frappe.get_doc("MSP Request", name)
-        PortalService._resolve_customer(doc.customer)
+
+        try:
+            PortalService._resolve_customer(doc.customer)
+        except ValidationError:
+            # the same answer as for a request that was never created: telling a refusal
+            # from an absence would let anybody walk the numbering and learn which requests
+            # other companies hold
+            raise NotFoundError(f"Request {name} does not exist.", "NOT_FOUND")
 
         if doc.status == "Draft" and doc.requester != frappe.session.user:
             raise NotFoundError(f"Request {name} does not exist.", "NOT_FOUND")
