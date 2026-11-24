@@ -341,7 +341,7 @@ const TemplateEditor: React.FC<{
                 <Field
                   label="Plain text body"
                   htmlFor="template-text"
-                  hint="Optional. Kept with the revision and shown in the preview. The text part of the message itself is derived from the HTML by the mail queue."
+                  hint="Optional. Sent as the plain-text part of the message. Left empty, the mail queue derives one from the HTML."
                 >
                   <textarea
                     id="template-text"
