@@ -31,8 +31,8 @@ export default function PortalBilling() {
   const currency = rows[0]?.currency ?? '';
 
   return (
-    <div className="space-y-6 px-6 pb-6 pt-4">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+    <div className="space-y-6 px-6 pb-6 pt-5">
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
         <KpiCard
           icon={Receipt}
           accent="blue"
@@ -73,7 +73,7 @@ export default function PortalBilling() {
           <tr
             key={row.name}
             onClick={() => navigate(`/msp/invoices/${row.name}`)}
-            className="cursor-pointer transition-colors hover:bg-slate-50"
+            className="cursor-pointer transition-colors hover:bg-slate-50/80"
           >
             <td className="whitespace-nowrap px-4 py-3">
               <span className="text-sm font-semibold text-slate-900">
@@ -86,14 +86,14 @@ export default function PortalBilling() {
             <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600 tabular-nums">
               {row.line_count}
             </td>
-            <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+            <td className="whitespace-nowrap px-4 py-3 text-sm tabular-nums text-slate-500">
               {fmtDate(row.posting_date)}
             </td>
             <td className="px-4 py-3">
               <div className="flex flex-wrap items-center gap-1.5">
                 <StatusBadge value={row.invoice_docstatus === 1 ? 'Posted' : 'Draft'} />
                 {Boolean(row.disputed) && (
-                  <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-bold text-amber-800">
+                  <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700 ring-1 ring-amber-200">
                     DISPUTED
                   </span>
                 )}
@@ -102,7 +102,7 @@ export default function PortalBilling() {
             <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900 tabular-nums">
               {(row.signed_amount || 0).toLocaleString()} {row.currency ?? ''}
               {row.is_credit_note && (
-                <span className="block text-[11px] font-semibold text-violet-600">Credit note</span>
+                <span className="mt-0.5 block text-[11px] font-medium text-violet-600">Credit note</span>
               )}
             </td>
             <td className="whitespace-nowrap px-4 py-3">

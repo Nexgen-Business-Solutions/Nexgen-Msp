@@ -22,7 +22,7 @@ type Props = {
 const INTERFACE_TYPES = ['Wi-Fi', 'LAN', 'Extra', 'Other'];
 
 const inputClass =
-  'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
+  'h-10 w-full rounded-md border-0 bg-slate-100/80 px-3.5 text-sm text-slate-900 outline-none transition focus:bg-white focus:ring-1 focus:ring-blue-500 placeholder:text-slate-400';
 
 const EditDeviceModal: React.FC<Props> = ({ device, onClose }) => {
   const navigate = useNavigate();
@@ -94,7 +94,7 @@ const EditDeviceModal: React.FC<Props> = ({ device, onClose }) => {
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+            className="rounded-full px-4 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50"
           >
             Cancel
           </button>
@@ -102,7 +102,7 @@ const EditDeviceModal: React.FC<Props> = ({ device, onClose }) => {
             type="button"
             onClick={submit}
             disabled={!hostname.trim() || Boolean(serialTaken) || update.isLoading}
-            className="flex min-w-[7rem] items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex min-w-[7rem] items-center justify-center rounded-full bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {update.isLoading ? (
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
@@ -124,7 +124,7 @@ const EditDeviceModal: React.FC<Props> = ({ device, onClose }) => {
               className={`${inputClass} uppercase`}
             />
             {taken && (
-              <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5">
+              <div className="mt-2 rounded-xl bg-amber-50 ring-1 ring-amber-200 p-2.5">
                 <p className="text-xs text-amber-800">
                   <span className="font-semibold">{taken.hostname}</span> is already taken by{' '}
                   {taken.same_customer ? taken.name : `${taken.customer} (${taken.name})`}. Names
@@ -136,7 +136,7 @@ const EditDeviceModal: React.FC<Props> = ({ device, onClose }) => {
                     onClose();
                     navigate(`/msp/devices/${taken.name}`);
                   }}
-                  className="mt-2 inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-800 transition-colors hover:bg-amber-100"
+                  className="mt-2 inline-flex items-center gap-1 rounded-full bg-white px-3 py-2 text-xs font-semibold text-amber-800 ring-1 ring-amber-300 transition-colors hover:bg-amber-100"
                 >
                   Open it
                   <ArrowUpRight size={13} />
@@ -166,7 +166,7 @@ const EditDeviceModal: React.FC<Props> = ({ device, onClose }) => {
               className={inputClass}
             />
             {serialTaken && (
-              <p className="mt-2 rounded-lg border border-red-200 bg-red-50 p-2.5 text-xs text-red-700">
+              <p className="mt-2 rounded-xl bg-red-50 ring-1 ring-red-200 p-2.5 text-xs text-red-700">
                 Already on <span className="font-semibold">{serialTaken.hostname}</span> (
                 {serialTaken.customer}). Two records cannot share a serial number.
               </p>
@@ -220,7 +220,7 @@ const EditDeviceModal: React.FC<Props> = ({ device, onClose }) => {
         />
 
         {update.error instanceof Error && (
-          <div className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
+          <div className="flex items-start gap-2.5 rounded-xl bg-red-50 ring-1 ring-red-100 p-3">
             <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
             <span className="text-sm font-medium text-red-700">{update.error.message}</span>
           </div>

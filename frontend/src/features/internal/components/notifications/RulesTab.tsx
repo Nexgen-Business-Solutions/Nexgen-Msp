@@ -1,8 +1,8 @@
 import React from 'react';
-import { ChevronRight, Lock } from 'lucide-react';
+import { BellOff, ChevronRight, Lock, SearchX } from 'lucide-react';
 import type { NotificationOverview, NotificationRule } from '@/lib/api/internal';
 import Select from '@/shared/components/Select';
-import { Message, Pill, Segmented, SkeletonRows, inputClass } from './ui';
+import { Message, Pill, Segmented, SkeletonRows, btnSecondary, inputClass, rowClass, thClass } from './ui';
 import { EMPTY_FILTERS, type RuleFilters, fmtMoment, frequencyOf, healthDetail, healthLabel, healthTone, nextDueOf } from './format';
 import { Search } from 'lucide-react';
 import TablePagination from '@/shared/components/TablePagination';
@@ -60,8 +60,8 @@ const RulesTab: React.FC<Props> = ({ filters, onFilters, page, onPage, data, loa
 
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-2 px-5 py-4">
-        <div className="relative min-w-[14rem] flex-1">
+      <div className="flex flex-wrap items-center gap-3 px-5 py-4 sm:px-6">
+        <div className="relative w-full min-w-0 sm:min-w-[14rem] sm:flex-1">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden />
           <input
             type="search"
@@ -111,7 +111,7 @@ const RulesTab: React.FC<Props> = ({ filters, onFilters, page, onPage, data, loa
             <button
               type="button"
               onClick={onRetry}
-              className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              className={btnSecondary}
             >
               Try again
             </button>
@@ -120,12 +120,15 @@ const RulesTab: React.FC<Props> = ({ filters, onFilters, page, onPage, data, loa
           {error instanceof Error ? error.message : undefined}
         </Message>
       ) : rules.length === 0 ? (
-        <Message title={filtered ? 'No notification matches these filters' : 'No notifications are managed yet'}>
+        <Message
+          icon={filtered ? SearchX : BellOff}
+          title={filtered ? 'No notification matches these filters' : 'No notifications are managed yet'}
+        >
           {filtered ? (
             <button
               type="button"
               onClick={() => onFilters(EMPTY_FILTERS)}
-              className="font-semibold text-blue-600 hover:text-blue-700"
+              className="font-medium text-blue-600 transition-colors hover:text-blue-700"
             >
               Clear filters
             </button>
@@ -134,15 +137,15 @@ const RulesTab: React.FC<Props> = ({ filters, onFilters, page, onPage, data, loa
           )}
         </Message>
       ) : (
-        <div className="overflow-x-auto border-t border-slate-100">
+        <div className="overflow-x-auto">
           <table className="w-full min-w-[68rem] text-left">
-            <thead className="bg-slate-50/70">
+            <thead>
               <tr>
                 {HEADS.map((head, index) => (
                   <th
                     key={index}
                     scope="col"
-                    className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-slate-500"
+                    className={`${thClass} ${index === 0 ? 'pl-5 pr-4 sm:pl-6' : 'px-4'}`}
                   >
                     {head || <span className="sr-only">Open</span>}
                   </th>
@@ -165,9 +168,9 @@ const RulesTab: React.FC<Props> = ({ filters, onFilters, page, onPage, data, loa
                       }
                     }}
                     aria-label={`Open ${rule.display_name}`}
-                    className="cursor-pointer transition-colors hover:bg-slate-50 focus:bg-blue-50/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500"
+                    className={`cursor-pointer ${rowClass} focus:bg-blue-50/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500`}
                   >
-                    <td className="min-w-[14rem] px-4 py-3">
+                    <td className="min-w-[14rem] py-3 pl-5 pr-4 sm:pl-6">
                       <p className="text-sm font-semibold text-slate-900">{rule.display_name}</p>
                       <p className="text-xs text-slate-500">{rule.category}</p>
                     </td>
@@ -204,7 +207,7 @@ const RulesTab: React.FC<Props> = ({ filters, onFilters, page, onPage, data, loa
                         {healthLabel(rule.health)}
                       </Pill>
                     </td>
-                    <td className="px-4 py-3 text-slate-400">
+                    <td className="px-4 py-3 text-slate-300">
                       <ChevronRight size={16} aria-hidden />
                     </td>
                   </tr>

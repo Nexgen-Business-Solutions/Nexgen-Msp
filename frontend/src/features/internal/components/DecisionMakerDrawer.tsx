@@ -28,19 +28,21 @@ const Card: React.FC<{ icon: typeof User; title: string; extra?: React.ReactNode
   extra,
   children,
 }) => (
-  <section className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-    <p className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-      <Icon size={17} className="text-blue-600" />
+  <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/70">
+    <p className="flex items-center gap-2.5 text-sm font-semibold text-slate-900">
+      <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-blue-50 text-blue-600 ring-1 ring-blue-100">
+        <Icon size={16} strokeWidth={1.75} />
+      </span>
       {title}
       {extra}
     </p>
-    <div className="mt-3.5">{children}</div>
+    <div className="mt-3 divide-y divide-slate-100">{children}</div>
   </section>
 );
 
 const Row: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
   <div className="flex items-start justify-between gap-4 py-2">
-    <span className="text-sm text-slate-400">{label}</span>
+    <span className="text-sm text-slate-500">{label}</span>
     <span className="min-w-0 text-right text-sm font-medium text-slate-900">{children}</span>
   </div>
 );
@@ -86,33 +88,41 @@ const DecisionMakerDrawer: React.FC<Props> = ({ open, customer, approver, onClos
     <aside
       role="dialog"
       aria-label={`${approver.full_name || approver.user} details`}
-      className="fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col border-l border-slate-200 bg-slate-50 shadow-2xl"
+      className="fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col bg-slate-50 shadow-2xl ring-1 ring-slate-200"
     >
       <header className="border-b border-slate-200 bg-white px-6 pb-0 pt-5">
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
+          <div className="flex min-w-0 items-start gap-3">
+            <span
+              aria-hidden
+              className="grid size-11 shrink-0 place-items-center rounded-2xl bg-blue-50 text-blue-600 ring-1 ring-blue-100"
+            >
+              <User size={20} strokeWidth={1.75} />
+            </span>
+            <div className="min-w-0">
             <p className="flex flex-wrap items-center gap-2">
-              <span className="truncate text-xl font-bold text-slate-900">
+              <span className="truncate text-xl font-semibold tracking-tight text-slate-900">
                 {approver.full_name || approver.user}
               </span>
               <span
-                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${
+                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${
                   approver.enabled === false
-                    ? 'bg-slate-100 text-slate-500'
-                    : 'bg-emerald-50 text-emerald-700'
+                    ? 'bg-slate-50 text-slate-600 ring-slate-200'
+                    : 'bg-emerald-50 text-emerald-700 ring-emerald-200'
                 }`}
               >
                 <CircleCheck size={12} />
                 {approver.enabled === false ? 'Disabled' : 'Active'}
               </span>
             </p>
-            <p className="mt-1 truncate text-sm text-slate-400">{approver.user}</p>
+            <p className="mt-1 truncate text-sm text-slate-500">{approver.user}</p>
+            </div>
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close details"
-            className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+            className="grid size-9 shrink-0 place-items-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
           >
             <X size={18} />
           </button>
@@ -129,10 +139,10 @@ const DecisionMakerDrawer: React.FC<Props> = ({ open, customer, approver, onClos
               key={value}
               type="button"
               onClick={() => setTab(value)}
-              className={`-mb-px border-b-2 pb-2.5 text-sm font-semibold transition-colors ${
+              className={`-mb-px border-b-2 pb-2.5 text-sm font-medium transition-colors ${
                 tab === value
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-slate-400 hover:text-slate-600'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
               }`}
             >
               {label}
@@ -153,14 +163,14 @@ const DecisionMakerDrawer: React.FC<Props> = ({ open, customer, approver, onClos
                     type="button"
                     onClick={copy}
                     aria-label="Copy the email address"
-                    className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                    className="rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
                   >
                     {copied ? <Check size={13} className="text-emerald-600" /> : <Copy size={13} />}
                   </button>
                 </span>
               </Row>
               <Row label="Role">
-                <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">
+                <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-blue-200">
                   Decision Maker
                 </span>
               </Row>
@@ -169,7 +179,7 @@ const DecisionMakerDrawer: React.FC<Props> = ({ open, customer, approver, onClos
                 <button
                   type="button"
                   onClick={() => navigate(`/msp/customers/${encodeURIComponent(customer)}`)}
-                  className="font-medium text-blue-600 transition-colors hover:text-blue-800"
+                  className="font-medium text-blue-600 transition-colors hover:text-blue-700 hover:underline"
                 >
                   {customer}
                 </button>
@@ -194,10 +204,10 @@ const DecisionMakerDrawer: React.FC<Props> = ({ open, customer, approver, onClos
               </Row>
               <Row label="Relationship">
                 <span
-                  className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                  className={`rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${
                     approver.deciding === false
-                      ? 'bg-slate-100 text-slate-500'
-                      : 'bg-emerald-50 text-emerald-700'
+                      ? 'bg-slate-50 text-slate-600 ring-slate-200'
+                      : 'bg-emerald-50 text-emerald-700 ring-emerald-200'
                   }`}
                 >
                   {approver.status === 'Inactive'
@@ -216,7 +226,7 @@ const DecisionMakerDrawer: React.FC<Props> = ({ open, customer, approver, onClos
                   }`}
                 </Row>
               )}
-              <p className="mt-2 text-xs text-slate-500">
+              <p className="mt-3 rounded-xl bg-slate-50/70 px-3 py-2.5 text-xs text-slate-600 ring-1 ring-slate-200/60">
                 {approver.deciding === false
                   ? `This relationship is not in force, so they decide nothing for ${customer} at the moment.`
                   : approver.can_submit && approver.can_approve
@@ -236,8 +246,10 @@ const DecisionMakerDrawer: React.FC<Props> = ({ open, customer, approver, onClos
               <Row label="Password last set">{fmt(account?.last_password_reset_date)?.slice(0, 10)}</Row>
               <Row label="Account status">
                 <span
-                  className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                    account?.enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                  className={`rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${
+                    account?.enabled
+                      ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+                      : 'bg-slate-50 text-slate-600 ring-slate-200'
                   }`}
                 >
                   {account?.enabled ? 'Active' : 'Disabled'}
@@ -248,11 +260,13 @@ const DecisionMakerDrawer: React.FC<Props> = ({ open, customer, approver, onClos
             <button
               type="button"
               onClick={() => setTab('rights')}
-              className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-white p-5 text-left shadow-sm transition-colors hover:bg-slate-50"
+              className="flex w-full items-center justify-between gap-3 rounded-2xl bg-white p-5 text-left shadow-sm ring-1 ring-slate-200/70 transition-colors hover:bg-slate-50/80"
             >
               <span className="min-w-0">
                 <span className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-                  <LayoutGrid size={17} className="text-blue-600" />
+                  <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-blue-50 text-blue-600 ring-1 ring-blue-100">
+                    <LayoutGrid size={16} strokeWidth={1.75} />
+                  </span>
                   Access and rights
                   <span className="font-normal text-slate-400">
                     ({allowed} of {granted.length})
@@ -272,7 +286,7 @@ const DecisionMakerDrawer: React.FC<Props> = ({ open, customer, approver, onClos
             <div className="space-y-4">
               {account.abilities.groups.map((group) => (
                 <Card key={group.title} icon={ShieldCheck} title={group.title}>
-                  <ul>
+                  <ul className="divide-y divide-slate-100">
                     {group.items.map((item) => (
                       <li key={item.label} className="flex items-start gap-2.5 py-2">
                         {item.allowed ? (
@@ -307,24 +321,24 @@ const DecisionMakerDrawer: React.FC<Props> = ({ open, customer, approver, onClos
         <button
           type="button"
           onClick={() => navigate(`/msp/accounts/${encodeURIComponent(approver.user)}`)}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+          className="inline-flex items-center gap-1.5 rounded-full px-2 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:text-slate-900"
         >
-          <ExternalLink size={13} />
+          <ExternalLink size={14} />
           Open full account
         </button>
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => navigate(`/msp/accounts/${encodeURIComponent(approver.user)}`)}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+            className="inline-flex items-center gap-1.5 rounded-full bg-white px-3.5 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50"
           >
-            <SquarePen size={15} />
+            <SquarePen size={14} />
             Edit access
           </button>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+            className="rounded-full bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-600"
           >
             Close
           </button>

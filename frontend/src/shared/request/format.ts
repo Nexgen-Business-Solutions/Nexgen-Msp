@@ -46,10 +46,11 @@ export const toneOfBadge = (label: string): BadgeTone => {
   return 'amber';
 };
 
-export const sectionClass = 'overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm';
+// the dashboard's panel: a white card on a soft ring
+export const sectionClass = 'overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/70';
 
 export const sectionHeadClass =
-  'flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3';
+  'flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-5 py-4';
 
 export const linkButtonClass =
-  'whitespace-nowrap py-2.5 text-xs font-semibold text-blue-600 transition-colors hover:text-blue-800 hover:underline';
+  'whitespace-nowrap py-2.5 text-[13px] font-medium text-blue-600 transition-colors hover:text-blue-700 hover:underline';

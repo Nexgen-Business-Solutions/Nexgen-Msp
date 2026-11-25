@@ -7,7 +7,7 @@ import { useSaveRequiredIdentifiers } from '../../hooks/useRequests';
 import { compactBadge, primaryButton, secondaryButton } from '../../lib/workDisplay';
 
 const Th: React.FC<{ children?: React.ReactNode }> = ({ children }) => (
-  <th className="whitespace-nowrap border-b border-slate-200 px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+  <th className="whitespace-nowrap border-b border-slate-200 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
     {children}
   </th>
 );
@@ -151,7 +151,7 @@ const RequiredIdentifiersModal: React.FC<{
         }
       >
         <div className="space-y-3">
-          <div className="max-h-96 overflow-auto rounded-lg border border-slate-200">
+          <div className="max-h-96 overflow-auto rounded-xl ring-1 ring-slate-200/70">
             <table className="w-full">
               <thead className="sticky top-0 bg-slate-50">
                 <tr>
@@ -182,7 +182,7 @@ const RequiredIdentifiersModal: React.FC<{
                             setValues((current) => ({ ...current, [owner]: event.target.value }))
                           }
                           placeholder={copy.field}
-                          className={`w-full rounded-lg border bg-white px-3 py-2 text-sm outline-none focus:ring-4 ${
+                          className={`w-full rounded-md border bg-white px-3 py-2 text-sm outline-none focus:ring-2 ${
                             failed
                               ? 'border-red-300 focus:border-red-500 focus:ring-red-100'
                               : 'border-slate-200 focus:border-blue-500 focus:ring-blue-100'
@@ -209,7 +209,7 @@ const RequiredIdentifiersModal: React.FC<{
           </div>
 
           {save.error instanceof Error && (
-            <p role="alert" className="rounded-lg border border-red-100 bg-red-50 px-3 py-2.5 text-sm font-medium text-red-700">
+            <p role="alert" className="rounded-xl bg-red-50 ring-1 ring-red-100 px-3 py-2.5 text-sm font-medium text-red-700">
               {save.error.message}
             </p>
           )}

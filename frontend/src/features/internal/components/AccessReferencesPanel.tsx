@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Check, ChevronDown, Minus, ShieldCheck, Wrench } from 'lucide-react';
 import ConfirmModal from '@/shared/components/ConfirmModal';
-import SectionIcon from '@/shared/components/SectionIcon';
 import FieldLabel from '@/shared/components/FieldLabel';
 import Select from '@/shared/components/Select';
 import type { AccountAbilities, AccountAccess } from '@/lib/api/internal';
@@ -89,30 +88,32 @@ const AccessReferencesPanel: React.FC<Props> = ({ email, access, abilities }) =>
   };
 
   return (
-    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+    <section className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/70">
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
         aria-expanded={open}
         aria-label={open ? 'Hide access and rights' : 'Show access and rights'}
-        className="flex w-full items-start gap-3 px-5 py-4 text-left transition-colors hover:bg-slate-50"
+        className="flex w-full items-center gap-3.5 px-5 py-5 text-left transition-colors hover:bg-slate-50/80 sm:px-6"
       >
-        <SectionIcon icon={ShieldCheck} />
+        <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-blue-50 text-blue-600 ring-1 ring-blue-100">
+          <ShieldCheck className="size-5" strokeWidth={1.75} />
+        </span>
         <span className="min-w-0 flex-1">
           <span className="flex flex-wrap items-center gap-2">
             <span className="text-base font-semibold text-slate-900">Access and rights</span>
             {review && (
-              <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700">
+              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 ring-1 ring-amber-200">
                 Needs review
               </span>
             )}
             {repaired && (
-              <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+              <span className="rounded-full bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
                 References repaired
               </span>
             )}
           </span>
-          <span className="mt-0.5 block truncate text-xs text-slate-500">
+          <span className="mt-0.5 block truncate text-sm text-slate-500">
             {abilities.role_label ?? 'No role'} · acts for {abilities.scope} · {granted} of{' '}
             {items.length} rights
           </span>
@@ -124,11 +125,11 @@ const AccessReferencesPanel: React.FC<Props> = ({ email, access, abilities }) =>
       </button>
 
       {access.status === 'STAFF_WITH_CUSTOMER_ROLE' && (
-        <p className="border-t border-slate-100 px-5 py-3 text-sm text-slate-700">{access.message}</p>
+        <p className="border-t border-slate-100 px-5 py-3 text-sm text-slate-700 sm:px-6">{access.message}</p>
       )}
 
       {review && (
-        <div className="border-t border-slate-100 bg-amber-50/60 px-5 py-3">
+        <div className="mx-5 mb-5 rounded-2xl bg-amber-50 p-3.5 ring-1 ring-amber-200 sm:mx-6">
           <p className="text-sm font-semibold text-amber-900">Customer access needs review</p>
           <p className="mt-0.5 text-sm text-amber-900">
             The Customer references on this account do not agree. Access remains restricted until
@@ -139,17 +140,17 @@ const AccessReferencesPanel: React.FC<Props> = ({ email, access, abilities }) =>
       )}
 
       {open && (
-        <div className="space-y-6 border-t border-slate-100 p-5">
+        <div className="space-y-6 border-t border-slate-100 px-5 py-5 sm:px-6">
           <div>
             <p className="text-sm font-semibold text-slate-900">
               {abilities.role_label
                 ? `What ${article(abilities.role_label)} ${abilities.role_label} can do here`
                 : 'What this account can do here'}
             </p>
-            <div className="mt-3 grid gap-x-10 gap-y-5 sm:grid-cols-2">
+            <div className="mt-3 grid gap-4 sm:grid-cols-2">
               {abilities.groups.map((group) => (
-                <div key={group.title}>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                <div key={group.title} className="rounded-xl bg-slate-50/70 px-4 py-3 ring-1 ring-slate-200/60">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
                     {group.title}
                   </p>
                   <ul className="mt-1.5">
@@ -170,13 +171,13 @@ const AccessReferencesPanel: React.FC<Props> = ({ email, access, abilities }) =>
           {references && (
             <dl className="grid gap-4 border-t border-slate-100 pt-4 text-sm sm:grid-cols-2">
               <div>
-                <dt className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
                   Contact link
                 </dt>
                 <dd className="mt-0.5 text-slate-700">{list(access.contact_customers)}</dd>
               </div>
               <div>
-                <dt className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
                   User Permission
                 </dt>
                 <dd className="mt-0.5 text-slate-700">{list(access.permission_customers)}</dd>
@@ -190,7 +191,7 @@ const AccessReferencesPanel: React.FC<Props> = ({ email, access, abilities }) =>
                 type="button"
                 onClick={() => setChoice('contact')}
                 disabled={access.contact_customers.length === 0}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-full bg-white px-3.5 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50 disabled:opacity-50"
               >
                 Use the Contact link
               </button>
@@ -198,7 +199,7 @@ const AccessReferencesPanel: React.FC<Props> = ({ email, access, abilities }) =>
                 type="button"
                 onClick={() => setChoice('permission')}
                 disabled={access.permission_customers.length === 0}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-full bg-white px-3.5 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50 disabled:opacity-50"
               >
                 Use the User Permission
               </button>
@@ -208,9 +209,9 @@ const AccessReferencesPanel: React.FC<Props> = ({ email, access, abilities }) =>
                   setManual(access.contact_customers[0] ?? access.permission_customers[0] ?? '');
                   setChoice('manual');
                 }}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+                className="inline-flex items-center gap-1.5 rounded-full bg-white px-3.5 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50"
               >
-                <Wrench size={13} />
+                <Wrench size={14} />
                 Choose the company
               </button>
             </div>
@@ -219,7 +220,7 @@ const AccessReferencesPanel: React.FC<Props> = ({ email, access, abilities }) =>
       )}
 
       {resolve.error instanceof Error && (
-        <p className="mx-5 mb-5 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
+        <p className="mx-5 mb-5 rounded-2xl bg-red-50 px-3.5 py-3 text-sm font-medium text-red-700 ring-1 ring-red-200 sm:mx-6">
           {resolve.error.message}
         </p>
       )}

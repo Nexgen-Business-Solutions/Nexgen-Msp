@@ -1,7 +1,7 @@
 import { useScopedWorkspace } from '@/shared/layout/useScopedWorkspace';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, FilePlus2, ShieldCheck } from 'lucide-react';
+import { ArrowRight, Eye, FilePlus2, ShieldCheck } from 'lucide-react';
 import DataTable from '@/shared/components/DataTable';
 import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
 import StatusBadge from '@/shared/components/StatusBadge';
@@ -48,16 +48,18 @@ export default function PortalRequests() {
   const awaiting = rights.data?.can_approve ? rights.data.awaiting : 0;
 
   return (
-    <div className="space-y-5 px-6 pb-6 pt-4">
+    <div className="space-y-6 px-6 pb-6 pt-5">
       {awaiting > 0 && (
         <button
           type="button"
           onClick={() => apply({ ...EMPTY, status: 'Awaiting Customer Approval' })}
-          className="flex w-full items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50/70 px-5 py-4 text-left transition-colors hover:bg-amber-50"
+          className="group flex w-full flex-col gap-3 rounded-2xl bg-amber-50 px-5 py-4 text-left ring-1 ring-amber-200 transition-colors hover:bg-amber-100/60 sm:flex-row sm:items-center sm:justify-between"
         >
-          <span className="flex items-start gap-2.5">
-            <ShieldCheck size={18} className="mt-0.5 shrink-0 text-amber-600" />
-            <span>
+          <span className="flex items-start gap-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white text-amber-600 ring-1 ring-amber-200">
+              <ShieldCheck className="size-5" strokeWidth={1.75} />
+            </span>
+            <span className="min-w-0">
               <span className="block text-sm font-semibold text-amber-900">
                 {awaiting} request{awaiting > 1 ? 's' : ''} waiting for your accord
               </span>
@@ -66,7 +68,10 @@ export default function PortalRequests() {
               </span>
             </span>
           </span>
-          <span className="shrink-0 text-sm font-semibold text-amber-800">Review them</span>
+          <span className="inline-flex shrink-0 items-center gap-1.5 self-start rounded-full bg-white px-3.5 py-2 text-sm font-medium text-amber-800 ring-1 ring-amber-200 transition-colors group-hover:bg-amber-50 sm:self-auto">
+            Review them
+            <ArrowRight size={14} />
+          </span>
         </button>
       )}
 
@@ -137,12 +142,14 @@ export default function PortalRequests() {
         {rows.map((row) => (
           <tr
             key={row.name}
-            onClick={() => navigate(
-                      row.status === 'Draft' && !scoped
-                        ? `/msp/requests/new?draft=${encodeURIComponent(row.name)}`
-                        : `/msp/requests/${row.name}`
-                    )}
-            className="cursor-pointer transition-colors hover:bg-slate-50"
+            onClick={() =>
+              navigate(
+                row.status === 'Draft' && !scoped
+                  ? `/msp/requests/new?draft=${encodeURIComponent(row.name)}`
+                  : `/msp/requests/${row.name}`
+              )
+            }
+            className="cursor-pointer transition-colors hover:bg-slate-50/80"
           >
             <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
               {row.name}
@@ -150,13 +157,13 @@ export default function PortalRequests() {
             <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-700">
               {row.request_type}
             </td>
-            <td className="px-4 py-3">
+            <td className="whitespace-nowrap px-4 py-3">
               <StatusBadge value={row.priority} />
             </td>
-            <td className="px-4 py-3">
+            <td className="whitespace-nowrap px-4 py-3">
               <StatusBadge value={row.status} />
             </td>
-            <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+            <td className="whitespace-nowrap px-4 py-3 text-sm tabular-nums text-slate-500">
               {fmtDate(row.creation)}
             </td>
             <td className="whitespace-nowrap px-4 py-3">

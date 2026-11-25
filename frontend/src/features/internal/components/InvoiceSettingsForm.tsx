@@ -7,10 +7,29 @@ import { useInvoiceSettings, useSaveInvoiceSettings } from '../hooks/useSettings
 import { useInvoiceDimensions } from '../hooks/useBilling';
 
 const inputClass =
-  'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
+  'h-10 w-full rounded-md border-0 bg-slate-100/80 px-3.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:bg-white focus:ring-1 focus:ring-blue-500';
 
 const areaClass =
-  'w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-xs leading-relaxed text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
+  'w-full rounded-xl border-0 bg-slate-100/80 px-3.5 py-2.5 font-mono text-xs leading-relaxed text-slate-900 outline-none transition placeholder:text-slate-400 focus:bg-white focus:ring-1 focus:ring-blue-500';
+
+/** One block of settings: what it is on the left, its fields on the right. */
+const Group = ({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) => (
+  <div className="grid grid-cols-1 gap-x-8 gap-y-4 px-5 py-6 sm:px-6 lg:grid-cols-[13rem_minmax(0,1fr)]">
+    <div>
+      <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+      <p className="mt-0.5 text-sm text-slate-500">{description}</p>
+    </div>
+    <div className="min-w-0">{children}</div>
+  </div>
+);
 
 const EMPTY: InvoiceSettings = {
   issuer_name: '',
@@ -58,15 +77,15 @@ const InvoiceSettingsForm: React.FC = () => {
   };
 
   if (settings.isLoading) {
-    return <p className="px-5 py-12 text-center text-sm text-slate-500">Loading…</p>;
+    return <p className="px-5 py-12 text-center text-sm text-slate-500" aria-busy="true">Loading…</p>;
   }
 
   return (
-    <div className="space-y-6 px-5 pb-5">
-      <div>
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
-          Issuer
-        </p>
+    <div className="divide-y divide-slate-100">
+      <Group
+        title="Issuer"
+        description="Who the invoice is from, printed at its top."
+      >
         <div className="grid grid-cols-1 gap-x-4 gap-y-5 sm:grid-cols-2">
           <div>
             <FieldLabel required>Name</FieldLabel>
@@ -105,14 +124,14 @@ const InvoiceSettingsForm: React.FC = () => {
             />
           </div>
         </div>
-      </div>
+      </Group>
 
-      <div>
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
-          Bank details for wire transfer
-        </p>
-        <div className="grid grid-cols-1 gap-x-4 gap-y-5 sm:grid-cols-3">
-          <div className="sm:col-span-3 sm:max-w-[12rem]">
+      <Group
+        title="Bank details for wire transfer"
+        description="What the customer needs to pay by wire. Each line typed prints as a line."
+      >
+        <div className="grid grid-cols-1 gap-x-4 gap-y-5 sm:grid-cols-2 2xl:grid-cols-3">
+          <div className="sm:col-span-2 sm:max-w-[12rem] 2xl:col-span-3">
             <FieldLabel>Wire currency</FieldLabel>
             <input
               type="text"
@@ -150,12 +169,12 @@ const InvoiceSettingsForm: React.FC = () => {
             />
           </div>
         </div>
-      </div>
+      </Group>
 
-      <div>
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
-          Footer
-        </p>
+      <Group
+        title="Footer"
+        description="A closing line under every invoice."
+      >
         <div className="sm:max-w-md">
           <FieldLabel>Closing line</FieldLabel>
           <input
@@ -165,12 +184,12 @@ const InvoiceSettingsForm: React.FC = () => {
             className={inputClass}
           />
         </div>
-      </div>
+      </Group>
 
-      <div>
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
-          Accounting
-        </p>
+      <Group
+        title="Accounting"
+        description="Where each invoice is booked."
+      >
         <div className="grid grid-cols-1 gap-x-4 gap-y-5 sm:grid-cols-2">
           <div>
             <FieldLabel required>Default cost center</FieldLabel>
@@ -184,7 +203,7 @@ const InvoiceSettingsForm: React.FC = () => {
                 .find((entry) => entry.fieldname === 'cost_center')
                 ?.options.map((option) => ({ value: option, label: option })) ?? []}
             />
-            <p className="mt-1.5 text-sm text-slate-500">
+            <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
               Every invoice is booked against it, on the invoice and on each of its lines.
             </p>
           </div>
@@ -197,22 +216,22 @@ const InvoiceSettingsForm: React.FC = () => {
                 onChange={(event) =>
                   set({ show_cost_center_on_invoice: event.target.checked ? 1 : 0 })
                 }
-                className="h-4 w-4 rounded border-slate-300"
+                className="h-4 w-4 rounded border-slate-300 accent-blue-500"
               />
               <span className="text-sm text-slate-700">Print the cost center on the invoice</span>
             </label>
-            <p className="mt-1.5 text-sm text-slate-500">
+            <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
               Off by default: it is an internal accounting axis, not something the customer
               needs to read.
             </p>
           </div>
         </div>
-      </div>
+      </Group>
 
-      <div>
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
-          Terms
-        </p>
+      <Group
+        title="Terms"
+        description="When an invoice falls due, and how long it can be contested."
+      >
         <div className="grid grid-cols-1 gap-x-4 gap-y-5 sm:max-w-2xl sm:grid-cols-2">
           <div>
             <FieldLabel required>Days to pay</FieldLabel>
@@ -223,34 +242,36 @@ const InvoiceSettingsForm: React.FC = () => {
               onChange={(event) => set({ payment_terms_days: Number(event.target.value) })}
               className={inputClass}
             />
-            <p className="mt-1.5 text-sm text-slate-500">
+            <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
               Counted from the invoice date. At zero, an invoice is overdue the next day.
             </p>
           </div>
           <div>
-          <FieldLabel required>Days to contest</FieldLabel>
-          <input
-            type="number"
-            min={1}
-            value={form.dispute_window_days ?? 10}
-            onChange={(event) => set({ dispute_window_days: Number(event.target.value) })}
-            className={inputClass}
-          />
-          <p className="mt-1.5 text-sm text-slate-500">
-            Past it, the customer no longer dispute the invoice.
-          </p>
+            <FieldLabel required>Days to contest</FieldLabel>
+            <input
+              type="number"
+              min={1}
+              value={form.dispute_window_days ?? 10}
+              onChange={(event) => set({ dispute_window_days: Number(event.target.value) })}
+              className={inputClass}
+            />
+            <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
+              Past it, the customer no longer dispute the invoice.
+            </p>
           </div>
         </div>
-      </div>
+      </Group>
 
       {save.error instanceof Error && (
-        <div className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
-          <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
-          <span className="text-sm font-medium text-red-700">{save.error.message}</span>
+        <div className="px-5 py-4 sm:px-6">
+          <div className="flex items-start gap-2.5 rounded-2xl bg-red-50 p-3.5 ring-1 ring-red-200">
+            <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
+            <span className="text-sm font-medium text-red-700">{save.error.message}</span>
+          </div>
         </div>
       )}
 
-      <div className="flex items-center justify-end gap-3 border-t border-slate-100 pt-4">
+      <div className="flex items-center justify-end gap-3 rounded-b-2xl bg-slate-50/60 px-5 py-4 sm:px-6">
         {!dirty && save.isSuccess && (
           <span className="inline-flex items-center gap-1.5 text-sm text-emerald-600">
             <CircleCheck size={15} />
@@ -261,7 +282,7 @@ const InvoiceSettingsForm: React.FC = () => {
           type="button"
           onClick={submit}
           disabled={!dirty || !form.issuer_name?.trim() || save.isLoading}
-          className="flex min-w-[7rem] items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+          className="flex min-w-[7rem] items-center justify-center rounded-full bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {save.isLoading ? (
             <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />

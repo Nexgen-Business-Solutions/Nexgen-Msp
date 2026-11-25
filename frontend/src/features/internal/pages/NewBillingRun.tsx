@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Search } from 'lucide-react';
+import { ArrowLeft, Inbox, Receipt, Search, TriangleAlert } from 'lucide-react';
 import type { BillingCandidate } from '@/lib/api/internal';
 import {
   useCreateOperation,
@@ -46,16 +46,16 @@ const KINDS = [
 ] as const;
 
 const field =
-  'h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-700 outline-none transition-colors focus:border-blue-400 disabled:bg-slate-50 disabled:text-slate-500';
+  'h-10 w-full rounded-md border-0 bg-slate-100/80 px-3 text-sm text-slate-800 outline-none transition-colors placeholder:text-slate-400 focus:bg-white focus:ring-1 focus:ring-blue-500 read-only:text-slate-600 read-only:focus:bg-slate-100/80 read-only:focus:ring-0 disabled:cursor-not-allowed disabled:text-slate-500';
 
 const Label: React.FC<{ htmlFor: string; children: React.ReactNode; required?: boolean }> = ({
   htmlFor,
   children,
   required,
 }) => (
-  <label htmlFor={htmlFor} className="mb-1.5 block text-[11px] font-bold text-slate-500">
+  <label htmlFor={htmlFor} className="mb-1.5 block text-sm font-medium text-slate-700">
     {children}
-    {required && <span className="ml-0.5 text-rose-500">*</span>}
+    {required && <span className="ml-0.5 text-red-500">*</span>}
   </label>
 );
 
@@ -292,23 +292,37 @@ export default function NewBillingRun() {
         : 'Prepare invoice draft';
 
   return (
-    <div className="space-y-4 px-6 pb-6 pt-4">
+    <div className="space-y-6 px-6 pb-6 pt-5">
       <button
         type="button"
         onClick={() => navigate('/msp/billing')}
-        className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 transition-colors hover:text-slate-800"
+        className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 transition-colors hover:text-slate-900"
       >
         <ArrowLeft size={14} />
         Back to billing
       </button>
 
       <Card>
-        <div className="flex flex-wrap items-start justify-between gap-3 px-5 py-4">
-          <div className="min-w-0">
-            <h1 className="text-lg font-bold tracking-tight text-slate-900">{label}</h1>
-            <p className="mt-0.5 text-xs text-slate-400">
-              {terms ? `${terms.customer} · ${terms.contract}` : 'Choose what to bill.'}
-            </p>
+        <div className="flex flex-wrap items-start justify-between gap-4 p-5 sm:p-6">
+          <div className="flex min-w-0 items-start gap-4">
+            <span
+              aria-hidden
+              className={`grid size-12 shrink-0 place-items-center rounded-2xl ring-1 ${
+                kind === 'credit_note'
+                  ? 'bg-violet-50 text-violet-600 ring-violet-100'
+                  : kind === 'additions'
+                    ? 'bg-amber-50 text-amber-600 ring-amber-100'
+                    : 'bg-blue-50 text-blue-600 ring-blue-100'
+              }`}
+            >
+              <Receipt className="size-6" strokeWidth={1.75} />
+            </span>
+            <div className="min-w-0">
+              <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{label}</h1>
+              <p className="mt-1 text-sm text-slate-500">
+                {terms ? `${terms.customer} · ${terms.contract}` : 'Choose what to bill.'}
+              </p>
+            </div>
           </div>
           <button type="button" onClick={() => navigate('/msp/billing')} className={btn}>
             Cancel
@@ -338,9 +352,9 @@ export default function NewBillingRun() {
           right={<Pill tone="blue">{`Step ${step + 1} of 4`}</Pill>}
         />
 
-        <div className="p-5">
+        <div className="px-5 pb-5 pt-1">
           {step === 0 && (
-            <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
               <div className="space-y-4">
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   <div>
@@ -414,7 +428,7 @@ export default function NewBillingRun() {
                     <button
                       type="button"
                       onClick={() => navigate(`/msp/billing/${terms.open_run}`)}
-                      className="font-bold underline underline-offset-2"
+                      className="font-semibold underline underline-offset-2 hover:no-underline"
                     >
                       Continue {terms.open_run} →
                     </button>{' '}
@@ -447,7 +461,12 @@ export default function NewBillingRun() {
 
           {step === 1 && (
             <div className="space-y-4">
-              {services.isLoading && <p className="text-xs text-slate-400">Reading the services…</p>}
+              {services.isLoading && (
+                <p className="flex items-center gap-2 text-sm text-slate-500">
+                  <span className="size-4 animate-spin rounded-full border-2 border-blue-100 border-t-blue-500" />
+                  Reading the services…
+                </p>
+              )}
               {services.data?.note && <Banner tone="amber">{services.data.note}</Banner>}
 
               {kind === 'credit_note' && lines.length > 0 && (
@@ -467,13 +486,13 @@ export default function NewBillingRun() {
               )}
 
               {all.length > 0 && (
-                <div className="flex flex-wrap items-center gap-2 text-xs">
-                  <strong className="font-bold text-slate-800">{chosen.length} selected</strong>
-                  <span className="text-slate-400">
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <strong className="font-semibold text-slate-900">{chosen.length} selected</strong>
+                  <span className="text-slate-500">
                     of {all.length}
                     {needle ? ` · ${lines.length} shown` : ''}
                   </span>
-                  <div className="relative ml-auto min-w-[14rem]">
+                  <div className="relative min-w-[14rem] flex-1 sm:ml-auto sm:max-w-sm">
                     <Search
                       size={14}
                       className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -482,7 +501,7 @@ export default function NewBillingRun() {
                       value={hunt}
                       onChange={(event) => setHunt(event.target.value)}
                       placeholder="Search a service, a person or a machine…"
-                      className="h-9 w-full rounded-lg border border-slate-200 pl-9 pr-3 text-xs outline-none transition-colors focus:border-blue-400"
+                      className="h-10 w-full rounded-md border-0 bg-slate-100/80 pl-9 pr-3 text-sm text-slate-800 outline-none transition-colors placeholder:text-slate-400 focus:bg-white focus:ring-1 focus:ring-blue-500"
                     />
                   </div>
                   <button
@@ -503,12 +522,12 @@ export default function NewBillingRun() {
                 </div>
               )}
 
-              <div className="max-h-[52vh] divide-y divide-slate-100 overflow-auto rounded-xl border border-slate-200">
+              <div className="max-h-[52vh] divide-y divide-slate-100 overflow-auto rounded-2xl ring-1 ring-slate-200/70">
                 {grouped.map(([person, rows]) => (
                   <div key={person}>
-                    <div className="flex items-center justify-between gap-2 bg-slate-50/70 px-4 py-1.5">
-                      <h3 className="truncate text-[11px] font-bold text-slate-600">{person}</h3>
-                      <span className="text-[11px] text-slate-400">
+                    <div className="sticky top-0 z-10 flex items-center justify-between gap-2 bg-slate-50 px-4 py-2">
+                      <h3 className="truncate text-xs font-semibold text-slate-700">{person}</h3>
+                      <span className="shrink-0 text-xs tabular-nums text-slate-400">
                         {rows.length} service{rows.length > 1 ? 's' : ''}
                       </span>
                     </div>
@@ -517,7 +536,7 @@ export default function NewBillingRun() {
                       <label
                         key={line.id}
                         title={line.reason}
-                        className="flex cursor-pointer items-center gap-3 border-t border-slate-100 px-4 py-2 hover:bg-slate-50/60"
+                        className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-slate-100 px-4 py-2.5 transition-colors hover:bg-slate-50/80 sm:flex-nowrap"
                       >
                         <input
                           type="checkbox"
@@ -529,13 +548,13 @@ export default function NewBillingRun() {
                             }))
                           }
                           aria-label={`Include ${line.service} for ${person}`}
-                          className="h-4 w-4 shrink-0 accent-blue-600"
+                          className="size-4 shrink-0 accent-blue-500"
                         />
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-xs font-bold text-slate-800">
+                          <span className="block truncate text-sm font-semibold text-slate-900">
                             {line.service}
                           </span>
-                          <span className="block truncate text-[11px] text-slate-400">
+                          <span className="block truncate text-xs text-slate-400">
                             {line.assignment}
                             {line.device ? ` · ${line.device}` : ''}
                           </span>
@@ -558,7 +577,7 @@ export default function NewBillingRun() {
                                   },
                                 }))
                               }
-                              className="h-8 rounded-lg border border-slate-200 px-2 text-[11px] outline-none focus:border-blue-400"
+                              className="h-8 rounded-md border-0 bg-slate-100/80 px-2 text-xs tabular-nums outline-none transition-colors focus:bg-white focus:ring-1 focus:ring-blue-500"
                             />
                             <span className="text-slate-300">–</span>
                             <input
@@ -574,21 +593,21 @@ export default function NewBillingRun() {
                                   },
                                 }))
                               }
-                              className="h-8 rounded-lg border border-slate-200 px-2 text-[11px] outline-none focus:border-blue-400"
+                              className="h-8 rounded-md border-0 bg-slate-100/80 px-2 text-xs tabular-nums outline-none transition-colors focus:bg-white focus:ring-1 focus:ring-blue-500"
                             />
                           </span>
                         ) : (
-                          <span className="hidden whitespace-nowrap text-[11px] text-slate-500 sm:block">
+                          <span className="hidden whitespace-nowrap text-xs tabular-nums text-slate-500 sm:block">
                             {day(line.covered_from)} – {day(line.covered_to)}
                           </span>
                         )}
-                        <span className="w-20 shrink-0 text-right text-[11px] text-slate-400">
+                        <span className="w-16 shrink-0 text-right text-xs tabular-nums text-slate-400">
                           {line.months} mo
                         </span>
                         <span className="hidden shrink-0 lg:block">
                           <Pill tone="gray">{line.covered}</Pill>
                         </span>
-                        <strong className="w-28 shrink-0 text-right text-xs font-bold tabular-nums text-slate-800">
+                        <strong className="w-28 shrink-0 text-right text-sm font-semibold tabular-nums text-slate-900">
                           {line.amount < 0 ? '−' : ''}
                           {money(line.amount, currency)}
                         </strong>
@@ -598,7 +617,13 @@ export default function NewBillingRun() {
                 ))}
 
                 {!services.isLoading && lines.length === 0 && (
-                  <p className="p-6 text-center text-xs text-slate-400">
+                  <p className="flex items-center justify-center gap-3 p-8 text-center text-sm text-slate-500">
+                    <span
+                      aria-hidden
+                      className="grid size-9 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-500 ring-1 ring-slate-200"
+                    >
+                      <Inbox className="size-[18px]" strokeWidth={1.75} />
+                    </span>
                     {needle
                       ? 'Nothing matches that search.'
                       : (services.data?.note ??
@@ -610,16 +635,26 @@ export default function NewBillingRun() {
               </div>
 
               {blocked.length > 0 && (
-                <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4">
-                  <h3 className="text-xs font-bold text-amber-900">
-                    {blocked.length} line{blocked.length > 1 ? 's' : ''} cannot be billed
-                  </h3>
-                  <p className="mt-0.5 text-[11px] text-amber-800">
-                    They are left out of this operation until they are fixed where they live.
-                  </p>
-                  <ul className="mt-2 space-y-1.5">
+                <div className="rounded-2xl bg-amber-50 p-4 ring-1 ring-amber-200">
+                  <div className="flex items-start gap-3">
+                    <span
+                      aria-hidden
+                      className="grid size-8 shrink-0 place-items-center rounded-lg bg-white/70 text-amber-600 ring-1 ring-amber-200"
+                    >
+                      <TriangleAlert className="size-4" strokeWidth={1.75} />
+                    </span>
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-semibold text-amber-900">
+                        {blocked.length} line{blocked.length > 1 ? 's' : ''} cannot be billed
+                      </h3>
+                      <p className="mt-0.5 text-sm text-amber-800">
+                        They are left out of this operation until they are fixed where they live.
+                      </p>
+                    </div>
+                  </div>
+                  <ul className="mt-3 space-y-1.5 pl-11">
                     {blocked.map((line) => (
-                      <li key={line.id} className="flex flex-wrap items-center gap-2 text-[11px]">
+                      <li key={line.id} className="flex flex-wrap items-center gap-2 text-xs">
                         <Pill tone="amber">{line.exception_code}</Pill>
                         <span className="font-semibold text-slate-700">{line.service}</span>
                         <span className="text-slate-500">{line.person}</span>
@@ -630,9 +665,9 @@ export default function NewBillingRun() {
                 </div>
               )}
 
-              <div className="ml-auto flex max-w-xs items-baseline justify-between gap-3 text-xs">
-                <span className="text-slate-400">Selected total</span>
-                <strong className="text-xl font-bold tabular-nums text-slate-900">
+              <div className="ml-auto flex max-w-xs items-baseline justify-between gap-3 rounded-2xl bg-slate-50/70 px-4 py-3 text-sm ring-1 ring-slate-200/60">
+                <span className="text-slate-500">Selected total</span>
+                <strong className="text-xl font-semibold tabular-nums text-slate-900">
                   {total < 0 ? '−' : ''}
                   {money(total, currency)}
                 </strong>
@@ -745,19 +780,19 @@ export default function NewBillingRun() {
               <Divider />
 
               <div>
-                <p className="text-xs font-bold text-slate-800">Invoice notifications</p>
-                <p className="text-[11px] text-slate-400">
+                <p className="text-sm font-semibold text-slate-900">Invoice notifications</p>
+                <p className="text-sm text-slate-500">
                   Sent when the document is submitted, from its own page.
                 </p>
-                <div className="mt-2 flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-50 text-[10px] font-bold text-blue-700">
+                <div className="mt-3 flex items-center gap-3 rounded-xl bg-white px-3.5 py-3 ring-1 ring-slate-200">
+                  <span className="grid size-8 shrink-0 place-items-center rounded-full bg-blue-50 text-[11px] font-semibold text-blue-700 ring-1 ring-blue-100">
                     BC
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-[11px] font-bold text-slate-800">
+                    <p className="truncate text-sm font-medium text-slate-800">
                       {accounting.data?.billing_contact ?? 'No billing contact'}
                     </p>
-                    <p className="truncate text-[11px] text-slate-400">
+                    <p className="truncate text-xs text-slate-500">
                       {accounting.data?.billing_contact_note ?? 'The customer’s billing contact'}
                     </p>
                   </div>
@@ -765,7 +800,7 @@ export default function NewBillingRun() {
                 </div>
               </div>
 
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-[11px] text-slate-500">
+              <div className="rounded-2xl bg-slate-50/70 px-4 py-3 text-sm text-slate-500 ring-1 ring-slate-200/60">
                 ERPNext validates accounting dimensions, exchange rates and posting rules. The
                 document is drafted first; submitting it is a separate decision.
               </div>
@@ -780,9 +815,12 @@ export default function NewBillingRun() {
                   { label: 'Customer', value: terms?.customer ?? '—' },
                   { label: 'Period', value: `${day(start)} – ${day(end)}` },
                 ].map((box) => (
-                  <div key={box.label} className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
-                    <p className="text-[11px] text-slate-400">{box.label}</p>
-                    <p className="mt-0.5 text-xs font-bold text-slate-800">{box.value}</p>
+                  <div
+                    key={box.label}
+                    className="min-w-0 rounded-xl bg-slate-50/70 px-3.5 py-2.5 ring-1 ring-slate-200/60"
+                  >
+                    <p className="text-xs text-slate-500">{box.label}</p>
+                    <p className="mt-0.5 truncate text-sm font-medium text-slate-800">{box.value}</p>
                   </div>
                 ))}
               </div>
@@ -818,9 +856,9 @@ export default function NewBillingRun() {
                     onChange={(event) => setWhy(event.target.value)}
                     rows={3}
                     placeholder="What was settled, with the customer, and on what basis."
-                    className="w-full rounded-lg border border-slate-200 p-3 text-xs outline-none transition-colors focus:border-blue-400"
+                    className="w-full rounded-xl border-0 bg-slate-100/80 p-3 text-sm outline-none transition-colors placeholder:text-slate-400 focus:bg-white focus:ring-1 focus:ring-blue-500"
                   />
-                  <p className="mt-1 text-[11px] text-slate-400">
+                  <p className="mt-1.5 text-xs text-slate-500">
                     These days were served. The note carries this sentence, and it is what
                     anybody reading the credit a year from now will have.
                   </p>
@@ -828,7 +866,7 @@ export default function NewBillingRun() {
               )}
 
               {kind === 'credit_note' && (
-                <p className="text-[11px] text-slate-400">
+                <p className="text-sm text-slate-500">
                   The credit note stays separate from regular billing and from additions.
                 </p>
               )}
@@ -836,13 +874,16 @@ export default function NewBillingRun() {
           )}
 
           {refused && (
-            <p role="alert" className="mt-4 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+            <p
+              role="alert"
+              className="mt-5 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-200"
+            >
               {refused}
             </p>
           )}
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 px-5 py-3.5">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-slate-50/50 px-5 py-4">
           <button type="button" onClick={back} className={btn}>
             {step === 0 ? '← Billing' : '← Back'}
           </button>

@@ -60,10 +60,10 @@ type Props = {
 };
 
 const inputClass =
-  'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
+  'h-10 w-full rounded-md border-0 bg-slate-100/80 px-3.5 text-sm text-slate-900 outline-none transition focus:bg-white focus:ring-1 focus:ring-blue-500';
 
 const ghost =
-  'flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50';
+  'flex h-10 items-center gap-2 rounded-full bg-white px-3.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50 hover:text-slate-900';
 
 const clearValueOf = (field?: FilterField) =>
   field && field.kind === 'select' ? (field.clearValue ?? '') : '';
@@ -161,8 +161,8 @@ const FilterBar: React.FC<Props> = ({
     }, {});
 
   return (
-    <div className="sticky top-2 z-20 rounded-xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex flex-wrap items-center gap-2 px-4 py-3">
+    <div className="sticky top-2 z-20 rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/70">
+      <div className="flex flex-wrap items-center gap-2 px-4 py-3 sm:px-5">
         <div className="relative min-w-[14rem] flex-1">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
@@ -170,14 +170,14 @@ const FilterBar: React.FC<Props> = ({
             value={search}
             onChange={(event) => onSearch(event.target.value)}
             placeholder={searchPlaceholder}
-            className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-10 pr-4 text-sm outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+            className="h-10 w-full rounded-full border-0 bg-slate-100/80 pl-10 pr-4 text-sm outline-none transition placeholder:text-slate-400 focus:bg-white focus:ring-1 focus:ring-blue-500"
           />
         </div>
 
         {toggle && (
           <label
             title={toggle.title}
-            className="flex h-10 cursor-pointer select-none items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+            className="flex h-10 cursor-pointer select-none items-center gap-2 rounded-full bg-white px-3.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50"
           >
             <input
               type="checkbox"
@@ -234,7 +234,7 @@ const FilterBar: React.FC<Props> = ({
       </div>
 
       {chips.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 px-4 py-2.5">
+        <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 px-4 py-2.5 sm:px-5">
           {chips.map((chip) => (
             <span
               key={chip.key}
@@ -284,7 +284,7 @@ const FilterBar: React.FC<Props> = ({
                 onApply(draft);
                 setOpen(false);
               }}
-              className="inline-flex h-9 items-center rounded-lg bg-blue-600 px-4 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+              className="inline-flex h-9 items-center rounded-full bg-blue-500 px-4 text-sm font-medium text-white transition-colors hover:bg-blue-600"
             >
               Apply
             </button>

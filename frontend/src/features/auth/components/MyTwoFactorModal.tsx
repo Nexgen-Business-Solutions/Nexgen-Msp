@@ -127,7 +127,7 @@ const MyTwoFactorModal: React.FC<Props> = ({ open, onClose }) => {
                   if (event.key === 'Enter') reset();
                 }}
                 disabled={busy}
-                className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 pr-11 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 pr-11 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               />
               <button
                 type="button"

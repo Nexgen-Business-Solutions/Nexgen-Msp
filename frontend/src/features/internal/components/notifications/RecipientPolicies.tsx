@@ -2,7 +2,7 @@ import React from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import type { NotificationChannel } from '@/lib/api/internal';
 import Select from '@/shared/components/Select';
-import { Switch, inputClass } from './ui';
+import { Switch, btnSmall, inputClass } from './ui';
 import type { PolicyRow } from './format';
 
 const CHANNELS: NotificationChannel[] = ['To', 'CC', 'BCC'];
@@ -32,7 +32,7 @@ const RecipientPolicies: React.FC<{
 
   if (locked) {
     return (
-      <p className="rounded-lg bg-slate-50 px-3.5 py-3 text-sm text-slate-600">
+      <p className="rounded-xl bg-slate-50/70 px-3.5 py-3 text-sm text-slate-600 ring-1 ring-slate-200/60">
         This notification carries the means of signing in as somebody, so it reaches{' '}
         {audienceLabel.toLowerCase()} and nobody else. It cannot be copied or redirected.
       </p>
@@ -51,7 +51,7 @@ const RecipientPolicies: React.FC<{
           {rows.map((row, index) => (
             <li
               key={index}
-              className="grid gap-2 rounded-lg border border-slate-100 bg-slate-50/60 p-2.5 sm:grid-cols-[7rem_1fr_1fr_auto_auto] sm:items-center"
+              className="grid gap-2 rounded-xl bg-slate-50/70 p-2.5 ring-1 ring-slate-200/60 sm:grid-cols-[7rem_1fr_1fr_auto_auto] sm:items-center"
             >
               <Select
                 label={`Channel of copy ${index + 1}`}
@@ -102,7 +102,7 @@ const RecipientPolicies: React.FC<{
                 type="button"
                 aria-label={`Remove copy ${index + 1}`}
                 onClick={() => onChange(rows.filter((_, at) => at !== index))}
-                className="justify-self-end rounded-lg p-2 text-slate-400 transition-colors hover:bg-white hover:text-red-600 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-100"
+                className="justify-self-end rounded-full p-2 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
               >
                 <Trash2 size={15} aria-hidden />
               </button>
@@ -116,12 +116,12 @@ const RecipientPolicies: React.FC<{
           type="button"
           onClick={() => onChange([...rows, blank()])}
           id={`${idBase}-add-policy`}
-          className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-100"
+          className={btnSmall}
         >
           <Plus size={14} aria-hidden />
           Add a copy
         </button>
-        <p className="text-xs text-slate-400">{precedenceNote}</p>
+        <p className="text-xs text-slate-500">{precedenceNote}</p>
       </div>
     </div>
   );

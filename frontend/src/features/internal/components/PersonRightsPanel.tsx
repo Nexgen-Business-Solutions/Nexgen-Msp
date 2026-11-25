@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, CircleCheck, ShieldCheck, Users } from 'lucide-react';
 import Select from '@/shared/components/Select';
-import SectionIcon from '@/shared/components/SectionIcon';
 import { useAccountRights, useSetAccountRights } from '../hooks/useTeam';
 import { useDepartmentOptions } from '../hooks/useSettings';
 
@@ -72,15 +71,17 @@ const PersonRightsPanel: React.FC<Props> = ({ user }) => {
   if (!data || !data.is_customer_account) return null;
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
-      <div className="px-5 py-4">
-        <div className="flex items-start gap-3">
-          <SectionIcon icon={Users} />
+    <section className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/70">
+      <div className="px-5 py-5 sm:px-6">
+        <div className="flex items-center gap-3.5">
+          <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-blue-50 text-blue-600 ring-1 ring-blue-100">
+            <Users className="size-5" strokeWidth={1.75} />
+          </span>
           <div className="min-w-0">
             <h2 className="text-base font-semibold text-slate-900">
               What they decide for their company
             </h2>
-            <p className="mt-0.5 text-sm text-slate-400">
+            <p className="mt-0.5 text-sm text-slate-500">
               Given to this account by name, for {data.customer}.
             </p>
           </div>
@@ -90,7 +91,7 @@ const PersonRightsPanel: React.FC<Props> = ({ user }) => {
           {RIGHTS.map((right) => (
             <label
               key={right.key}
-              className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-200 p-3 transition-colors hover:bg-slate-50"
+              className="flex cursor-pointer items-start gap-2.5 rounded-xl bg-slate-50/70 p-3.5 ring-1 ring-slate-200/60 transition-colors hover:bg-slate-100/70"
             >
               <input
                 type="checkbox"
@@ -100,11 +101,11 @@ const PersonRightsPanel: React.FC<Props> = ({ user }) => {
                   setForm((current) => ({ ...current, [right.key]: event.target.checked }));
                   setDirty(true);
                 }}
-                className="mt-0.5 h-4 w-4 rounded border-slate-300"
+                className="mt-0.5 size-4 rounded border-slate-300 accent-blue-500"
               />
               <span>
                 <span className="block text-sm font-medium text-slate-800">{right.label}</span>
-                <span className="mt-0.5 block text-xs text-slate-400">{right.hint}</span>
+                <span className="mt-0.5 block text-xs text-slate-500">{right.hint}</span>
               </span>
             </label>
           ))}
@@ -121,7 +122,7 @@ const PersonRightsPanel: React.FC<Props> = ({ user }) => {
                 setDepartment('');
                 setDirty(true);
               }}
-              className="h-4 w-4 border-slate-300"
+              className="size-4 border-slate-300 accent-blue-500"
             />
             <span className="text-sm text-slate-700">Whole company</span>
           </label>
@@ -134,7 +135,7 @@ const PersonRightsPanel: React.FC<Props> = ({ user }) => {
                 setDepartment((departmentOptions.data ?? [])[0]?.value ?? '');
                 setDirty(true);
               }}
-              className="h-4 w-4 border-slate-300"
+              className="size-4 border-slate-300 accent-blue-500"
             />
             <span className="text-sm text-slate-700">Department</span>
           </label>
@@ -166,7 +167,7 @@ const PersonRightsPanel: React.FC<Props> = ({ user }) => {
         {/* the rights can be written here, but whether they are in force is the customer
             screen's business: saying so is better than showing rights that decide nothing */}
         {data.named && !data.deciding && (
-          <p className="mt-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          <p className="mt-4 flex items-start gap-2.5 rounded-2xl bg-amber-50 p-3.5 text-sm text-amber-900 ring-1 ring-amber-200">
             <ShieldCheck size={16} className="mt-0.5 shrink-0 text-amber-600" />
             {data.status === 'Inactive'
               ? `This relationship is stood down, so they decide nothing for ${data.customer} at the moment. Put it back in force on the customer screen.`
@@ -176,13 +177,13 @@ const PersonRightsPanel: React.FC<Props> = ({ user }) => {
           </p>
         )}
 
-        <p className="mt-4 flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-          <ShieldCheck size={16} className="mt-0.5 shrink-0 text-slate-500" />
+        <p className="mt-4 flex items-start gap-2.5 rounded-2xl bg-blue-50/60 p-3.5 text-sm text-slate-700 ring-1 ring-blue-100">
+          <ShieldCheck size={16} className="mt-0.5 shrink-0 text-blue-600" />
           {meaning(data.customer ?? '', Boolean(data.can_submit), Boolean(data.can_approve))}
         </p>
 
         {save.error instanceof Error && (
-          <div className="mt-3 flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
+          <div className="mt-3 flex items-start gap-2.5 rounded-2xl bg-red-50 p-3.5 ring-1 ring-red-200">
             <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
             <span className="text-sm font-medium text-red-700">{save.error.message}</span>
           </div>
@@ -199,7 +200,7 @@ const PersonRightsPanel: React.FC<Props> = ({ user }) => {
             type="button"
             onClick={submit}
             disabled={!dirty || save.isLoading}
-            className="flex min-w-[7rem] items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex min-w-[7rem] items-center justify-center rounded-full bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {save.isLoading ? (
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
@@ -209,7 +210,7 @@ const PersonRightsPanel: React.FC<Props> = ({ user }) => {
           </button>
         </div>
       </div>
-    </div>
+    </section>
   );
 };
 

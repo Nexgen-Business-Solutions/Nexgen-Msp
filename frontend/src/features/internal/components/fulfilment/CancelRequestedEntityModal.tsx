@@ -59,8 +59,8 @@ const CancelRequestedEntityModal: React.FC<Props> = ({ entity, goesWith, onClose
     >
       <div className="space-y-4">
         {goesWith.length > 0 && (
-          <section aria-label="Cancelled with it" className="overflow-hidden rounded-lg border border-slate-200">
-            <p className="border-b border-slate-100 bg-slate-50 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+          <section aria-label="Cancelled with it" className="overflow-hidden rounded-xl ring-1 ring-slate-200/70">
+            <p className="border-b border-slate-100 bg-slate-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
               Cancelled with it
             </p>
             <ul className="divide-y divide-slate-100">
@@ -80,11 +80,11 @@ const CancelRequestedEntityModal: React.FC<Props> = ({ entity, goesWith, onClose
             value={reason}
             onChange={(event) => setReason(event.target.value)}
             aria-label="Reason"
-            className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+            className="w-full resize-y rounded-xl border-0 bg-slate-100/80 px-3.5 py-3 text-sm outline-none transition focus:bg-white focus:ring-1 focus:ring-blue-500"
           />
         </div>
         {cancel.error instanceof Error && (
-          <p role="alert" className="flex items-start gap-2 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
+          <p role="alert" className="flex items-start gap-2 rounded-xl bg-red-50 ring-1 ring-red-100 px-3 py-2 text-sm font-medium text-red-700">
             <AlertCircle size={16} className="mt-0.5 shrink-0" />
             {cancel.error.message}
           </p>

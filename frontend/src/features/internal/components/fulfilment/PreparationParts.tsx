@@ -12,7 +12,7 @@ export const RequestedInformation: React.FC<{
 }> = ({ snapshot, fields }) => (
   <section
     aria-label="Requested information"
-    className="rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2.5"
+    className="rounded-xl bg-slate-50/70 ring-1 ring-slate-200/60 px-3 py-2.5"
   >
     <p className="text-xs font-semibold text-slate-800">Requested information</p>
     <dl className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
@@ -43,7 +43,7 @@ export const PreparationTabs = <T extends string>({
         role="tab"
         aria-selected={value === key}
         onClick={() => onChange(key)}
-        className={`rounded-lg border px-3 py-2.5 text-xs font-semibold transition-colors ${
+        className={`rounded-xl border px-3 py-2.5 text-xs font-semibold transition-colors ${
           value === key
             ? 'border-blue-200 bg-blue-50 text-blue-700'
             : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'

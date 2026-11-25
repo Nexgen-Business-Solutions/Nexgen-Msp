@@ -25,7 +25,7 @@ import TwoFactorSetup from '../components/TwoFactorSetup';
 const FORM_HEADER = 'Login';
 
 const inputClass =
-  'w-full rounded-lg border border-gray-300 bg-white/90 py-3.5 pl-12 text-sm text-slate-900 transition-all duration-200 placeholder:text-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 focus:outline-hidden';
+  'w-full rounded-lg border border-gray-300 bg-white/90 py-3.5 pl-12 text-sm text-slate-900 transition-all duration-200 placeholder:text-gray-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 focus:outline-hidden';
 const iconClass = (filled: boolean) =>
   `pointer-events-none absolute top-1/2 left-4 h-5 w-5 -translate-y-1/2 ${filled ? 'text-blue-500' : 'text-gray-400'}`;
 

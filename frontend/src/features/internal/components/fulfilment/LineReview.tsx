@@ -195,7 +195,7 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
     <div className="space-y-4">
       {notice && <p className={warnBar}>{notice}</p>}
       {error && !rejecting && (
-        <p className="flex items-start gap-2 rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+        <p className="flex items-start gap-2 rounded-xl bg-red-50 ring-1 ring-red-100 px-4 py-3 text-sm font-medium text-red-700">
           <AlertCircle size={16} className="mt-0.5 shrink-0" />
           {error.message}
         </p>
@@ -210,7 +210,7 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
         renderTargetControls={decidable ? targetControls : undefined}
         footer={
           decidable ? (
-            <div className="sticky bottom-3 z-10 flex flex-col items-stretch justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 shadow-lg sm:flex-row sm:items-center">
+            <div className="sticky bottom-3 z-10 flex flex-col items-stretch justify-between gap-3 rounded-2xl bg-white px-5 py-4 shadow-lg ring-1 ring-slate-200/70 sm:flex-row sm:items-center">
               {pending.length > 0 ? (
                 <p className="text-xs text-slate-500">Every line must be accepted or rejected before execution.</p>
               ) : (
@@ -262,7 +262,7 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
             <button
               type="button"
               onClick={() => setRejecting(null)}
-              className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              className="rounded-full px-4 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"
             >
               Cancel
             </button>
@@ -278,7 +278,7 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
         }
       >
         {rejecting && (
-          <p className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          <p className="mb-3 rounded-xl bg-slate-50 ring-1 ring-slate-200/60 px-3 py-2 text-sm text-slate-700">
             <span className="font-semibold">
               {rejecting.operation_label} · {rejecting.target_label}
             </span>
@@ -291,7 +291,7 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
           </p>
         )}
         {one.error instanceof Error && (
-          <p className="mb-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-700">
+          <p className="mb-3 rounded-xl bg-red-50 ring-1 ring-red-100 px-3 py-2 text-sm text-red-700">
             {one.error.message}
           </p>
         )}
@@ -304,7 +304,7 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
           value={reason}
           onChange={(event) => setReason(event.target.value)}
           placeholder="Why is this line being rejected?"
-          className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+          className="w-full resize-y rounded-xl border-0 bg-slate-100/80 px-3.5 py-3 text-sm outline-none transition focus:bg-white focus:ring-1 focus:ring-blue-500"
         />
       </Modal>
 
@@ -327,7 +327,7 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
                 setRejectingGroup(null);
                 setReason('');
               }}
-              className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              className="rounded-full px-4 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"
             >
               Cancel
             </button>
@@ -349,7 +349,7 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
         }
       >
         {rejectingGroup && (
-          <p className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          <p className="mb-3 rounded-xl bg-slate-50 ring-1 ring-slate-200/60 px-3 py-2 text-sm text-slate-700">
             <span className="font-semibold">{rejectingGroup.operation_label}</span>
             <br />
             {pendingOf(rejectingGroup).length} line(s) will carry this reason.
@@ -366,7 +366,7 @@ const LineReview: React.FC<Props> = ({ request, onContinue, onRejectRequest, con
           rows={4}
           value={reason}
           onChange={(event) => setReason(event.target.value)}
-          className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+          className="w-full resize-y rounded-xl border-0 bg-slate-100/80 px-3.5 py-3 text-sm outline-none transition focus:bg-white focus:ring-1 focus:ring-blue-500"
         />
       </Modal>
     </div>

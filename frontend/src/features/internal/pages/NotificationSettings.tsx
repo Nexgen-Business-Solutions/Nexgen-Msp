@@ -17,6 +17,7 @@ import KpiCard from '@/shared/components/KpiCard';
 import Modal from '@/shared/components/Modal';
 import { useSetPageHeading } from '@/shared/layout/pageHeading';
 import RulesTab from '../components/notifications/RulesTab';
+import { btnPrimary, btnSecondary } from '../components/notifications/ui';
 import { EMPTY_FILTERS, EMPTY_HISTORY_FILTERS, type HistoryFilters, type RuleFilters } from '../components/notifications/format';
 import HistoryTab from '../components/notifications/HistoryTab';
 import SourcesTab from '../components/notifications/SourcesTab';
@@ -103,21 +104,22 @@ export default function NotificationSettings() {
   ];
 
   return (
-    <div className="space-y-5 px-6 pb-6 pt-4">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-blue-600">Communication control center</p>
-          <h1 className="mt-0.5 text-2xl font-bold text-slate-900">{TITLE}</h1>
-          <p className="mt-1 max-w-2xl text-sm text-slate-500">
-            Decide which emails and reminders this application sends, to whom, and how often.
-          </p>
+    <div className="space-y-6 px-6 pb-6 pt-5">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex min-w-0 items-start gap-4">
+          <span className="hidden size-12 shrink-0 place-items-center rounded-2xl bg-blue-50 text-blue-600 ring-1 ring-blue-100 sm:grid">
+            <Mail className="size-6" strokeWidth={1.75} aria-hidden />
+          </span>
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-blue-600">Communication control center</p>
+            <h1 className="mt-0.5 text-2xl font-semibold tracking-tight text-slate-900">{TITLE}</h1>
+            <p className="mt-1 max-w-2xl text-sm text-slate-500">
+              Decide which emails and reminders this application sends, to whom, and how often.
+            </p>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setTab('sources')}
-            className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
-          >
+          <button type="button" onClick={() => setTab('sources')} className={btnSecondary}>
             <Satellite size={15} aria-hidden />
             View sources
           </button>
@@ -127,7 +129,7 @@ export default function NotificationSettings() {
             disabled={canCreate.length === 0}
             aria-describedby={canCreate.length === 0 ? 'new-rule-reason' : undefined}
             title={canCreate.length === 0 ? NEW_RULE_REASON : undefined}
-            className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className={btnPrimary}
           >
             <Plus size={15} aria-hidden />
             New rule
@@ -139,7 +141,7 @@ export default function NotificationSettings() {
                 onClick={() => setExplainingNewRule(true)}
                 aria-label="Why New rule is unavailable"
                 title={NEW_RULE_REASON}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+                className="grid size-10 place-items-center rounded-full bg-white text-slate-500 ring-1 ring-slate-200 transition-colors hover:bg-slate-50 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
               >
                 <Info size={15} aria-hidden />
               </button>
@@ -151,19 +153,36 @@ export default function NotificationSettings() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 2xl:grid-cols-8">
-        <KpiCard icon={BellRing} label="Managed" value={figures?.managed ?? 0} caption="Notifications under control" loading={loading} onView={() => showRules(EMPTY_FILTERS)} viewLabel="Show all notification rules" />
-        <KpiCard icon={CheckCircle2} accent="emerald" label="Enabled" value={figures?.enabled ?? 0} caption="Currently sending" loading={loading} onView={() => showRules({ ...EMPTY_FILTERS, status: 'enabled' })} viewLabel="Show enabled notification rules" />
-        <KpiCard icon={Clock} accent="slate" label="Reminders" value={figures?.reminders ?? 0} caption="Repeat on a schedule" loading={loading} onView={() => showRules({ ...EMPTY_FILTERS, kind: 'Reminder' })} viewLabel="Show reminder rules" />
-        <KpiCard icon={Hourglass} accent="slate" label="Pending" value={figures?.pending ?? 0} caption="Recorded, not yet taken" loading={loading} onView={() => showHistory('Pending')} viewLabel="Show pending deliveries" />
-        <KpiCard icon={Mail} accent="slate" label="Queued" value={figures?.queued ?? 0} caption="Handed to the mail queue" loading={loading} onView={() => showHistory('Queued')} viewLabel="Show queued deliveries" />
-        <KpiCard icon={Send} accent="emerald" label="Sent" value={figures?.sent ?? 0} caption="Left the queue" loading={loading} onView={() => showHistory('Sent')} viewLabel="Show sent deliveries" />
-        <KpiCard icon={AlertTriangle} tone="alert" accent="slate" label="Failed" value={figures?.failed ?? 0} caption="Needs a look" loading={loading} onView={() => showHistory('Failed')} viewLabel="Show failed deliveries" />
-        <KpiCard icon={CircleHelp} tone="alert" accent="slate" label="Unknown" value={figures?.unknown ?? 0} caption="Outcome not confirmed" loading={loading} onView={() => showHistory('Unknown')} viewLabel="Show deliveries with an unknown outcome" />
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[3fr_5fr]">
+        <section className="min-w-0 space-y-4">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">Rules at a glance</h2>
+            <p className="mt-0.5 text-sm text-slate-500">What this application sends, and how much of it is switched on.</p>
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <KpiCard icon={BellRing} label="Managed" value={figures?.managed ?? 0} caption="Notifications under control" loading={loading} onView={() => showRules(EMPTY_FILTERS)} viewLabel="Show all notification rules" />
+            <KpiCard icon={CheckCircle2} accent="emerald" label="Enabled" value={figures?.enabled ?? 0} caption="Currently sending" loading={loading} onView={() => showRules({ ...EMPTY_FILTERS, status: 'enabled' })} viewLabel="Show enabled notification rules" />
+            <KpiCard icon={Clock} accent="indigo" label="Reminders" value={figures?.reminders ?? 0} caption="Repeat on a schedule" loading={loading} onView={() => showRules({ ...EMPTY_FILTERS, kind: 'Reminder' })} viewLabel="Show reminder rules" />
+          </div>
+        </section>
+
+        <section className="min-w-0 space-y-4">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">Delivery outcomes</h2>
+            <p className="mt-0.5 text-sm text-slate-500">Where send attempts stand. Open one to see the deliveries behind it.</p>
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-3 2xl:grid-cols-5">
+            <KpiCard icon={Hourglass} accent="slate" label="Pending" value={figures?.pending ?? 0} caption="Recorded, not yet taken" loading={loading} onView={() => showHistory('Pending')} viewLabel="Show pending deliveries" />
+            <KpiCard icon={Mail} accent="sky" label="Queued" value={figures?.queued ?? 0} caption="Handed to the mail queue" loading={loading} onView={() => showHistory('Queued')} viewLabel="Show queued deliveries" />
+            <KpiCard icon={Send} accent="emerald" label="Sent" value={figures?.sent ?? 0} caption="Left the queue" loading={loading} onView={() => showHistory('Sent')} viewLabel="Show sent deliveries" />
+            <KpiCard icon={AlertTriangle} tone="alert" accent="slate" label="Failed" value={figures?.failed ?? 0} caption="Needs a look" loading={loading} onView={() => showHistory('Failed')} viewLabel="Show failed deliveries" />
+            <KpiCard icon={CircleHelp} tone="alert" accent="slate" label="Unknown" value={figures?.unknown ?? 0} caption="Outcome not confirmed" loading={loading} onView={() => showHistory('Unknown')} viewLabel="Show deliveries with an unknown outcome" />
+          </div>
+        </section>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
-        <div role="tablist" aria-label="Notification workspace" className="flex gap-1 overflow-x-auto border-b border-slate-100 px-3">
+      <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/70">
+        <div role="tablist" aria-label="Notification workspace" className="flex gap-1 overflow-x-auto border-b border-slate-200 px-3 sm:px-4">
           {tabs.map((entry) => (
             <button
               key={entry.id}
@@ -175,13 +194,19 @@ export default function NotificationSettings() {
               onClick={() => setTab(entry.id)}
               className={`-mb-px inline-flex h-12 shrink-0 items-center gap-2 border-b-2 px-3 text-sm font-medium transition-colors focus:outline-none focus-visible:bg-blue-50 ${
                 tab === entry.id
-                  ? 'border-blue-600 text-blue-700'
-                  : 'border-transparent text-slate-500 hover:text-slate-800'
+                  ? 'border-blue-500 text-slate-900'
+                  : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800'
               }`}
             >
               {entry.label}
               {entry.count !== undefined && (
-                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold tabular-nums text-slate-600">
+                <span
+                  className={`rounded-full px-2 py-0.5 text-xs font-medium tabular-nums ring-1 ${
+                    tab === entry.id
+                      ? 'bg-blue-50 text-blue-700 ring-blue-200'
+                      : 'bg-slate-50 text-slate-600 ring-slate-200'
+                  }`}
+                >
                   {entry.count}
                 </span>
               )}
@@ -234,7 +259,7 @@ export default function NotificationSettings() {
         title="Why New rule is unavailable"
         widthClass="max-w-lg"
       >
-        <div className="space-y-2 px-5 py-4">
+        <div className="space-y-2">
           {NEW_RULE_EXPLAINED.map((line) => (
             <p key={line} className="text-sm text-slate-600">
               {line}
@@ -270,7 +295,7 @@ export default function NotificationSettings() {
 
       <div aria-live="polite" role="status" className="pointer-events-none fixed bottom-6 left-1/2 z-[60] -translate-x-1/2">
         {toast && (
-          <p className="pointer-events-auto flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-3 text-sm font-medium text-white shadow-xl">
+          <p className="pointer-events-auto flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2.5 text-sm font-medium text-white shadow-lg">
             <Check size={16} className="text-emerald-400" aria-hidden />
             {toast}
           </p>

@@ -8,18 +8,26 @@ import {
   Coins,
   ExternalLink,
   FileText,
+  Gauge,
+  Globe,
+  Hash,
+  Laptop,
+  Layers,
   ListChecks,
+  Mail,
+  MapPin,
   Package,
   Pencil,
+  Phone,
   Play,
   Plus,
   Pause,
   Trash2,
   TriangleAlert,
   Users,
+  type LucideIcon,
 } from 'lucide-react';
 import StatusBadge from '@/shared/components/StatusBadge';
-import SectionIcon from '@/shared/components/SectionIcon';
 import ConfirmModal from '@/shared/components/ConfirmModal';
 import Modal from '@/shared/components/Modal';
 import RowActionsMenu, { type RowAction } from '@/shared/components/RowActionsMenu';
@@ -107,10 +115,118 @@ const PRICING_COLUMNS = [
 ];
 
 const RATE_STATE: Record<string, string> = {
-  Active: 'bg-emerald-100 text-emerald-700',
-  Scheduled: 'bg-blue-100 text-blue-700',
-  Expired: 'bg-slate-100 text-slate-500',
+  Active: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  Scheduled: 'bg-blue-50 text-blue-700 ring-blue-200',
+  Expired: 'bg-slate-50 text-slate-500 ring-slate-200',
 };
+
+const FACT_ICON: Record<string, LucideIcon> = {
+  'Tax ID': Hash,
+  Phone,
+  Email: Mail,
+  Website: Globe,
+};
+
+// DeployOps buttons: the accent for the one thing a panel is for, white and ringed for the rest
+const primary =
+  'inline-flex items-center gap-1.5 rounded-full bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60';
+const secondary =
+  'inline-flex items-center gap-1.5 rounded-full bg-white px-3.5 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50 hover:text-slate-900';
+
+// cells line up with the panel's padding at both ends of a row
+const td = 'px-4 py-3 first:pl-5 last:pr-5 sm:first:pl-6 sm:last:pr-6';
+
+/**
+ * DeployOps panel, as on the dashboard: a white card with its title, an optional count and
+ * one muted line, the action on the right, and the table running edge to edge beneath.
+ */
+const Panel = ({
+  title,
+  count,
+  description,
+  action,
+  extra,
+  children,
+}: {
+  title: string;
+  count?: number;
+  description?: string;
+  action?: React.ReactNode;
+  /** a control that belongs to the heading, under its description */
+  extra?: React.ReactNode;
+  children: React.ReactNode;
+}) => (
+  <section className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/70">
+    <div className="flex flex-wrap items-start justify-between gap-3 px-5 pb-3 pt-5 sm:px-6">
+      <div className="min-w-0">
+        <h2 className="flex items-center gap-2 text-base font-semibold text-slate-900">
+          {title}
+          {count !== undefined && (
+            <>
+              <span className="sr-only"> · </span>
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium tabular-nums text-slate-600">
+                {count}
+              </span>
+            </>
+          )}
+        </h2>
+        {description && <p className="mt-0.5 text-sm text-slate-500">{description}</p>}
+        {extra}
+      </div>
+      {action}
+    </div>
+    {children}
+  </section>
+);
+
+/** The hairline column heads of the dashboard, kept in view while the table scrolls. */
+const Head = ({ columns }: { columns: string[] }) => (
+  <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-white">
+    <tr>
+      {columns.map((column, index) => (
+        <th
+          key={column || index}
+          className="whitespace-nowrap border-b border-slate-200 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 first:pl-5 last:pr-5 sm:first:pl-6 sm:last:pr-6"
+        >
+          {column}
+        </th>
+      ))}
+    </tr>
+  </thead>
+);
+
+/** An empty table or list, said calmly: an icon in a soft circle and the line that explains it. */
+const Quiet = ({ icon: Icon, children }: { icon: LucideIcon; children: React.ReactNode }) => (
+  <div className="flex items-center justify-center gap-3 px-5 py-10 text-sm text-slate-500">
+    <span className="grid size-9 shrink-0 place-items-center rounded-full bg-slate-50 text-slate-400 ring-1 ring-slate-200">
+      <Icon className="size-[18px]" strokeWidth={1.75} />
+    </span>
+    <span>{children}</span>
+  </div>
+);
+
+/** A count about this customer, in the dashboard's stat tile shape sized for a card. */
+const Stat = ({
+  icon: Icon,
+  label,
+  value,
+  tile,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: React.ReactNode;
+  tile: string;
+}) => (
+  <div className="flex items-center gap-3 rounded-xl bg-slate-50/70 px-3.5 py-3 ring-1 ring-slate-200/60">
+    <span className={`grid size-9 shrink-0 place-items-center rounded-lg ring-1 ${tile}`}>
+      <Icon className="size-[18px]" strokeWidth={1.75} />
+    </span>
+    <div className="min-w-0">
+      <p className="text-xl font-semibold leading-tight tabular-nums text-slate-900">{value}</p>
+      <p className="truncate text-[13px] text-slate-500">{label}</p>
+    </div>
+  </div>
+);
 
 export default function CustomerContract() {
   const { customer = '' } = useParams();
@@ -183,15 +299,15 @@ export default function CustomerContract() {
   if (detail.isLoading) {
     return (
       <div className="flex items-center justify-center p-16">
-        <span className="h-8 w-8 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />
+        <span className="size-8 animate-spin rounded-full border-2 border-blue-100 border-t-blue-500" />
       </div>
     );
   }
 
   if (detail.error || !detail.data) {
     return (
-      <div className="px-6 pb-6 pt-4">
-        <div className="rounded-xl border border-red-100 bg-red-50 p-6 text-sm text-red-700">
+      <div className="px-6 pb-6 pt-5">
+        <div className="rounded-2xl bg-red-50 p-6 text-sm text-red-700 ring-1 ring-red-100">
           {(detail.error as Error)?.message || 'Customer not found.'}
         </div>
       </div>
@@ -221,88 +337,141 @@ export default function CustomerContract() {
   };
 
   return (
-    <div className="space-y-5 px-6 pb-6 pt-4">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex min-w-0 items-start gap-4">
-          <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-            <Users size={22} />
-          </span>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <h1 className="text-2xl font-bold text-slate-900">
-                {profileDetails.data?.customer_name || customer}
-              </h1>
-              <StatusBadge
-                value={profileDetails.data?.disabled ? 'Disabled' : 'Active'}
-              />
-              {Boolean(profileDetails.data?.msp_free_of_charge) && (
-                <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
-                  FREE OF CHARGE
+    <div className="space-y-6 px-6 pb-6 pt-5">
+      <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/70 sm:p-6">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex min-w-0 items-start gap-4">
+            <span
+              aria-hidden
+              className={`grid size-14 shrink-0 place-items-center rounded-2xl ring-1 ${
+                profileDetails.data?.disabled
+                  ? 'bg-slate-100 text-slate-500 ring-slate-200'
+                  : 'bg-blue-50 text-blue-600 ring-blue-100'
+              }`}
+            >
+              <Building2 className="size-6" strokeWidth={1.75} />
+            </span>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
+                  {profileDetails.data?.customer_name || customer}
+                </h1>
+                <StatusBadge
+                  value={profileDetails.data?.disabled ? 'Disabled' : 'Active'}
+                />
+                {Boolean(profileDetails.data?.msp_free_of_charge) && (
+                  <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">
+                    FREE OF CHARGE
+                  </span>
+                )}
+              </div>
+              <p className="mt-1 text-sm text-slate-500">
+                Customer account, services, pricing and decision-makers.
+              </p>
+
+              {/* this page is the commercial side; the people and the machines live on
+                  their own screens, and these are the way through to them */}
+              <p className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm text-slate-600">
+                <button
+                  type="button"
+                  onClick={() => navigate(`/msp/users?customer=${encodeURIComponent(customer)}`)}
+                  className="inline-flex items-center gap-1.5 font-medium text-blue-600 transition-colors hover:text-blue-700 hover:underline"
+                >
+                  <Users size={14} className="shrink-0" strokeWidth={1.75} />
+                  {profileDetails.data?.counts.users ?? 0} users
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate(`/msp/devices?customer=${encodeURIComponent(customer)}`)}
+                  className="inline-flex items-center gap-1.5 font-medium text-blue-600 transition-colors hover:text-blue-700 hover:underline"
+                >
+                  <Laptop size={14} className="shrink-0" strokeWidth={1.75} />
+                  {profileDetails.data?.counts.devices ?? 0} devices
+                </button>
+                <span className="inline-flex items-center gap-1.5">
+                  <FileText size={14} className="shrink-0 text-slate-400" strokeWidth={1.75} />
+                  {profileDetails.data?.counts.contracts ?? 0} contract
+                  {(profileDetails.data?.counts.contracts ?? 0) === 1 ? '' : 's'}
                 </span>
-              )}
+              </p>
             </div>
-            <p className="mt-1 text-sm text-slate-500">
-              Customer account, services, pricing and decision-makers.
-            </p>
+          </div>
+
+          <div className="flex flex-wrap items-start gap-2 lg:justify-end">
+            <a
+              href={customerDeskUrl(customer)}
+              target="_blank"
+              rel="noreferrer"
+              className={secondary}
+            >
+              <ExternalLink size={14} />
+              Open account
+            </a>
+            <button type="button" onClick={() => setEditingCustomer(true)} className={secondary}>
+              <Pencil size={14} />
+              Edit details
+            </button>
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
-          <a
-            href={customerDeskUrl(customer)}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm transition-colors hover:bg-slate-50"
-          >
-            <ExternalLink size={15} />
-            Open account
-          </a>
-          <RowActionsMenu
-            actions={[
-              { label: 'Edit details', icon: Pencil, onClick: () => setEditingCustomer(true) },
-            ]}
+        <div className="mt-5 grid grid-cols-1 gap-3 border-t border-slate-100 pt-5 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="flex items-center gap-3 rounded-xl bg-slate-50/70 px-3.5 py-3 ring-1 ring-slate-200/60">
+            <span
+              className={`grid size-9 shrink-0 place-items-center rounded-lg ring-1 ${
+                readiness.ready
+                  ? 'bg-emerald-50 text-emerald-600 ring-emerald-100'
+                  : 'bg-amber-50 text-amber-600 ring-amber-100'
+              }`}
+            >
+              <Gauge className="size-[18px]" strokeWidth={1.75} />
+            </span>
+            <div className="min-w-0">
+              <p
+                className={`text-xl font-semibold leading-tight tabular-nums ${
+                  readiness.ready ? 'text-emerald-600' : 'text-amber-600'
+                }`}
+              >
+                {readiness.coverage}%
+              </p>
+              <p className="text-[13px] text-slate-500">Billing readiness</p>
+              <p className="text-xs text-slate-400">
+                {readiness.priced_assignments} of {readiness.billable_assignments} billable
+                assignments carry a rate
+              </p>
+            </div>
+          </div>
+          <Stat
+            icon={Layers}
+            label="Services in use"
+            value={liveServices.length}
+            tile="bg-blue-50 text-blue-600 ring-blue-100"
+          />
+          <Stat
+            icon={Coins}
+            label="Rate versions"
+            value={rateRows.length}
+            tile="bg-violet-50 text-violet-600 ring-violet-100"
+          />
+          <Stat
+            icon={Package}
+            label="Held by the company"
+            value={(held.data?.current ?? []).length}
+            tile="bg-teal-50 text-teal-600 ring-teal-100"
           />
         </div>
-      </div>
 
-      <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="flex min-w-0 items-start gap-3">
-            <SectionIcon icon={Building2} />
-            <div className="min-w-0">
-            <h2 className="text-base font-semibold text-slate-900">Company details</h2>
-
-            <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-sm text-slate-500">
-              {/* this page is the commercial side; the people and the machines live on
-                  their own screens, and these are the way through to them */}
-              <button
-                type="button"
-                onClick={() => navigate(`/msp/users?customer=${encodeURIComponent(customer)}`)}
-                className="font-medium text-blue-600 transition-colors hover:text-blue-800 hover:underline"
-              >
-                {profileDetails.data?.counts.users ?? 0} users
-              </button>
-              ·
-              <button
-                type="button"
-                onClick={() => navigate(`/msp/devices?customer=${encodeURIComponent(customer)}`)}
-                className="font-medium text-blue-600 transition-colors hover:text-blue-800 hover:underline"
-              >
-                {profileDetails.data?.counts.devices ?? 0} devices
-              </button>
-              ·
-              <span>
-                {profileDetails.data?.counts.contracts ?? 0} contract
-                {(profileDetails.data?.counts.contracts ?? 0) === 1 ? '' : 's'}
-              </span>
-            </p>
-
-            {hasCustomerDetails ? (
-              <div className="mt-3 grid grid-cols-1 gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
-                {address && (
-                  <div>
-                    <p className="text-xs font-medium text-slate-400">Billing address</p>
-                    <div className="mt-0.5 leading-relaxed text-slate-700">
+        <div className="mt-5 border-t border-slate-100 pt-5">
+          <h2 className="text-sm font-semibold text-slate-900">Company details</h2>
+          {hasCustomerDetails ? (
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {address && (
+                <div className="flex min-w-0 items-start gap-3 rounded-xl bg-slate-50/70 px-3.5 py-3 ring-1 ring-slate-200/60 sm:row-span-2">
+                  <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-white text-slate-500 ring-1 ring-slate-200">
+                    <MapPin className="size-[18px]" strokeWidth={1.75} />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-[13px] text-slate-500">Billing address</p>
+                    <div className="mt-0.5 text-sm leading-relaxed text-slate-800">
                       <p>{address.address_line1}</p>
                       {address.address_line2 && <p>{address.address_line2}</p>}
                       {[address.pincode, address.city, address.state].some(Boolean) && (
@@ -315,65 +484,65 @@ export default function CustomerContract() {
                       <p>{address.country}</p>
                     </div>
                   </div>
-                )}
+                </div>
+              )}
 
-                {customerFacts.length > 0 && (
-                  <dl className="space-y-1.5">
-                    {customerFacts.map((fact) => (
-                      <div key={fact.label} className="flex gap-2">
-                        <dt className="w-24 shrink-0 text-xs font-medium text-slate-400">
-                          {fact.label}
-                        </dt>
-                        <dd className="truncate text-slate-700">{fact.value}</dd>
+              {customerFacts.length > 0 && (
+                <dl className="contents">
+                  {customerFacts.map((fact) => {
+                    const Icon = FACT_ICON[fact.label] ?? Hash;
+
+                    return (
+                      <div
+                        key={fact.label}
+                        className="flex min-w-0 items-center gap-3 rounded-xl bg-slate-50/70 px-3.5 py-3 ring-1 ring-slate-200/60"
+                      >
+                        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-white text-slate-500 ring-1 ring-slate-200">
+                          <Icon className="size-[18px]" strokeWidth={1.75} />
+                        </span>
+                        <div className="min-w-0">
+                          <dt className="text-[13px] text-slate-500">{fact.label}</dt>
+                          <dd className="truncate text-sm font-medium text-slate-900">{fact.value}</dd>
+                        </div>
                       </div>
-                    ))}
-                  </dl>
-                )}
-              </div>
-            ) : (
-              <p className="mt-2 text-sm text-slate-400">
-                No details recorded yet — invoices will show the name alone.
-              </p>
-            )}
+                    );
+                  })}
+                </dl>
+              )}
             </div>
-          </div>
-
-          <div className="shrink-0 text-right">
-            <p className="text-xs font-medium text-slate-400">Billing readiness</p>
-            <p
-              className={`text-2xl font-bold tabular-nums ${
-                readiness.ready ? 'text-emerald-600' : 'text-amber-600'
-              }`}
-            >
-              {readiness.coverage}%
+          ) : (
+            <p className="mt-1 text-sm text-slate-500">
+              No details recorded yet — invoices will show the name alone.
             </p>
-            <p className="text-xs text-slate-400">
-              {readiness.priced_assignments} of {readiness.billable_assignments} billable
-              assignments carry a rate
-            </p>
-          </div>
+          )}
         </div>
 
         {profileDetails.data?.msp_free_of_charge ? (
-          <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-emerald-100 bg-emerald-50 p-3">
-            <CircleCheck size={16} className="mt-0.5 shrink-0 text-emerald-600" />
-            <p className="text-sm text-emerald-800">
+          <div className="mt-5 flex items-start gap-3 rounded-2xl bg-emerald-50 p-3.5 ring-1 ring-emerald-200">
+            <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-white text-emerald-600 ring-1 ring-emerald-200">
+              <CircleCheck size={16} strokeWidth={1.75} />
+            </span>
+            <p className="self-center text-sm text-emerald-800">
               This customer is served free of charge — no contract, no rates, never billed.
             </p>
           </div>
         ) : readiness.ready ? (
-          <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-emerald-100 bg-emerald-50 p-3">
-            <CircleCheck size={16} className="mt-0.5 shrink-0 text-emerald-600" />
-            <p className="text-sm text-emerald-800">
+          <div className="mt-5 flex items-start gap-3 rounded-2xl bg-emerald-50 p-3.5 ring-1 ring-emerald-200">
+            <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-white text-emerald-600 ring-1 ring-emerald-200">
+              <CircleCheck size={16} strokeWidth={1.75} />
+            </span>
+            <p className="self-center text-sm text-emerald-800">
               This customer can be billed — every billable assignment resolves a rate.
             </p>
           </div>
         ) : (
-          <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
-            <TriangleAlert size={16} className="mt-0.5 shrink-0 text-amber-600" />
-            <div className="text-sm text-amber-800">
+          <div className="mt-5 flex items-start gap-3 rounded-2xl bg-amber-50 p-3.5 ring-1 ring-amber-200">
+            <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-white text-amber-600 ring-1 ring-amber-200">
+              <TriangleAlert size={16} strokeWidth={1.75} />
+            </span>
+            <div className="min-w-0 text-sm text-amber-900">
               <p className="font-semibold">Not billable yet</p>
-              <ul className="mt-1 list-inside list-disc space-y-0.5">
+              <ul className="mt-1 list-inside list-disc space-y-0.5 text-amber-800">
                 {readiness.blockers.map((blocker) => (
                   <li key={blocker}>{blocker}</li>
                 ))}
@@ -381,64 +550,45 @@ export default function CustomerContract() {
             </div>
           </div>
         )}
-      </div>
+      </section>
 
-      <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
-          <div className="flex min-w-0 items-start gap-3">
-            <SectionIcon icon={FileText} />
-            <div className="min-w-0">
-              <h2 className="text-base font-semibold text-slate-900">Contracts</h2>
-              <p className="mt-0.5 text-sm text-slate-400">
-                One contract produces one invoice. A service belongs to a single live contract.
-              </p>
-            </div>
-          </div>
+      <Panel
+        title="Contracts"
+        count={(agreements.data ?? []).length}
+        description="One contract produces one invoice. A service belongs to a single live contract."
+        action={
           <button
             type="button"
             onClick={() => {
               setEditingAgreement(null);
               setAgreementOpen(true);
             }}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
+            className={primary}
           >
-            <Plus size={15} />
+            <Plus size={14} />
             New contract
           </button>
-        </div>
-
-        <div className="max-h-[62vh] overflow-auto px-5 pb-4">
+        }
+      >
+        <div className="max-h-[62vh] overflow-auto pb-2">
           <table className="w-full">
-            <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
-              <tr>
-                {AGREEMENT_COLUMNS.map((column, index) => (
-                  <th
-                    key={column || index}
-                    className={`whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 ${
-                      index === 0 ? 'rounded-l-lg' : ''
-                    } ${index === AGREEMENT_COLUMNS.length - 1 ? 'rounded-r-lg' : ''}`}
-                  >
-                    {column}
-                  </th>
-                ))}
-              </tr>
-            </thead>
+            <Head columns={AGREEMENT_COLUMNS} />
             <tbody className="divide-y divide-slate-100">
               {(agreements.data ?? []).map((row) => (
-                <tr key={row.name} className="transition-colors hover:bg-slate-50">
-                  <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
+                <tr key={row.name} className="transition-colors hover:bg-slate-50/80">
+                  <td className={`whitespace-nowrap ${td} text-sm font-semibold text-slate-900`}>
                     {row.title || row.name}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className={td}>
                     <StatusBadge value={row.status} />
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                  <td className={`whitespace-nowrap ${td} text-sm tabular-nums text-slate-600`}>
                     {fmtDate(row.start_date)} → {row.end_date ? fmtDate(row.end_date) : 'open'}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                  <td className={`whitespace-nowrap ${td} text-sm text-slate-600`}>
                     {row.billing_frequency}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                  <td className={`whitespace-nowrap ${td} text-sm text-slate-600`}>
                     {row.services.length === 0 ? (
                       <span className="text-slate-400">None</span>
                     ) : (
@@ -449,17 +599,17 @@ export default function CustomerContract() {
                           onClick={() =>
                             setServicesOf({ title: row.title || row.name, services: row.services })
                           }
-                          className="ml-2 text-xs font-medium text-blue-600 hover:underline"
+                          className="ml-2 text-xs font-medium text-blue-600 hover:text-blue-700 hover:underline"
                         >
                           View details
                         </button>
                       </>
                     )}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600 tabular-nums">
+                  <td className={`whitespace-nowrap ${td} text-sm tabular-nums text-slate-600`}>
                     {row.run_count ?? 0}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3">
+                  <td className={`whitespace-nowrap ${td}`}>
                     <div className="flex justify-end">
                       <RowActionsMenu
                         actions={[
@@ -495,71 +645,60 @@ export default function CustomerContract() {
 
               {(agreements.data ?? []).length === 0 && !agreements.isLoading && (
                 <tr>
-                  <td
-                    colSpan={AGREEMENT_COLUMNS.length}
-                    className="px-4 py-10 text-center text-sm text-slate-500"
-                  >
-                    No contract yet. Nothing can be billed until one is in place.
+                  <td colSpan={AGREEMENT_COLUMNS.length}>
+                    <Quiet icon={FileText}>
+                      No contract yet. Nothing can be billed until one is in place.
+                    </Quiet>
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
-      </div>
+      </Panel>
 
-      <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
-          <div className="flex min-w-0 items-start gap-3">
-            <SectionIcon icon={Coins} />
-            <div className="min-w-0">
-              <h2 className="text-base font-semibold text-slate-900">Pricing</h2>
-              <p className="mt-0.5 text-sm text-slate-400">
-                Each rate is a dated version. Adding one never rewrites the past.
-              </p>
-              {hiddenServices > 0 && (
-                <label className="mt-2 inline-flex cursor-pointer items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={showEveryService}
-                    onChange={(event) => setShowEveryService(event.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300"
-                  />
-                  <span className="text-xs text-slate-500">
-                    Show the {hiddenServices} service(s) this customer does not use
-                  </span>
-                </label>
-              )}
-            </div>
-          </div>
+      <Panel
+        title="Pricing"
+        count={shownServices.length}
+        description="Each rate is a dated version. Adding one never rewrites the past."
+        extra={
+          hiddenServices > 0 && (
+            <label className="mt-2 inline-flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                checked={showEveryService}
+                onChange={(event) => setShowEveryService(event.target.checked)}
+                className="size-4 rounded border-slate-300 accent-blue-500"
+              />
+              <span className="text-xs text-slate-500">
+                Show the {hiddenServices} service(s) this customer does not use
+              </span>
+            </label>
+          )
+        }
+        action={
           <button
             type="button"
             onClick={() => openRate()}
             disabled={!priceList}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className={primary}
           >
-            <Plus size={15} />
+            <Plus size={14} />
             New rate
           </button>
-        </div>
-
-        <div className="max-h-[62vh] overflow-auto px-5 pb-4">
+        }
+      >
+        <div className="max-h-[62vh] overflow-auto pb-2">
           <table className="w-full">
-            <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
-              <tr>
-                {PRICING_COLUMNS.map((column, index) => (
-                  <th
-                    key={column || index}
-                    className={`whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 ${
-                      index === 0 ? 'rounded-l-lg' : ''
-                    } ${index === PRICING_COLUMNS.length - 1 ? 'rounded-r-lg' : ''}`}
-                  >
-                    {column}
-                  </th>
-                ))}
-              </tr>
-            </thead>
+            <Head columns={PRICING_COLUMNS} />
             <tbody className="divide-y divide-slate-100">
+              {shownServices.length === 0 && (
+                <tr>
+                  <td colSpan={PRICING_COLUMNS.length}>
+                    <Quiet icon={Coins}>No service is offered to or used by this customer yet.</Quiet>
+                  </td>
+                </tr>
+              )}
               {shownServices.flatMap((service) => {
                 const versions = rateRows.filter((row) => row.item_code === service.service_item);
                 const blocking =
@@ -581,7 +720,7 @@ export default function CustomerContract() {
                           is_eligible: event.target.checked ? 1 : 0,
                         })
                       }
-                      className="h-4 w-4 rounded border-slate-300"
+                      className="size-4 rounded border-slate-300 accent-blue-500"
                     />
                     <span
                       className="text-xs text-slate-500"
@@ -603,7 +742,7 @@ export default function CustomerContract() {
                 if (versions.length === 0) {
                   return [
                     <tr key={service.service_item} className={blocking ? 'bg-amber-50/40' : ''}>
-                      <td className="px-4 py-3">
+                      <td className={td}>
                         <p className="text-sm font-semibold text-slate-900">
                           <BusinessText>{service.service_name}</BusinessText>
                         </p>
@@ -613,18 +752,19 @@ export default function CustomerContract() {
                           </p>
                         )}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3">{offered}</td>
-                      <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-400" colSpan={3}>
+                      <td className={`whitespace-nowrap ${td}`}>{offered}</td>
+                      <td className={`whitespace-nowrap ${td} text-sm text-slate-400`} colSpan={3}>
                         No rate recorded
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3">
+                      <td className={`whitespace-nowrap ${td}`}>
                         {blocking && (
-                          <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-[10px] font-bold uppercase text-amber-700">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium capitalize text-amber-700 ring-1 ring-amber-200">
+                            <TriangleAlert size={11} />
                             blocking
                           </span>
                         )}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3">
+                      <td className={`whitespace-nowrap ${td}`}>
                         <div className="flex justify-end">
                           <RowActionsMenu
                             actions={[
@@ -645,11 +785,11 @@ export default function CustomerContract() {
                 return versions.map((version, index) => (
                   <tr
                     key={version.name}
-                    className={`transition-colors hover:bg-slate-50 ${
+                    className={`transition-colors hover:bg-slate-50/80 ${
                       blocking && index === 0 ? 'bg-amber-50/40' : ''
                     }`}
                   >
-                    <td className="px-4 py-3">
+                    <td className={td}>
                       {index === 0 ? (
                         <>
                           <p className="text-sm font-semibold text-slate-900">
@@ -665,26 +805,26 @@ export default function CustomerContract() {
                         <span className="text-xs text-slate-300">↳</span>
                       )}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3">{index === 0 ? offered : null}</td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900 tabular-nums">
+                    <td className={`whitespace-nowrap ${td}`}>{index === 0 ? offered : null}</td>
+                    <td className={`whitespace-nowrap ${td} text-sm font-semibold tabular-nums text-slate-900`}>
                       {version.price_list_rate.toLocaleString()} {version.currency ?? ''}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                    <td className={`whitespace-nowrap ${td} text-sm tabular-nums text-slate-600`}>
                       {fmtDate(version.valid_from)}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                    <td className={`whitespace-nowrap ${td} text-sm tabular-nums text-slate-600`}>
                       {version.valid_upto ? fmtDate(version.valid_upto) : 'open-ended'}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3">
+                    <td className={`whitespace-nowrap ${td}`}>
                       <span
-                        className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase ${
-                          RATE_STATE[version.state]
+                        className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${
+                          RATE_STATE[version.state] ?? 'bg-slate-50 text-slate-600 ring-slate-200'
                         }`}
                       >
                         {version.state}
                       </span>
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3">
+                    <td className={`whitespace-nowrap ${td}`}>
                       <div className="flex justify-end">
                         <RowActionsMenu
                           actions={
@@ -719,11 +859,11 @@ export default function CustomerContract() {
         </div>
 
         {eligibility.error instanceof Error && (
-          <div className="mx-5 mb-4 rounded-lg border border-red-100 bg-red-50 p-3 text-sm font-medium text-red-700">
+          <div className="mx-5 mb-5 rounded-2xl bg-red-50 p-3.5 text-sm font-medium text-red-700 ring-1 ring-red-200 sm:mx-6">
             {eligibility.error.message}
           </div>
         )}
-      </div>
+      </Panel>
 
       <Modal
         open={Boolean(servicesOf)}
@@ -735,7 +875,7 @@ export default function CustomerContract() {
       >
         <ul className="divide-y divide-slate-100">
           {(servicesOf?.services ?? []).map((service) => (
-            <li key={service.service_item} className="flex items-center justify-between py-2.5">
+            <li key={service.service_item} className="flex items-center justify-between gap-3 py-2.5">
               <span className="text-sm font-medium text-slate-900">
                 <BusinessText>{service.service_name}</BusinessText>
               </span>
@@ -754,77 +894,59 @@ export default function CustomerContract() {
         onClose={() => setContractOpen(false)}
       />
 
-      <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
-          <div className="flex min-w-0 items-start gap-3">
-            <SectionIcon icon={Package} />
-            <div className="min-w-0">
-              <h2 className="text-base font-semibold text-slate-900">Company services</h2>
-              <p className="mt-0.5 text-sm text-slate-400">
-                What the company itself holds, with nobody behind it. Billed to the company by
-                its own quantity.
-              </p>
-            </div>
-          </div>
+      <Panel
+        title="Company services"
+        count={(held.data?.current ?? []).length}
+        description="What the company itself holds, with nobody behind it. Billed to the company by its own quantity."
+        action={
           <button
             type="button"
             onClick={() => setAddingHeld(true)}
             disabled={held.isLoading}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className={primary}
           >
-            <Plus size={15} />
+            <Plus size={14} />
             Add service
           </button>
-        </div>
-
+        }
+      >
         {held.error instanceof Error && (
-          <p className="px-5 pb-4 text-sm text-red-600">{held.error.message}</p>
+          <p className="mx-5 mb-4 rounded-2xl bg-red-50 p-3.5 text-sm text-red-700 ring-1 ring-red-200 sm:mx-6">
+            {held.error.message}
+          </p>
         )}
 
         {(held.data?.current ?? []).length === 0 ? (
-          <p className="px-5 pb-5 text-sm text-slate-400">
+          <Quiet icon={Package}>
             {held.isLoading
               ? 'Loading…'
               : 'Nothing is held by the company itself. A service for a person or a machine lives on their own page.'}
-          </p>
+          </Quiet>
         ) : (
-          <div className="overflow-auto px-5 pb-4">
+          <div className="overflow-auto pb-2">
             <table className="w-full">
-              <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
-                <tr>
-                  {HELD_COLUMNS.map((column, index) => (
-                    <th
-                      key={column || index}
-                      className={`whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 ${
-                        index === 0 ? 'rounded-l-lg' : ''
-                      } ${index === HELD_COLUMNS.length - 1 ? 'rounded-r-lg' : ''}`}
-                    >
-                      {column}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
+              <Head columns={HELD_COLUMNS} />
               <tbody className="divide-y divide-slate-100">
                 {(held.data?.current ?? []).map((row) => (
-                  <tr key={row.name}>
-                    <td className="px-4 py-3">
+                  <tr key={row.name} className="transition-colors hover:bg-slate-50/80">
+                    <td className={td}>
                       <p className="text-sm font-semibold text-slate-900">{row.item_name}</p>
                       <p className="text-xs text-slate-400">{row.service_item}</p>
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3">
-                      <p className="text-sm text-slate-700">{row.quantity}</p>
+                    <td className={`whitespace-nowrap ${td}`}>
+                      <p className="text-sm tabular-nums text-slate-700">{row.quantity}</p>
                       {row.uom && <p className="text-xs text-slate-400">Sold in {row.uom}</p>}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3">
+                    <td className={`whitespace-nowrap ${td}`}>
                       <StatusBadge value={row.operational_status} />
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-500">
+                    <td className={`whitespace-nowrap ${td} text-sm text-slate-500`}>
                       {row.billing_status}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-500">
+                    <td className={`whitespace-nowrap ${td} text-sm text-slate-500`}>
                       {fmtDate(row.effective_start_date)}
                     </td>
-                    <td className="px-4 py-3 text-right">
+                    <td className={`${td} text-right`}>
                       <RowActionsMenu
                         disabledReason={
                           // the reason explains why the acts on a running service are gone,
@@ -884,11 +1006,11 @@ export default function CustomerContract() {
             </table>
 
             {actOnHeld.error instanceof Error && (
-              <p className="pt-2 text-sm font-medium text-red-700">{actOnHeld.error.message}</p>
+              <p className="mx-5 mt-2 text-sm font-medium text-red-700 sm:mx-6">{actOnHeld.error.message}</p>
             )}
           </div>
         )}
-      </div>
+      </Panel>
 
       {(addingHeld || changingHeld) && (
         <CustomerServiceModal
@@ -933,7 +1055,7 @@ export default function CustomerContract() {
             type="date"
             value={heldOn}
             onChange={(event) => setHeldOn(event.target.value)}
-            className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+            className="mt-1 h-10 w-full rounded-md border-0 bg-slate-100/80 px-3 text-sm text-slate-900 outline-none transition focus:bg-white focus:ring-1 focus:ring-blue-500"
           />
         </label>
       </ConfirmModal>
@@ -1037,7 +1159,7 @@ export default function CustomerContract() {
       />
 
       {remove.error instanceof Error && (
-        <div className="rounded-lg border border-red-100 bg-red-50 p-3 text-sm font-medium text-red-700">
+        <div className="rounded-2xl bg-red-50 p-3.5 text-sm font-medium text-red-700 ring-1 ring-red-200">
           {remove.error.message}
         </div>
       )}

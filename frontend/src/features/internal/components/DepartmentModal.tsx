@@ -14,7 +14,7 @@ type Props = {
 };
 
 const inputClass =
-  'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
+  'h-10 w-full rounded-md border-0 bg-slate-100/80 px-3.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:bg-white focus:ring-1 focus:ring-blue-500';
 
 const DepartmentModal: React.FC<Props> = ({ open, department, onClose }) => {
   const save = useSaveDepartment();
@@ -73,7 +73,7 @@ const DepartmentModal: React.FC<Props> = ({ open, department, onClose }) => {
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+            className="rounded-full bg-white px-3.5 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50"
           >
             Cancel
           </button>
@@ -81,7 +81,7 @@ const DepartmentModal: React.FC<Props> = ({ open, department, onClose }) => {
             type="button"
             onClick={submit}
             disabled={!departmentName.trim() || save.isLoading}
-            className="flex min-w-[7rem] items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex min-w-[7rem] items-center justify-center rounded-full bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {save.isLoading ? (
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
@@ -113,7 +113,7 @@ const DepartmentModal: React.FC<Props> = ({ open, department, onClose }) => {
             value={description}
             onChange={(event) => setDescription(event.target.value)}
             placeholder="What this department covers (optional)"
-            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+            className="w-full rounded-xl border-0 bg-slate-100/80 px-3.5 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:bg-white focus:ring-1 focus:ring-blue-500"
           />
         </div>
 
@@ -155,19 +155,19 @@ const DepartmentModal: React.FC<Props> = ({ open, department, onClose }) => {
               className={inputClass}
             />
           </div>
-          <label className="mt-7 inline-flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+          <label className="inline-flex cursor-pointer items-center gap-2.5 self-end rounded-xl bg-slate-50/70 px-3.5 py-2.5 text-sm text-slate-700 ring-1 ring-slate-200/60">
             <input
               type="checkbox"
               checked={enabled}
               onChange={(event) => setEnabled(event.target.checked)}
-              className="h-4 w-4 rounded border-slate-300"
+              className="h-4 w-4 rounded border-slate-300 accent-blue-500"
             />
             Available for selection
           </label>
         </div>
 
         {save.error instanceof Error && (
-          <div className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
+          <div className="flex items-start gap-2.5 rounded-2xl bg-red-50 p-3.5 ring-1 ring-red-200">
             <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
             <span className="whitespace-pre-line text-sm font-medium text-red-700">
               {save.error.message}

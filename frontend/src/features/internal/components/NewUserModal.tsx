@@ -11,7 +11,7 @@ import { useDepartmentOptions } from '../hooks/useSettings';
 type Props = { open: boolean; onClose: () => void; onCreated: (clientUser: string) => void };
 
 const inputClass =
-  'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
+  'h-10 w-full rounded-md border-0 bg-slate-100/80 px-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:bg-white focus:ring-1 focus:ring-blue-500';
 
 const NewUserModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
   const options = useUserFilterOptions();
@@ -68,7 +68,7 @@ const NewUserModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+            className="rounded-full bg-white px-4 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50"
           >
             Cancel
           </button>
@@ -76,7 +76,7 @@ const NewUserModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
             type="button"
             onClick={submit}
             disabled={!customer || !fullName.trim() || create.isLoading}
-            className="flex min-w-[8rem] items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex min-w-[8rem] items-center justify-center rounded-full bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {create.isLoading ? (
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
@@ -162,7 +162,7 @@ const NewUserModal: React.FC<Props> = ({ open, onClose, onCreated }) => {
         </div>
 
         {create.error instanceof Error && (
-          <div className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
+          <div className="flex items-start gap-2.5 rounded-2xl bg-red-50 p-3.5 ring-1 ring-red-200">
             <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
             <span className="text-sm font-medium text-red-700">{create.error.message}</span>
           </div>

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import ServiceState from '../components/ServiceState';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, ArrowUpRight, Laptop, Plus } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, CalendarCheck, History, Laptop, Layers, Plus, Receipt, type LucideIcon } from 'lucide-react';
 import StatusBadge from '@/shared/components/StatusBadge';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import Select from '@/shared/components/Select';
@@ -46,37 +46,94 @@ const SERVICE_VIEWS = [
   ['ended', 'Ended'],
 ] as const;
 
+// DeployOps panel, as on the dashboard: a white card with its title, an optional count and
+// one muted line, the actions on the right, and the content running edge to edge beneath
 const Panel = ({
   title,
+  count,
+  description,
   action,
+  flush = false,
   children,
 }: {
   title: string;
+  count?: number;
+  description?: string;
   action?: React.ReactNode;
+  /** a table runs to the card's edges; anything else keeps the card's padding */
+  flush?: boolean;
   children: React.ReactNode;
 }) => (
-  <section className="rounded-xl border border-slate-200 bg-white p-4">
-    <div className="flex items-center justify-between gap-3">
-      <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">{title}</h2>
+  <section className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/70">
+    <div className="flex flex-wrap items-start justify-between gap-3 px-5 pb-3 pt-5 sm:px-6">
+      <div className="min-w-0">
+        {/* the count is part of the heading's name ("Devices · 2"), drawn as a chip */}
+        <h2 className="flex items-center gap-2 text-base font-semibold text-slate-900">
+          {title}
+          {count !== undefined && (
+            <>
+              <span className="sr-only"> · </span>
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium tabular-nums text-slate-600">
+                {count}
+              </span>
+            </>
+          )}
+        </h2>
+        {description && <p className="mt-0.5 text-sm text-slate-500">{description}</p>}
+      </div>
       {action}
     </div>
-    <div className="mt-2">{children}</div>
+    <div className={flush ? 'pb-2' : 'px-5 pb-5 sm:px-6'}>{children}</div>
   </section>
 );
 
 const Th = ({ children }: { children?: React.ReactNode }) => (
-  <th className="whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 first:rounded-l-lg last:rounded-r-lg">
+  <th className="whitespace-nowrap border-b border-slate-200 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 first:pl-5 last:pr-5 sm:first:pl-6 sm:last:pr-6">
     {children}
   </th>
 );
 
-const Empty = ({ span, children }: { span: number; children: React.ReactNode }) => (
+/** An empty table, said calmly: an icon in a soft circle and the line that explains it. */
+const Empty = ({
+  span,
+  icon: Icon = Layers,
+  children,
+}: {
+  span: number;
+  icon?: LucideIcon;
+  children: React.ReactNode;
+}) => (
   <tr>
-    <td colSpan={span} className="px-4 py-8 text-center text-sm text-slate-500">
-      {children}
+    <td colSpan={span} className="px-4 py-10">
+      <div className="flex items-center justify-center gap-3 text-sm text-slate-500">
+        <span className="grid size-9 shrink-0 place-items-center rounded-full bg-slate-50 text-slate-400 ring-1 ring-slate-200">
+          <Icon className="size-[18px]" strokeWidth={1.75} />
+        </span>
+        <span>{children}</span>
+      </div>
     </td>
   </tr>
 );
+
+/** A dated fact from the billing side, in the shape of the dashboard's stat tiles. */
+const DateTile = ({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string }) => (
+  <div className="flex items-center gap-3 rounded-xl bg-slate-50/70 px-3.5 py-3 ring-1 ring-slate-200/60">
+    <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-blue-50 text-blue-600 ring-1 ring-blue-100">
+      <Icon className="size-[18px]" strokeWidth={1.75} />
+    </span>
+    <div className="min-w-0">
+      <dt className="text-[13px] text-slate-500">{label}</dt>
+      <dd className="text-base font-semibold tabular-nums text-slate-900">{value}</dd>
+    </div>
+  </div>
+);
+
+// cells line up with the panel's padding at both ends of a row
+const td = 'px-4 py-3 first:pl-5 last:pr-5 sm:first:pl-6 sm:last:pr-6';
+
+// DeployOps secondary button, for the actions in a panel header
+const secondary =
+  'inline-flex items-center gap-1.5 rounded-full bg-white px-3.5 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50 hover:text-slate-900';
 
 /**
  * One person's situation, and what Nexgen can do about it straight away: their services and
@@ -120,15 +177,15 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
   if (detail.isLoading) {
     return (
       <div className="flex items-center justify-center p-16">
-        <span className="h-8 w-8 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />
+        <span className="size-8 animate-spin rounded-full border-2 border-blue-100 border-t-blue-500" />
       </div>
     );
   }
 
   if (detail.error || !detail.data) {
     return (
-      <div className="px-6 pb-6 pt-4">
-        <div className="rounded-xl border border-red-100 bg-red-50 p-6 text-sm text-red-700">
+      <div className="px-6 pb-6 pt-5">
+        <div className="rounded-2xl bg-red-50 p-6 text-sm text-red-700 ring-1 ring-red-100">
           {(detail.error as Error)?.message || 'User not found.'}
         </div>
       </div>
@@ -193,7 +250,7 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
     });
 
   return (
-    <div className="space-y-4 px-6 pb-6 pt-4">
+    <div className="space-y-6 px-6 pb-6 pt-5">
       <button
         type="button"
         onClick={() => navigate('/msp/users')}
@@ -212,7 +269,7 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
             <button
               type="button"
               onClick={() => navigate(`/msp/requests/new?client_user=${encodeURIComponent(user.name)}`)}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
+              className="inline-flex items-center gap-1.5 rounded-full bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-600"
             >
               <Plus size={14} />
               Raise a request
@@ -230,8 +287,11 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
 
       <Panel
         title="Services"
+        count={portfolio.length}
+        description="Everything billed against this person or the machines they hold, in any state."
+        flush
         action={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Select
               className="w-44"
               value={serviceView}
@@ -246,9 +306,9 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
               <button
                 type="button"
                 onClick={() => setAddingService(true)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+                className={secondary}
               >
-                <Plus size={13} />
+                <Plus size={14} />
                 Add service
               </button>
             )}
@@ -257,7 +317,7 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
       >
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-slate-50">
+            <thead className="bg-white">
               <tr>
                 <Th>Service</Th>
                 <Th>Target</Th>
@@ -271,15 +331,15 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
             </thead>
             <tbody className="divide-y divide-slate-100">
               {services.length === 0 && (
-                <Empty span={seesBilling ? 8 : 6}>
+                <Empty span={seesBilling ? 8 : 6} icon={Layers}>
                   {serviceView === 'all'
                     ? `No service assignment is recorded for ${user.full_name}.`
                     : `No ${serviceView} service assignment is recorded for ${user.full_name}.`}
                 </Empty>
               )}
               {services.map((service) => (
-                <tr key={service.name} className="transition-colors hover:bg-slate-50">
-                  <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
+                <tr key={service.name} className="transition-colors hover:bg-slate-50/80">
+                  <td className={`whitespace-nowrap ${td} text-sm font-semibold text-slate-900`}>
                     {service.service_name}
                     {canAct && service.legacy_service && (
                       <button
@@ -306,8 +366,15 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
                       </button>
                     )}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                    {service.assignment_scope === 'Device' ? service.target : 'Person'}
+                  <td className={`whitespace-nowrap ${td} text-sm text-slate-600`}>
+                    {service.assignment_scope === 'Device' ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <Laptop size={14} className="text-slate-400" strokeWidth={1.75} />
+                        {service.target}
+                      </span>
+                    ) : (
+                      'Person'
+                    )}
                     {service.assignment_scope === 'Device' && (
                       <p className="text-xs text-slate-400">
                         held {fmtDate(service.association_from)}
@@ -317,16 +384,16 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
                       </p>
                     )}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                  <td className={`whitespace-nowrap ${td} text-sm tabular-nums text-slate-600`}>
                     {fmtDate(service.effective_start_date)}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                  <td className={`whitespace-nowrap ${td} text-sm tabular-nums text-slate-600`}>
                     {service.operational_status === 'Ended'
                       ? fmtDate(service.effective_end_date)
                       : '—'}
                   </td>
                   {seesBilling && (
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                    <td className={`whitespace-nowrap ${td} text-sm tabular-nums text-slate-600`}>
                       {/* a service only carries a date of its own once a posted run has
                           covered it. Until then the person's own coverage is what is known,
                           and it is said to be that rather than passed off as an invoice */}
@@ -343,17 +410,17 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
                     </td>
                   )}
                   {seesBilling && (
-                    <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                    <td className={`whitespace-nowrap ${td} text-sm text-slate-600`}>
                       {service.billing_status || 'N/A'}
                     </td>
                   )}
-                  <td className="whitespace-nowrap px-4 py-3">
+                  <td className={`whitespace-nowrap ${td}`}>
                     <ServiceState
                       status={service.operational_status}
                       suspendedFrom={service.suspended_from}
                     />
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3">
+                  <td className={`whitespace-nowrap ${td}`}>
                     <div className="flex justify-end">
                       {canAct && service.operational_status !== 'Ended' && (
                         <RowActionsMenu actions={serviceActions(service, deviceOf(service))} />
@@ -368,15 +435,18 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
       </Panel>
 
       <Panel
-        title={`Devices · ${data.devices.length}`}
+        title="Devices"
+        count={data.devices.length}
+        description="The machines in their hands today."
+        flush
         action={
           canAct ? (
           <button
             type="button"
             onClick={() => setAddingDevice(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+            className={secondary}
           >
-            <Plus size={13} />
+            <Plus size={14} />
             Assign a device
           </button>
           ) : undefined
@@ -384,7 +454,7 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
       >
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-slate-50">
+            <thead className="bg-white">
               <tr>
                 <Th>Hostname</Th>
                 <Th>Device Type</Th>
@@ -397,22 +467,28 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
             </thead>
             <tbody className="divide-y divide-slate-100">
               {data.devices.length === 0 && (
-                <Empty span={7}>
-                  <span className="inline-flex items-center gap-1.5">
-                    <Laptop size={15} className="text-slate-400" />
-                    {user.full_name} currently holds no device.
-                  </span>
+                <Empty span={7} icon={Laptop}>
+                  {user.full_name} currently holds no device.
                 </Empty>
               )}
               {data.devices.map((slot) => (
-                <tr key={slot.device.name} className="transition-colors hover:bg-slate-50">
-                  <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
-                    {slot.device.hostname}
+                <tr key={slot.device.name} className="transition-colors hover:bg-slate-50/80">
+                  <td className={`whitespace-nowrap ${td}`}>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/msp/devices/${slot.device.name}`)}
+                      className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900 transition-colors hover:text-blue-700"
+                    >
+                      <span className="grid size-8 place-items-center rounded-lg bg-violet-50 text-violet-600 ring-1 ring-violet-100">
+                        <Laptop size={15} strokeWidth={1.75} />
+                      </span>
+                      {slot.device.hostname}
+                    </button>
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                  <td className={`whitespace-nowrap ${td} text-sm text-slate-600`}>
                     {slot.device.device_type || 'N/A'}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className={td}>
                     {slot.interfaces.length ? (
                       <div className="space-y-0.5">
                         {slot.interfaces.map((item) => (
@@ -428,20 +504,22 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
                       <span className="text-sm text-slate-400">N/A</span>
                     )}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm">
+                  <td className={`whitespace-nowrap ${td} text-sm`}>
                     {slot.device.serial_number ? (
                       <span className="font-mono text-xs text-slate-800">{slot.device.serial_number}</span>
                     ) : (
-                      <span className="text-amber-600">Missing</span>
+                      <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 ring-1 ring-amber-200">
+                        Missing
+                      </span>
                     )}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                  <td className={`whitespace-nowrap ${td} text-sm tabular-nums text-slate-600`}>
                     {fmtDate(slot.holder_since)}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3">
+                  <td className={`whitespace-nowrap ${td}`}>
                     <StatusBadge value={slot.device.status} />
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3">
+                  <td className={`whitespace-nowrap ${td}`}>
                     <div className="flex justify-end">
                       <RowActionsMenu actions={deviceActions(slot)} />
                     </div>
@@ -453,10 +531,15 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
         </div>
       </Panel>
 
-      <Panel title={`Device history · ${data.device_history.length}`}>
+      <Panel
+        title="Device history"
+        count={data.device_history.length}
+        description="Every machine they have held, and when."
+        flush
+      >
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-slate-50">
+            <thead className="bg-white">
               <tr>
                 <Th>Device</Th>
                 <Th>Type</Th>
@@ -468,12 +551,15 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
             </thead>
             <tbody className="divide-y divide-slate-100">
               {data.device_history.length === 0 && (
-                <Empty span={6}>No machine has ever been in their hands.</Empty>
+                <Empty span={6} icon={History}>No machine has ever been in their hands.</Empty>
               )}
 
               {data.device_history.map((spell) => (
-                <tr key={spell.period} className={spell.is_current ? '' : 'text-slate-500'}>
-                  <td className="px-4 py-2.5">
+                <tr
+                  key={spell.period}
+                  className={`transition-colors hover:bg-slate-50/80 ${spell.is_current ? '' : 'text-slate-500'}`}
+                >
+                  <td className={td}>
                     <button
                       type="button"
                       onClick={() => navigate(`/msp/devices/${spell.device}`)}
@@ -482,18 +568,28 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
                       {spell.hostname || spell.device}
                     </button>
                   </td>
-                  <td className="px-4 py-2.5 text-sm text-slate-600">
+                  <td className={`${td} text-sm text-slate-600`}>
                     {spell.device_type || 'N/A'}
                   </td>
-                  <td className="px-4 py-2.5 text-sm text-slate-600">
-                    {spell.serial_number || 'No serial'}
+                  <td className={`${td} text-sm text-slate-600`}>
+                    {spell.serial_number ? (
+                      <span className="font-mono text-xs">{spell.serial_number}</span>
+                    ) : (
+                      'No serial'
+                    )}
                   </td>
-                  <td className="px-4 py-2.5 text-sm text-slate-600">{fmtDate(spell.from_date)}</td>
-                  <td className="px-4 py-2.5 text-sm text-slate-600">
+                  <td className={`${td} text-sm tabular-nums text-slate-600`}>{fmtDate(spell.from_date)}</td>
+                  <td className={`${td} text-sm tabular-nums text-slate-600`}>
                     {/* still theirs: the spell is open, which is not the same as having no end */}
-                    {spell.is_current ? 'Still held' : fmtDate(spell.to_date)}
+                    {spell.is_current ? (
+                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-100">
+                        Still held
+                      </span>
+                    ) : (
+                      fmtDate(spell.to_date)
+                    )}
                   </td>
-                  <td className="px-4 py-2.5">
+                  <td className={td}>
                     <StatusBadge value={spell.device_status} />
                   </td>
                 </tr>
@@ -503,24 +599,18 @@ export default function UserDetail({ portal = false }: { portal?: boolean } = {}
         </div>
       </Panel>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-6 lg:grid-cols-2">
         {seesBilling && (
-        <Panel title="Billing & coverage">
-          <dl className="grid grid-cols-2 gap-3 text-sm">
-            <div>
-              <dt className="text-xs text-slate-400">Billed up to</dt>
-              <dd className="text-slate-700">{fmtDate(data.billing.covered_until)}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-slate-400">Last billed on</dt>
-              <dd className="text-slate-700">{fmtDate(data.billing.last_billed_on)}</dd>
-            </div>
+        <Panel title="Billing & coverage" description="How far this person's services have been invoiced.">
+          <dl className="grid gap-3 sm:grid-cols-2">
+            <DateTile icon={CalendarCheck} label="Billed up to" value={fmtDate(data.billing.covered_until)} />
+            <DateTile icon={Receipt} label="Last billed on" value={fmtDate(data.billing.last_billed_on)} />
           </dl>
         </Panel>
         )}
 
         {canAct && (
-        <Panel title="Internal notes">
+        <Panel title="Internal notes" description="Seen by Nexgen staff only.">
           <RemarkLog
             entries={data.notes?.log ?? []}
             target={{ doctype: 'MSP Client User', name: user.name }}

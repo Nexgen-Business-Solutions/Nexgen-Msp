@@ -10,9 +10,14 @@ const UserAttentionPanel: React.FC<{ signals: AttentionSignal[] }> = ({ signals 
   if (!signals.length) return null;
 
   return (
-    <section className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-      <h2 className="text-xs font-semibold uppercase tracking-wider text-amber-800">Attention</h2>
-      <ul className="mt-2 space-y-1.5">
+    <section className="rounded-2xl bg-amber-50/70 p-5 ring-1 ring-amber-200 sm:px-6">
+      <div className="flex items-center gap-2.5">
+        <span className="grid size-8 place-items-center rounded-lg bg-amber-100 text-amber-700 ring-1 ring-amber-200">
+          <TriangleAlert className="size-4" strokeWidth={1.75} />
+        </span>
+        <h2 className="text-base font-semibold text-amber-900">Attention</h2>
+      </div>
+      <ul className="mt-3 space-y-2">
         {signals.map((signal) => (
           <li
             key={`${signal.code}-${signal.entity}`}

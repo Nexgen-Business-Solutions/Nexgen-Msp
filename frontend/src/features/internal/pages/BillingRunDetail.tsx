@@ -1,6 +1,20 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { AlertCircle, ArrowLeft, Ban, RefreshCw, ShieldCheck } from 'lucide-react';
+import {
+  AlertCircle,
+  ArrowLeft,
+  Ban,
+  Building2,
+  CalendarDays,
+  Download,
+  FileText,
+  Layers,
+  Receipt,
+  RefreshCw,
+  ShieldCheck,
+  TriangleAlert,
+  Wallet,
+} from 'lucide-react';
 import Modal from '@/shared/components/Modal';
 import BillingExceptionGroup from '../components/BillingExceptionGroup';
 import InvoiceAccountingModal from '../components/InvoiceAccountingModal';
@@ -32,8 +46,10 @@ import {
   Td,
   Th,
   btn,
+  btnDanger,
   btnPrimary,
   btnWarn,
+  rowClass,
 } from '../components/billing/ui';
 import { day, money } from '../components/billing/format';
 
@@ -95,16 +111,19 @@ export default function BillingRunDetail() {
   if (view.isLoading) {
     return (
       <div className="flex items-center justify-center p-16">
-        <span className="h-8 w-8 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />
+        <span className="size-8 animate-spin rounded-full border-2 border-blue-100 border-t-blue-500" />
       </div>
     );
   }
 
   if (view.error || !data) {
     return (
-      <div className="px-6 pb-6 pt-4">
-        <div className="rounded-xl border border-red-100 bg-red-50 p-6 text-sm text-red-700">
-          {(view.error as Error)?.message || 'Billing run not found.'}
+      <div className="px-6 pb-6 pt-5">
+        <div className="flex items-start gap-3 rounded-2xl bg-red-50 p-5 text-sm text-red-700 ring-1 ring-red-100">
+          <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-white/70 text-red-600 ring-1 ring-red-100">
+            <AlertCircle className="size-[18px]" strokeWidth={1.75} />
+          </span>
+          <span className="self-center">{(view.error as Error)?.message || 'Billing run not found.'}</span>
         </div>
       </div>
     );
@@ -140,30 +159,53 @@ export default function BillingRunDetail() {
     style === 'primary' ? btnPrimary : style === 'warn' ? btnWarn : btn;
 
   return (
-    <div className="space-y-5 px-6 pb-6 pt-4">
+    <div className="space-y-6 px-6 pb-6 pt-5">
       <button
         type="button"
         onClick={() => navigate('/msp/billing')}
-        className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 transition-colors hover:text-slate-800"
+        className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 transition-colors hover:text-slate-900"
       >
         <ArrowLeft size={14} />
         Back to billing
       </button>
 
       <Card>
-        <div className="flex flex-wrap items-start justify-between gap-3 px-5 py-4">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <h1 className="text-lg font-bold tracking-tight text-slate-900">{data.name}</h1>
-              <Pill tone={KIND_TONE[data.kind] ?? 'gray'}>{data.kind}</Pill>
-              <Pill tone={statusTone(data.status)}>{data.status}</Pill>
-              {data.disputed && <Pill tone="red">Disputed</Pill>}
+        <div className="flex flex-col gap-5 p-5 sm:p-6 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex min-w-0 items-start gap-4">
+            <span
+              aria-hidden
+              className={`grid size-14 shrink-0 place-items-center rounded-2xl ring-1 ${
+                data.is_credit_note
+                  ? 'bg-violet-50 text-violet-600 ring-violet-100'
+                  : data.status === 'Cancelled'
+                    ? 'bg-slate-100 text-slate-500 ring-slate-200'
+                    : 'bg-blue-50 text-blue-600 ring-blue-100'
+              }`}
+            >
+              <FileText className="size-6" strokeWidth={1.75} />
+            </span>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <h1 className="break-words text-2xl font-semibold tracking-tight text-slate-900">
+                  {data.name}
+                </h1>
+                <Pill tone={KIND_TONE[data.kind] ?? 'gray'}>{data.kind}</Pill>
+                <Pill tone={statusTone(data.status)}>{data.status}</Pill>
+                {data.disputed && <Pill tone="red">Disputed</Pill>}
+              </div>
+              <p className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm text-slate-600">
+                <span className="inline-flex min-w-0 items-center gap-1.5">
+                  <Building2 size={14} className="shrink-0 text-slate-400" strokeWidth={1.75} />
+                  <span className="truncate">{data.customer}</span>
+                </span>
+                <span className="inline-flex items-center gap-1.5 tabular-nums">
+                  <CalendarDays size={14} className="shrink-0 text-slate-400" strokeWidth={1.75} />
+                  {day(data.billing_period_start)} – {day(data.billing_period_end)}
+                </span>
+              </p>
             </div>
-            <p className="mt-1 text-xs text-slate-400">
-              {data.customer} · {day(data.billing_period_start)} – {day(data.billing_period_end)}
-            </p>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="flex flex-wrap items-start gap-2 lg:justify-end">
             {data.moves.map((entry) => (
               <button
                 key={entry.action}
@@ -175,7 +217,6 @@ export default function BillingRunDetail() {
                 {entry.label}
               </button>
             ))}
-
           </div>
         </div>
 
@@ -195,23 +236,32 @@ export default function BillingRunDetail() {
         {!data.settled && <Stepper steps={data.stages} current={data.stage} />}
       </Card>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 min-[480px]:grid-cols-2 sm:gap-6 xl:grid-cols-4">
         <Metric
+          icon={Wallet}
+          tone={data.is_credit_note ? 'purple' : 'blue'}
           label="Amount"
           value={money(data.figures.amount, currency)}
           hint={data.is_credit_note ? 'credited back' : 'before taxes'}
         />
         <Metric
+          icon={Layers}
+          tone="gray"
           label="Billing lines"
           value={data.figures.billed_lines}
           hint={`of ${data.figures.lines} · ${data.figures.months.toFixed(1)} months`}
         />
         <Metric
+          icon={TriangleAlert}
+          tone="gray"
+          raised={data.figures.exceptions > 0}
           label="Exceptions"
           value={data.figures.exceptions}
           hint={data.figures.exceptions ? 'to resolve before posting' : 'nothing held back'}
         />
         <Metric
+          icon={Receipt}
+          tone={data.sales_invoice ? 'green' : 'gray'}
           label="Sales invoice"
           value={data.sales_invoice ?? 'Not created'}
           hint={
@@ -234,7 +284,7 @@ export default function BillingRunDetail() {
             <button
               type="button"
               onClick={() => navigate(`/msp/requests/${data.dispute_request}`)}
-              className="ml-1 font-bold underline underline-offset-2"
+              className="ml-1 font-semibold underline underline-offset-2 hover:no-underline"
             >
               Open request {data.dispute_request}
             </button>
@@ -253,7 +303,7 @@ export default function BillingRunDetail() {
           <button
             type="button"
             onClick={() => navigate(creditPath('detected'))}
-            className="ml-1 font-bold underline underline-offset-2"
+            className="ml-1 font-semibold underline underline-offset-2 hover:no-underline"
           >
             Review credit →
           </button>
@@ -267,7 +317,7 @@ export default function BillingRunDetail() {
             <button
               type="button"
               onClick={() => setReconciling(true)}
-              className="ml-1 font-bold underline underline-offset-2"
+              className="ml-1 font-semibold underline underline-offset-2 hover:no-underline"
             >
               Reconcile →
             </button>
@@ -305,13 +355,15 @@ export default function BillingRunDetail() {
         canEdit={Boolean(data.can_revalidate)}
       />
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
         <Card>
           <CardHead
             title="Billing lines"
             hint="Quantities, coverage periods and service changes, as they were drawn."
+            count={data.lines.length}
             right={
               <button type="button" onClick={() => downloadBreakdownFile(data.name)} className={btn}>
+                <Download size={14} />
                 Breakdown file
               </button>
             }
@@ -327,8 +379,10 @@ export default function BillingRunDetail() {
                   ))}
                 </tr>
               </thead>
-              <tbody>
-                {data.lines.length === 0 && <Empty span={COLUMNS.length}>Nothing on this run.</Empty>}
+              <tbody className="divide-y divide-slate-100">
+                {data.lines.length === 0 && <Empty span={COLUMNS.length} icon={Layers}>
+                    Nothing on this run.
+                  </Empty>}
                 {[...data.lines]
                   .sort((left, right) => Number(Boolean(right.exception_code)) - Number(Boolean(left.exception_code)))
                   .map((line) => (
@@ -357,14 +411,14 @@ export default function BillingRunDetail() {
           <Foot
             left={`${data.figures.billed_lines} billed · ${blocked.length} held back`}
             right={
-              <strong className="text-sm font-bold text-slate-800">
+              <strong className="text-base font-semibold tabular-nums text-slate-900">
                 {money(data.figures.amount, currency)}
               </strong>
             }
           />
         </Card>
 
-        <div className="space-y-4">
+        <div className="space-y-6">
           <InfoPanel>
             <PanelTitle>Run details</PanelTitle>
             <Summary
@@ -394,7 +448,7 @@ export default function BillingRunDetail() {
                       onClick={() =>
                         navigate(`/msp/billing/invoices/${encodeURIComponent(data.sales_invoice as string)}`)
                       }
-                      className="font-bold text-blue-600 hover:underline"
+                      className="font-medium text-blue-600 hover:underline"
                     >
                       {data.sales_invoice}
                     </button>
@@ -451,7 +505,7 @@ export default function BillingRunDetail() {
                   ]}
                 />
                 {data.reconciliation.currency_mismatch && (
-                  <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-[11px] font-medium text-amber-900">
+                  <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs font-medium text-amber-900 ring-1 ring-amber-200">
                     This run was drawn in {data.reconciliation.currency_mismatch.run ?? '—'} and
                     its document is in {data.reconciliation.currency_mismatch.invoice ?? '—'}.
                     The two totals are not in the same money and cannot be compared.
@@ -459,13 +513,13 @@ export default function BillingRunDetail() {
                 )}
 
                 {data.reconciliation.item_differences.length > 0 && (
-                  <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5">
-                    <p className="text-[11px] font-semibold text-amber-900">
+                  <div className="mt-3 rounded-xl bg-amber-50 p-3 ring-1 ring-amber-200">
+                    <p className="text-xs font-semibold text-amber-900">
                       The document no longer bills what the run was drawn on
                     </p>
                     <ul className="mt-1.5 space-y-1">
                       {data.reconciliation.item_differences.map((row) => (
-                        <li key={row.service_item} className="text-[11px] text-amber-900">
+                        <li key={row.service_item} className="text-xs text-amber-900">
                           <span className="font-medium">{row.item_name}</span>
                           {' — '}
                           {row.state === 'missing'
@@ -492,7 +546,7 @@ export default function BillingRunDetail() {
                   </div>
                 )}
 
-                <p className="mt-2 text-[11px] text-slate-400">
+                <p className="mt-3 text-xs text-slate-500">
                   {data.reconciliation.basis}
                   {data.reconciliation.material
                     ? ' The document was edited after the run was drawn; the run keeps its own figures.'
@@ -503,10 +557,13 @@ export default function BillingRunDetail() {
 
             <Divider />
             <PanelTitle>Activity</PanelTitle>
-            <ul className="space-y-2.5">
+            <ul className="space-y-3">
               {data.activity.map((event, index) => (
-                <li key={`${event.label}-${index}`} className="flex gap-2.5 text-[11px] text-slate-500">
-                  <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-blue-300" />
+                <li
+                  key={`${event.label}-${index}`}
+                  className="relative flex gap-3 text-sm text-slate-700"
+                >
+                  <span className="mt-1.5 size-2 shrink-0 rounded-full bg-blue-500 ring-4 ring-blue-50" />
                   <span>
                     {event.label}
                     {event.by && <span className="text-slate-400"> · {event.by}</span>}
@@ -516,14 +573,14 @@ export default function BillingRunDetail() {
               ))}
             </ul>
           </InfoPanel>
-
-          {data.sales_invoice && <InvoicePanel run={data.name} isAdmin />}
         </div>
       </div>
 
+      {data.sales_invoice && <InvoicePanel run={data.name} isAdmin />}
+
       {action.error instanceof Error && (
-        <div className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
-          <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
+        <div className="flex items-start gap-3 rounded-2xl bg-red-50 px-4 py-3.5 ring-1 ring-red-200">
+          <AlertCircle size={18} className="mt-0.5 shrink-0 text-red-600" strokeWidth={1.75} />
           <span className="text-sm font-medium text-red-700">{action.error.message}</span>
         </div>
       )}
@@ -557,13 +614,13 @@ export default function BillingRunDetail() {
           </div>
         }
       >
-        <p className="text-xs text-slate-500">{data.dispute_reason}</p>
+        <p className="text-sm text-slate-600">{data.dispute_reason}</p>
         <textarea
           value={outcome}
           onChange={(event) => setOutcome(event.target.value)}
           rows={4}
           placeholder="Describe the investigation and its outcome."
-          className="mt-3 w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-blue-400"
+          className="mt-3 w-full rounded-xl border-0 bg-slate-100/80 p-3 text-sm outline-none transition-colors placeholder:text-slate-400 focus:bg-white focus:ring-1 focus:ring-blue-500"
         />
       </Modal>
 
@@ -595,7 +652,7 @@ export default function BillingRunDetail() {
                   setReason('');
                 }
               }}
-              className={`${btnPrimary} bg-red-600 hover:bg-red-700 disabled:opacity-50`}
+              className={btnDanger}
             >
               {action.isLoading ? 'Cancelling…' : 'Cancel Billing Run'}
             </button>
@@ -603,18 +660,18 @@ export default function BillingRunDetail() {
         }
       >
         {data.sales_invoice && data.invoice_submitted && (
-          <p className="text-xs font-medium text-slate-600">
+          <p className="text-sm text-slate-600">
             {data.sales_invoice} is posted in ERPNext. It is cancelled there, through its own
             accounting checks, and this run is only cancelled if that succeeds.
           </p>
         )}
         {data.sales_invoice && !data.invoice_submitted && (
-          <p className="text-xs font-medium text-slate-600">
+          <p className="text-sm text-slate-600">
             {data.sales_invoice} is still a draft, so it is deleted rather than cancelled:
             nothing of it was ever booked.
           </p>
         )}
-        <label htmlFor="cancel-reason" className="mt-3 block text-xs font-bold text-slate-700">
+        <label htmlFor="cancel-reason" className="mt-4 block text-sm font-medium text-slate-700">
           Cancellation reason
         </label>
         <textarea
@@ -623,9 +680,9 @@ export default function BillingRunDetail() {
           onChange={(event) => setReason(event.target.value)}
           rows={3}
           placeholder="Why is this run being cancelled? Kept on the run's file."
-          className="mt-1 w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-blue-400"
+          className="mt-1.5 w-full rounded-xl border-0 bg-slate-100/80 p-3 text-sm outline-none transition-colors placeholder:text-slate-400 focus:bg-white focus:ring-1 focus:ring-blue-500"
         />
-        <p className="mt-1 text-[11px] text-slate-500">Required for the audit trail.</p>
+        <p className="mt-1.5 text-xs text-slate-500">Required for the audit trail.</p>
       </Modal>
 
       <Modal
@@ -657,7 +714,7 @@ export default function BillingRunDetail() {
         <p className="text-sm font-medium text-slate-700">
           {data.accounting_mismatch?.message || 'This run agrees with ERPNext.'}
         </p>
-        <p className="mt-2 text-xs text-slate-500">
+        <p className="mt-2 text-sm text-slate-500">
           Nothing is posted, re-posted or raised. The lines, the amounts and the period this run
           was drawn on are left exactly as they are.
         </p>
@@ -726,14 +783,14 @@ const LineRow = ({
   const under = line.hostname && line.hostname !== subject ? line.hostname : line.department;
 
   return (
-    <tr className="border-b border-slate-100 last:border-0 hover:bg-slate-50/60">
+    <tr className={line.exception_code ? 'bg-amber-50/40 transition-colors hover:bg-amber-50/70' : rowClass}>
       <Td className="max-w-[16rem] whitespace-normal">
-        <p className="truncate text-xs font-bold text-slate-800">{line.service_name}</p>
-        <p className="truncate text-[11px] text-slate-400">{line.service_assignment}</p>
+        <p className="truncate text-sm font-semibold text-slate-900">{line.service_name}</p>
+        <p className="truncate text-xs text-slate-400">{line.service_assignment}</p>
       </Td>
       <Td className="max-w-[14rem] whitespace-normal">
-        <p className="truncate text-xs text-slate-700">{subject}</p>
-        {under && <p className="truncate text-[11px] text-slate-400">{under}</p>}
+        <p className="truncate text-sm text-slate-700">{subject}</p>
+        {under && <p className="truncate text-xs text-slate-400">{under}</p>}
       </Td>
       <Td className="whitespace-normal tabular-nums">
         {line.segments && line.segments.length > 1 ? (
@@ -759,7 +816,7 @@ const LineRow = ({
         {/* a quantity other than one is what the months are multiplied by, and it is not
             months: a block of storage billed by the terabyte says so here or nowhere */}
         {line.quantity !== 1 && (
-          <p className="text-[11px] text-slate-400">
+          <p className="text-xs text-slate-400">
             × {line.quantity}
             {line.uom ? ` ${line.uom}` : ''}
           </p>
@@ -781,7 +838,7 @@ const LineRow = ({
               if (next !== line.discount_percent) onDiscount(next);
             }}
             placeholder="0"
-            className="h-8 w-16 rounded-md border border-slate-200 px-2 text-right text-xs tabular-nums outline-none focus:border-blue-400"
+            className="h-8 w-16 rounded-md border-0 bg-slate-100/80 px-2 text-right text-sm tabular-nums outline-none transition-colors focus:bg-white focus:ring-1 focus:ring-blue-500"
           />
         ) : line.discount_percent ? (
           `${line.discount_percent}%`
@@ -789,17 +846,17 @@ const LineRow = ({
           '—'
         )}
       </Td>
-      <Td align="right" className="font-bold tabular-nums text-slate-800">
+      <Td align="right" className="font-semibold tabular-nums text-slate-900">
         {money(line.amount, currency)}
       </Td>
       <Td className="max-w-[14rem] whitespace-normal">
         {line.exception_code ? (
           <div>
             <Pill tone="amber">{line.exception_code}</Pill>
-            <p className="mt-1 text-[11px] text-slate-400">{line.exception_detail}</p>
+            <p className="mt-1 text-xs text-slate-500">{line.exception_detail}</p>
           </div>
         ) : (
-          <span className="text-[11px] text-slate-400">{line.proration_method}</span>
+          <span className="text-xs text-slate-400">{line.proration_method}</span>
         )}
       </Td>
       <Td align="right">
@@ -809,7 +866,7 @@ const LineRow = ({
             onClick={onRemove}
             title="Take this off the run. The service itself is untouched."
             aria-label={`Remove ${line.service_name} from this run`}
-            className="rounded-lg px-2 py-1 text-[11px] font-bold text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
+            className="rounded-full px-2.5 py-1 text-xs font-medium text-slate-500 ring-1 ring-transparent transition-colors hover:bg-red-50 hover:text-red-600 hover:ring-red-200"
           >
             Remove
           </button>

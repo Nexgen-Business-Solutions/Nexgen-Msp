@@ -45,7 +45,7 @@ const FinalValidation: React.FC<{
 
   return (
     <div className="space-y-3">
-      <section aria-label="Completion summary" className="overflow-hidden rounded-lg border border-slate-200">
+      <section aria-label="Completion summary" className="overflow-hidden rounded-xl ring-1 ring-slate-200/70">
         <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-3 py-2">
           <p className="text-xs font-bold text-slate-900">{done ? 'Request completed' : 'Completion summary'}</p>
           {!done && completable && (
@@ -62,19 +62,19 @@ const FinalValidation: React.FC<{
       </section>
 
       {!done && !completable && (
-        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs font-semibold text-amber-900">
+        <p className="rounded-xl bg-amber-50 ring-1 ring-amber-200 px-3 py-2.5 text-xs font-semibold text-amber-900">
           This Request cannot be completed while accepted work remains unresolved.
         </p>
       )}
 
       {!done && complete.error instanceof Error && (
-        <p role="alert" className="rounded-lg border border-red-100 bg-red-50 px-3 py-2.5 text-sm font-medium text-red-700">
+        <p role="alert" className="rounded-xl bg-red-50 ring-1 ring-red-100 px-3 py-2.5 text-sm font-medium text-red-700">
           {complete.error.message}
         </p>
       )}
 
       {!done && (
-        <div className="flex flex-col items-stretch justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/70 px-4 py-3 sm:flex-row sm:items-center">
+        <div className="flex flex-col items-stretch justify-between gap-3 rounded-xl bg-slate-50/70 ring-1 ring-slate-200/60 px-4 py-3 sm:flex-row sm:items-center">
           <p className="text-xs text-slate-500">Unresolved accepted work prevents completion.</p>
           <button
             type="button"

@@ -285,7 +285,7 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onSaved, onContinue
           }}
         />
 
-        <section aria-label="Execution workspace" className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white">
+        <section aria-label="Execution workspace" className="min-w-0 overflow-hidden rounded-2xl bg-white ring-1 ring-slate-200/70">
           <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-4 py-3">
             <div className="min-w-0">
               <h3 className="text-sm font-bold text-slate-900">
@@ -326,7 +326,7 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onSaved, onContinue
             {(ready.length > 0 || usernames.length > 0 || serials.length > 0) && (
               <section
                 aria-label="Grouped execution"
-                className="flex flex-wrap items-center justify-between gap-2.5 rounded-lg border border-blue-100 bg-blue-50/40 px-3 py-2"
+                className="flex flex-wrap items-center justify-between gap-2.5 rounded-xl bg-blue-50/50 ring-1 ring-blue-100 px-3 py-2"
               >
                 <p className="text-xs font-bold text-slate-900">Grouped execution</p>
                 <div className="flex flex-wrap gap-1.5">
@@ -365,7 +365,7 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onSaved, onContinue
             {outcome && (
               <p
                 role="status"
-                className={`rounded-lg border px-3 py-2 text-xs font-semibold ${
+                className={`rounded-xl border px-3 py-2 text-xs font-semibold ${
                   outcome.includes('failed')
                     ? 'border-amber-200 bg-amber-50 text-amber-900'
                     : 'border-emerald-200 bg-emerald-50 text-emerald-800'
@@ -398,7 +398,7 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onSaved, onContinue
         </section>
       </div>
 
-      <div className="flex flex-col items-stretch justify-end gap-3 rounded-lg border border-slate-200 bg-slate-50/70 px-4 py-3 sm:flex-row sm:items-center">
+      <div className="flex flex-col items-stretch justify-end gap-3 rounded-xl bg-slate-50/70 ring-1 ring-slate-200/60 px-4 py-3 sm:flex-row sm:items-center">
         <button type="button" disabled={!executed} onClick={onContinue} className={primaryButton}>
           Continue to Verify
         </button>
@@ -426,7 +426,7 @@ const ExecutionWorkspace: React.FC<Props> = ({ plan, people, onSaved, onContinue
                 {['Target', 'Action', 'Status'].map((label) => (
                   <th
                     key={label}
-                    className="border-b border-slate-200 px-2 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500"
+                    className="border-b border-slate-200 px-2 py-1.5 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500"
                   >
                     {label}
                   </th>

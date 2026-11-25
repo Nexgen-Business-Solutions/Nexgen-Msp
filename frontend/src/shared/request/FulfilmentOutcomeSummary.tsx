@@ -8,7 +8,7 @@ type Props = {
 };
 
 const row =
-  'grid grid-cols-1 gap-2 px-4 py-3 md:grid-cols-[minmax(0,1.3fr)_minmax(0,0.8fr)_minmax(0,1.2fr)_auto] md:items-center md:gap-4';
+  'grid grid-cols-1 gap-2 px-5 py-4 md:grid-cols-[minmax(0,1.3fr)_minmax(0,0.8fr)_minmax(0,1.2fr)_auto] md:items-center md:gap-4';
 
 const pathOf = (link: NonNullable<FulfilmentOutcomePresentation['entities'][number]['link']>) =>
   link.doctype === 'MSP Client User'
@@ -19,8 +19,8 @@ export default function FulfilmentOutcomeSummary({ outcome, onViewExecutionRecap
   return (
     <section className={sectionClass} aria-label="Fulfilment outcome" data-section="fulfilment-outcome">
       <div className={sectionHeadClass}>
-        <h2 className="text-sm font-semibold text-slate-900">Fulfilment outcome</h2>
-        <span className="text-[11px] text-slate-400">Persisted execution result</span>
+        <h2 className="text-base font-semibold text-slate-900">Fulfilment outcome</h2>
+        <span className="text-xs text-slate-400">Persisted execution result</span>
       </div>
       <div className="divide-y divide-slate-100">
         {outcome.entities.map((entity, index) => (

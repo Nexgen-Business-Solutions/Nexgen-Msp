@@ -15,7 +15,7 @@ import {
   useSaveNotificationRule,
   useTestNotificationRule,
 } from './useNotifications';
-import { Field, inputClass, Message, Pill, SkeletonRows, Switch } from './ui';
+import { Field, btnPrimary, btnSecondary, btnSmall, inputClass, Message, Pill, SkeletonRows, Switch } from './ui';
 import RecipientPolicies from './RecipientPolicies';
 import {
   badPolicyAddresses,
@@ -164,10 +164,10 @@ const Section: React.FC<{ title: string; blurb?: string; children: React.ReactNo
   blurb,
   children,
 }) => (
-  <section className="space-y-4 rounded-xl border border-slate-100 bg-white p-5">
+  <section className="space-y-4 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200/70">
     <div>
-      <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
-      {blurb && <p className="mt-1 text-sm text-slate-500">{blurb}</p>}
+      <h3 className="text-base font-semibold text-slate-900">{title}</h3>
+      {blurb && <p className="mt-0.5 text-sm text-slate-500">{blurb}</p>}
     </div>
     {children}
   </section>
@@ -265,7 +265,7 @@ const RuleEditor: React.FC<EditorProps> = ({
 
   return (
     <>
-      <div role="tablist" aria-label="Notification panels" className="flex gap-1 border-b border-slate-100 px-5">
+      <div role="tablist" aria-label="Notification panels" className="flex gap-1 overflow-x-auto border-b border-slate-200 px-3 sm:px-4">
         {PANELS.map((entry) => (
           <button
             key={entry.id}
@@ -275,10 +275,10 @@ const RuleEditor: React.FC<EditorProps> = ({
             aria-selected={panel === entry.id}
             aria-controls={`${idBase}-panel-${entry.id}`}
             onClick={() => onPanel(entry.id)}
-            className={`-mb-px h-11 border-b-2 px-3 text-sm font-medium transition-colors focus:outline-none focus-visible:bg-blue-50 ${
+            className={`-mb-px h-11 shrink-0 border-b-2 px-3 text-sm font-medium transition-colors focus:outline-none focus-visible:bg-blue-50 ${
               panel === entry.id
-                ? 'border-blue-600 text-blue-700'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
+                ? 'border-blue-500 text-slate-900'
+                : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800'
             }`}
           >
             {entry.label}
@@ -290,12 +290,12 @@ const RuleEditor: React.FC<EditorProps> = ({
         role="tabpanel"
         id={`${idBase}-panel-${panel}`}
         aria-labelledby={`${idBase}-tab-${panel}`}
-        className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-slate-50/50 p-5"
+        className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-slate-50/70 p-4 sm:p-5"
       >
         {panel === 'configuration' && (
           <>
             <Section title="Notification">
-              <div className="flex items-start justify-between gap-4 rounded-lg bg-slate-50 p-3.5">
+              <div className="flex items-start justify-between gap-4 rounded-xl bg-slate-50/70 p-3.5 ring-1 ring-slate-200/60">
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-slate-900">Enabled</p>
                   <p id={lockId} className="mt-0.5 text-sm text-slate-500">
@@ -404,7 +404,7 @@ const RuleEditor: React.FC<EditorProps> = ({
                 <button
                   type="button"
                   onClick={() => onOpenTemplate(draft.template_name)}
-                  className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-100"
+                  className={`${btnSmall} shrink-0`}
                 >
                   <Pencil size={14} aria-hidden />
                   Edit the wording
@@ -537,7 +537,7 @@ const RuleEditor: React.FC<EditorProps> = ({
                   </Field>
                 </div>
 
-                <div className="flex items-start justify-between gap-4 rounded-lg bg-slate-50 p-3.5">
+                <div className="flex items-start justify-between gap-4 rounded-xl bg-slate-50/70 p-3.5 ring-1 ring-slate-200/60">
                   <div>
                     <p className="text-sm font-semibold text-slate-900">Quiet hours</p>
                     <p className="mt-0.5 text-sm text-slate-500">
@@ -573,13 +573,13 @@ const RuleEditor: React.FC<EditorProps> = ({
                   </div>
                 )}
 
-                <p className="rounded-lg bg-blue-50 px-3.5 py-3 text-sm text-blue-800">
+                <p className="rounded-2xl bg-blue-50 px-4 py-3 text-sm text-blue-800 ring-1 ring-blue-200">
                   Changing the schedule or switching the rule on starts from now. Records that were
                   already eligible are not sent the reminders they missed.
                 </p>
               </Section>
             ) : (
-              <p className="rounded-xl bg-blue-50 px-4 py-3.5 text-sm text-blue-800">
+              <p className="rounded-2xl bg-blue-50 px-4 py-3.5 text-sm text-blue-800 ring-1 ring-blue-200">
                 <strong className="font-semibold">Event email.</strong> This message is sent when
                 its event happens. It has no frequency, maximum or reminder schedule.
               </p>
@@ -589,7 +589,7 @@ const RuleEditor: React.FC<EditorProps> = ({
 
         {panel === 'preview' && (
           <>
-            <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <p className="rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-amber-200">
               This preview is rendered from the saved template and sends nothing.
             </p>
             {preview.isLoading ? (
@@ -599,7 +599,7 @@ const RuleEditor: React.FC<EditorProps> = ({
                 {preview.error instanceof Error ? preview.error.message : 'Try again in a moment.'}
               </Message>
             ) : preview.data ? (
-              <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+              <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/70">
                 <div className="border-b border-slate-100 px-5 py-3">
                   <p className="text-xs font-medium text-slate-500">Subject</p>
                   <p className="mt-0.5 text-sm font-semibold text-slate-900">{preview.data.subject}</p>
@@ -619,7 +619,7 @@ const RuleEditor: React.FC<EditorProps> = ({
             ) : null}
 
             <Section title="Send a test">
-              <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-3 text-sm text-amber-900">
+              <div className="flex items-start gap-3 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-amber-200">
                 <FlaskConical size={16} className="mt-0.5 shrink-0" aria-hidden />
                 <p>
                   A test is not a business reminder. It goes only to the address below, is marked as
@@ -656,7 +656,7 @@ const RuleEditor: React.FC<EditorProps> = ({
                   disabled={!testValid || test.isLoading}
                   title={testValid ? undefined : 'Enter a valid email address first'}
                   onClick={() => test.mutate({ rule_key: rule.rule_key, recipient: testTo.trim() })}
-                  className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  className={btnSecondary}
                 >
                   {test.isLoading ? 'Sending…' : 'Send test'}
                 </button>
@@ -707,9 +707,9 @@ const RuleEditor: React.FC<EditorProps> = ({
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-sm">
                     <thead>
-                      <tr className="text-xs text-slate-500">
+                      <tr className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
                         {['Record', 'Status', 'Reminder', 'Next due', 'Reason', 'Timezone', 'Revision'].map((head) => (
-                          <th key={head} scope="col" className="whitespace-nowrap px-3 py-2 font-medium">
+                          <th key={head} scope="col" className="whitespace-nowrap border-b border-slate-200 px-3 py-2.5 font-semibold">
                             {head}
                           </th>
                         ))}
@@ -752,9 +752,9 @@ const RuleEditor: React.FC<EditorProps> = ({
         )}
       </div>
 
-      <footer className="space-y-3 border-t border-slate-100 bg-white px-5 py-4">
+      <footer className="space-y-3 border-t border-slate-200 bg-white px-5 py-4">
         {conflict && (
-          <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-amber-50 px-3.5 py-3 text-sm text-amber-900">
+          <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-amber-200">
             <span className="flex items-start gap-2">
               <AlertTriangle size={16} className="mt-0.5 shrink-0" aria-hidden />
               This notification was changed by someone else while you were editing. Reload it, then
@@ -767,7 +767,7 @@ const RuleEditor: React.FC<EditorProps> = ({
                 onReload();
               }}
               disabled={reloading}
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-amber-600 px-3 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 rounded-full bg-amber-600 px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-700 disabled:opacity-60"
             >
               <RefreshCw size={14} aria-hidden />
               Reload
@@ -783,7 +783,7 @@ const RuleEditor: React.FC<EditorProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="h-10 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+            className={btnSecondary}
           >
             Cancel
           </button>
@@ -791,7 +791,7 @@ const RuleEditor: React.FC<EditorProps> = ({
             type="button"
             onClick={submit}
             disabled={!dirty || invalid.length > 0 || incomplete > 0 || save.isLoading || conflict}
-            className="h-10 rounded-lg bg-blue-600 px-5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className={`${btnPrimary} min-w-[6rem]`}
           >
             {save.isLoading ? 'Saving…' : 'Save'}
           </button>
@@ -837,7 +837,7 @@ const RuleDrawer: React.FC<DrawerProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex justify-end bg-slate-900/40 backdrop-blur-[1px]"
+      className="fixed inset-0 z-50 flex justify-end bg-zinc-950/40 backdrop-blur-[2px]"
       onMouseDown={onClose}
     >
       <div
@@ -853,11 +853,11 @@ const RuleDrawer: React.FC<DrawerProps> = ({
           }
         }}
         onMouseDown={(event) => event.stopPropagation()}
-        className="flex h-full w-full max-w-3xl flex-col bg-white shadow-2xl outline-none"
+        className="flex h-full w-full max-w-3xl flex-col bg-white shadow-xl ring-1 ring-zinc-900/5 outline-none"
       >
-        <header className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
+        <header className="flex items-start justify-between gap-4 border-b border-slate-200 px-5 py-4">
           <div className="min-w-0">
-            <h2 id={titleId} className="truncate text-lg font-semibold text-slate-900">
+            <h2 id={titleId} className="truncate text-lg font-semibold tracking-tight text-slate-900">
               {rule?.display_name ?? fallbackName ?? 'Notification'}
             </h2>
             {rule && (
@@ -875,7 +875,7 @@ const RuleDrawer: React.FC<DrawerProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+            className="grid size-9 shrink-0 place-items-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
           >
             <X size={18} />
           </button>
@@ -892,7 +892,7 @@ const RuleDrawer: React.FC<DrawerProps> = ({
                 <button
                   type="button"
                   onClick={() => detail.refetch()}
-                  className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  className={btnSecondary}
                 >
                   Try again
                 </button>

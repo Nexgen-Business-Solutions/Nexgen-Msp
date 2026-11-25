@@ -210,7 +210,7 @@ const PrepareRequestedClientUserModal: React.FC<Props> = ({ entity, customer, on
                 />
               </span>
             </label>
-            <div className="max-h-72 overflow-auto rounded-lg border border-slate-200">
+            <div className="max-h-72 overflow-auto rounded-xl ring-1 ring-slate-200/70">
               {(candidates.data?.rows ?? []).map((row) => (
                 <SelectableRow
                   key={row.name}
@@ -237,7 +237,7 @@ const PrepareRequestedClientUserModal: React.FC<Props> = ({ entity, customer, on
         )}
 
         {error && (
-          <p role="alert" className="rounded-lg border border-red-100 bg-red-50 px-3 py-2.5 text-sm font-medium text-red-700">
+          <p role="alert" className="rounded-xl bg-red-50 ring-1 ring-red-100 px-3 py-2.5 text-sm font-medium text-red-700">
             {error.message}
           </p>
         )}

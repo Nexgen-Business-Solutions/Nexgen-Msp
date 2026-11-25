@@ -11,8 +11,8 @@ type Props = {
 
 const PREVIEW = 3;
 
-const th = 'px-4 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500';
-const td = 'px-4 py-2.5 text-sm text-slate-700';
+const th = 'border-b border-slate-200 px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500';
+const td = 'px-5 py-3 text-sm text-slate-700';
 
 export default function RequestPeopleSummary({ subjects, total, renderPersonDetail }: Props) {
   const [showAll, setShowAll] = useState(false);
@@ -22,7 +22,7 @@ export default function RequestPeopleSummary({ subjects, total, renderPersonDeta
   return (
     <section className={sectionClass} aria-label="People" data-section="people">
       <div className={sectionHeadClass}>
-        <h2 className="text-sm font-semibold text-slate-900">People</h2>
+        <h2 className="text-base font-semibold text-slate-900">People</h2>
         {!showAll && subjects.length > PREVIEW && (
           <button type="button" onClick={() => setShowAll(true)} className={linkButtonClass}>
             View all {total} people
@@ -32,7 +32,7 @@ export default function RequestPeopleSummary({ subjects, total, renderPersonDeta
 
       <div className="overflow-x-auto">
         <table className="w-full">
-          <thead className="bg-slate-50/70">
+          <thead className="bg-white">
             <tr>
               <th className={th}>Person</th>
               <th className={th}>Department</th>
@@ -46,7 +46,7 @@ export default function RequestPeopleSummary({ subjects, total, renderPersonDeta
 
               return (
                 <Fragment key={subject.subject_key}>
-                  <tr>
+                  <tr className="transition-colors hover:bg-slate-50/80">
                     <td className={`${td} font-semibold text-slate-900`}>
                       <span className="inline-flex items-center gap-1.5">
                       {renderPersonDetail ? (
@@ -96,7 +96,7 @@ export default function RequestPeopleSummary({ subjects, total, renderPersonDeta
         </table>
       </div>
       {!showAll && total > shown.length && (
-        <p className="border-t border-slate-100 px-4 py-2 text-[11px] text-slate-500">
+        <p className="border-t border-slate-100 px-5 py-3 text-xs text-slate-500">
           {total - shown.length} more {total - shown.length === 1 ? 'person' : 'people'} in this snapshot.
         </p>
       )}

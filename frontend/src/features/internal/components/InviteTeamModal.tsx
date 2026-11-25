@@ -6,7 +6,7 @@ import FieldLabel from '@/shared/components/FieldLabel';
 import { useCreateAccount, useTeamOptions } from '../hooks/useTeam';
 
 const inputClass =
-  'w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
+  'w-full rounded-md border-0 bg-slate-100/80 px-3 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:bg-white focus:ring-1 focus:ring-blue-500';
 
 const KINDS = [
   {
@@ -82,7 +82,7 @@ const InviteTeamModal: React.FC<{ open: boolean; onClose: () => void }> = ({ ope
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+            className="rounded-full bg-white px-4 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50"
           >
             Cancel
           </button>
@@ -101,7 +101,7 @@ const InviteTeamModal: React.FC<{ open: boolean; onClose: () => void }> = ({ ope
               });
               onClose();
             }}
-            className="flex min-w-[8rem] items-center justify-center rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex min-w-[8rem] items-center justify-center rounded-full bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {create.isLoading ? (
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
@@ -194,7 +194,7 @@ const InviteTeamModal: React.FC<{ open: boolean; onClose: () => void }> = ({ ope
               }))}
             />
             {role === ADMIN_ROLE && (
-              <label className="mt-2.5 flex cursor-pointer items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <label className="mt-2.5 flex cursor-pointer items-start gap-2.5 rounded-2xl bg-amber-50 p-3.5 ring-1 ring-amber-200">
                 <input
                   type="checkbox"
                   checked={adminUnderstood}
@@ -221,7 +221,7 @@ const InviteTeamModal: React.FC<{ open: boolean; onClose: () => void }> = ({ ope
         </label>
 
         {create.error instanceof Error && (
-          <p className="rounded-lg border border-red-100 bg-red-50 p-3 text-sm font-medium text-red-700">
+          <p className="rounded-2xl bg-red-50 p-3.5 ring-1 ring-red-200 text-sm font-medium text-red-700">
             {create.error.message}
           </p>
         )}

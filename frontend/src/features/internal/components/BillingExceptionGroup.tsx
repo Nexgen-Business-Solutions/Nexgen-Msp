@@ -41,48 +41,59 @@ const BillingExceptionGroup: React.FC<Props> = ({ run, lines, canEdit }) => {
   }
 
   return (
-    <section className="rounded-xl border border-amber-200 bg-amber-50/60 p-4">
-      <h2 className="inline-flex items-center gap-2 text-sm font-bold text-amber-900">
-        <TriangleAlert size={15} className="text-amber-600" />
-        {blocked.length} line{blocked.length > 1 ? 's' : ''} cannot be billed
-      </h2>
-      <p className="mt-0.5 text-xs text-amber-800">
-        This run cannot be approved until each one is fixed or taken off it.
-      </p>
+    <section className="rounded-2xl bg-amber-50 p-5 ring-1 ring-amber-200">
+      <div className="flex items-start gap-3">
+        <span
+          aria-hidden
+          className="grid size-9 shrink-0 place-items-center rounded-xl bg-white/70 text-amber-600 ring-1 ring-amber-200"
+        >
+          <TriangleAlert className="size-[18px]" strokeWidth={1.75} />
+        </span>
+        <div className="min-w-0">
+          <h2 className="text-base font-semibold text-amber-900">
+            {blocked.length} line{blocked.length > 1 ? 's' : ''} cannot be billed
+          </h2>
+          <p className="mt-0.5 text-sm text-amber-800">
+            This run cannot be approved until each one is fixed or taken off it.
+          </p>
+        </div>
+      </div>
 
-      <div className="mt-3 space-y-3">
+      <div className="mt-4 space-y-3">
         {[...groups.entries()].map(([code, rows]) => (
-          <div key={code} className="rounded-lg border border-amber-200 bg-white p-3">
-            <p className="text-xs font-semibold uppercase tracking-wider text-amber-800">
+          <div key={code} className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-amber-200/70">
+            <p className="flex items-center text-[11px] font-semibold uppercase tracking-[0.08em] text-amber-800">
               {code}
-              <span className="ml-2 font-normal normal-case text-slate-400">{rows.length}</span>
+              <span className="ml-2 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium normal-case tracking-normal tabular-nums text-amber-700 ring-1 ring-amber-200/70">
+                {rows.length}
+              </span>
             </p>
-            <p className="mt-0.5 text-xs text-slate-500">{WAY_OUT[code] ?? rows[0].exception_detail}</p>
+            <p className="mt-1 text-sm text-slate-600">{WAY_OUT[code] ?? rows[0].exception_detail}</p>
 
-            <div className="mt-2 space-y-2">
+            <div className="mt-3 space-y-2">
               {rows.map((line) => (
                 <div
                   key={line.line ?? line.service_assignment}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2"
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50/70 px-3.5 py-2.5 ring-1 ring-slate-200/60"
                 >
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-slate-900">{line.service_name}</p>
                     <p className="mt-0.5 flex flex-wrap items-center gap-x-3 text-xs text-slate-500">
                       {line.user_name && (
                         <span className="inline-flex items-center gap-1">
-                          <UserRound size={11} className="text-slate-400" />
+                          <UserRound size={12} className="text-slate-400" strokeWidth={1.75} />
                           {line.user_name}
                           {line.department ? ` · ${line.department}` : ''}
                         </span>
                       )}
                       {line.hostname && (
                         <span className="inline-flex items-center gap-1">
-                          <Laptop size={11} className="text-slate-400" />
+                          <Laptop size={12} className="text-slate-400" strokeWidth={1.75} />
                           {line.hostname}
                           {line.serial_number ? ` · ${line.serial_number}` : ''}
                         </span>
                       )}
-                      <span>
+                      <span className="tabular-nums">
                         {fmtDate(line.covered_from)} → {fmtDate(line.covered_to)}
                       </span>
                     </p>
@@ -98,7 +109,7 @@ const BillingExceptionGroup: React.FC<Props> = ({ run, lines, canEdit }) => {
                       onClick={() =>
                         drop.mutate({ name: run, service_assignment: line.service_assignment })
                       }
-                      className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60"
+                      className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-red-600 ring-1 ring-red-200 transition-colors hover:bg-red-50 disabled:opacity-60"
                     >
                       <X size={12} />
                       Remove from this run
@@ -112,8 +123,8 @@ const BillingExceptionGroup: React.FC<Props> = ({ run, lines, canEdit }) => {
       </div>
 
       {drop.error instanceof Error && (
-        <p className="mt-3 flex items-start gap-2 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
-          <AlertCircle size={13} className="mt-0.5 shrink-0" />
+        <p className="mt-3 flex items-start gap-2 rounded-xl bg-red-50 px-3.5 py-2.5 text-sm text-red-700 ring-1 ring-red-200">
+          <AlertCircle size={15} className="mt-0.5 shrink-0" />
           {drop.error.message}
         </p>
       )}

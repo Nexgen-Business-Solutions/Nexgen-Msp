@@ -9,7 +9,7 @@ import { useRemoveServiceFromMsp } from '../hooks/useCatalogue';
 type Props = { service: CatalogueRow | null; contracts?: number; onClose: () => void };
 
 const inputClass =
-  'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
+  'h-10 w-full rounded-md border-0 bg-slate-100/80 px-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:bg-white focus:ring-1 focus:ring-blue-500';
 
 /** Stop offering a service. What is already running is the customer's, not the catalogue's. */
 const RemoveFromMspModal: React.FC<Props> = ({ service, contracts = 0, onClose }) => {
@@ -63,7 +63,7 @@ const RemoveFromMspModal: React.FC<Props> = ({ service, contracts = 0, onClose }
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+            className="rounded-full bg-white px-4 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50"
           >
             Cancel
           </button>
@@ -71,7 +71,7 @@ const RemoveFromMspModal: React.FC<Props> = ({ service, contracts = 0, onClose }
             type="button"
             onClick={submit}
             disabled={remove.isLoading || (mode === 'end' && !reason.trim())}
-            className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-full bg-amber-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {mode === 'end' ? `Remove and end ${open} assignments` : 'Remove from MSP'}
           </button>
@@ -109,20 +109,22 @@ const RemoveFromMspModal: React.FC<Props> = ({ service, contracts = 0, onClose }
             ).map((option) => (
               <label
                 key={option.value}
-                className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${
-                  mode === option.value ? 'border-blue-300 bg-blue-50/60' : 'border-slate-200'
+                className={`flex cursor-pointer items-start gap-3 rounded-xl p-3 ring-1 transition-colors ${
+                  mode === option.value
+                    ? 'bg-blue-50/60 ring-blue-300'
+                    : 'bg-white ring-slate-200/70 hover:bg-slate-50/80'
                 }`}
               >
                 <input
                   type="radio"
                   name="removal-mode"
-                  className="mt-0.5 h-4 w-4 accent-blue-600"
+                  className="mt-0.5 size-4 accent-blue-500"
                   checked={mode === option.value}
                   onChange={() => setMode(option.value)}
                 />
                 <span>
                   <span className="block text-sm font-semibold text-slate-900">{option.label}</span>
-                  <span className="block text-xs text-slate-500">{option.description}</span>
+                  <span className="mt-0.5 block text-xs text-slate-500">{option.description}</span>
                 </span>
               </label>
             ))}
@@ -147,7 +149,7 @@ const RemoveFromMspModal: React.FC<Props> = ({ service, contracts = 0, onClose }
                     aria-label="Reason"
                     onChange={(event) => setReason(event.target.value)}
                     placeholder="Why are all active assignments being ended?"
-                    className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                    className="w-full resize-y rounded-xl border-0 bg-slate-100/80 px-3 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:bg-white focus:ring-1 focus:ring-blue-500"
                   />
                 </div>
               </div>
@@ -156,14 +158,14 @@ const RemoveFromMspModal: React.FC<Props> = ({ service, contracts = 0, onClose }
         )}
 
         {contracts > 0 && (
-          <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          <p className="rounded-xl bg-slate-50/70 px-3 py-2.5 ring-1 ring-slate-200/60 text-xs text-slate-600">
             This service is referenced by {contracts} active contract(s). Those contract records
             will not be changed.
           </p>
         )}
 
         {failed.length > 0 && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+          <div className="rounded-2xl bg-amber-50 p-3.5 ring-1 ring-amber-200">
             <p className="text-sm font-semibold text-amber-900">
               Service removed from MSP, but some assignments could not be ended.
             </p>
@@ -181,7 +183,7 @@ const RemoveFromMspModal: React.FC<Props> = ({ service, contracts = 0, onClose }
         )}
 
         {remove.error instanceof Error && (
-          <div className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
+          <div className="flex items-start gap-2.5 rounded-2xl bg-red-50 p-3.5 ring-1 ring-red-200">
             <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
             <span className="text-sm font-medium text-red-700">{remove.error.message}</span>
           </div>

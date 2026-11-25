@@ -52,7 +52,7 @@ const MultiSelect: React.FC<Props> = ({
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
-        className="flex min-h-[2.5rem] w-full items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-left transition-colors hover:border-slate-300 focus:outline-none focus:ring-4 focus:ring-blue-100"
+        className="flex min-h-[2.5rem] w-full items-center justify-between gap-2 rounded-md bg-slate-100/80 px-3 py-1.5 text-left transition hover:bg-slate-100 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
       >
         <span className="flex flex-1 flex-wrap gap-1.5">
           {selected.length === 0 && <span className="text-sm text-slate-400">{placeholder}</span>}

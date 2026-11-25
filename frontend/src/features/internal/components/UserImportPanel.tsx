@@ -5,6 +5,7 @@ import {
   CircleCheck,
   FileUp,
   Plus,
+  Users,
   TriangleAlert,
   Trash2,
 } from 'lucide-react';
@@ -17,10 +18,10 @@ import {
 } from '../hooks/useSettings';
 
 const inputClass =
-  'h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
+  'h-9 w-full rounded-md border-0 bg-slate-100/80 px-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:bg-white focus:ring-1 focus:ring-blue-500';
 
 const Th = ({ children }: { children?: React.ReactNode }) => (
-  <th className="whitespace-nowrap px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+  <th className="whitespace-nowrap border-b border-slate-200 bg-white px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
     {children}
   </th>
 );
@@ -39,25 +40,26 @@ const Accordion = ({
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-100">
+    <div className="overflow-hidden rounded-xl bg-white ring-1 ring-slate-200/70">
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
-        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50"
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left transition-colors hover:bg-slate-50/80"
       >
         <span className="min-w-0">
           <span className="flex items-center gap-2">
             <span className="text-sm font-semibold text-slate-900">{title}</span>
             {badge}
           </span>
-          <span className="mt-0.5 block text-sm text-slate-400">{hint}</span>
+          <span className="mt-0.5 block text-sm text-slate-500">{hint}</span>
         </span>
         <ChevronDown
           size={16}
           className={`shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`}
         />
       </button>
-      {open && <div className="border-t border-slate-100 px-4 py-4">{children}</div>}
+      {open && <div className="border-t border-slate-200 px-4 py-4">{children}</div>}
     </div>
   );
 };
@@ -69,7 +71,7 @@ const Counters = ({ title, values }: { title: string; values: Record<string, num
 
   return (
     <div>
-      <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">{title}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">{title}</p>
       <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
         {entries.map(([key, count]) => (
           <span key={key} className="text-sm text-slate-700">
@@ -123,17 +125,28 @@ const UserImportPanel: React.FC = () => {
 
   const warningBadge = (count: number) =>
     count > 0 ? (
-      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
+      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 ring-1 ring-amber-200">
         <TriangleAlert size={11} />
         {count}
       </span>
     ) : null;
 
   return (
-    <div className="space-y-6 px-5 pb-6">
-      <div>
+    <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/70">
+      <div className="px-5 pt-5 sm:px-6">
+        <div className="flex items-start gap-3">
+          <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-blue-50 text-blue-600 ring-1 ring-blue-100">
+            <Users className="size-5" strokeWidth={1.75} aria-hidden />
+          </span>
+          <div className="min-w-0">
+            <h3 className="text-base font-semibold text-slate-900">Users and their services</h3>
+            <p className="mt-0.5 text-sm text-slate-500">
+              The user sheet: each row a user, with their company and the services they hold.
+            </p>
+          </div>
+        </div>
         {(unresolved.length > 0 || missingItems.length > 0) && (
-          <div className="mt-3 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
+          <div className="mt-4 flex items-start gap-2.5 rounded-2xl bg-amber-50 p-3.5 ring-1 ring-amber-200">
             <TriangleAlert size={16} className="mt-0.5 shrink-0 text-amber-600" />
             <p className="text-sm text-amber-800">
               {unresolved.length > 0 && (
@@ -167,16 +180,16 @@ const UserImportPanel: React.FC = () => {
           <button
             type="button"
             onClick={() => picker.current?.click()}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+            className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full bg-white px-3.5 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50"
           >
-            <FileUp size={15} />
-            {file ? file.name : 'Choose the file'}
+            <FileUp size={15} className="shrink-0" />
+            <span className="truncate">{file ? file.name : 'Choose the file'}</span>
           </button>
           <button
             type="button"
             disabled={!file || run.isLoading}
             onClick={() => start(true)}
-            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-full bg-white px-3.5 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Rehearse
           </button>
@@ -184,12 +197,12 @@ const UserImportPanel: React.FC = () => {
             type="button"
             disabled={!file || run.isLoading || !report?.dry_run}
             onClick={() => start(false)}
-            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-full bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Import for real
           </button>
           {run.isLoading && (
-            <span className="h-4 w-4 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />
+            <span className="h-4 w-4 animate-spin rounded-full border-2 border-blue-200 border-t-blue-500" aria-label="Working" />
           )}
         </div>
 
@@ -198,7 +211,7 @@ const UserImportPanel: React.FC = () => {
             type="checkbox"
             checked={fillBlanksOnly}
             onChange={(event) => setFillBlanksOnly(event.target.checked)}
-            className="mt-0.5 h-4 w-4 rounded border-slate-300"
+            className="mt-0.5 h-4 w-4 rounded border-slate-300 accent-blue-500"
           />
           <span className="text-sm text-slate-700">
             Only fill what is empty
@@ -209,14 +222,14 @@ const UserImportPanel: React.FC = () => {
         </label>
 
         {run.error instanceof Error && (
-          <div className="mt-3 flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
+          <div className="mt-3 flex items-start gap-2.5 rounded-2xl bg-red-50 p-3.5 ring-1 ring-red-200">
             <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
             <span className="text-sm font-medium text-red-700">{run.error.message}</span>
           </div>
         )}
 
         {report && (
-          <div className="mt-4 space-y-4 rounded-xl border border-slate-100 bg-slate-50/60 p-4">
+          <div className="mt-4 space-y-4 rounded-xl bg-slate-50/70 p-4 ring-1 ring-slate-200/60">
             <p className="text-sm font-semibold text-slate-900">
               {report.dry_run ? 'Rehearsal' : 'Imported'} — {report.rows_read} row(s) read
               {report.dry_run && (
@@ -229,10 +242,10 @@ const UserImportPanel: React.FC = () => {
 
             {report.exceptions.length > 0 && (
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
                   Rows needing attention ({report.exceptions.length})
                 </p>
-                <div className="mt-1.5 max-h-64 overflow-auto rounded-lg border border-slate-200 bg-white">
+                <div className="mt-1.5 max-h-64 overflow-auto rounded-xl bg-white ring-1 ring-slate-200/70">
                   <table className="w-full">
                     <tbody className="divide-y divide-slate-100">
                       {report.exceptions.map((row, index) => (
@@ -255,7 +268,7 @@ const UserImportPanel: React.FC = () => {
         )}
       </div>
 
-      <div className="space-y-3 border-t border-slate-100 pt-5">
+      <div className="mt-5 space-y-3 border-t border-slate-200 px-5 py-5 sm:px-6">
         <Accordion
           title="Companies"
           hint="Which customer each company stands for."
@@ -263,7 +276,7 @@ const UserImportPanel: React.FC = () => {
         >
           <div className="max-h-[62vh] overflow-auto">
             <table className="w-full">
-              <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
+              <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10">
                 <tr>
                   <Th>Company in file</Th>
                   <Th>Customer id</Th>
@@ -316,7 +329,8 @@ const UserImportPanel: React.FC = () => {
                           setCustomers((rows) => rows.filter((_, at) => at !== index));
                           setDirty(true);
                         }}
-                        className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                        aria-label="Remove this company"
+                        className="rounded-full p-1.5 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
                       >
                         <Trash2 size={15} />
                       </button>
@@ -350,7 +364,7 @@ const UserImportPanel: React.FC = () => {
         >
           <div className="max-h-[62vh] overflow-auto">
             <table className="w-full sm:max-w-3xl">
-              <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
+              <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10">
                 <tr>
                   <Th>Service in file</Th>
                   <Th>Item id</Th>
@@ -396,7 +410,7 @@ const UserImportPanel: React.FC = () => {
         </Accordion>
 
         {save.error instanceof Error && (
-          <div className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
+          <div className="flex items-start gap-2.5 rounded-2xl bg-red-50 p-3.5 ring-1 ring-red-200">
             <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
             <span className="text-sm font-medium text-red-700">{save.error.message}</span>
           </div>
@@ -415,7 +429,7 @@ const UserImportPanel: React.FC = () => {
                 type="button"
                 disabled={save.isLoading}
                 onClick={() => save.mutate({ customers, services })}
-                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-full bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Save the mapping
               </button>

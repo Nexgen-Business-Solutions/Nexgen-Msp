@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  History,
   Inbox,
   Laptop,
   PlugZap,
@@ -15,13 +16,13 @@ import type { ActivityKind } from '@/lib/api/internal';
 import { useActivity, useActivityOptions } from '../hooks/useActivity';
 
 const TONES: Record<ActivityKind, { icon: typeof Inbox; surround: string; color: string }> = {
-  invoice: { icon: Receipt, surround: 'bg-emerald-50', color: 'text-emerald-600' },
-  credit_note: { icon: ReceiptText, surround: 'bg-slate-50', color: 'text-slate-600' },
-  request: { icon: Inbox, surround: 'bg-blue-50', color: 'text-blue-600' },
-  user: { icon: UserPlus, surround: 'bg-slate-50', color: 'text-slate-600' },
-  device: { icon: Laptop, surround: 'bg-slate-100', color: 'text-slate-600' },
-  service_started: { icon: PlugZap, surround: 'bg-emerald-50', color: 'text-emerald-600' },
-  service_ended: { icon: PowerOff, surround: 'bg-amber-50', color: 'text-amber-600' },
+  invoice: { icon: Receipt, surround: 'bg-emerald-50 ring-emerald-100', color: 'text-emerald-600' },
+  credit_note: { icon: ReceiptText, surround: 'bg-slate-100 ring-slate-200', color: 'text-slate-600' },
+  request: { icon: Inbox, surround: 'bg-blue-50 ring-blue-100', color: 'text-blue-600' },
+  user: { icon: UserPlus, surround: 'bg-sky-50 ring-sky-100', color: 'text-sky-600' },
+  device: { icon: Laptop, surround: 'bg-violet-50 ring-violet-100', color: 'text-violet-600' },
+  service_started: { icon: PlugZap, surround: 'bg-emerald-50 ring-emerald-100', color: 'text-emerald-600' },
+  service_ended: { icon: PowerOff, surround: 'bg-amber-50 ring-amber-100', color: 'text-amber-600' },
 };
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : '');
@@ -60,7 +61,7 @@ export default function ActivityLog() {
   };
 
   return (
-    <div className="space-y-5 px-6 pb-6 pt-4">
+    <div className="space-y-6 px-6 pb-6 pt-5">
       <FilterBar
         values={filters}
         search={search}
@@ -93,25 +94,40 @@ export default function ActivityLog() {
         ]}
       />
 
-      <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
-        <div className="px-5 py-4">
-          <h2 className="text-base font-semibold text-slate-900">Activity</h2>
-          <p className="mt-0.5 text-sm text-slate-400">
-            Joiners, machines, requests and billing, newest first.
-          </p>
+      <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/70">
+        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 pb-4 pt-5">
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold text-slate-900">Activity</h2>
+            <p className="mt-0.5 text-sm text-slate-500">
+              Joiners, machines, requests and billing, newest first.
+            </p>
+          </div>
+          {!list.isLoading && !list.error && (
+            <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold tabular-nums text-slate-600 ring-1 ring-slate-200">
+              {list.data?.total ?? 0}
+            </span>
+          )}
         </div>
 
-        <div className="px-5 pb-2">
-          {list.isLoading && <p className="py-10 text-center text-sm text-slate-500">Loading…</p>}
+        <div className="px-2 pb-2 sm:px-3">
+          {list.isLoading && (
+            <div className="flex items-center justify-center gap-3 py-12 text-sm text-slate-500">
+              <span className="size-5 animate-spin rounded-full border-2 border-blue-100 border-t-blue-500" />
+              <p>Loading…</p>
+            </div>
+          )}
 
           {list.error instanceof Error && (
-            <p className="py-10 text-center text-sm text-red-600">{list.error.message}</p>
+            <p className="py-12 text-center text-sm text-red-600">{list.error.message}</p>
           )}
 
           {!list.isLoading && !list.error && rows.length === 0 && (
-            <p className="py-10 text-center text-sm text-slate-500">
-              Nothing matches these filters.
-            </p>
+            <div className="flex items-center justify-center gap-3 py-12 text-sm text-slate-500">
+              <span className="grid size-9 shrink-0 place-items-center rounded-full bg-slate-50 text-slate-400 ring-1 ring-slate-200">
+                <History className="size-[18px]" strokeWidth={1.75} />
+              </span>
+              <p>Nothing matches these filters.</p>
+            </div>
           )}
 
           <ol className="divide-y divide-slate-100">
@@ -125,23 +141,24 @@ export default function ActivityLog() {
                     type="button"
                     disabled={!event.link}
                     onClick={() => event.link && navigate(event.link)}
-                    className="flex w-full items-start gap-3 px-2 py-3 text-left transition-colors enabled:hover:bg-slate-50 disabled:cursor-default"
+                    className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-colors enabled:hover:bg-slate-50/80 disabled:cursor-default"
                   >
                     <span
-                      className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${tone.surround}`}
+                      aria-hidden
+                      className={`grid size-9 shrink-0 place-items-center rounded-lg ring-1 ${tone.surround}`}
                     >
-                      <Icon size={15} className={tone.color} />
+                      <Icon size={16} strokeWidth={1.75} className={tone.color} />
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium text-slate-800">
                         {event.title}
                       </span>
-                      <span className="block truncate text-xs text-slate-500">{event.detail}</span>
+                      <span className="mt-0.5 block truncate text-xs text-slate-500">{event.detail}</span>
                     </span>
-                    <span className="hidden shrink-0 text-xs font-medium text-slate-600 sm:block">
+                    <span className="hidden max-w-[14rem] shrink-0 truncate rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200 sm:block">
                       {event.customer}
                     </span>
-                    <span className="w-20 shrink-0 text-right text-xs text-slate-400">
+                    <span className="w-20 shrink-0 text-right text-xs tabular-nums text-slate-500">
                       {fmtDate(event.on)}
                     </span>
                   </button>

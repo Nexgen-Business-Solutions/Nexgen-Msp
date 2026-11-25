@@ -7,7 +7,7 @@ import type { useRequestBuilder } from '../hooks/useRequestBuilder';
 type Builder = ReturnType<typeof useRequestBuilder>;
 
 const inputClass =
-  'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
+  'h-10 w-full rounded-md border-0 bg-slate-100/80 px-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:bg-white focus:ring-1 focus:ring-blue-500';
 
 const PRIORITIES = ['Low', 'Medium', 'High'];
 
@@ -60,7 +60,7 @@ const RequestDetailsStep: React.FC<{ builder: Builder }> = ({ builder }) => (
           onChange={(event) => builder.setDetails(event.target.value)}
           placeholder="Anything Nexgen should know about this request."
           aria-label="Request note"
-          className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+          className="w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
         />
       </div>
     </div>

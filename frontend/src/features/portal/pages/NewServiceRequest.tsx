@@ -121,7 +121,7 @@ export default function NewServiceRequest() {
   if (rights.data?.can_submit === false) {
     return (
       <div className="px-6 pb-6 pt-4">
-        <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50/70 p-5">
+        <div className="flex items-start gap-3 rounded-2xl bg-amber-50 ring-1 ring-amber-200 p-5">
           <Info size={18} className="mt-0.5 shrink-0 text-amber-700" />
           <div>
             <p className="text-sm font-semibold text-amber-900">You may not raise requests</p>
@@ -138,14 +138,14 @@ export default function NewServiceRequest() {
   if (builder.locked && opened) {
     return (
       <div className="space-y-4 px-6 pb-6 pt-4">
-        <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+        <div className="flex items-start gap-2.5 rounded-2xl bg-amber-50 ring-1 ring-amber-200 p-4">
           <Info size={16} className="mt-0.5 shrink-0 text-amber-700" />
           <p className="text-sm text-amber-900">{REQUEST_LOCKED}</p>
         </div>
         <button
           type="button"
           onClick={() => navigate(`/msp/requests/${encodeURIComponent(opened)}`)}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+          className="inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50"
         >
           <ArrowLeft size={15} />
           Back to the request
@@ -313,7 +313,7 @@ export default function NewServiceRequest() {
       )}
 
       {carriedOver && (
-        <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+        <div className="flex items-start gap-2.5 rounded-2xl bg-amber-50 ring-1 ring-amber-200 p-4">
           <Info size={16} className="mt-0.5 shrink-0 text-amber-700" />
           <p className="text-sm text-amber-900">
             The people picked for {carriedOver} were cleared when you changed customer. Add
@@ -323,7 +323,7 @@ export default function NewServiceRequest() {
       )}
 
       {seed && (
-        <div className="flex items-start gap-2.5 rounded-xl border border-blue-100 bg-blue-50/60 p-4">
+        <div className="flex items-start gap-2.5 rounded-2xl bg-blue-50 ring-1 ring-blue-100 p-4">
           <Info size={16} className="mt-0.5 shrink-0 text-blue-700" />
           <p className="text-sm text-blue-900">
             1 action added from {seed.deviceLabel}. You can add more changes before submitting.
@@ -332,7 +332,7 @@ export default function NewServiceRequest() {
       )}
 
       {builder.correcting && (
-        <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+        <div className="flex items-start gap-2.5 rounded-2xl bg-amber-50 ring-1 ring-amber-200 p-4">
           <Info size={16} className="mt-0.5 shrink-0 text-amber-700" />
           <p className="text-sm text-amber-900">
             This is a copy of a refused request. What it asked for has been read again against
@@ -342,32 +342,32 @@ export default function NewServiceRequest() {
       )}
 
       {builder.unrestorable && (
-        <div className="flex items-start gap-2.5 rounded-xl border border-red-100 bg-red-50 p-4">
+        <div className="flex items-start gap-2.5 rounded-2xl bg-red-50 ring-1 ring-red-100 p-4">
           <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
           <p className="text-sm font-medium text-red-700">{UNRESTORABLE_DRAFT}</p>
         </div>
       )}
 
       {step >= 2 && builder.reviewNeeded && (
-        <p className="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm text-amber-900">
+        <p className="rounded-2xl bg-amber-50 ring-1 ring-amber-200 px-4 py-3 text-sm text-amber-900">
           {REVIEW_NEEDED}
         </p>
       )}
 
       {builder.reopening && (
-        <p className="rounded-xl border border-slate-200 bg-white px-4 py-6 text-center text-sm text-slate-500">
+        <p className="rounded-2xl bg-white px-4 py-6 text-center shadow-sm ring-1 ring-slate-200/70 text-sm text-slate-500">
           Reading what was put aside…
         </p>
       )}
 
       {!builder.unrestorable && step === 1 && !hasActions && (
-        <p className="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm text-amber-900">
+        <p className="rounded-2xl bg-amber-50 ring-1 ring-amber-200 px-4 py-3 text-sm text-amber-900">
           Add at least one requested action before continuing.
         </p>
       )}
 
       {!builder.unrestorable && step === 0 && !hasSubjects && !aboutCompany && !needsCustomer && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm text-amber-900">
+        <div className="rounded-2xl bg-amber-50 ring-1 ring-amber-200 px-4 py-3 text-sm text-amber-900">
           <p>Add at least one person before continuing.</p>
           <p className="mt-0.5 text-[13px]">
             Or add the company itself, for something nobody carries — a retainer, a block of
@@ -377,7 +377,7 @@ export default function NewServiceRequest() {
       )}
 
       {!builder.unrestorable && step === 0 && !hasSubjects && aboutCompany && (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-3 text-sm text-emerald-900">
+        <div className="rounded-2xl bg-emerald-50 ring-1 ring-emerald-200 px-4 py-3 text-sm text-emerald-900">
           This request is about the company itself. Choose what it should hold on the next step.
         </div>
       )}
@@ -394,7 +394,7 @@ export default function NewServiceRequest() {
       )}
 
       {stale ? (
-        <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+        <div className="space-y-3 rounded-2xl bg-amber-50 ring-1 ring-amber-200 p-4">
           <div>
             <p className="text-sm font-semibold text-amber-900">
               Some selected people changed after they were added to this request.
@@ -434,7 +434,7 @@ export default function NewServiceRequest() {
         </div>
       ) : (
         builder.error && (
-          <div className="flex items-start gap-2.5 rounded-xl border border-red-100 bg-red-50 p-4">
+          <div className="flex items-start gap-2.5 rounded-2xl bg-red-50 ring-1 ring-red-100 p-4">
             <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
             <div>
               <p className="text-sm font-bold text-red-800">Draft was not saved</p>
@@ -448,7 +448,7 @@ export default function NewServiceRequest() {
       )}
 
       {saved && !builder.error && (
-        <div className="flex items-start gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+        <div className="flex items-start gap-2.5 rounded-2xl bg-emerald-50 ring-1 ring-emerald-200 p-4">
           <Check size={16} className="mt-0.5 shrink-0 text-emerald-700" />
           <span className="text-sm font-semibold text-emerald-800">Draft saved — {saved}</span>
         </div>

@@ -14,7 +14,6 @@ import {
 import Avatar from '@/shared/components/Avatar';
 import ConfirmModal from '@/shared/components/ConfirmModal';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
-import SectionIcon from '@/shared/components/SectionIcon';
 import DecisionMakerDrawer from './DecisionMakerDrawer';
 import DecisionMakerModal from './DecisionMakerModal';
 import { useCustomerAuthority, useSaveCustomerAuthority } from '../hooks/useContracts';
@@ -24,13 +23,16 @@ type Props = { customer: string };
 
 const Th: React.FC<{ children?: React.ReactNode; right?: boolean }> = ({ children, right }) => (
   <th
-    className={`whitespace-nowrap px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500 ${
+    className={`whitespace-nowrap border-b border-slate-200 bg-white px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 first:pl-5 last:pr-5 sm:first:pl-6 sm:last:pr-6 ${
       right ? 'text-right' : 'text-left'
     }`}
   >
     {children}
   </th>
 );
+
+// cells line up with the panel's padding at both ends of a row
+const td = 'px-4 py-3 first:pl-5 last:pr-5 sm:first:pl-6 sm:last:pr-6';
 
 const fmt = (value?: string | null) => (value ? String(value).slice(0, 10) : null);
 
@@ -44,9 +46,9 @@ const standing = (row: Approver) => {
 };
 
 const TONES: Record<string, string> = {
-  slate: 'bg-slate-100 text-slate-500',
-  blue: 'bg-blue-50 text-blue-700',
-  emerald: 'bg-emerald-50 text-emerald-700',
+  slate: 'bg-slate-50 text-slate-600 ring-slate-200',
+  blue: 'bg-blue-50 text-blue-700 ring-blue-200',
+  emerald: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
 };
 
 /** The stretch a line was, or will be, in force for. */
@@ -62,7 +64,15 @@ const spell = (row: Approver) => {
 };
 
 const Pill: React.FC<{ on: boolean }> = ({ on }) => (
-  <span className={`text-sm font-medium ${on ? 'text-emerald-700' : 'text-slate-300'}`}>
+  <span
+    className={`inline-flex items-center gap-1.5 text-sm font-medium ${
+      on ? 'text-emerald-700' : 'text-slate-400'
+    }`}
+  >
+    <span
+      aria-hidden
+      className={`size-1.5 rounded-full ${on ? 'bg-emerald-500' : 'bg-slate-300'}`}
+    />
     {on ? 'Yes' : 'No'}
   </span>
 );
@@ -77,7 +87,7 @@ const Action: React.FC<{ label: string; icon: LucideIcon; onClick: () => void }>
     onClick={onClick}
     aria-label={label}
     title={label}
-    className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
+    className="grid size-9 place-items-center rounded-full bg-white text-slate-500 ring-1 ring-slate-200 transition-colors hover:bg-slate-50 hover:text-slate-800"
   >
     <Icon size={15} />
   </button>
@@ -137,41 +147,48 @@ const AuthorityPanel: React.FC<Props> = ({ customer }) => {
   };
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-3 px-5 py-4">
-        <div className="flex min-w-0 flex-1 items-start gap-3">
-          <SectionIcon icon={Users} />
-          <div className="min-w-0">
-            <h2 className="flex items-center gap-1.5 text-base font-semibold text-slate-900">
-              People Who Decide
-              <span
-                title="Named accounts, never a role. What they may decide is set here and shown on their own page."
-                className="text-slate-300"
-              >
-                <Info size={13} />
-              </span>
-            </h2>
-            <p className="mt-0.5 text-sm text-slate-400">
-              These people can submit and approve requests for {customer}. They also handle
-              commercial and billing matters.
-            </p>
-          </div>
+    <section className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/70">
+      <div className="flex flex-wrap items-start justify-between gap-3 px-5 pb-3 pt-5 sm:px-6">
+        <div className="min-w-0 flex-1">
+          <h2 className="flex items-center gap-2 text-base font-semibold text-slate-900">
+            People Who Decide
+            {live.length > 0 && (
+              <>
+                <span className="sr-only"> · </span>
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium tabular-nums text-slate-600">
+                  {live.length}
+                </span>
+              </>
+            )}
+            <span
+              title="Named accounts, never a role. What they may decide is set here and shown on their own page."
+              className="text-slate-300"
+            >
+              <Info size={13} />
+            </span>
+          </h2>
+          <p className="mt-0.5 text-sm text-slate-500">
+            These people can submit and approve requests for {customer}. They also handle
+            commercial and billing matters.
+          </p>
         </div>
 
         <button
           type="button"
           onClick={() => setAdding(true)}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-600"
         >
-          <UserCog size={15} />
+          <UserCog size={14} />
           Add Decision-Maker
         </button>
       </div>
 
       {stuck && gaps && (
-        <div className="mx-5 mb-3 flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
-          <ShieldAlert size={16} className="mt-0.5 shrink-0 text-amber-600" />
-          <p className="text-sm text-amber-800">
+        <div className="mx-5 mb-3 flex items-start gap-3 rounded-2xl bg-amber-50 p-3.5 ring-1 ring-amber-200 sm:mx-6">
+          <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-white text-amber-600 ring-1 ring-amber-200">
+            <ShieldAlert size={16} strokeWidth={1.75} />
+          </span>
+          <p className="self-center text-sm text-amber-900">
             {gaps.nobody_may_approve && gaps.nobody_may_raise
               ? 'Nobody here may raise a request, and nobody may approve one. '
               : gaps.nobody_may_approve
@@ -185,15 +202,20 @@ const AuthorityPanel: React.FC<Props> = ({ customer }) => {
       )}
 
       {live.length === 0 ? (
-        <p className="px-5 pb-5 text-sm text-slate-400">
-          {past.length > 0
-            ? 'Nobody decides here at the moment.'
-            : 'Nobody is named here yet.'}
-        </p>
+        <div className="flex items-center justify-center gap-3 px-5 pb-8 pt-5 text-sm text-slate-500">
+          <span className="grid size-9 shrink-0 place-items-center rounded-full bg-slate-50 text-slate-400 ring-1 ring-slate-200">
+            <Users className="size-[18px]" strokeWidth={1.75} />
+          </span>
+          <span>
+            {past.length > 0
+              ? 'Nobody decides here at the moment.'
+              : 'Nobody is named here yet.'}
+          </span>
+        </div>
       ) : (
-        <div className="max-h-[26rem] overflow-auto px-5 pb-4">
+        <div className="max-h-[26rem] overflow-auto pb-2">
           <table className="w-full">
-            <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
+            <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10">
               <tr>
                 <Th>Name</Th>
                 <Th>Email</Th>
@@ -207,8 +229,8 @@ const AuthorityPanel: React.FC<Props> = ({ customer }) => {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {live.map((row) => (
-                <tr key={row.user} className="hover:bg-slate-50">
-                  <td className="whitespace-nowrap px-3 py-2.5">
+                <tr key={row.user} className="transition-colors hover:bg-slate-50/80">
+                  <td className={`whitespace-nowrap ${td}`}>
                     <span className="flex items-center gap-2.5">
                       <Avatar name={row.full_name || row.user} />
                       <span className="text-sm font-semibold text-slate-900">
@@ -216,33 +238,33 @@ const AuthorityPanel: React.FC<Props> = ({ customer }) => {
                       </span>
                     </span>
                   </td>
-                  <td className="whitespace-nowrap px-3 py-2.5 text-sm text-slate-500">
+                  <td className={`whitespace-nowrap ${td} text-sm text-slate-500`}>
                     {row.email ?? row.user}
                   </td>
-                  <td className="whitespace-nowrap px-3 py-2.5">
-                    <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">
+                  <td className={`whitespace-nowrap ${td}`}>
+                    <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-blue-200">
                       Decision Maker
                     </span>
                   </td>
-                  <td className="px-3 py-2.5">
+                  <td className={td}>
                     <Pill on={row.can_submit} />
                   </td>
-                  <td className="px-3 py-2.5">
+                  <td className={td}>
                     <Pill on={row.can_approve} />
                   </td>
-                  <td className="whitespace-nowrap px-3 py-2.5 text-sm text-slate-600">
+                  <td className={`whitespace-nowrap ${td} text-sm text-slate-600`}>
                     {row.department ? `${row.department} Department` : 'Whole company'}
                   </td>
-                  <td className="whitespace-nowrap px-3 py-2.5">
+                  <td className={`whitespace-nowrap ${td}`}>
                     <span
-                      className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${
                         TONES[standing(row).tone]
                       }`}
                     >
                       {standing(row).label}
                     </span>
                     {spell(row) && (
-                      <span className="mt-1 block text-[11px] text-slate-400">{spell(row)}</span>
+                      <span className="mt-1 block text-[11px] tabular-nums text-slate-400">{spell(row)}</span>
                     )}
                     {row.enabled === false && (
                       <span className="mt-1 block text-[11px] text-amber-600">
@@ -257,7 +279,7 @@ const AuthorityPanel: React.FC<Props> = ({ customer }) => {
                       </span>
                     )}
                   </td>
-                  <td className="whitespace-nowrap px-3 py-2.5">
+                  <td className={`whitespace-nowrap ${td}`}>
                     <span className="flex items-center justify-end gap-2">
                       <Action label="View details" icon={Eye} onClick={() => setReading(row)} />
                       <Action
@@ -290,15 +312,17 @@ const AuthorityPanel: React.FC<Props> = ({ customer }) => {
       )}
 
       {past.length > 0 && (
-        <div className="border-t border-slate-100 px-5 py-4">
+        <div className="border-t border-slate-100 px-5 py-4 sm:px-6">
           <button
             type="button"
             onClick={() => setShowingPast((current) => !current)}
             className="flex w-full items-center justify-between gap-3 text-left"
           >
-            <span className="text-sm font-semibold text-slate-700">
+            <span className="flex items-center gap-2 text-sm font-semibold text-slate-700">
               No longer deciding
-              <span className="ml-1.5 font-normal text-slate-400">({past.length})</span>
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium tabular-nums text-slate-600">
+                ({past.length})
+              </span>
             </span>
             <ChevronDown
               size={16}
@@ -313,7 +337,7 @@ const AuthorityPanel: React.FC<Props> = ({ customer }) => {
               {past.map((row) => (
                 <li
                   key={row.user}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5"
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50/70 px-3.5 py-3 ring-1 ring-slate-200/60"
                 >
                   <span className="flex min-w-0 items-center gap-2.5">
                     <Avatar name={row.full_name || row.user} />
@@ -333,7 +357,7 @@ const AuthorityPanel: React.FC<Props> = ({ customer }) => {
                     <button
                       type="button"
                       onClick={() => restanding(row, 'Active')}
-                      className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+                      className="rounded-full bg-white px-3.5 py-2 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50"
                     >
                       Put back in force
                     </button>
@@ -387,7 +411,7 @@ const AuthorityPanel: React.FC<Props> = ({ customer }) => {
       >
         <p className="mt-3 text-sm text-slate-700">{removing?.full_name || removing?.user}</p>
       </ConfirmModal>
-    </div>
+    </section>
   );
 };
 

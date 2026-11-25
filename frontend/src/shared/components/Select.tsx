@@ -81,10 +81,10 @@ const Select: React.FC<Props> = ({
         onClick={() => setOpen((prev) => !prev)}
         aria-invalid={invalid || undefined}
         aria-describedby={describedBy}
-        className={`flex h-10 w-full items-center justify-between gap-2 rounded-lg border bg-white px-3 text-left transition-colors focus:outline-none focus:ring-4 ${
+        className={`flex h-10 w-full items-center justify-between gap-2 rounded-md px-3.5 text-left transition focus:outline-none focus:ring-1 ${
           invalid
-            ? 'border-amber-400 ring-amber-100 hover:border-amber-500 focus:ring-amber-100'
-            : 'border-slate-200 hover:border-slate-300 focus:ring-blue-100'
+            ? 'bg-amber-50/70 ring-1 ring-amber-400 hover:bg-amber-50 focus:ring-amber-500'
+            : 'bg-slate-100/80 hover:bg-slate-100 focus:bg-white focus:ring-blue-500'
         }`}
       >
         <span className="min-w-0">

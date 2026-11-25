@@ -17,7 +17,7 @@ type Props = {
 const REASONS = ['Departure', 'Role Change', 'Duplicate', 'Contract Ended', 'Other'];
 
 const inputClass =
-  'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
+  'h-10 w-full rounded-md border-0 bg-slate-100/80 px-3.5 text-sm text-slate-900 outline-none transition focus:bg-white focus:ring-1 focus:ring-blue-500';
 
 /** Leaving, or coming back. Either way the person's status is the only thing that moves. */
 const UserStatusModal: React.FC<Props> = ({ open, detail, onClose, onDone }) => {
@@ -89,7 +89,7 @@ const UserStatusModal: React.FC<Props> = ({ open, detail, onClose, onDone }) => 
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+            className="rounded-full px-4 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50"
           >
             Cancel
           </button>
@@ -97,7 +97,7 @@ const UserStatusModal: React.FC<Props> = ({ open, detail, onClose, onDone }) => 
             type="button"
             onClick={submit}
             disabled={(leaving && !effectiveDate) || mutation.isLoading}
-            className={`flex min-w-[9rem] items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+            className={`flex min-w-[9rem] items-center justify-center rounded-full px-4 py-2.5 text-sm font-medium text-white transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
               leaving ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'
             }`}
           >
@@ -137,7 +137,7 @@ const UserStatusModal: React.FC<Props> = ({ open, detail, onClose, onDone }) => 
             </div>
 
             {services > 0 && (
-              <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+              <label className="flex cursor-pointer items-start gap-3 rounded-xl bg-red-50 ring-1 ring-red-200 p-3 text-sm text-red-900">
                 <input
                   type="checkbox"
                   checked={endServices}
@@ -153,7 +153,7 @@ const UserStatusModal: React.FC<Props> = ({ open, detail, onClose, onDone }) => 
               </label>
             )}
 
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+            <div className="rounded-xl bg-slate-50/70 ring-1 ring-slate-200/60 p-3 text-sm text-slate-600">
               <p className="font-medium text-slate-800">
                 {endServices ? 'Selected services will be ended.' : 'Services will stay open.'}
               </p>
@@ -165,13 +165,13 @@ const UserStatusModal: React.FC<Props> = ({ open, detail, onClose, onDone }) => 
             </div>
           </>
         ) : (
-          <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+          <p className="rounded-xl bg-slate-50/70 ring-1 ring-slate-200/60 p-3 text-sm text-slate-600">
             Services that were ended and devices that were taken back stay that way.
           </p>
         )}
 
         {mutation.error instanceof Error && (
-          <div className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
+          <div className="flex items-start gap-2.5 rounded-xl bg-red-50 ring-1 ring-red-100 p-3">
             <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
             <span className="text-sm font-medium text-red-700">{mutation.error.message}</span>
           </div>

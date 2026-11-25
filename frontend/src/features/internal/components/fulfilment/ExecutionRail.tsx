@@ -20,7 +20,7 @@ const Count: React.FC<{ value: number }> = ({ value }) => (
 );
 
 const navClass = (on: boolean) =>
-  `flex w-full items-center justify-between gap-2 rounded-lg border px-2.5 py-2.5 text-left transition-colors ${
+  `flex w-full items-center justify-between gap-2 rounded-xl border px-2.5 py-2.5 text-left transition-colors ${
     on ? 'border-blue-200 bg-blue-50' : 'border-transparent hover:bg-slate-50'
   }`;
 
@@ -35,7 +35,7 @@ const ExecutionRail: React.FC<Props> = ({ groups, companies = [], people, remain
   return (
     <aside
       aria-label="Execution view"
-      className="self-start overflow-hidden rounded-xl border border-slate-200 bg-white"
+      className="self-start overflow-hidden rounded-2xl bg-white ring-1 ring-slate-200/70"
     >
       <div className="border-b border-slate-100 px-3 py-2.5">
         <p className="text-sm font-semibold text-slate-900">Execution view</p>
@@ -84,7 +84,7 @@ const ExecutionRail: React.FC<Props> = ({ groups, companies = [], people, remain
 
             return (
               <div key={key} role="listitem" data-group-key={key}>
-                <div className={`flex items-center gap-1 rounded-lg border ${on ? 'border-blue-200 bg-blue-50' : 'border-transparent'}`}>
+                <div className={`flex items-center gap-1 rounded-xl border ${on ? 'border-blue-200 bg-blue-50' : 'border-transparent'}`}>
                   <button
                     type="button"
                     aria-expanded={open}

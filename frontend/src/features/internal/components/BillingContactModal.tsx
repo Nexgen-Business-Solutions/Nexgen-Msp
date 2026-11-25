@@ -59,7 +59,7 @@ const BillingContactModal: React.FC<Props> = ({ open, customer, current, onClose
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+            className="rounded-full bg-white px-4 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50"
           >
             Cancel
           </button>
@@ -71,7 +71,7 @@ const BillingContactModal: React.FC<Props> = ({ open, customer, current, onClose
               add.isLoading ||
               (adding && (!fullName.trim() || !email.includes('@')))
             }
-            className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-full bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
           >
             Save
           </button>
@@ -80,7 +80,7 @@ const BillingContactModal: React.FC<Props> = ({ open, customer, current, onClose
     >
       <div className="space-y-4">
         {!adding && (
-          <div className="overflow-hidden rounded-lg border border-slate-200">
+          <div className="overflow-hidden rounded-xl ring-1 ring-slate-200">
             {rows.length === 0 && !contacts.isLoading && (
               <p className="px-4 py-8 text-center text-sm text-slate-500">
                 This company has no contact yet. Add the accountant below.
@@ -90,14 +90,14 @@ const BillingContactModal: React.FC<Props> = ({ open, customer, current, onClose
             {rows.map((row) => (
               <label
                 key={row.name}
-                className="flex cursor-pointer items-center gap-3 border-b border-slate-100 px-4 py-3 last:border-0 hover:bg-slate-50"
+                className="flex cursor-pointer items-center gap-3 border-b border-slate-100 px-4 py-3 transition-colors last:border-0 hover:bg-slate-50/80"
               >
                 <input
                   type="radio"
                   name="billing-contact"
                   checked={chosen === row.name}
                   onChange={() => setChosen(row.name)}
-                  className="h-4 w-4 border-slate-300"
+                  className="size-4 border-slate-300 accent-blue-500"
                 />
                 <span className="min-w-0">
                   <span className="block text-sm font-medium text-slate-800">{row.label}</span>
@@ -109,13 +109,13 @@ const BillingContactModal: React.FC<Props> = ({ open, customer, current, onClose
               </label>
             ))}
 
-            <label className="flex cursor-pointer items-center gap-3 border-t border-slate-100 px-4 py-3 hover:bg-slate-50">
+            <label className="flex cursor-pointer items-center gap-3 border-t border-slate-100 px-4 py-3 transition-colors hover:bg-slate-50/80">
               <input
                 type="radio"
                 name="billing-contact"
                 checked={chosen === null}
                 onChange={() => setChosen(null)}
-                className="h-4 w-4 border-slate-300"
+                className="size-4 border-slate-300 accent-blue-500"
               />
               <span className="text-sm text-slate-600">
                 Nobody — no invoice notice is sent for this company
@@ -133,7 +133,7 @@ const BillingContactModal: React.FC<Props> = ({ open, customer, current, onClose
                 value={fullName}
                 aria-label="Full name"
                 onChange={(event) => setFullName(event.target.value)}
-                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-500"
+                className="h-10 w-full rounded-md border-0 bg-slate-100/80 px-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:bg-white focus:ring-1 focus:ring-blue-500"
               />
             </div>
             <div>
@@ -142,7 +142,7 @@ const BillingContactModal: React.FC<Props> = ({ open, customer, current, onClose
                 value={email}
                 aria-label="Email"
                 onChange={(event) => setEmail(event.target.value)}
-                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-500"
+                className="h-10 w-full rounded-md border-0 bg-slate-100/80 px-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:bg-white focus:ring-1 focus:ring-blue-500"
               />
             </div>
             <p className="text-xs text-slate-500 sm:col-span-2">
@@ -154,14 +154,14 @@ const BillingContactModal: React.FC<Props> = ({ open, customer, current, onClose
         <button
           type="button"
           onClick={() => setAdding((current) => !current)}
-          className="inline-flex items-center gap-1.5 text-sm font-semibold text-blue-600 transition-colors hover:text-blue-800"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 transition-colors hover:text-blue-700"
         >
           <UserPlus size={14} />
           {adding ? 'Choose an existing contact instead' : 'Add somebody who has no account'}
         </button>
 
         {failure && (
-          <div className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
+          <div className="flex items-start gap-2.5 rounded-2xl bg-red-50 p-3.5 ring-1 ring-red-200">
             <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
             <span className="text-sm font-medium text-red-700">{failure.message}</span>
           </div>

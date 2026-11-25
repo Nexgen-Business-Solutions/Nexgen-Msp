@@ -171,7 +171,7 @@ const EffectiveDateModal: React.FC<Props> = ({
       }
     >
       {mixed && (
-        <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2 text-xs text-amber-800">
+        <p className="mb-3 rounded-xl bg-amber-50/60 ring-1 ring-amber-200 px-3 py-2 text-xs text-amber-800">
           {MIXED_DATES}
         </p>
       )}
@@ -233,7 +233,7 @@ const EffectiveDateModal: React.FC<Props> = ({
                 value={reason}
                 onChange={(event) => setReason(event.target.value)}
                 aria-label="Reason"
-                className={inputClass}
+                className={inputClass.replace('rounded-md', 'rounded-xl')}
               />
               <p className="mt-1 text-[11px] text-slate-500">
                 Explain why this Device goes to somebody else than requested.
@@ -244,7 +244,7 @@ const EffectiveDateModal: React.FC<Props> = ({
       )}
 
       {invoiced.length > 0 && (
-        <div role="alert" className="mt-3 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2">
+        <div role="alert" className="mt-3 rounded-xl bg-amber-50/70 ring-1 ring-amber-200 px-3 py-2">
           <p className="text-sm font-semibold text-amber-900">This period has already been invoiced.</p>
           <p className="mt-0.5 text-xs text-amber-800">
             The work can still be carried out on this date. The existing invoice is not changed:

@@ -80,7 +80,7 @@ const InvoiceAccountingModal: React.FC<Props> = ({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+            className="rounded-full bg-white px-4 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50"
           >
             Cancel
           </button>
@@ -88,7 +88,7 @@ const InvoiceAccountingModal: React.FC<Props> = ({
             type="button"
             onClick={() => onConfirm(values, needsRate ? rate : undefined)}
             disabled={missing.length > 0 || rateMissing || loading || dimensions.isLoading}
-            className="flex min-w-[9rem] items-center justify-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex min-w-[9rem] items-center justify-center rounded-full bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {loading ? (
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
@@ -103,8 +103,8 @@ const InvoiceAccountingModal: React.FC<Props> = ({
     >
       <div className="space-y-6">
         {needsRate && (
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+          <div className="rounded-2xl bg-blue-50/60 p-4 ring-1 ring-blue-100">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
               Recorded in your books
             </p>
             <p className="mt-2 text-sm text-slate-600">
@@ -126,7 +126,7 @@ const InvoiceAccountingModal: React.FC<Props> = ({
                   min="0"
                   value={rate}
                   onChange={(event) => setRate(event.target.value)}
-                  className="h-10 w-44 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                  className="h-10 w-44 rounded-md border-0 bg-white px-3 text-sm tabular-nums text-slate-900 outline-none ring-1 ring-slate-200 transition-colors focus:ring-1 focus:ring-blue-500"
                 />
               </div>
               <p className="pb-2 text-xs text-slate-400">
@@ -139,29 +139,29 @@ const InvoiceAccountingModal: React.FC<Props> = ({
         )}
 
         <div>
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+          <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
             Customer & contract
           </p>
-          <div className="grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-3">
-            <div>
-              <p className="text-xs font-medium text-slate-400">Customer</p>
-              <p className="mt-0.5 text-sm text-slate-700">{run?.customer}</p>
+          <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 sm:grid-cols-3">
+            <div className="min-w-0 rounded-xl bg-slate-50/70 px-3.5 py-2.5 ring-1 ring-slate-200/60">
+              <p className="text-xs text-slate-500">Customer</p>
+              <p className="mt-0.5 truncate text-sm font-medium text-slate-800">{run?.customer}</p>
             </div>
-            <div>
-              <p className="text-xs font-medium text-slate-400">Contract</p>
-              <p className="mt-0.5 text-sm text-slate-700">
+            <div className="min-w-0 rounded-xl bg-slate-50/70 px-3.5 py-2.5 ring-1 ring-slate-200/60">
+              <p className="text-xs text-slate-500">Contract</p>
+              <p className="mt-0.5 truncate text-sm font-medium text-slate-800">
                 {run?.contract_title || run?.contract || 'N/A'}
               </p>
             </div>
-            <div>
-              <p className="text-xs font-medium text-slate-400">Period</p>
-              <p className="mt-0.5 text-sm text-slate-700">{run?.period_label}</p>
+            <div className="min-w-0 rounded-xl bg-slate-50/70 px-3.5 py-2.5 ring-1 ring-slate-200/60">
+              <p className="text-xs text-slate-500">Period</p>
+              <p className="mt-0.5 truncate text-sm font-medium text-slate-800">{run?.period_label}</p>
             </div>
           </div>
         </div>
 
         <div>
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+          <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
             Accounting
           </p>
 
@@ -194,13 +194,13 @@ const InvoiceAccountingModal: React.FC<Props> = ({
         </div>
 
         <div>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
             What will be invoiced
           </p>
-          <div className="rounded-lg border border-slate-100 bg-slate-50/60 px-4 py-3">
+          <div className="rounded-2xl bg-slate-50/70 px-4 py-3.5 ring-1 ring-slate-200/60">
             <p className="text-sm text-slate-700">
               <span className="font-semibold tabular-nums">{lines.length}</span> line(s) ·{' '}
-              <span className="font-semibold tabular-nums">
+              <span className="text-base font-semibold tabular-nums text-slate-900">
                 {money(preview, run?.currency)}
               </span>
             </p>
@@ -213,7 +213,7 @@ const InvoiceAccountingModal: React.FC<Props> = ({
         </div>
 
         {error && (
-          <div className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
+          <div className="flex items-start gap-2.5 rounded-2xl bg-red-50 px-4 py-3 ring-1 ring-red-200">
             <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
             <span className="text-sm font-medium text-red-700">{error.message}</span>
           </div>

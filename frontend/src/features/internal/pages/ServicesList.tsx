@@ -7,7 +7,7 @@ import { INTERNAL_SERVICES, loadChoice } from '@/shared/exportColumns';
 import { INTERNAL_SERVICE_LIST } from '@/shared/listColumns';
 import type { CatalogueRow as ServiceRow } from '@/lib/api/internal';
 import * as internal from '@/lib/api/internal';
-import { Ban, CircleCheck, Package, Pencil, Plus, Users } from 'lucide-react';
+import { Ban, CircleCheck, Package, PackageOpen, Pencil, Plus, Users } from 'lucide-react';
 import KpiCard from '@/shared/components/KpiCard';
 import RowActionsMenu, { type RowAction } from '@/shared/components/RowActionsMenu';
 import ServiceModal from '../components/ServiceModal';
@@ -17,9 +17,9 @@ import RemoveFromMspModal from '../components/RemoveFromMspModal';
 
 // what MSP says, and what ERPNext says: two axes, never collapsed into one badge
 const MSP_TONE: Record<string, string> = {
-  Available: 'bg-emerald-100 text-emerald-700',
-  'Not available': 'bg-slate-100 text-slate-600',
-  'Needs configuration': 'bg-amber-100 text-amber-700',
+  Available: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
+  'Not available': 'bg-slate-100 text-slate-600 ring-slate-200',
+  'Needs configuration': 'bg-amber-50 text-amber-700 ring-amber-200',
 };
 
 const SCOPE_LABEL: Record<string, string> = {
@@ -77,14 +77,24 @@ export default function ServicesList() {
       case 'service':
         return (
           <td key={key} className="px-4 py-3">
-            <button
-              type="button"
-              onClick={() => navigate(`/msp/services/detail?item=${encodeURIComponent(row.name)}`)}
-              className="text-sm font-semibold text-slate-900 transition-colors hover:text-blue-700"
-            >
-              <BusinessText>{row.service_name}</BusinessText>
-            </button>
-            <p className="text-xs text-slate-400">{row.name}</p>
+            <div className="flex items-center gap-3">
+              <span
+                aria-hidden
+                className="grid size-9 shrink-0 place-items-center rounded-lg bg-blue-50 text-blue-600 ring-1 ring-blue-100"
+              >
+                <Package size={16} strokeWidth={1.75} />
+              </span>
+              <div className="min-w-0">
+                <button
+                  type="button"
+                  onClick={() => navigate(`/msp/services/detail?item=${encodeURIComponent(row.name)}`)}
+                  className="text-left text-sm font-semibold text-slate-900 transition-colors hover:text-blue-700"
+                >
+                  <BusinessText>{row.service_name}</BusinessText>
+                </button>
+                <p className="mt-0.5 text-xs text-slate-500">{row.name}</p>
+              </div>
+            </div>
           </td>
         );
       case 'scope':
@@ -96,7 +106,7 @@ export default function ServicesList() {
       case 'open_assignments':
         return (
           <td key={key} className="whitespace-nowrap px-4 py-3">
-            <span className="inline-flex min-w-[2.5rem] justify-center rounded-lg bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 tabular-nums">
+            <span className="inline-flex min-w-[2rem] justify-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700 tabular-nums ring-1 ring-slate-200">
               {row.open_assignments}
             </span>
           </td>
@@ -111,8 +121,10 @@ export default function ServicesList() {
         return (
           <td key={key} className="whitespace-nowrap px-4 py-3">
             <span
-              className={`text-sm font-semibold tabular-nums ${
-                row.priced_contracts ? 'text-emerald-600' : 'text-amber-600'
+              className={`inline-flex min-w-[2rem] justify-center rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ring-1 ${
+                row.priced_contracts
+                  ? 'bg-emerald-50 text-emerald-700 ring-emerald-100'
+                  : 'bg-amber-50 text-amber-700 ring-amber-200'
               }`}
             >
               {row.priced_contracts}
@@ -123,8 +135,8 @@ export default function ServicesList() {
         return (
           <td key={key} className="whitespace-nowrap px-4 py-3">
             <span
-              className={`inline-flex whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold ${
-                MSP_TONE[row.msp_availability] ?? 'bg-slate-100 text-slate-600'
+              className={`inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${
+                MSP_TONE[row.msp_availability] ?? 'bg-slate-100 text-slate-600 ring-slate-200'
               }`}
             >
               {row.msp_availability}
@@ -145,10 +157,9 @@ export default function ServicesList() {
   const assignments = all.reduce((sum, row) => sum + row.open_assignments, 0);
   const unpriced = live.filter((row) => row.priced_contracts === 0).length;
 
-
   return (
-    <div className="space-y-5 px-6 pb-6 pt-4">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="space-y-6 px-6 pb-6 pt-5">
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard
           icon={Package}
           accent="blue"
@@ -156,7 +167,7 @@ export default function ServicesList() {
           value={live.length}
           caption={`${all.length - live.length} retired`}
           loading={isLoading}
-        onView={() => setFilters({ ...EMPTY, status: 'active' })}
+          onView={() => setFilters({ ...EMPTY, status: 'active' })}
         />
         <KpiCard
           icon={Users}
@@ -165,7 +176,7 @@ export default function ServicesList() {
           value={assignments}
           caption="Across every customer"
           loading={isLoading}
-        onView={() => setFilters({ ...EMPTY, focus: 'in_use' })}
+          onView={() => setFilters({ ...EMPTY, focus: 'in_use' })}
         />
         <KpiCard
           icon={CircleCheck}
@@ -174,7 +185,7 @@ export default function ServicesList() {
           value={live.filter((row) => row.priced_contracts > 0).length}
           caption="Services with at least one contract rate"
           loading={isLoading}
-        onView={() => setFilters({ ...EMPTY, status: 'active', focus: 'priced' })}
+          onView={() => setFilters({ ...EMPTY, status: 'active', focus: 'priced' })}
         />
         <KpiCard
           icon={Ban}
@@ -184,8 +195,22 @@ export default function ServicesList() {
           value={unpriced}
           caption="Deliverable but not billable anywhere"
           loading={isLoading}
-        onView={() => setFilters({ ...EMPTY, status: 'active', focus: 'unpriced' })}
+          onView={() => setFilters({ ...EMPTY, status: 'active', focus: 'unpriced' })}
         />
+      </div>
+
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => {
+            setReoffering(null);
+            setModalOpen(true);
+          }}
+          className="inline-flex items-center gap-1.5 rounded-full bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-600"
+        >
+          <Plus size={15} />
+          Add service
+        </button>
       </div>
 
       <FilterBar
@@ -237,37 +262,29 @@ export default function ServicesList() {
         ]}
       />
 
-      <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
-          <div>
+      <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/70">
+        <div className="flex items-start justify-between gap-3 px-5 pb-1 pt-5">
+          <div className="min-w-0">
             <h2 className="text-base font-semibold text-slate-900">Service catalogue</h2>
-            <p className="mt-0.5 text-sm text-slate-400">
+            <p className="mt-0.5 text-sm text-slate-500">
               What Nexgen sells, and how widely each one is in use.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              setReoffering(null);
-              setModalOpen(true);
-            }}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
-          >
-            <Plus size={15} />
-            Add service
-          </button>
+          {!isLoading && !error && (
+            <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold tabular-nums text-slate-600 ring-1 ring-slate-200">
+              {shown.length}
+            </span>
+          )}
         </div>
 
-        <div className="max-h-[62vh] overflow-auto px-5 pb-4">
+        <div className="max-h-[62vh] overflow-auto px-2 pb-1 sm:px-3">
           <table className="w-full">
-            <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
+            <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-white">
               <tr>
-                {[...visible, ''].map((key, index) => (
+                {[...visible, ''].map((key) => (
                   <th
                     key={key || 'actions'}
-                    className={`whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 ${
-                      index === 0 ? 'rounded-l-lg' : ''
-                    } ${index === visible.length ? 'rounded-r-lg' : ''}`}
+                    className="whitespace-nowrap border-b border-slate-200 px-4 pb-3 pt-4 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500"
                   >
                     {labels[key] ?? ''}
                   </th>
@@ -285,16 +302,24 @@ export default function ServicesList() {
 
               {!error && isLoading && (
                 <tr>
-                  <td colSpan={span} className="px-4 py-12 text-center text-sm text-slate-500">
-                    Loading…
+                  <td colSpan={span} className="px-4 py-12">
+                    <div className="flex items-center justify-center gap-3 text-sm text-slate-500">
+                      <span className="size-5 animate-spin rounded-full border-2 border-blue-100 border-t-blue-500" />
+                      Loading…
+                    </div>
                   </td>
                 </tr>
               )}
 
               {!error && !isLoading && shown.length === 0 && (
                 <tr>
-                  <td colSpan={span} className="px-4 py-12 text-center text-sm text-slate-500">
-                    No service yet.
+                  <td colSpan={span} className="px-4 py-12">
+                    <div className="flex items-center justify-center gap-3 text-sm text-slate-500">
+                      <span className="grid size-9 shrink-0 place-items-center rounded-full bg-slate-50 text-slate-400 ring-1 ring-slate-200">
+                        <PackageOpen className="size-[18px]" strokeWidth={1.75} />
+                      </span>
+                      No service yet.
+                    </div>
                   </td>
                 </tr>
               )}
@@ -302,7 +327,7 @@ export default function ServicesList() {
               {!error &&
                 !isLoading &&
                 shown.map((row) => (
-                  <tr key={row.name} className="transition-colors hover:bg-slate-50">
+                  <tr key={row.name} className="transition-colors hover:bg-slate-50/80">
                     {visible.map((key) => cell(key, row))}
                     <td className="whitespace-nowrap px-4 py-3">
                       <div className="flex justify-end">
@@ -353,7 +378,6 @@ export default function ServicesList() {
       />
 
       <RemoveFromMspModal service={removing} onClose={() => setRemoving(null)} />
-
 
       <ColumnsModal
         open={choosingColumns}

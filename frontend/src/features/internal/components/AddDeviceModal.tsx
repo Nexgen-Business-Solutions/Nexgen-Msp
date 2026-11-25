@@ -35,7 +35,7 @@ type Props = {
 
 const labelClass = 'mb-1.5 block text-xs font-semibold text-slate-700';
 const inputClass =
-  'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
+  'h-10 w-full rounded-md border-0 bg-slate-100/80 px-3.5 text-sm text-slate-900 outline-none transition focus:bg-white focus:ring-1 focus:ring-blue-500 placeholder:text-slate-400';
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'N/A');
 
@@ -200,7 +200,7 @@ const AddDeviceModal: React.FC<Props> = ({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+            className="rounded-full px-4 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50"
           >
             Cancel
           </button>
@@ -219,7 +219,7 @@ const AddDeviceModal: React.FC<Props> = ({
                   !handOverDate ||
                   handOver.isLoading
             }
-            className="flex min-w-[7rem] items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex min-w-[7rem] items-center justify-center rounded-full bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {add.isLoading || create.isLoading || handOver.isLoading ? (
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
@@ -277,11 +277,11 @@ const AddDeviceModal: React.FC<Props> = ({
         )}
 
         {!standalone && (
-        <div className="inline-flex rounded-lg bg-slate-200/70 p-1">
+        <div className="inline-flex rounded-full bg-slate-100 p-1 ring-1 ring-slate-200/70">
           <button
             type="button"
             onClick={() => setMode('new')}
-            className={`rounded-md px-3 py-2.5 text-xs font-semibold transition-all ${
+            className={`rounded-full px-3.5 py-2.5 text-xs font-semibold transition-all ${
               mode === 'new' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
             }`}
           >
@@ -290,7 +290,7 @@ const AddDeviceModal: React.FC<Props> = ({
           <button
             type="button"
             onClick={() => setMode('existing')}
-            className={`rounded-md px-3 py-2.5 text-xs font-semibold transition-all ${
+            className={`rounded-full px-3.5 py-2.5 text-xs font-semibold transition-all ${
               mode === 'existing' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
             }`}
           >
@@ -328,7 +328,7 @@ const AddDeviceModal: React.FC<Props> = ({
             </div>
 
             {chosen && (
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div className="rounded-xl bg-slate-50/70 ring-1 ring-slate-200/60 p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-sm font-semibold text-slate-900">{chosen.hostname}</p>
                   <button
@@ -407,12 +407,12 @@ const AddDeviceModal: React.FC<Props> = ({
                 value={handOverNote}
                 onChange={(event) => setHandOverNote(event.target.value)}
                 placeholder="Why it changed hands — kept for Nexgen, not shown to the customer."
-                className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm leading-relaxed text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                className="w-full resize-y py-3 leading-relaxed placeholder:text-slate-400 rounded-xl border-0 bg-slate-100/80 px-3.5 text-sm text-slate-900 outline-none transition focus:bg-white focus:ring-1 focus:ring-blue-500"
               />
             </div>
 
             {handOver.error instanceof Error && (
-              <div className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
+              <div className="flex items-start gap-2.5 rounded-xl bg-red-50 ring-1 ring-red-100 p-3">
                 <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
                 <span className="text-sm font-medium text-red-700">
                   {(handOver.error as Error).message}
@@ -435,7 +435,7 @@ const AddDeviceModal: React.FC<Props> = ({
               className={`${inputClass} uppercase`}
             />
             {taken && (
-              <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5">
+              <div className="mt-2 rounded-xl bg-amber-50 ring-1 ring-amber-200 p-2.5">
                 <p className="text-xs text-amber-800">
                   <span className="font-semibold">{taken.hostname}</span> is already exist and taken —{' '}
                   {taken.same_customer
@@ -450,7 +450,7 @@ const AddDeviceModal: React.FC<Props> = ({
                   <button
                     type="button"
                     onClick={() => openDevice(taken.name)}
-                    className="inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-800 transition-colors hover:bg-amber-100"
+                    className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-2 text-xs font-semibold text-amber-800 ring-1 ring-amber-300 transition-colors hover:bg-amber-100"
                   >
                     Open it
                     <ArrowUpRight size={13} />
@@ -462,7 +462,7 @@ const AddDeviceModal: React.FC<Props> = ({
                         setMode('existing');
                         setExisting(taken.name);
                       }}
-                      className="inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-800 transition-colors hover:bg-amber-100"
+                      className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-2 text-xs font-semibold text-amber-800 ring-1 ring-amber-300 transition-colors hover:bg-amber-100"
                     >
                       <TriangleAlert size={13} />
                       Pick it and hand it to {userName}
@@ -493,7 +493,7 @@ const AddDeviceModal: React.FC<Props> = ({
               className={inputClass}
             />
             {serialTaken && (
-              <div className="mt-2 rounded-lg border border-red-200 bg-red-50 p-2.5">
+              <div className="mt-2 rounded-xl bg-red-50 ring-1 ring-red-200 p-2.5">
                 <p className="text-xs text-red-700">
                   This serial number is already on{' '}
                   <span className="font-semibold">{serialTaken.hostname}</span> (
@@ -504,7 +504,7 @@ const AddDeviceModal: React.FC<Props> = ({
                 <button
                   type="button"
                   onClick={() => openDevice(serialTaken.name)}
-                  className="mt-2 inline-flex items-center gap-1 rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-semibold text-red-700 transition-colors hover:bg-red-100"
+                  className="mt-2 inline-flex items-center gap-1 rounded-full bg-white px-3 py-2 text-xs font-semibold text-red-700 ring-1 ring-red-300 transition-colors hover:bg-red-100"
                 >
                   Open it
                   <ArrowUpRight size={13} />
@@ -571,7 +571,7 @@ const AddDeviceModal: React.FC<Props> = ({
         )}
 
         {mode === 'new' && (add.error ?? create.error) instanceof Error && (
-          <div className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
+          <div className="flex items-start gap-2.5 rounded-xl bg-red-50 ring-1 ring-red-100 p-3">
             <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
             <span className="text-sm font-medium text-red-700">
               {((add.error ?? create.error) as Error).message}

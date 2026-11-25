@@ -20,7 +20,9 @@ type Props = {
 };
 
 const INPUT =
-  'w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none transition-colors focus:border-blue-400';
+  'w-full rounded-md border-0 bg-slate-100/80 px-3 py-2.5 text-sm text-slate-800 outline-none transition-colors placeholder:text-slate-400 focus:bg-white focus:ring-1 focus:ring-blue-500';
+
+const AREA = INPUT.replace('rounded-md', 'rounded-xl');
 
 const money = (amount: number, currency: string) =>
   `${Number(amount || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })} ${currency}`.replace(
@@ -114,7 +116,7 @@ const PastCoverageModal: React.FC<Props> = ({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+            className="rounded-full bg-white px-4 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50"
           >
             Cancel
           </button>
@@ -128,7 +130,7 @@ const PastCoverageModal: React.FC<Props> = ({
               attested.length === 0 ||
               record.isLoading
             }
-            className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-full bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
           >
             Record as charged
           </button>
@@ -137,7 +139,7 @@ const PastCoverageModal: React.FC<Props> = ({
     >
       <div className="space-y-4">
         <label className="block">
-          <span className="mb-1.5 block text-xs font-semibold text-slate-700">Customer</span>
+          <span className="mb-1.5 block text-sm font-medium text-slate-700">Customer</span>
           <Select
             className="w-full"
             searchable
@@ -150,7 +152,7 @@ const PastCoverageModal: React.FC<Props> = ({
 
         <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
           <label className="block">
-            <span className="mb-1.5 block text-xs font-semibold text-slate-700">
+            <span className="mb-1.5 block text-sm font-medium text-slate-700">
               Period charged, from
             </span>
             <input
@@ -161,7 +163,7 @@ const PastCoverageModal: React.FC<Props> = ({
             />
           </label>
           <label className="block">
-            <span className="mb-1.5 block text-xs font-semibold text-slate-700">To</span>
+            <span className="mb-1.5 block text-sm font-medium text-slate-700">To</span>
             <input
               type="date"
               className={INPUT}
@@ -173,7 +175,7 @@ const PastCoverageModal: React.FC<Props> = ({
             type="button"
             onClick={look}
             disabled={!customer || !from || !until}
-            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"
+            className="rounded-full bg-white px-4 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50 disabled:opacity-50"
           >
             Find the evidence
           </button>
@@ -181,8 +183,8 @@ const PastCoverageModal: React.FC<Props> = ({
 
         {found && (
           <>
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+            <div className="rounded-2xl bg-slate-50/70 p-4 ring-1 ring-slate-200/60">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
                 What this application found
               </p>
               <ul className="mt-2 space-y-1 text-sm text-slate-700">
@@ -203,7 +205,7 @@ const PastCoverageModal: React.FC<Props> = ({
 
             <div>
               <label className="block">
-                <span className="mb-1.5 block text-xs font-semibold text-slate-700">
+                <span className="mb-1.5 block text-sm font-medium text-slate-700">
                   The day the original charge went out
                 </span>
                 <input
@@ -213,14 +215,14 @@ const PastCoverageModal: React.FC<Props> = ({
                   onChange={(event) => setIssued(event.target.value)}
                 />
               </label>
-              <p className="mt-1 text-[11px] text-slate-500">
+              <p className="mt-1 text-xs text-slate-500">
                 Everything below is read as it stood on that day, so it is the date on the
                 document itself, not the start of the period.
               </p>
             </div>
 
             <label className="block">
-              <span className="mb-1.5 block text-xs font-semibold text-slate-700">
+              <span className="mb-1.5 block text-sm font-medium text-slate-700">
                 Charged under which contract
               </span>
               <Select
@@ -240,7 +242,7 @@ const PastCoverageModal: React.FC<Props> = ({
 
             {found.invoices.length > 0 && (
               <label className="block">
-                <span className="mb-1.5 block text-xs font-semibold text-slate-700">
+                <span className="mb-1.5 block text-sm font-medium text-slate-700">
                   The original invoice, if it is one of these
                 </span>
                 <Select
@@ -257,15 +259,15 @@ const PastCoverageModal: React.FC<Props> = ({
               </label>
             )}
             {found.invoices.length > 0 && (
-              <p className="-mt-2 text-[11px] text-slate-500">
+              <p className="-mt-2 text-xs text-slate-500">
                 Linked, the credit is a return against it. Left empty, it is a credit note
                 of its own, because there is nothing here to return against.
               </p>
             )}
 
             {contract && issued && (
-              <div className="rounded-lg border border-slate-200 p-3">
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+              <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
                   What that period would have held
                 </p>
                 {preview.isLoading ? (
@@ -286,7 +288,7 @@ const PastCoverageModal: React.FC<Props> = ({
                       </span>{' '}
                       as proposed.
                     </p>
-                    <p className="mt-1 text-[11px] text-slate-500">
+                    <p className="mt-1 text-xs text-slate-500">
                       This is what this application believes was running on{' '}
                       {preview.data?.as_known_on}. Untick anything the original document
                       does not carry — what stays is what the record will say was charged.
@@ -294,10 +296,10 @@ const PastCoverageModal: React.FC<Props> = ({
                     <ul className="mt-2 max-h-56 space-y-1 overflow-auto">
                       {charged.map((line) => (
                         <li key={line.service_assignment}>
-                          <label className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-xs hover:bg-slate-50">
+                          <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition-colors hover:bg-slate-50">
                             <input
                               type="checkbox"
-                              className="h-3.5 w-3.5 accent-blue-600"
+                              className="size-3.5 accent-blue-500"
                               checked={!left.includes(line.service_assignment)}
                               onChange={(event) =>
                                 setLeft((current) =>
@@ -327,18 +329,18 @@ const PastCoverageModal: React.FC<Props> = ({
 
             <div>
               <label className="block">
-                <span className="mb-1.5 block text-xs font-semibold text-slate-700">
+                <span className="mb-1.5 block text-sm font-medium text-slate-700">
                   Where this charge came from
                 </span>
                 <textarea
                   rows={3}
-                  className={INPUT}
+                  className={AREA}
                   placeholder="e.g. Charged by the previous system, invoice KAK-2026-Q3 of 24 July 2026."
                   value={statement}
                   onChange={(event) => setStatement(event.target.value)}
                 />
               </label>
-              <p className="mt-1 text-[11px] text-slate-500">
+              <p className="mt-1 text-xs text-slate-500">
                 Kept with the record, under your name. A coverage nobody can trace back
                 cannot justify a credit later.
               </p>
@@ -347,7 +349,7 @@ const PastCoverageModal: React.FC<Props> = ({
         )}
 
         {error && (
-          <div className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
+          <div className="flex items-start gap-2.5 rounded-2xl bg-red-50 px-4 py-3 ring-1 ring-red-200">
             <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
             <span className="text-sm font-medium text-red-700">{error.message}</span>
           </div>

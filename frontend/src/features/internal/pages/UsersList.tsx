@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as internal from '@/lib/api/internal';
-import { Eye, Laptop, Plus, UserMinus, Users } from 'lucide-react';
+import { Eye, Laptop, Plus, SearchX, UserMinus, UserRound, Users } from 'lucide-react';
 import KpiCard from '@/shared/components/KpiCard';
 import RowActionsMenu from '@/shared/components/RowActionsMenu';
 import TablePagination from '@/shared/components/TablePagination';
@@ -79,7 +79,7 @@ export default function UsersList() {
 
   const count = (value: number, tone: string) => (
     <span
-      className={`inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-1 text-xs font-semibold tabular-nums ${
+      className={`inline-flex min-w-[2rem] justify-center rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${
         value ? tone : 'bg-transparent text-slate-300'
       }`}
     >
@@ -91,9 +91,19 @@ export default function UsersList() {
     switch (key) {
       case 'user':
         return (
-          <td key={key} className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">
-            {row.full_name}
-            {row.email && <p className="text-xs font-normal text-slate-400">{row.email}</p>}
+          <td key={key} className="whitespace-nowrap px-4 py-3">
+            <div className="flex items-center gap-3">
+              <span
+                aria-hidden
+                className="grid size-9 shrink-0 place-items-center rounded-full bg-blue-50 text-blue-600 ring-1 ring-blue-100"
+              >
+                <UserRound size={16} strokeWidth={1.75} />
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-slate-900">{row.full_name}</p>
+                {row.email && <p className="mt-0.5 text-xs text-slate-500">{row.email}</p>}
+              </div>
+            </div>
           </td>
         );
       case 'status':
@@ -122,7 +132,7 @@ export default function UsersList() {
           <td key={key} className="whitespace-nowrap px-4 py-3">
             <span
               title={`${row.personal_services ?? 0} of their own · ${row.device_services ?? 0} on the machines they hold`}
-              className="inline-flex min-w-[2rem] justify-center rounded-lg bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 tabular-nums"
+              className="inline-flex min-w-[2rem] justify-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700 tabular-nums ring-1 ring-emerald-100"
             >
               {row.active_services}
             </span>
@@ -135,13 +145,13 @@ export default function UsersList() {
       case 'current_devices':
         return (
           <td key={key} className="whitespace-nowrap px-4 py-3">
-            {count(row[key], 'bg-slate-100 text-slate-600')}
+            {count(row[key], 'bg-slate-100 text-slate-600 ring-1 ring-slate-200')}
           </td>
         );
       case 'open_requests':
         return (
           <td key={key} className="whitespace-nowrap px-4 py-3">
-            {count(row.open_requests, 'bg-blue-50 text-blue-700')}
+            {count(row.open_requests, 'bg-blue-50 text-blue-700 ring-1 ring-blue-100')}
           </td>
         );
       case 'start_date':
@@ -149,7 +159,7 @@ export default function UsersList() {
       case 'last_billed_on':
       case 'covered_until':
         return (
-          <td key={key} className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+          <td key={key} className="whitespace-nowrap px-4 py-3 text-sm tabular-nums text-slate-600">
             {fmtDate(row[key])}
           </td>
         );
@@ -166,8 +176,8 @@ export default function UsersList() {
   };
 
   return (
-    <div className="space-y-5 px-6 pb-6 pt-4">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="space-y-6 px-6 pb-6 pt-5">
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard
           icon={Users}
           accent="blue"
@@ -216,7 +226,7 @@ export default function UsersList() {
         <button
           type="button"
           onClick={() => setNewUserOpen(true)}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
+          className="inline-flex items-center gap-1.5 rounded-full bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-600"
         >
           <Plus size={15} />
           New user
@@ -281,17 +291,15 @@ export default function UsersList() {
         ]}
       />
 
-      <div className="overflow-hidden rounded-xl border border-slate-100 bg-white pt-4 shadow-sm">
-        <div className="max-h-[62vh] overflow-auto px-5 pb-1">
+      <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/70">
+        <div className="max-h-[62vh] overflow-auto px-2 pb-1 sm:px-3">
           <table className="w-full">
-            <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
+            <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-white">
               <tr>
-                {[...shown, ''].map((key, index) => (
+                {[...shown, ''].map((key) => (
                   <th
                     key={key || 'actions'}
-                    className={`whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 ${
-                      index === 0 ? 'rounded-l-lg' : ''
-                    } ${index === shown.length ? 'rounded-r-lg' : ''}`}
+                    className="whitespace-nowrap border-b border-slate-200 px-4 pb-3 pt-4 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500"
                   >
                     {labels[key] ?? ''}
                   </th>
@@ -309,16 +317,24 @@ export default function UsersList() {
 
               {!list.error && list.isLoading && (
                 <tr>
-                  <td colSpan={span} className="px-4 py-12 text-center text-sm text-slate-500">
-                    Loading…
+                  <td colSpan={span} className="px-4 py-12">
+                    <div className="flex items-center justify-center gap-3 text-sm text-slate-500">
+                      <span className="size-5 animate-spin rounded-full border-2 border-blue-100 border-t-blue-500" />
+                      Loading…
+                    </div>
                   </td>
                 </tr>
               )}
 
               {!list.error && !list.isLoading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={span} className="px-4 py-12 text-center text-sm text-slate-500">
-                    No user matches these filters.
+                  <td colSpan={span} className="px-4 py-12">
+                    <div className="flex items-center justify-center gap-3 text-sm text-slate-500">
+                      <span className="grid size-9 shrink-0 place-items-center rounded-full bg-slate-50 text-slate-400 ring-1 ring-slate-200">
+                        <SearchX className="size-[18px]" strokeWidth={1.75} />
+                      </span>
+                      No user matches these filters.
+                    </div>
                   </td>
                 </tr>
               )}
@@ -329,7 +345,7 @@ export default function UsersList() {
                   <tr
                     key={row.name}
                     onClick={() => navigate(`/msp/users/${row.name}`)}
-                    className="cursor-pointer transition-colors hover:bg-slate-50"
+                    className="cursor-pointer transition-colors hover:bg-slate-50/80"
                   >
                     {shown.map((key) => cell(key, row))}
                     <td className="whitespace-nowrap px-4 py-3">

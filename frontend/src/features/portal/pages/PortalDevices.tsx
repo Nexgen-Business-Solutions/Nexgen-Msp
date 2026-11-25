@@ -1,7 +1,7 @@
 import { useScopedWorkspace } from '@/shared/layout/useScopedWorkspace';
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Eye, FilePlus2, Laptop, UserX } from 'lucide-react';
+import { Archive, Eye, FilePlus2, Laptop, Monitor } from 'lucide-react';
 import DataTable from '@/shared/components/DataTable';
 import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
 import ColumnsModal from '@/shared/components/ColumnsModal';
@@ -70,7 +70,7 @@ export default function PortalDevices() {
             <button
               type="button"
               onClick={() => navigate(`/msp/devices/${row.name}`)}
-              className="text-sm font-semibold text-slate-900 transition-colors hover:text-blue-700"
+              className="text-left text-sm font-semibold text-slate-900 transition-colors hover:text-blue-600"
             >
               {row.hostname}
             </button>
@@ -88,7 +88,7 @@ export default function PortalDevices() {
               <button
                 type="button"
                 onClick={() => navigate(`/msp/users/${row.assigned_client_user}`)}
-                className="text-sm text-blue-600 transition-colors hover:text-blue-800 hover:underline"
+                className="text-sm font-medium text-blue-600 transition-colors hover:text-blue-700 hover:underline"
               >
                 {row.assigned_user_name || row.assigned_client_user}
               </button>
@@ -119,7 +119,7 @@ export default function PortalDevices() {
                       key={`${item.interface_type}-${item.mac_address}`}
                       className="flex items-baseline gap-3"
                     >
-                      <span className="w-[5.5rem] shrink-0 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                      <span className="w-[5.5rem] shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
                         {INTERFACE_LABEL[item.interface_type] ?? item.interface_type}
                       </span>
                       <span className="font-mono text-xs tracking-tight text-slate-800">
@@ -136,7 +136,7 @@ export default function PortalDevices() {
       case 'active_services':
         return (
           <td key={key} className="whitespace-nowrap px-4 py-3">
-            <span className="inline-flex min-w-[2rem] justify-center rounded-lg bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 tabular-nums">
+            <span className="inline-flex min-w-[2rem] justify-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700 tabular-nums ring-1 ring-emerald-100">
               {row.active_services}
             </span>
           </td>
@@ -145,8 +145,8 @@ export default function PortalDevices() {
         return (
           <td key={key} className="whitespace-nowrap px-4 py-3">
             <span
-              className={`inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-1 text-xs font-semibold tabular-nums ${
-                row.inactive_services ? 'bg-slate-100 text-slate-600' : 'bg-transparent text-slate-300'
+              className={`inline-flex min-w-[2rem] justify-center rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${
+                row.inactive_services ? 'bg-slate-100 text-slate-600 ring-1 ring-slate-200' : 'bg-transparent text-slate-300'
               }`}
             >
               {row.inactive_services}
@@ -180,8 +180,17 @@ export default function PortalDevices() {
   };
 
   return (
-    <div className="space-y-5 px-6 pb-6 pt-4">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+    <div className="space-y-6 px-6 pb-6 pt-5">
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
+        <KpiCard
+          icon={Monitor}
+          accent="slate"
+          label="On record"
+          value={summary.data?.devices ?? 0}
+          caption="Every machine on file with us"
+          loading={summary.isLoading}
+          onView={() => apply(EMPTY)}
+        />
         <KpiCard
           icon={Laptop}
           accent="blue"
@@ -192,7 +201,7 @@ export default function PortalDevices() {
           onView={() => apply({ ...EMPTY, status: 'Active' })}
         />
         <KpiCard
-          icon={UserX}
+          icon={Archive}
           accent="indigo"
           label="Retired"
           value={summary.data?.retired_devices ?? 0}
@@ -267,7 +276,7 @@ export default function PortalDevices() {
         }}
       >
         {rows.map((row) => (
-          <tr key={row.name} className="transition-colors hover:bg-slate-50">
+          <tr key={row.name} className="transition-colors hover:bg-slate-50/80">
             {shown.map((key) => cell(key, row))}
             <td className="whitespace-nowrap px-4 py-3">
               <div className="flex justify-end">

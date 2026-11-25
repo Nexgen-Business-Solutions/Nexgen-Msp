@@ -31,6 +31,7 @@ import {
   Th,
   btn,
   btnPrimary,
+  rowClass,
 } from '../components/billing/ui';
 import { day, money } from '../components/billing/format';
 
@@ -182,9 +183,9 @@ export default function Billing() {
   };
 
   return (
-    <div className="space-y-5 px-6 pb-6 pt-4">
+    <div className="space-y-6 px-6 pb-6 pt-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="text-sm text-slate-400">Review upcoming billing and track invoices.</p>
+        <p className="text-sm text-slate-500">Review upcoming billing and track invoices.</p>
         <div className="flex flex-wrap items-center gap-2">
           {/* a charge raised before this application leaves nothing to credit against, so
               it is written down here first */}
@@ -203,7 +204,7 @@ export default function Billing() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard
           icon={FileText}
           accent="blue"
@@ -279,8 +280,12 @@ export default function Billing() {
                   <Th align="right" />
                 </tr>
               </thead>
-              <tbody>
-                {workspace.isLoading && <Empty span={7}>Reading the contracts…</Empty>}
+              <tbody className="divide-y divide-slate-100">
+                {workspace.isLoading && (
+                  <Empty span={7} loading>
+                    Reading the contracts…
+                  </Empty>
+                )}
                 {actions.map((action) => {
                   const operation = OPERATIONS[action.kind];
                   const state = actionState(action);
@@ -296,16 +301,16 @@ export default function Billing() {
                   return (
                     <tr
                       key={`${action.contract}-${action.kind}`}
-                      className="border-b border-slate-100 last:border-0 hover:bg-slate-50/60"
+                      className={rowClass}
                     >
                       <Td>
                         <Pill tone={operation.tone}>{operation.label}</Pill>
                       </Td>
                       <Td className="max-w-[20rem] whitespace-normal">
-                        <p className="truncate text-xs font-bold text-slate-800">
+                        <p className="truncate text-sm font-semibold text-slate-900">
                           {action.customer}
                         </p>
-                        <p className="truncate text-[11px] text-slate-400">
+                        <p className="truncate text-xs text-slate-500">
                           {[
                             action.contract,
                             [action.frequency, action.timing].filter(Boolean).join(' / '),
@@ -321,7 +326,7 @@ export default function Billing() {
                         {action.lines}
                       </Td>
                       <Td align="right" className="tabular-nums">
-                        <strong className="text-slate-800">
+                        <strong className="font-semibold text-slate-900">
                           {action.amount === null
                             ? '—'
                             : money(action.amount, action.currency)}
@@ -351,7 +356,7 @@ export default function Billing() {
       )}
 
       <Card>
-        <div className="flex items-center gap-1 overflow-x-auto border-b border-slate-200 px-5">
+        <div className="flex items-center gap-2 overflow-x-auto border-b border-slate-200 px-5">
           {(
             [
               ['runs', 'Billing runs', data?.counts.runs],
@@ -362,16 +367,16 @@ export default function Billing() {
               key={value}
               type="button"
               onClick={() => look(value)}
-              className={`-mb-px flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3.5 text-sm font-bold transition-colors ${
+              className={`-mb-px flex items-center gap-2 whitespace-nowrap border-b-2 px-3 py-4 text-sm font-semibold transition-colors ${
                 tab === value
-                  ? 'border-blue-600 text-blue-700'
+                  ? 'border-blue-500 text-blue-700'
                   : 'border-transparent text-slate-500 hover:text-slate-700'
               }`}
             >
               {label}
               {count !== undefined && (
                 <span
-                  className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                  className={`rounded-full px-2 py-0.5 text-xs font-medium tabular-nums ${
                     tab === value ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-500'
                   }`}
                 >
@@ -382,8 +387,8 @@ export default function Billing() {
           ))}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-5 py-3">
-          <div className="relative min-w-[16rem] flex-1">
+        <div className="flex flex-wrap items-center gap-2 px-5 py-4">
+          <div className="relative min-w-[14rem] flex-1">
             <Search
               size={14}
               className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -399,7 +404,7 @@ export default function Billing() {
                   ? 'Search a customer, a run or an invoice…'
                   : 'Search an invoice or a customer…'
               }
-              className="h-9 w-full rounded-lg border border-slate-200 pl-9 pr-3 text-xs outline-none transition-colors focus:border-blue-400"
+              className="h-10 w-full rounded-md border-0 bg-slate-100/80 pl-9 pr-3 text-sm text-slate-800 outline-none transition-colors placeholder:text-slate-400 focus:bg-white focus:ring-1 focus:ring-blue-500"
             />
           </div>
           <Select
@@ -439,20 +444,26 @@ export default function Billing() {
                 ))}
               </tr>
             </thead>
-            <tbody>
-              {workspace.isLoading && <Empty span={columns.length}>Loading…</Empty>}
+            <tbody className="divide-y divide-slate-100">
+              {workspace.isLoading && (
+                <Empty span={columns.length} loading>
+                  Loading…
+                </Empty>
+              )}
               {workspace.error instanceof Error && (
                 <tr>
-                  <td
-                    colSpan={columns.length}
-                    className="px-5 py-12 text-center text-xs text-red-600"
-                  >
-                    {workspace.error.message}
+                  <td colSpan={columns.length} className="px-5 py-10">
+                    <div className="flex items-center justify-center gap-3 text-sm text-red-700">
+                      <span className="grid size-9 place-items-center rounded-full bg-red-50 text-red-600 ring-1 ring-red-100">
+                        <TriangleAlert className="size-[18px]" strokeWidth={1.75} />
+                      </span>
+                      {workspace.error.message}
+                    </div>
                   </td>
                 </tr>
               )}
               {!workspace.isLoading && !workspace.error && rows.length === 0 && (
-                <Empty span={columns.length}>
+                <Empty span={columns.length} icon={tab === 'runs' ? FileText : Receipt}>
                   {tab === 'runs' ? 'No run matches these filters.' : 'No invoice matches these filters.'}
                 </Empty>
               )}
@@ -515,11 +526,11 @@ const RunRow = ({
 }) => (
   <tr
     onClick={() => navigate(`/msp/billing/${row.name}`)}
-    className="cursor-pointer border-b border-slate-100 last:border-0 hover:bg-slate-50/60"
+    className={`cursor-pointer ${rowClass}`}
   >
     <Td>
-      <p className="text-xs font-bold text-slate-800">{row.name}</p>
-      <p className="text-[11px] text-slate-400">{row.kind}</p>
+      <p className="text-sm font-semibold text-slate-900">{row.name}</p>
+      <p className="text-xs text-slate-500">{row.kind}</p>
     </Td>
     <Td className="max-w-[16rem] truncate">{row.customer}</Td>
     <Td className="tabular-nums">
@@ -535,7 +546,7 @@ const RunRow = ({
         <span className="text-slate-300">—</span>
       )}
     </Td>
-    <Td align="right" className="font-bold tabular-nums text-slate-800">
+    <Td align="right" className="font-semibold tabular-nums text-slate-900">
       {money(row.amount, row.currency)}
     </Td>
     <Td>{row.sales_invoice || <span className="text-slate-300">—</span>}</Td>
@@ -587,18 +598,18 @@ const InvoiceRow = ({
 }) => (
   <tr
     onClick={() => navigate(`/msp/billing/invoices/${encodeURIComponent(row.name)}`)}
-    className="cursor-pointer border-b border-slate-100 last:border-0 hover:bg-slate-50/60"
+    className={`cursor-pointer ${rowClass}`}
   >
     <Td>
-      <p className="text-xs font-bold text-slate-800">{row.name}</p>
-      {row.is_return && <p className="text-[11px] font-semibold text-violet-600">Credit note</p>}
+      <p className="text-sm font-semibold text-slate-900">{row.name}</p>
+      {row.is_return && <p className="text-xs font-medium text-violet-600">Credit note</p>}
     </Td>
     <Td className="max-w-[16rem] truncate">{row.customer}</Td>
     <Td className="tabular-nums">
       {day(row.posting_date)}
-      <span className="block text-[11px] text-slate-400">Due {day(row.due_date)}</span>
+      <span className="block text-xs text-slate-500">Due {day(row.due_date)}</span>
     </Td>
-    <Td align="right" className="font-bold tabular-nums text-slate-800">
+    <Td align="right" className="font-semibold tabular-nums text-slate-900">
       {money(row.amount, row.currency)}
     </Td>
     <Td align="right" className="tabular-nums">

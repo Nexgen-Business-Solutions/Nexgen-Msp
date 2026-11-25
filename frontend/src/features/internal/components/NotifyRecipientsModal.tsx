@@ -34,17 +34,17 @@ const Line: React.FC<{
   note?: string;
 }> = ({ checked, onChange, name, email, note }) => (
   <label
-    className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-all ${
+    className={`flex cursor-pointer items-center gap-3 rounded-xl p-3 ring-1 transition-colors ${
       checked
-        ? 'border-blue-200 bg-blue-50/60 ring-1 ring-blue-100'
-        : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+        ? 'bg-blue-50/60 ring-blue-200'
+        : 'bg-white ring-slate-200 hover:bg-slate-50'
     }`}
   >
     <input
       type="checkbox"
       checked={checked}
       onChange={(event) => onChange(event.target.checked)}
-      className="h-4 w-4 shrink-0 rounded border-slate-300"
+      className="size-4 shrink-0 rounded border-slate-300 accent-blue-500"
     />
     <Avatar name={name} />
     <span className="min-w-0">
@@ -52,7 +52,7 @@ const Line: React.FC<{
       <span className="block truncate text-xs text-slate-500">{email}</span>
     </span>
     {note && (
-      <span className="ml-auto shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">
+      <span className="ml-auto shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-blue-200/70">
         {note}
       </span>
     )}
@@ -134,7 +134,7 @@ const NotifyRecipientsModal: React.FC<Props> = ({
             <button
               type="button"
               onClick={onCancel}
-              className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+              className="rounded-full bg-white px-4 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50"
             >
               Cancel
             </button>
@@ -142,7 +142,7 @@ const NotifyRecipientsModal: React.FC<Props> = ({
               type="button"
               onClick={() => onConfirm(chosen)}
               disabled={busy || recipients.isLoading || (requireRecipient && nobody)}
-              className="rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-full bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {busy
                 ? 'Sending…'
@@ -157,20 +157,20 @@ const NotifyRecipientsModal: React.FC<Props> = ({
       {recipients.isLoading ? (
         <p className="text-sm text-slate-500">Reading who can be told…</p>
       ) : recipients.error instanceof Error ? (
-        <div className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
+        <div className="flex items-start gap-2.5 rounded-2xl bg-red-50 px-4 py-3 ring-1 ring-red-200">
           <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
           <span className="text-sm font-medium text-red-700">{recipients.error.message}</span>
         </div>
       ) : (
         <div className="space-y-4">
           {document && (
-            <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3">
+            <div className="rounded-2xl bg-slate-50/70 p-4 ring-1 ring-slate-200/60">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-mono text-sm font-bold text-slate-800">
+                <span className="font-mono text-sm font-semibold text-slate-900">
                   {document.invoice}
                 </span>
                 {document.is_return && <Pill tone="purple">Credit / Return</Pill>}
-                <span className="ml-auto text-sm font-bold text-slate-800">
+                <span className="ml-auto text-base font-semibold tabular-nums text-slate-900">
                   {money(document.grand_total, document.currency)}
                 </span>
               </div>
@@ -186,7 +186,7 @@ const NotifyRecipientsModal: React.FC<Props> = ({
           )}
 
           <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
               Billing contact
             </p>
             {named?.email ? (
@@ -198,7 +198,7 @@ const NotifyRecipientsModal: React.FC<Props> = ({
                 note="Addressed to"
               />
             ) : (
-              <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <div className="flex items-start gap-2.5 rounded-2xl bg-amber-50 px-4 py-3 ring-1 ring-amber-200">
                 <TriangleAlert size={16} className="mt-0.5 shrink-0 text-amber-600" />
                 <span className="text-sm text-amber-800">
                   {named?.refusal ?? 'No billing contact is named for this company.'}{' '}
@@ -209,7 +209,7 @@ const NotifyRecipientsModal: React.FC<Props> = ({
           </div>
 
           <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
               Copy to
             </p>
             {others.length === 0 ? (
@@ -238,14 +238,14 @@ const NotifyRecipientsModal: React.FC<Props> = ({
           )}
 
           {error && (
-            <div className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
+            <div className="flex items-start gap-2.5 rounded-2xl bg-red-50 px-4 py-3 ring-1 ring-red-200">
               <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
               <span className="text-sm font-medium text-red-700">{error}</span>
             </div>
           )}
 
           {result && (
-            <div className="flex items-start gap-2.5 rounded-lg border border-emerald-100 bg-emerald-50 p-3">
+            <div className="flex items-start gap-2.5 rounded-2xl bg-emerald-50 px-4 py-3 ring-1 ring-emerald-200">
               <Check size={16} className="mt-0.5 shrink-0 text-emerald-600" />
               <span className="text-sm font-medium text-emerald-800">{result}</span>
             </div>
@@ -253,14 +253,14 @@ const NotifyRecipientsModal: React.FC<Props> = ({
 
           {!!document?.attempts.length && (
             <div>
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
                 Previous sends
               </p>
               <div className="space-y-1.5">
                 {document.attempts.map((attempt) => (
                   <div
                     key={attempt.attempt ?? `${attempt.on}`}
-                    className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs"
+                    className="flex flex-wrap items-center gap-2 rounded-xl px-3 py-2 text-xs ring-1 ring-slate-200"
                   >
                     <Pill tone={STATES[attempt.state] ?? 'gray'}>{attempt.state}</Pill>
                     <span className="min-w-0 truncate text-slate-700">
@@ -270,7 +270,7 @@ const NotifyRecipientsModal: React.FC<Props> = ({
                       {attempt.by} · {String(attempt.on ?? '').slice(0, 16)}
                     </span>
                     {attempt.error && (
-                      <span className="w-full text-rose-700">{attempt.error}</span>
+                      <span className="w-full text-red-700">{attempt.error}</span>
                     )}
                   </div>
                 ))}

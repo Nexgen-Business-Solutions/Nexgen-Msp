@@ -3,7 +3,7 @@ import { Search } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
 import ConfirmModal from '@/shared/components/ConfirmModal';
 import { useDispatchEvidence, useResolveDispatch } from './useNotifications';
-import { Field, Message, SkeletonRows } from './ui';
+import { Field, Message, SkeletonRows, btnPrimary, btnSecondary, textareaClass } from './ui';
 import { fmtMoment } from './format';
 
 type Props = { dispatch: string | null; onClose: () => void };
@@ -122,7 +122,7 @@ const InvestigateDelivery: React.FC<Props> = ({ dispatch, onClose }) => {
                   }
                   setConfirming('link');
                 }}
-                className="inline-flex h-10 items-center rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                className={btnPrimary}
               >
                 Attach this queue entry
               </button>
@@ -136,7 +136,7 @@ const InvestigateDelivery: React.FC<Props> = ({ dispatch, onClose }) => {
                   }
                   setConfirming('not_sent');
                 }}
-                className="inline-flex h-10 items-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                className={btnSecondary}
               >
                 Nothing was sent
               </button>
@@ -161,7 +161,7 @@ const InvestigateDelivery: React.FC<Props> = ({ dispatch, onClose }) => {
               <button
                 type="button"
                 onClick={onClose}
-                className="inline-flex h-10 items-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                className={btnSecondary}
               >
                 Close
               </button>
@@ -169,9 +169,9 @@ const InvestigateDelivery: React.FC<Props> = ({ dispatch, onClose }) => {
           </div>
         ) : (
           <div className="space-y-5">
-            <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+            <dl className="grid gap-3 sm:grid-cols-2">
               {facts.map(([label, value]) => (
-                <div key={label} className="min-w-0">
+                <div key={label} className="min-w-0 rounded-xl bg-slate-50/70 px-3.5 py-2.5 ring-1 ring-slate-200/60">
                   <dt className="text-xs font-medium text-slate-500">{label}</dt>
                   <dd className="break-words text-sm text-slate-800">{value}</dd>
                 </div>
@@ -179,21 +179,21 @@ const InvestigateDelivery: React.FC<Props> = ({ dispatch, onClose }) => {
             </dl>
 
             <div>
-              <h3 className="mb-1 text-sm font-semibold text-slate-800">Possible queue entries</h3>
+              <h3 className="mb-0.5 text-base font-semibold text-slate-900">Possible queue entries</h3>
               <p className="mb-2 text-xs text-slate-500">
                 A matched entry carries this delivery&apos;s own mark. The others could be this delivery&apos;s email but are not proof; message content is not shown.
               </p>
               {candidates.length === 0 ? (
-                <p className="rounded-lg bg-slate-50 px-3 py-3 text-sm text-slate-600">
+                <p className="rounded-xl bg-slate-50/70 px-3.5 py-3 text-sm text-slate-600 ring-1 ring-slate-200/60">
                   No queue entry could match this delivery.
                 </p>
               ) : (
-                <div className="overflow-x-auto rounded-lg border border-slate-200">
+                <div className="overflow-x-auto rounded-2xl ring-1 ring-slate-200/70">
                   <table className="w-full text-left">
-                    <thead className="bg-slate-50">
+                    <thead className="bg-white">
                       <tr>
                         {['Select', 'Queue entry', 'Status', 'Created', 'Reference'].map((head) => (
-                          <th key={head} scope="col" className="px-3 py-2 text-xs font-semibold text-slate-500">
+                          <th key={head} scope="col" className="whitespace-nowrap border-b border-slate-200 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
                             {head}
                           </th>
                         ))}
@@ -245,7 +245,7 @@ const InvestigateDelivery: React.FC<Props> = ({ dispatch, onClose }) => {
                   setNoteMissing(false);
                 }}
                 aria-invalid={noteMissing}
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                className={textareaClass}
               />
             </Field>
 
@@ -255,7 +255,7 @@ const InvestigateDelivery: React.FC<Props> = ({ dispatch, onClose }) => {
               </p>
             )}
             {resolve.isError && (
-              <p role="alert" className="rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
+              <p role="alert" className="rounded-2xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700 ring-1 ring-red-200">
                 {errorText(resolve.error)}
               </p>
             )}

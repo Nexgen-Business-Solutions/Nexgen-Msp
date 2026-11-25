@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Building2, KeyRound, Plus, ShieldCheck, UserCheck, UserX, Wrench } from 'lucide-react';
+import { Building2, KeyRound, Plus, SearchX, ShieldCheck, UserCheck, UserRound, UserX, Wrench } from 'lucide-react';
 import KpiCard from '@/shared/components/KpiCard';
 import RowActionsMenu, { type RowAction } from '@/shared/components/RowActionsMenu';
 import FilterBar, { type FilterState } from '@/shared/components/FilterBar';
@@ -16,9 +16,27 @@ import {
   useTeamOptions,
 } from '../hooks/useTeam';
 
-const COLUMNS = ['Account', 'Kind',  '2FA', 'Last seen', 'Status', ''];
+const COLUMNS = ['Account', 'Kind', '2FA', 'Last seen', 'Status', ''];
 
+// the kind of account, drawn beside the name so the register scans at a glance
+const KIND_ICON: Record<string, { icon: typeof UserRound; tile: string }> = {
+  Administrator: { icon: ShieldCheck, tile: 'bg-emerald-50 text-emerald-600 ring-emerald-100' },
+  Technician: { icon: Wrench, tile: 'bg-blue-50 text-blue-600 ring-blue-100' },
+  Customer: { icon: Building2, tile: 'bg-indigo-50 text-indigo-600 ring-indigo-100' },
+};
 
+const KindIcon = ({ kind }: { kind?: string | null }) => {
+  const { icon: Icon, tile } = KIND_ICON[kind ?? ''] ?? {
+    icon: UserRound,
+    tile: 'bg-slate-100 text-slate-600 ring-slate-200',
+  };
+
+  return (
+    <span aria-hidden className={`grid size-9 shrink-0 place-items-center rounded-full ring-1 ${tile}`}>
+      <Icon size={16} strokeWidth={1.75} />
+    </span>
+  );
+};
 
 const fmtDate = (value?: string | null) => (value ? String(value).slice(0, 10) : 'Never');
 
@@ -64,23 +82,23 @@ export default function TeamList() {
   }, [everyone.data]);
 
   return (
-    <div className="space-y-5 px-6 pb-6 pt-4">
-      <div className="flex justify-end">
-        <button
-          type="button"
-          onClick={() => setInviting(true)}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
-        >
-          <Plus size={15} />
-          Add an account
-        </button>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="space-y-6 px-6 pb-6 pt-5">
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard icon={UserCheck} accent="blue" label="Accounts" value={counts.total} caption="Everyone who can sign in" loading={list.isLoading} onView={() => setFilters({ kind: '', status: '' })} />
         <KpiCard icon={ShieldCheck} accent="emerald" label="Administrators" value={counts.admins} caption="Billing, contracts and settings" loading={list.isLoading} onView={() => setFilters({ kind: 'Administrator', status: '' })} />
         <KpiCard icon={Wrench} accent="slate" label="Technicians" value={counts.technicians} caption="Requests, people and devices" loading={list.isLoading} onView={() => setFilters({ kind: 'Technician', status: '' })} />
         <KpiCard icon={Building2} accent="slate" label="Portal contacts" value={counts.portal} caption="Customers signing in to their portal" loading={list.isLoading} onView={() => setFilters({ kind: 'Customer', status: '' })} />
+      </div>
+
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => setInviting(true)}
+          className="inline-flex items-center gap-1.5 rounded-full bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-600"
+        >
+          <Plus size={15} />
+          Add an account
+        </button>
       </div>
 
       <FilterBar
@@ -116,16 +134,15 @@ export default function TeamList() {
         ]}
       />
 
-      <div className="overflow-hidden rounded-xl border border-slate-100 bg-white pt-4 shadow-sm">
-        <div className="max-h-[62vh] overflow-auto px-5 pb-1">
+      <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/70">
+        <div className="max-h-[62vh] overflow-auto px-2 pb-1 sm:px-3">
           <table className="w-full">
-            <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-slate-50">
+            <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-white">
               <tr>
                 {COLUMNS.map((column, index) => (
                   <th
                     key={column || index}
-                    className={`whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 ${index === 0 ? 'rounded-l-lg' : ''
-                      } ${index === COLUMNS.length - 1 ? 'rounded-r-lg' : ''}`}
+                    className="whitespace-nowrap border-b border-slate-200 px-4 pb-3 pt-4 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500"
                   >
                     {column}
                   </th>
@@ -143,16 +160,24 @@ export default function TeamList() {
 
               {list.isLoading && (
                 <tr>
-                  <td colSpan={COLUMNS.length} className="px-4 py-12 text-center text-sm text-slate-500">
-                    Loading…
+                  <td colSpan={COLUMNS.length} className="px-4 py-12">
+                    <div className="flex items-center justify-center gap-3 text-sm text-slate-500">
+                      <span className="size-5 animate-spin rounded-full border-2 border-blue-100 border-t-blue-500" />
+                      Loading…
+                    </div>
                   </td>
                 </tr>
               )}
 
               {!list.isLoading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={COLUMNS.length} className="px-4 py-12 text-center text-sm text-slate-500">
-                    No account matches these filters.
+                  <td colSpan={COLUMNS.length} className="px-4 py-12">
+                    <div className="flex items-center justify-center gap-3 text-sm text-slate-500">
+                      <span className="grid size-9 shrink-0 place-items-center rounded-full bg-slate-50 text-slate-400 ring-1 ring-slate-200">
+                        <SearchX className="size-[18px]" strokeWidth={1.75} />
+                      </span>
+                      No account matches these filters.
+                    </div>
                   </td>
                 </tr>
               )}
@@ -161,43 +186,45 @@ export default function TeamList() {
                 <tr
                   key={member.name}
                   onClick={() => navigate(`/msp/accounts/${encodeURIComponent(member.name)}`)}
-                  className="cursor-pointer transition-colors hover:bg-slate-50"
+                  className="cursor-pointer transition-colors hover:bg-slate-50/80"
                 >
                   <td className="whitespace-nowrap px-4 py-3">
-                    <p className="text-sm font-semibold text-slate-900">
-                      {member.full_name || member.name}
-                    </p>
-                    <p className="text-xs text-slate-400">{member.name}</p>
+                    <div className="flex items-center gap-3">
+                      <KindIcon kind={member.kind} />
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-900">
+                          {member.full_name || member.name}
+                        </p>
+                        <p className="mt-0.5 text-xs text-slate-500">{member.name}</p>
+                      </div>
+                    </div>
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
-                    <p className="text-sm font-semibold text-slate-900">
-                      {member.kind}
-                    </p>
-                    <p className="text-xs text-slate-400">{member.customers.join(', ')}</p>
-
-
+                    <p className="text-sm font-medium text-slate-800">{member.kind}</p>
+                    <p className="mt-0.5 text-xs text-slate-500">{member.customers.join(', ')}</p>
                   </td>
-                  
-                 
                   <td className="whitespace-nowrap px-4 py-3 text-sm">
                     {member.two_factor ? (
-                      <span className="inline-flex items-center gap-1 text-emerald-600">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-100">
                         <ShieldCheck size={13} />
                         On
                       </span>
                     ) : (
-                      <span className="text-amber-600">Not set up</span>
+                      <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 ring-1 ring-amber-200">
+                        Not set up
+                      </span>
                     )}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
+                  <td className="whitespace-nowrap px-4 py-3 text-sm tabular-nums text-slate-600">
                     {fmtDate(member.last_active)}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3">
                     <span
-                      className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${member.enabled
-                          ? 'bg-emerald-100 text-emerald-700'
-                          : 'bg-slate-100 text-slate-500'
-                        }`}
+                      className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ${
+                        member.enabled
+                          ? 'bg-emerald-50 text-emerald-700 ring-emerald-100'
+                          : 'bg-slate-100 text-slate-500 ring-slate-200'
+                      }`}
                     >
                       {member.enabled ? 'ACTIVE' : 'DISABLED'}
                     </span>

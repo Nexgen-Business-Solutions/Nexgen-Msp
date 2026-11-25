@@ -71,7 +71,7 @@ const RemarkLog: React.FC<Props> = ({ entries, empty = 'Nothing noted yet.', tar
             value={note}
             onChange={(event) => setNote(event.target.value)}
             placeholder="Screen replaced under warranty."
-            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
           />
           {add.error instanceof Error && (
             <p className="mt-1 text-xs text-red-600">{add.error.message}</p>

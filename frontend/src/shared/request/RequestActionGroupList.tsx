@@ -19,7 +19,7 @@ type Props = {
   ) => ReactNode;
 };
 
-const th = 'whitespace-nowrap px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500';
+const th = 'whitespace-nowrap border-b border-slate-200 px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500';
 const td = 'px-3 py-2 align-top text-sm text-slate-700';
 
 const Relationship = ({ relationship, strong }: { relationship: RequestRelationship; strong?: boolean }) => (
@@ -56,17 +56,17 @@ function TargetTable({
   const changed = group.targets.some((target) => target.state_changed);
 
   return (
-    <div className="border-t border-slate-100 bg-slate-50/50 px-4 py-3" data-testid={`targets-${group.group_key}`}>
+    <div className="border-t border-slate-100 bg-slate-50/60 px-5 py-4" data-testid={`targets-${group.group_key}`}>
       {changed && (
-        <p className="mb-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+        <p className="mb-3 flex items-start gap-2 rounded-xl bg-amber-50 px-3.5 py-2.5 text-xs font-medium text-amber-800 ring-1 ring-amber-200">
           <TriangleAlert size={14} className="mt-0.5 shrink-0" />
           Current state has changed since this request was submitted.
         </p>
       )}
 
-      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+      <div className="overflow-x-auto rounded-xl bg-white ring-1 ring-slate-200/70">
         <table className="w-full">
-          <thead className="bg-slate-50">
+          <thead className="bg-white">
             <tr>
               <th className={th}>Person</th>
               <th className={th}>Target</th>
@@ -151,7 +151,7 @@ function TargetTable({
             View unchanged
           </button>
           {showUnchanged && (
-            <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
+            <ul className="divide-y divide-slate-100 rounded-xl bg-white ring-1 ring-slate-200/70">
               {group.unchanged.map((row) => (
                 <li key={row.subject_key} className="flex flex-wrap justify-between gap-2 px-3 py-2 text-sm">
                   <span className="font-medium text-slate-900">{row.person_label}</span>
@@ -179,8 +179,8 @@ export default function RequestActionGroupList({
   return (
     <section className={sectionClass} aria-label="Requested actions" data-section="requested-actions">
       <div className={sectionHeadClass}>
-        <h2 className="text-sm font-semibold text-slate-900">Requested actions</h2>
-        <span className="text-[11px] text-slate-400">Request-time snapshot</span>
+        <h2 className="text-base font-semibold text-slate-900">Requested actions</h2>
+        <span className="text-xs text-slate-400">Request-time snapshot</span>
       </div>
 
       <div className="divide-y divide-slate-100">
@@ -195,7 +195,7 @@ export default function RequestActionGroupList({
 
           return (
             <div key={group.group_key} data-group={group.group_key}>
-              <div className="grid grid-cols-1 gap-2 px-4 py-3 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1.3fr)_auto] md:items-center md:gap-4">
+              <div className="grid grid-cols-1 gap-2 px-5 py-4 transition-colors hover:bg-slate-50/60 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1.3fr)_auto] md:items-center md:gap-4">
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-slate-900">{group.operation_label}</p>
                   <p className="mt-0.5 text-xs text-slate-500">{group.context_label}</p>

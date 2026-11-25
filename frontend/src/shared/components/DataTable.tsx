@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Search } from 'lucide-react';
+import { Inbox, Search } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import Select from './Select';
 import TablePagination from './TablePagination';
@@ -90,7 +90,7 @@ const DataTable: React.FC<DataTableProps> = ({
               value={searchInput}
               onChange={(event) => setSearchInput(event.target.value)}
               placeholder={searchPlaceholder}
-              className="h-10 w-64 rounded-full border-0 bg-zinc-100/80 pl-10 pr-4 text-sm outline-none transition placeholder:text-zinc-400 focus:bg-white focus:ring-2 focus:ring-blue-500"
+              className="h-10 w-64 rounded-full border-0 bg-zinc-100/80 pl-10 pr-4 text-sm outline-none transition placeholder:text-zinc-400 focus:bg-white focus:ring-1 focus:ring-blue-500"
             />
           </div>
           <Select
@@ -143,16 +143,25 @@ const DataTable: React.FC<DataTableProps> = ({
 
           {!error && isLoading && (
             <tr>
-              <td colSpan={columns.length} className="px-4 py-12 text-center text-sm text-slate-500">
-                Loading…
+              <td colSpan={columns.length} className="px-4 py-12">
+                <div className="flex items-center justify-center gap-3 text-sm text-slate-500">
+                  <span className="size-5 animate-spin rounded-full border-2 border-blue-100 border-t-blue-500" />
+                  Loading…
+                </div>
               </td>
             </tr>
           )}
 
           {!error && !isLoading && rowCount === 0 && (
             <tr>
-              <td colSpan={columns.length} className="px-4 py-12 text-center text-sm text-slate-500">
-                {emptyLabel}
+              <td colSpan={columns.length} className="px-4 py-12">
+                {/* the dashboard's calm empty state: an icon in a soft circle and the one line */}
+                <div className="flex items-center justify-center gap-3 text-sm text-slate-500">
+                  <span className="grid size-9 shrink-0 place-items-center rounded-full bg-slate-50 text-slate-400 ring-1 ring-slate-200">
+                    <Inbox className="size-[18px]" strokeWidth={1.75} />
+                  </span>
+                  {emptyLabel}
+                </div>
               </td>
             </tr>
           )}

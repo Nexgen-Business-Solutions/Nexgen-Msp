@@ -2,13 +2,13 @@ import React from 'react';
 import { ArrowLeft } from 'lucide-react';
 
 export const primaryBtn =
-  'inline-flex h-10 items-center justify-center gap-1.5 text-nowrap rounded-lg bg-blue-600 px-5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300';
+  'inline-flex h-10 items-center justify-center gap-1.5 text-nowrap rounded-full bg-blue-500 px-5 text-sm font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:bg-blue-300';
 
 export const secondaryBtn =
-  'inline-flex h-10 items-center justify-center gap-1.5 text-nowrap rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50';
+  'inline-flex h-10 items-center justify-center gap-1.5 text-nowrap rounded-full bg-white px-4 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50';
 
 export const quietBtn =
-  'inline-flex h-10 items-center justify-center gap-1.5 text-nowrap rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-blue-600 transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50';
+  'inline-flex h-10 items-center justify-center gap-1.5 text-nowrap rounded-full bg-white px-4 text-sm font-medium text-blue-600 ring-1 ring-slate-200 transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50';
 
 type Props = {
   title: React.ReactNode;
@@ -33,22 +33,22 @@ const WorkflowHeader: React.FC<Props> = ({
   stepper,
   context,
 }) => (
-  <div className="overflow-hidden rounded-xl border border-slate-200 shadow-sm">
+  <div className="overflow-hidden rounded-2xl shadow-sm ring-1 ring-slate-200/70">
     <section className="bg-white">
-      <div className="flex flex-col items-start justify-between gap-4 px-6 py-3 md:flex-row">
+      <div className="flex flex-col items-start justify-between gap-4 px-6 py-4 md:flex-row">
         <div className="flex min-w-0 items-center gap-3">
           {onBack && (
             <button
               type="button"
               onClick={onBack}
               aria-label={backLabel}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-slate-500 ring-1 ring-slate-200 transition-colors hover:bg-slate-50 hover:text-slate-700"
             >
               <ArrowLeft size={16} />
             </button>
           )}
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-slate-900">{title}</h1>
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{title}</h1>
             {subtitle && <p className="mt-0.5 text-sm text-slate-500">{subtitle}</p>}
           </div>
         </div>

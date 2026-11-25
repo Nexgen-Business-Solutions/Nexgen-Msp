@@ -102,15 +102,15 @@ export default function RequestDetail() {
   if (detail.isLoading) {
     return (
       <div className="flex items-center justify-center p-16">
-        <span className="h-8 w-8 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />
+        <span className="size-8 animate-spin rounded-full border-2 border-blue-100 border-t-blue-500" />
       </div>
     );
   }
 
   if (detail.error || !data) {
     return (
-      <div className="px-6 pb-6 pt-4">
-        <div className="rounded-xl border border-red-100 bg-red-50 p-6 text-sm text-red-700">
+      <div className="px-6 pb-6 pt-5">
+        <div className="rounded-2xl bg-red-50 p-6 text-sm text-red-700 ring-1 ring-red-100">
           {(detail.error as Error)?.message || 'Request not found.'}
         </div>
       </div>
@@ -172,7 +172,7 @@ export default function RequestDetail() {
   const warnings = (
     <>
     {data.review && !data.review.contract_active && (
-      <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
+      <div className="flex items-start gap-2.5 rounded-2xl bg-amber-50 px-5 py-3.5 ring-1 ring-amber-200">
         <TriangleAlert size={16} className="mt-0.5 shrink-0 text-amber-600" />
         <p className="text-sm text-amber-800">
           {data.review.has_contract
@@ -192,7 +192,7 @@ export default function RequestDetail() {
         setReason('');
         setPrompt({ action: action.action, label: action.label });
       }}
-      className="inline-flex items-center rounded-lg border border-red-200 bg-white px-3 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50"
+      className="inline-flex items-center rounded-full bg-white px-4 py-2.5 text-sm font-medium text-red-600 ring-1 ring-red-200 transition-colors hover:bg-red-50"
     >
       {action.label}
     </button>
@@ -211,21 +211,21 @@ export default function RequestDetail() {
           return;
         }
       }}
-      className="inline-flex items-center rounded-lg bg-blue-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+      className="inline-flex items-center rounded-full bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-600 disabled:opacity-60"
     >
       Start work
     </button>
   );
 
   const actionErrorNote = actionError && !prompt && (
-    <p className="flex items-start gap-2 rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+    <p className="flex items-start gap-2 rounded-2xl bg-red-50 px-5 py-3.5 text-sm font-medium text-red-700 ring-1 ring-red-100">
       <AlertCircle size={16} className="mt-0.5 shrink-0" />
       {actionError.message}
     </p>
   );
 
   return (
-    <div className="space-y-4 px-6 pb-6 pt-4">
+    <div className="space-y-6 px-6 pb-6 pt-5">
       {readOnly ? (
         <>
           <button
@@ -250,7 +250,7 @@ export default function RequestDetail() {
                       <button
                         type="button"
                         onClick={() => setRecapOpen(true)}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                        className="inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50"
                       >
                         <ClipboardList size={15} />
                         View execution recap
@@ -305,8 +305,8 @@ export default function RequestDetail() {
 
       {warnings}
 
-      <section className="overflow-clip rounded-xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+      <section className="overflow-clip rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/70">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-5 pb-4 pt-5 sm:px-6">
           <div>
             <h2 className="text-base font-semibold text-slate-900">{COPY[step].title}</h2>
             {COPY[step].sub && <p className="mt-0.5 text-sm text-slate-500">{COPY[step].sub}</p>}
@@ -323,7 +323,7 @@ export default function RequestDetail() {
           )}
         </div>
 
-        <div className="px-5 py-4">
+        <div className="px-5 py-5 sm:px-6">
           {actionErrorNote && <div className="mb-4">{actionErrorNote}</div>}
 
           {step === 'review' ? (
@@ -384,7 +384,7 @@ export default function RequestDetail() {
             <button
               type="button"
               onClick={() => setPrompt(null)}
-              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              className="rounded-full px-4 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"
             >
               Cancel
             </button>
@@ -392,7 +392,7 @@ export default function RequestDetail() {
               type="button"
               onClick={confirmPrompt}
               disabled={!reason.trim() || runAction.isLoading}
-              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+              className="rounded-full bg-red-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-60"
             >
               Confirm
             </button>
@@ -400,7 +400,7 @@ export default function RequestDetail() {
         }
       >
         {actionError && (
-          <p className="mb-3 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
+          <p className="mb-3 rounded-xl bg-red-50 px-3.5 py-2.5 text-sm font-medium text-red-700 ring-1 ring-red-100">
             {actionError.message}
           </p>
         )}
@@ -410,7 +410,7 @@ export default function RequestDetail() {
           onChange={(event) => setReason(event.target.value)}
           placeholder="Explain the decision…"
           aria-label="Reason"
-          className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+          className="w-full resize-y rounded-xl border-0 bg-slate-100/80 px-3.5 py-3 text-sm outline-none transition focus:bg-white focus:ring-1 focus:ring-blue-500"
         />
       </Modal>
 

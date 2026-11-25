@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { RefreshCw, Search } from 'lucide-react';
+import { MailX, RefreshCw, Search, SearchX } from 'lucide-react';
 import TablePagination from '@/shared/components/TablePagination';
 import Select from '@/shared/components/Select';
 import InvestigateDelivery from './InvestigateDelivery';
 import { useNotificationHistory } from './useNotifications';
-import { InfoStrip, Message, Pill, SkeletonRows, inputClass } from './ui';
+import { InfoStrip, Message, Pill, SkeletonRows, btnSecondary, btnSmall, inputClass, rowClass, thClass } from './ui';
 import { EMPTY_HISTORY_FILTERS, type HistoryFilters, STATE_MEANING, fmtMoment, stateTone } from './format';
 
 const DEFAULT_STATES = ['Pending', 'Queued', 'Sent', 'Failed', 'Skipped', 'Unknown'];
@@ -36,8 +36,8 @@ const HistoryTab: React.FC<Props> = ({ active, filters, onFilters, page, onPage 
         accepted into Frappe&apos;s email queue. &ldquo;Sent&rdquo; does not prove it reached an inbox.
       </InfoStrip>
 
-      <div className="flex flex-wrap items-center gap-2 px-5 py-4">
-        <div className="relative min-w-[14rem] flex-1">
+      <div className="flex flex-wrap items-center gap-3 px-5 py-4 sm:px-6">
+        <div className="relative w-full min-w-0 sm:min-w-[14rem] sm:flex-1">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden />
           <input
             type="search"
@@ -62,7 +62,7 @@ const HistoryTab: React.FC<Props> = ({ active, filters, onFilters, page, onPage 
           <button
             type="button"
             onClick={() => onFilters(EMPTY_HISTORY_FILTERS)}
-            className="inline-flex h-10 items-center rounded-lg px-3 text-sm font-semibold text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+            className="inline-flex items-center rounded-full px-3.5 py-2.5 text-sm font-medium text-blue-600 transition-colors hover:bg-blue-50 hover:text-blue-700"
           >
             Clear filters
           </button>
@@ -71,7 +71,7 @@ const HistoryTab: React.FC<Props> = ({ active, filters, onFilters, page, onPage 
           type="button"
           onClick={() => history.refetch()}
           disabled={history.isFetching}
-          className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60"
+          className={btnSecondary}
         >
           <RefreshCw size={16} className={history.isFetching ? 'motion-safe:animate-spin' : ''} aria-hidden />
           Refresh
@@ -85,16 +85,19 @@ const HistoryTab: React.FC<Props> = ({ active, filters, onFilters, page, onPage 
           {history.error instanceof Error ? history.error.message : undefined}
         </Message>
       ) : rows.length === 0 ? (
-        <Message title={search || status ? 'No delivery matches these filters' : 'Nothing has been sent yet'}>
+        <Message
+          icon={search || status ? SearchX : MailX}
+          title={search || status ? 'No delivery matches these filters' : 'Nothing has been sent yet'}
+        >
           {search || status ? undefined : 'Every send attempt of a managed notification is recorded here.'}
         </Message>
       ) : (
-        <div className="overflow-x-auto border-t border-slate-100">
+        <div className="overflow-x-auto">
           <table className="w-full min-w-[64rem] text-left">
-            <thead className="bg-slate-50/70">
+            <thead>
               <tr>
-                {HEADS.map((head) => (
-                  <th key={head} scope="col" className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-slate-500">
+                {HEADS.map((head, index) => (
+                  <th key={head} scope="col" className={`${thClass} ${index === 0 ? 'pl-5 pr-4 sm:pl-6' : 'px-4'}`}>
                     {head}
                   </th>
                 ))}
@@ -105,11 +108,11 @@ const HistoryTab: React.FC<Props> = ({ active, filters, onFilters, page, onPage 
                 const reason = row.reason_label;
 
                 return (
-                  <tr key={row.name} className="align-top">
-                    <td className="whitespace-nowrap px-4 py-3 text-sm tabular-nums text-slate-500">
+                  <tr key={row.name} className={`align-top ${rowClass}`}>
+                    <td className="whitespace-nowrap py-3 pl-5 pr-4 text-sm tabular-nums text-slate-500 sm:pl-6">
                       {fmtMoment(row.sent_at || row.queued_at || row.creation)}
                     </td>
-                    <td className="px-4 py-3 text-sm font-medium text-slate-800">
+                    <td className="px-4 py-3 text-sm font-semibold text-slate-900">
                       {row.rule_label}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">
@@ -166,7 +169,7 @@ const HistoryTab: React.FC<Props> = ({ active, filters, onFilters, page, onPage 
                           type="button"
                           aria-label={`Investigate ${row.name}`}
                           onClick={() => setInvestigating(row.name)}
-                          className="inline-flex h-9 items-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                          className={btnSmall}
                         >
                           Investigate
                         </button>

@@ -12,7 +12,7 @@ const TAG: Record<RecapEntry['kind'], { label: string; tone: string }> = {
 };
 
 const Figure: React.FC<{ value: number; label: string }> = ({ value, label }) => (
-  <div className="rounded-lg border border-slate-200 px-3 py-2">
+  <div className="rounded-xl ring-1 ring-slate-200/70 px-3 py-2">
     <p className="text-lg font-bold text-slate-900">{value}</p>
     <p className="text-[11px] text-slate-500">{label}</p>
   </div>
@@ -23,7 +23,7 @@ const Block: React.FC<{ title: string; aside?: React.ReactNode; children: React.
   aside,
   children,
 }) => (
-  <section aria-label={title} className="overflow-hidden rounded-lg border border-slate-200">
+  <section aria-label={title} className="overflow-hidden rounded-xl ring-1 ring-slate-200/70">
     <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-3 py-2">
       <p className="text-xs font-bold text-slate-900">{title}</p>
       {aside}
@@ -73,7 +73,7 @@ const ExecutionRecap: React.FC<{ plan: ExecutionPlan; onContinue?: () => void }>
             type="button"
             aria-pressed={reading === value}
             onClick={() => setReading(value)}
-            className={`rounded-lg border px-3 py-2.5 text-xs font-semibold transition-colors ${
+            className={`rounded-xl border px-3 py-2.5 text-xs font-semibold transition-colors ${
               reading === value
                 ? 'border-blue-200 bg-blue-50 text-blue-700'
                 : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
@@ -187,7 +187,7 @@ const ExecutionRecap: React.FC<{ plan: ExecutionPlan; onContinue?: () => void }>
       )}
 
       {onContinue && (
-        <div className="flex flex-col items-stretch justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/70 px-4 py-3 sm:flex-row sm:items-center">
+        <div className="flex flex-col items-stretch justify-between gap-3 rounded-xl bg-slate-50/70 ring-1 ring-slate-200/60 px-4 py-3 sm:flex-row sm:items-center">
           <p className="text-xs text-slate-500">Recap is derived from persisted Work Orders and resolved Requested records.</p>
           <button type="button" onClick={onContinue} className={primaryButton}>
             Continue to Final validation

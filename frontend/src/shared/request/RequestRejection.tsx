@@ -12,11 +12,13 @@ export default function RequestRejection({ rejection }: { rejection: Rejection }
     <section
       aria-label="Rejection"
       data-section="rejection"
-      className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5"
+      className="flex items-start gap-3 rounded-2xl bg-red-50 px-5 py-4 ring-1 ring-red-200"
     >
-      <XCircle size={15} className="mt-0.5 shrink-0 text-red-600" />
+      <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-red-100 text-red-600 ring-1 ring-red-200">
+        <XCircle size={16} strokeWidth={1.75} />
+      </span>
       <div className="min-w-0">
-        <p className="text-xs font-semibold text-red-800">{heading}</p>
+        <p className="text-sm font-semibold text-red-800">{heading}</p>
         <p className="mt-0.5 whitespace-pre-line text-sm text-red-700">{rejection.reason}</p>
       </div>
     </section>

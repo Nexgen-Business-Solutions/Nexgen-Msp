@@ -60,7 +60,7 @@ export default function PortalUsers() {
             <button
               type="button"
               onClick={() => navigate(`/msp/users/${row.name}`)}
-              className="text-sm font-semibold text-slate-900 transition-colors hover:text-blue-700"
+              className="text-left text-sm font-semibold text-slate-900 transition-colors hover:text-blue-600"
             >
               {row.full_name}
             </button>
@@ -92,7 +92,7 @@ export default function PortalUsers() {
       case 'active_services':
         return (
           <td key={key} className="whitespace-nowrap px-4 py-3">
-            <span className="inline-flex min-w-[2rem] justify-center rounded-lg bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 tabular-nums">
+            <span className="inline-flex min-w-[2rem] justify-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700 tabular-nums ring-1 ring-emerald-100">
               {row.active_services}
             </span>
           </td>
@@ -102,8 +102,8 @@ export default function PortalUsers() {
         return (
           <td key={key} className="whitespace-nowrap px-4 py-3">
             <span
-              className={`inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-1 text-xs font-semibold tabular-nums ${
-                row[key] ? 'bg-slate-100 text-slate-600' : 'bg-transparent text-slate-300'
+              className={`inline-flex min-w-[2rem] justify-center rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${
+                row[key] ? 'bg-slate-100 text-slate-600 ring-1 ring-slate-200' : 'bg-transparent text-slate-300'
               }`}
             >
               {row[key]}
@@ -117,11 +117,11 @@ export default function PortalUsers() {
         return (
           <td key={key} className="whitespace-nowrap px-4 py-3">
             <span
-              className={`inline-flex min-w-[2rem] justify-center rounded-lg px-2 py-1 text-xs font-semibold tabular-nums ${
+              className={`inline-flex min-w-[2rem] justify-center rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${
                 row[key]
                   ? key === 'open_requests'
-                    ? 'bg-blue-50 text-blue-700'
-                    : 'bg-slate-100 text-slate-600'
+                    ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-100'
+                    : 'bg-slate-100 text-slate-600 ring-1 ring-slate-200'
                   : 'bg-transparent text-slate-300'
               }`}
             >
@@ -156,8 +156,8 @@ export default function PortalUsers() {
   };
 
   return (
-    <div className="space-y-5 px-6 pb-6 pt-4">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+    <div className="space-y-6 px-6 pb-6 pt-5">
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
         <KpiCard
           icon={Users}
           accent="blue"
@@ -246,7 +246,7 @@ export default function PortalUsers() {
         }}
       >
         {rows.map((row) => (
-          <tr key={row.name} className="transition-colors hover:bg-slate-50">
+          <tr key={row.name} className="transition-colors hover:bg-slate-50/80">
             {shown.map((key) => cell(key, row))}
             <td className="whitespace-nowrap px-4 py-3">
               <div className="flex justify-end">

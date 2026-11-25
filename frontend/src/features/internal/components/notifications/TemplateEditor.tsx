@@ -15,7 +15,7 @@ import {
   useSaveNotificationTemplateDraft,
   useTestNotificationTemplate,
 } from './useNotifications';
-import { Field, Message, Pill, Segmented, SkeletonRows, inputClass } from './ui';
+import { Field, Message, Pill, Segmented, SkeletonRows, btnPrimary, btnSecondary, btnSmall, inputClass } from './ui';
 import { fmtMoment } from './format';
 
 type PanelId = 'editor' | 'preview' | 'history';
@@ -25,7 +25,7 @@ type Draft = { subject: string; html: string; text: string };
 const EMPTY: Draft = { subject: '', html: '', text: '' };
 
 const textareaClass =
-  'w-full rounded-lg border border-slate-200 bg-white px-3 py-2 font-mono text-xs leading-relaxed text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
+  'w-full rounded-xl border-0 bg-slate-100/80 px-3.5 py-2.5 font-mono text-xs leading-relaxed text-slate-900 outline-none transition placeholder:text-slate-400 focus:bg-white focus:ring-1 focus:ring-blue-500';
 
 const KIND_HINT: Record<NotificationTemplateVariable['kind'], string> = {
   text: 'Plain value, escaped where it lands',
@@ -234,7 +234,7 @@ const TemplateEditor: React.FC<{
           </div>
 
           {!current?.configured && (
-            <p className="rounded-lg bg-slate-50 px-4 py-3 text-sm text-slate-600">
+            <p className="rounded-2xl bg-slate-50/80 px-4 py-3 text-sm text-slate-600 ring-1 ring-slate-200/60">
               Nothing is published in this language. Until something is, this notification goes out in{' '}
               {locales.find((entry) => entry.locale === detail.data?.fallback_locale)?.locale_label ??
                 detail.data?.fallback_locale}{' '}
@@ -242,7 +242,7 @@ const TemplateEditor: React.FC<{
             </p>
           )}
 
-          <div role="tablist" aria-label="Template panels" className="flex gap-1 border-b border-slate-100">
+          <div role="tablist" aria-label="Template panels" className="flex gap-1 overflow-x-auto border-b border-slate-200">
             {(
               [
                 { id: 'editor' as PanelId, label: 'Editor' },
@@ -258,10 +258,10 @@ const TemplateEditor: React.FC<{
                 aria-selected={panel === entry.id}
                 aria-controls={`template-panel-${entry.id}`}
                 onClick={() => setPanel(entry.id)}
-                className={`-mb-px border-b-2 px-3 py-2 text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-100 ${
+                className={`-mb-px h-11 shrink-0 border-b-2 px-3 text-sm font-medium transition-colors focus:outline-none focus-visible:bg-blue-50 ${
                   panel === entry.id
-                    ? 'border-blue-600 text-blue-700'
-                    : 'border-transparent text-slate-500 hover:text-slate-700'
+                    ? 'border-blue-500 text-slate-900'
+                    : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800'
                 }`}
               >
                 {entry.label}
@@ -270,13 +270,13 @@ const TemplateEditor: React.FC<{
           </div>
 
           {failure && (
-            <p role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+            <p role="alert" className="rounded-2xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700 ring-1 ring-red-200">
               {errorOf(failure)}
             </p>
           )}
 
           {toast && (
-            <p className="rounded-lg bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">{toast}</p>
+            <p className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700 ring-1 ring-emerald-200">{toast}</p>
           )}
 
           <div
@@ -287,7 +287,7 @@ const TemplateEditor: React.FC<{
           >
             {panel === 'editor' && (
               <>
-                <div className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-3 py-2.5">
+                <div className="flex flex-wrap items-center gap-2 rounded-xl bg-slate-50/70 px-3 py-2.5 ring-1 ring-slate-200/60">
                   <span className="text-xs font-semibold text-slate-500">Variables</span>
                   {variables.map((variable) => (
                     <button
@@ -295,7 +295,7 @@ const TemplateEditor: React.FC<{
                       type="button"
                       onClick={() => insert(variable.name)}
                       title={KIND_HINT[variable.kind]}
-                      className="rounded-md border border-slate-200 bg-white px-2 py-1 font-mono text-xs text-slate-700 transition-colors hover:border-blue-300 hover:text-blue-700 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-100"
+                      className="rounded-full bg-white px-2.5 py-1 font-mono text-xs text-slate-700 ring-1 ring-slate-200 transition-colors hover:text-blue-700 hover:ring-blue-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                     >
                       {variable.name}
                     </button>
@@ -371,7 +371,7 @@ const TemplateEditor: React.FC<{
                     type="button"
                     onClick={onSaveDraft}
                     disabled={busy || !draft.html.trim()}
-                    className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-100"
+                    className={btnSecondary}
                   >
                     <Save size={15} aria-hidden />
                     Save draft
@@ -381,7 +381,7 @@ const TemplateEditor: React.FC<{
                     onClick={onPublish}
                     disabled={busy || dirty || !current?.has_unpublished_changes}
                     title={dirty ? 'Save the draft first.' : undefined}
-                    className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-100"
+                    className={btnPrimary}
                   >
                     <Upload size={15} aria-hidden />
                     Publish
@@ -390,14 +390,14 @@ const TemplateEditor: React.FC<{
                     <button
                       type="button"
                       onClick={startFromCurrent}
-                      className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-100"
+                      className={btnSecondary}
                     >
                       Start from the current wording
                     </button>
                   )}
                 </div>
 
-                <div className="flex flex-wrap items-end gap-2 border-t border-slate-100 pt-4">
+                <div className="flex flex-wrap items-end gap-2 border-t border-slate-200 pt-4">
                   <Field
                     label="Send a test to"
                     htmlFor="template-test"
@@ -427,7 +427,7 @@ const TemplateEditor: React.FC<{
                     }
                     disabled={test.isLoading || !recipient.trim() || dirty}
                     title={dirty ? 'Save the draft first.' : undefined}
-                    className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-100"
+                    className={btnSecondary}
                   >
                     <Send size={15} aria-hidden />
                     Send test
@@ -447,7 +447,7 @@ const TemplateEditor: React.FC<{
                         type="button"
                         onClick={onSaveDraft}
                         disabled={busy || !draft.html.trim()}
-                        className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-100"
+                        className={btnSecondary}
                       >
                         <Save size={15} aria-hidden />
                         Save draft
@@ -467,7 +467,7 @@ const TemplateEditor: React.FC<{
                   <div className="space-y-3">
                     <p className="text-xs text-slate-500">{preview.data?.context_note}</p>
                     <Field label="Subject">
-                      <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-900">
+                      <p className="rounded-xl bg-slate-50/70 px-3.5 py-2.5 text-sm font-semibold text-slate-900 ring-1 ring-slate-200/60">
                         {preview.data?.subject}
                       </p>
                     </Field>
@@ -476,12 +476,12 @@ const TemplateEditor: React.FC<{
                         title="Template preview"
                         sandbox=""
                         srcDoc={preview.data?.html ?? ''}
-                        className="h-[26rem] w-full rounded-lg border border-slate-200 bg-white"
+                        className="h-[26rem] w-full rounded-2xl bg-white ring-1 ring-slate-200/70"
                       />
                     </Field>
                     {preview.data?.text && (
                       <Field label="Plain text">
-                        <pre className="overflow-x-auto whitespace-pre-wrap rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                        <pre className="overflow-x-auto whitespace-pre-wrap rounded-xl bg-slate-50/70 px-3.5 py-2.5 text-xs text-slate-700 ring-1 ring-slate-200/60">
                           {preview.data.text}
                         </pre>
                       </Field>
@@ -522,7 +522,7 @@ const TemplateEditor: React.FC<{
                             type="button"
                             onClick={() => onRestore(revision.revision_number)}
                             disabled={busy}
-                            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-100"
+                            className={btnSmall}
                           >
                             <RotateCcw size={14} aria-hidden />
                             Restore
@@ -544,21 +544,21 @@ const TemplateEditor: React.FC<{
           {confirmClose && (
             <div
               role="alert"
-              className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800"
+              className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800 ring-1 ring-amber-200"
             >
               <span>There are unsaved changes. Close anyway?</span>
               <span className="flex gap-2">
                 <button
                   type="button"
                   onClick={() => setConfirmClose(false)}
-                  className="h-9 rounded-lg border border-amber-200 bg-white px-3 font-semibold text-amber-800"
+                  className="rounded-full bg-white px-3.5 py-2 font-medium text-amber-800 ring-1 ring-amber-200 transition-colors hover:bg-amber-100/60"
                 >
                   Keep editing
                 </button>
                 <button
                   type="button"
                   onClick={onClose}
-                  className="h-9 rounded-lg bg-amber-600 px-3 font-semibold text-white"
+                  className="rounded-full bg-amber-600 px-3.5 py-2 font-medium text-white transition-colors hover:bg-amber-700"
                 >
                   Discard
                 </button>

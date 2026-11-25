@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Pencil, Search } from 'lucide-react';
+import { Pencil, Search, SearchX } from 'lucide-react';
 import type {
   NotificationLocale,
   NotificationTemplateLocaleState,
   NotificationTemplateRow,
 } from '@/lib/api/internal';
 import { useNotificationTemplates } from './useNotifications';
-import { InfoStrip, Message, Pill, SkeletonRows, inputClass } from './ui';
+import { InfoStrip, Message, Pill, SkeletonRows, btnSmall, inputClass, rowClass, thClass } from './ui';
 import { fmtMoment } from './format';
 import TemplateEditor from './TemplateEditor';
 
@@ -72,7 +72,7 @@ const TemplatesTab: React.FC<{
         original template rather than being translated for you.
       </InfoStrip>
 
-      <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-5 py-4">
+      <div className="flex flex-wrap items-center gap-3 px-5 py-4 sm:px-6">
         <div className="relative min-w-0 flex-1 sm:max-w-sm">
           <Search
             size={15}
@@ -88,7 +88,7 @@ const TemplatesTab: React.FC<{
             className={`${inputClass} pl-9`}
           />
         </div>
-        <p className="text-xs text-slate-500">
+        <p className="rounded-full bg-slate-50 px-2.5 py-0.5 text-xs font-medium tabular-nums text-slate-600 ring-1 ring-slate-200">
           {rows.length} template{rows.length === 1 ? '' : 's'}
         </p>
       </div>
@@ -100,18 +100,18 @@ const TemplatesTab: React.FC<{
           {templates.error instanceof Error ? templates.error.message : undefined}
         </Message>
       ) : rows.length === 0 ? (
-        <Message title="No template matches that search" />
+        <Message icon={SearchX} title="No template matches that search" />
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[52rem] text-left">
-            <thead className="bg-slate-50/70">
+            <thead>
               <tr>
                 {['Template', 'Notification', ...locales.map((entry) => entry.label), 'Last modified', ''].map(
                   (head, index) => (
                     <th
                       key={head || `actions-${index}`}
                       scope="col"
-                      className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-slate-500"
+                      className={`${thClass} ${index === 0 ? 'pl-5 pr-4 sm:pl-6' : 'px-4'}`}
                     >
                       {head}
                     </th>
@@ -121,8 +121,8 @@ const TemplatesTab: React.FC<{
             </thead>
             <tbody className="divide-y divide-slate-100">
               {rows.map((row) => (
-                <tr key={row.template_name} className="align-top">
-                  <td className="px-4 py-3">
+                <tr key={row.template_name} className={`align-top ${rowClass}`}>
+                  <td className="py-3 pl-5 pr-4 sm:pl-6">
                     <p className="text-sm font-semibold text-slate-900">{row.template_name}</p>
                     <p className="mt-0.5 text-xs text-slate-500">{row.category}</p>
                   </td>
@@ -139,7 +139,7 @@ const TemplatesTab: React.FC<{
                   <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-500">
                     {fmtMoment(row.last_edited_at) ?? 'Never'}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right">
+                  <td className="whitespace-nowrap py-3 pl-4 pr-5 text-right sm:pr-6">
                     <button
                       type="button"
                       onClick={() =>
@@ -148,7 +148,7 @@ const TemplatesTab: React.FC<{
                           locale: locales[0]?.key ?? 'en',
                         })
                       }
-                      className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-100"
+                      className={btnSmall}
                     >
                       <Pencil size={14} aria-hidden />
                       Edit

@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNotificationSources } from './useNotifications';
-import { InfoStrip, Message, Pill, SkeletonRows } from './ui';
+import { Satellite } from 'lucide-react';
+import { InfoStrip, Message, Pill, SkeletonRows, rowClass, thClass } from './ui';
 import { fmtMoment } from './format';
 
 const isManaged = (management: string) => /^msp/i.test(management) && !/external|read/i.test(management);
@@ -23,14 +24,14 @@ const SourcesTab: React.FC<{ active: boolean }> = ({ active }) => {
           {sources.error instanceof Error ? sources.error.message : undefined}
         </Message>
       ) : rows.length === 0 ? (
-        <Message title="No notification sources were found" />
+        <Message icon={Satellite} title="No notification sources were found" />
       ) : (
-        <div className="overflow-x-auto">
+        <div className="mt-2 overflow-x-auto">
           <table className="w-full min-w-[48rem] text-left">
-            <thead className="bg-slate-50/70">
+            <thead>
               <tr>
-                {['Source', 'Provider', 'Trigger mode', 'Management', 'Notes'].map((head) => (
-                  <th key={head} scope="col" className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-slate-500">
+                {['Source', 'Provider', 'Trigger mode', 'Management', 'Notes'].map((head, index) => (
+                  <th key={head} scope="col" className={`${thClass} ${index === 0 ? 'pl-5 pr-4 sm:pl-6' : 'px-4'}`}>
                     {head}
                   </th>
                 ))}
@@ -38,8 +39,8 @@ const SourcesTab: React.FC<{ active: boolean }> = ({ active }) => {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {rows.map((row) => (
-                <tr key={`${row.provider}-${row.source}`} className="align-top">
-                  <td className="px-4 py-3 text-sm font-semibold text-slate-900">{row.source}</td>
+                <tr key={`${row.provider}-${row.source}`} className={`align-top ${rowClass}`}>
+                  <td className="py-3 pl-5 pr-4 text-sm font-semibold text-slate-900 sm:pl-6">{row.source}</td>
                   <td className="px-4 py-3 text-sm text-slate-600">{row.provider}</td>
                   <td className="px-4 py-3 text-sm text-slate-600">{row.trigger_mode}</td>
                   <td className="whitespace-nowrap px-4 py-3">
@@ -54,7 +55,7 @@ const SourcesTab: React.FC<{ active: boolean }> = ({ active }) => {
       )}
 
       {sources.data?.generated_at && (
-        <p className="border-t border-slate-100 px-5 py-3 text-xs text-slate-500">
+        <p className="border-t border-slate-200 px-5 py-3 text-xs text-slate-500 sm:px-6">
           Inventory generated {fmtMoment(sources.data.generated_at)}
         </p>
       )}

@@ -17,7 +17,7 @@ type Props = {
 };
 
 const inputClass =
-  'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
+  'h-10 w-full rounded-md border-0 bg-slate-100/80 px-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:bg-white focus:ring-1 focus:ring-blue-500';
 
 const EMPTY_ADDRESS: CustomerAddress = {
   address_line1: '',
@@ -96,7 +96,7 @@ const CustomerModal: React.FC<Props> = ({ open, customer, details, onClose, onCr
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+            className="rounded-full bg-white px-4 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50"
           >
             Cancel
           </button>
@@ -104,7 +104,7 @@ const CustomerModal: React.FC<Props> = ({ open, customer, details, onClose, onCr
             type="button"
             onClick={submit}
             disabled={addressIncomplete || save.isLoading || (creating && !form.customer_name?.trim())}
-            className="flex min-w-[7rem] items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex min-w-[7rem] items-center justify-center rounded-full bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {save.isLoading ? (
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
@@ -119,7 +119,7 @@ const CustomerModal: React.FC<Props> = ({ open, customer, details, onClose, onCr
     >
       <div className="space-y-6">
         <div>
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+          <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
             Identity
           </p>
           <div className="grid grid-cols-1 gap-x-4 gap-y-5 sm:grid-cols-2 lg:grid-cols-3">
@@ -184,7 +184,7 @@ const CustomerModal: React.FC<Props> = ({ open, customer, details, onClose, onCr
         </div>
 
         <div>
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+          <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
             Billing address
           </p>
           <div className="grid grid-cols-1 gap-x-4 gap-y-5 sm:grid-cols-2 lg:grid-cols-3">
@@ -266,7 +266,7 @@ const CustomerModal: React.FC<Props> = ({ open, customer, details, onClose, onCr
         </div>
 
         <div>
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+          <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
             Billing preferences
           </p>
           <div className="grid grid-cols-1 gap-x-4 gap-y-5 sm:grid-cols-2 lg:grid-cols-3">
@@ -296,7 +296,7 @@ const CustomerModal: React.FC<Props> = ({ open, customer, details, onClose, onCr
                   type="checkbox"
                   checked={Boolean(form.msp_free_of_charge)}
                   onChange={(event) => set({ msp_free_of_charge: event.target.checked ? 1 : 0 })}
-                  className="mt-0.5 h-4 w-4 rounded border-slate-300"
+                  className="mt-0.5 size-4 rounded border-slate-300 accent-blue-500"
                 />
                 <span>
                   Served free of charge
@@ -326,7 +326,7 @@ const CustomerModal: React.FC<Props> = ({ open, customer, details, onClose, onCr
         )}
 
         {save.error instanceof Error && (
-          <div className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
+          <div className="flex items-start gap-2.5 rounded-2xl bg-red-50 p-3.5 ring-1 ring-red-200">
             <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
             <span className="text-sm font-medium text-red-700">{save.error.message}</span>
           </div>

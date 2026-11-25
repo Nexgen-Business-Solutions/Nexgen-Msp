@@ -34,7 +34,7 @@ const Field: React.FC<{ label: string; children: React.ReactNode }> = ({ label, 
 );
 
 const INPUT =
-  'w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none transition-colors focus:border-blue-400';
+  'h-10 w-full rounded-md border-0 bg-slate-100/80 px-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:bg-white focus:ring-1 focus:ring-blue-500';
 
 /**
  * Naming somebody to decide for this company, or changing what they decide.
@@ -118,7 +118,7 @@ const DecisionMakerModal: React.FC<Props> = ({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+            className="rounded-full bg-white px-4 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50"
           >
             Cancel
           </button>
@@ -126,7 +126,7 @@ const DecisionMakerModal: React.FC<Props> = ({
             type="button"
             onClick={submit}
             disabled={!user || save.isLoading || (!rights.can_submit && !rights.can_approve)}
-            className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-full bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
           >
             Save
           </button>
@@ -157,7 +157,7 @@ const DecisionMakerModal: React.FC<Props> = ({
           {RIGHTS.map(([key, label, hint]) => (
             <label
               key={key}
-              className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-200 p-3 transition-colors hover:bg-slate-50"
+              className="flex cursor-pointer items-start gap-2.5 rounded-xl bg-slate-50/70 p-3 ring-1 ring-slate-200/60 transition-colors hover:bg-slate-100/70"
             >
               <input
                 type="checkbox"
@@ -165,7 +165,7 @@ const DecisionMakerModal: React.FC<Props> = ({
                 onChange={(event) =>
                   setRights((current) => ({ ...current, [key]: event.target.checked }))
                 }
-                className="mt-0.5 h-4 w-4 rounded border-slate-300"
+                className="mt-0.5 size-4 rounded border-slate-300 accent-blue-500"
               />
               <span>
                 <span className="block text-sm font-medium text-slate-800">{label}</span>
@@ -183,7 +183,7 @@ const DecisionMakerModal: React.FC<Props> = ({
                 type="radio"
                 checked={!department}
                 onChange={() => setDepartment('')}
-                className="h-4 w-4 border-slate-300"
+                className="size-4 border-slate-300 accent-blue-500"
               />
               Whole company
             </label>
@@ -193,7 +193,7 @@ const DecisionMakerModal: React.FC<Props> = ({
                 checked={Boolean(department)}
                 disabled={(departments.data ?? []).length === 0}
                 onChange={() => setDepartment((departments.data ?? [])[0]?.value ?? '')}
-                className="h-4 w-4 border-slate-300"
+                className="size-4 border-slate-300 accent-blue-500"
               />
               Department
             </label>
@@ -212,7 +212,7 @@ const DecisionMakerModal: React.FC<Props> = ({
         {/* a relationship outlives a change of mind: standing somebody down, or handing
             over on an agreed day, never touches the account itself */}
         {editing && (
-          <div className="rounded-lg border border-slate-200 p-3">
+          <div className="rounded-xl bg-slate-50/70 p-3.5 ring-1 ring-slate-200/60">
             <p className="text-xs font-semibold text-slate-700">The relationship itself</p>
 
             <div className="mt-2 flex flex-wrap items-center gap-5">
@@ -225,7 +225,7 @@ const DecisionMakerModal: React.FC<Props> = ({
                     type="radio"
                     checked={status === value}
                     onChange={() => setStatus(value)}
-                    className="h-4 w-4 border-slate-300"
+                    className="size-4 border-slate-300 accent-blue-500"
                   />
                   {value === 'Active' ? 'In force' : 'Stood down'}
                 </label>
@@ -259,7 +259,7 @@ const DecisionMakerModal: React.FC<Props> = ({
         )}
 
         {error && (
-          <div className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
+          <div className="flex items-start gap-2.5 rounded-2xl bg-red-50 p-3.5 ring-1 ring-red-200">
             <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
             <span className="text-sm font-medium text-red-700">{error.message}</span>
           </div>

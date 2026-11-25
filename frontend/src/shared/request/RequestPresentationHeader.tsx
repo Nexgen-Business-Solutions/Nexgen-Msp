@@ -21,8 +21,8 @@ const subtitleOf = (presentation: RequestPresentation, mode: RequestPresentation
 };
 
 const Cell = ({ label, value }: { label: string; value: ReactNode }) => (
-  <div className="min-w-0 rounded-lg border border-slate-200 px-3 py-2">
-    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">{label}</p>
+  <div className="min-w-0 rounded-xl bg-slate-50/70 px-3.5 py-3 ring-1 ring-slate-200/60">
+    <p className="text-xs text-slate-500">{label}</p>
     <p className="mt-0.5 truncate text-sm font-semibold text-slate-900">{value}</p>
   </div>
 );
@@ -34,12 +34,12 @@ export default function RequestPresentationHeader({ presentation, mode, actions 
   const noteBy = [request.details_by, formatStamp(request.details_at)].filter(Boolean).join(' · ');
 
   return (
-    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex flex-col items-start justify-between gap-3 px-5 py-4 md:flex-row">
+    <section className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200/70">
+      <div className="flex flex-col items-start justify-between gap-3 px-5 pb-4 pt-5 sm:px-6 md:flex-row">
         <div className="min-w-0">
-          <h1 className="text-xl font-bold tracking-tight text-slate-900">{title}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{title}</h1>
           {subtitle && <p className="mt-0.5 text-sm text-slate-500">{subtitle}</p>}
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
             {request.badges.map((badge) => (
               <span key={badge.label} className={badgeClass(badge.tone)}>
                 {badge.label}
@@ -50,8 +50,8 @@ export default function RequestPresentationHeader({ presentation, mode, actions 
         {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </div>
 
-      <div className="space-y-3 border-t border-slate-100 px-5 py-4">
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
+      <div className="space-y-3 border-t border-slate-100 px-5 py-5 sm:px-6">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
           <Cell label="Customer" value={request.customer_name || request.customer} />
           <Cell label="Requested by" value={request.requester_name || request.requester || '—'} />
           <Cell label="Requested date" value={formatDate(request.requested_date) ?? '—'} />
@@ -61,7 +61,7 @@ export default function RequestPresentationHeader({ presentation, mode, actions 
         </div>
 
         {request.details ? (
-          <div className="rounded-lg border border-blue-100 bg-blue-50/40 px-3 py-2.5">
+          <div className="rounded-xl bg-blue-50/50 px-4 py-3 ring-1 ring-blue-100">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs font-semibold text-blue-800">Request note</p>
               {noteBy && <p className="text-[11px] text-slate-500">{noteBy}</p>}
@@ -69,7 +69,7 @@ export default function RequestPresentationHeader({ presentation, mode, actions 
             <p className="mt-1 whitespace-pre-line text-sm text-slate-700">{request.details}</p>
           </div>
         ) : (
-          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2">
+          <div className="flex flex-wrap items-center gap-2 rounded-xl bg-slate-50/70 px-4 py-2.5 ring-1 ring-slate-200/60">
             <p className="text-xs font-semibold text-slate-600">Request note</p>
             <p className="text-xs text-slate-400">No request note.</p>
           </div>

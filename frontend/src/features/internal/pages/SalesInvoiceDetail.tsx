@@ -1,6 +1,16 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Mail } from 'lucide-react';
+import {
+  AlertCircle,
+  ArrowLeft,
+  Building2,
+  CalendarDays,
+  CircleDollarSign,
+  Mail,
+  Receipt,
+  Scale,
+  Wallet,
+} from 'lucide-react';
 import { salesInvoiceDeskUrl } from '@/lib/api/internal';
 import { useSalesInvoice, useSendInvoiceEmail } from '../hooks/useBilling';
 import { useMspContracts } from '../hooks/useMspContracts';
@@ -23,6 +33,7 @@ import {
   Th,
   btn,
   btnPrimary,
+  rowClass,
 } from '../components/billing/ui';
 import { day, money } from '../components/billing/format';
 
@@ -63,16 +74,21 @@ export default function SalesInvoiceDetail() {
   if (invoice.isLoading) {
     return (
       <div className="flex items-center justify-center p-16">
-        <span className="h-8 w-8 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />
+        <span className="size-8 animate-spin rounded-full border-2 border-blue-100 border-t-blue-500" />
       </div>
     );
   }
 
   if (invoice.error || !data) {
     return (
-      <div className="px-6 pb-6 pt-4">
-        <div className="rounded-xl border border-red-100 bg-red-50 p-6 text-sm text-red-700">
-          {(invoice.error as Error)?.message || 'Sales Invoice not found.'}
+      <div className="px-6 pb-6 pt-5">
+        <div className="flex items-start gap-3 rounded-2xl bg-red-50 p-5 text-sm text-red-700 ring-1 ring-red-100">
+          <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-white/70 text-red-600 ring-1 ring-red-100">
+            <AlertCircle className="size-[18px]" strokeWidth={1.75} />
+          </span>
+          <span className="self-center">
+            {(invoice.error as Error)?.message || 'Sales Invoice not found.'}
+          </span>
         </div>
       </div>
     );
@@ -81,29 +97,44 @@ export default function SalesInvoiceDetail() {
   const currency = data.currency;
 
   return (
-    <div className="space-y-5 px-6 pb-6 pt-4">
+    <div className="space-y-6 px-6 pb-6 pt-5">
       <button
         type="button"
         onClick={() => navigate('/msp/billing')}
-        className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 transition-colors hover:text-slate-800"
+        className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 transition-colors hover:text-slate-900"
       >
         <ArrowLeft size={14} />
         Back to billing
       </button>
 
       <Card>
-        <div className="flex flex-wrap items-start justify-between gap-3 px-5 py-4">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <h1 className="text-lg font-bold tracking-tight text-slate-900">{data.name}</h1>
-              <Pill tone={statusTone(data.status)}>{data.status}</Pill>
-              {data.is_return && <Pill tone="purple">Credit / Return</Pill>}
+        <div className="flex flex-col gap-5 p-5 sm:p-6 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex min-w-0 items-start gap-4">
+            <span
+              aria-hidden
+              className={`grid size-14 shrink-0 place-items-center rounded-2xl ring-1 ${
+                data.is_return
+                  ? 'bg-violet-50 text-violet-600 ring-violet-100'
+                  : 'bg-emerald-50 text-emerald-600 ring-emerald-100'
+              }`}
+            >
+              <Receipt className="size-6" strokeWidth={1.75} />
+            </span>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <h1 className="break-words text-2xl font-semibold tracking-tight text-slate-900">
+                  {data.name}
+                </h1>
+                <Pill tone={statusTone(data.status)}>{data.status}</Pill>
+                {data.is_return && <Pill tone="purple">Credit / Return</Pill>}
+              </div>
+              <p className="mt-2 flex flex-wrap items-center gap-x-1.5 text-sm text-slate-600">
+                <Building2 size={14} className="shrink-0 text-slate-400" strokeWidth={1.75} />
+                Sales Invoice · {data.customer_name || data.customer}
+              </p>
             </div>
-            <p className="mt-1 text-xs text-slate-400">
-              Sales Invoice · {data.customer_name || data.customer}
-            </p>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="flex flex-wrap items-start gap-2 lg:justify-end">
             {/* a posted invoice can be sent again from here: the document already exists,
                 so nothing is drawn, approved or posted by writing to somebody about it */}
             {data.docstatus === 1 && (
@@ -146,19 +177,35 @@ export default function SalesInvoiceDetail() {
         />
       </Card>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 min-[480px]:grid-cols-2 sm:gap-6 xl:grid-cols-4">
         <Metric
+          icon={Wallet}
+          tone={data.is_return ? 'purple' : 'blue'}
           label="Total"
           value={money(data.signed_total, currency)}
           hint={data.is_credit_note ? 'credited back, including taxes' : 'including taxes'}
         />
         <Metric
+          icon={CircleDollarSign}
+          tone={data.signed_outstanding ? 'amber' : 'green'}
           label="Outstanding"
           value={money(data.signed_outstanding, currency)}
           hint="as ERPNext holds it"
         />
-        <Metric label="Due date" value={day(data.due_date)} hint={data.payment_terms_template ?? undefined} />
-        <Metric label="Status" value={data.status} hint={data.docstatus === 1 ? 'submitted' : 'draft'} />
+        <Metric
+          icon={CalendarDays}
+          tone="gray"
+          label="Due date"
+          value={day(data.due_date)}
+          hint={data.payment_terms_template ?? undefined}
+        />
+        <Metric
+          icon={Scale}
+          tone={statusTone(data.status)}
+          label="Status"
+          value={data.status}
+          hint={data.docstatus === 1 ? 'submitted' : 'draft'}
+        />
       </div>
 
       {!data.billing_run && (
@@ -168,19 +215,24 @@ export default function SalesInvoiceDetail() {
           <button
             type="button"
             onClick={() => setReconciling(true)}
-            className="ml-1 font-bold underline underline-offset-2"
+            className="ml-1 font-semibold underline underline-offset-2 hover:no-underline"
           >
             Review coverage →
           </button>
         </Banner>
       )}
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
         <Card>
           <CardHead
             title="Invoice lines"
             hint="From the ERPNext Sales Invoice, exactly as the document carries them."
-            right={<Pill tone={data.is_return ? 'purple' : 'blue'}>{data.is_return ? 'Credit / Return' : 'Sales Invoice'}</Pill>}
+            count={data.items.length}
+            right={
+              <Pill tone={data.is_return ? 'purple' : 'blue'}>
+                {data.is_return ? 'Credit / Return' : 'Sales Invoice'}
+              </Pill>
+            }
           />
           <div className="max-h-[52vh] overflow-auto">
             <table className="w-full">
@@ -193,14 +245,15 @@ export default function SalesInvoiceDetail() {
                   ))}
                 </tr>
               </thead>
-              <tbody>
-                {data.items.length === 0 && <Empty span={COLUMNS.length}>No line on this document.</Empty>}
+              <tbody className="divide-y divide-slate-100">
+                {data.items.length === 0 && (
+                  <Empty span={COLUMNS.length} icon={Receipt}>
+                    No line on this document.
+                  </Empty>
+                )}
                 {data.items.map((item, index) => (
-                  <tr
-                    key={`${item.item_code}-${index}`}
-                    className="border-b border-slate-100 last:border-0"
-                  >
-                    <Td className="font-bold text-slate-800">{item.item_code}</Td>
+                  <tr key={`${item.item_code}-${index}`} className={rowClass}>
+                    <Td className="font-semibold text-slate-900">{item.item_code}</Td>
                     <Td className="max-w-[22rem] whitespace-normal">{item.description || '—'}</Td>
                     <Td align="right" className="tabular-nums">
                       {item.qty} {item.uom ?? ''}
@@ -208,7 +261,7 @@ export default function SalesInvoiceDetail() {
                     <Td align="right" className="tabular-nums">
                       {money(item.rate, currency)}
                     </Td>
-                    <Td align="right" className="font-bold tabular-nums text-slate-800">
+                    <Td align="right" className="font-semibold tabular-nums text-slate-900">
                       {money(
                         data.is_credit_note ? -Math.abs(item.amount) : item.amount,
                         currency
@@ -225,14 +278,14 @@ export default function SalesInvoiceDetail() {
               currency
             )}`}
             right={
-              <strong className="text-sm font-bold text-slate-800">
+              <strong className="text-base font-semibold tabular-nums text-slate-900">
                 {money(data.signed_total, currency)}
               </strong>
             }
           />
         </Card>
 
-        <div className="space-y-4">
+        <div className="space-y-6">
           <InfoPanel>
             <PanelTitle>Invoice details</PanelTitle>
             <Summary
@@ -249,7 +302,7 @@ export default function SalesInvoiceDetail() {
                     <button
                       type="button"
                       onClick={() => navigate(`/msp/billing/${data.billing_run}`)}
-                      className="font-bold text-blue-600 hover:underline"
+                      className="font-medium text-blue-600 hover:underline"
                     >
                       {data.billing_run}
                     </button>
@@ -292,7 +345,7 @@ export default function SalesInvoiceDetail() {
                               )}`
                             )
                           }
-                          className="font-bold text-blue-600 hover:underline"
+                          className="font-medium text-blue-600 hover:underline"
                         >
                           {data.returned_against.name}
                         </button>
@@ -302,13 +355,13 @@ export default function SalesInvoiceDetail() {
                 />
               )}
               {data.returns.map((entry) => (
-                <div key={entry.name} className="mt-2 flex items-center justify-between gap-2 text-xs">
+                <div key={entry.name} className="mt-2.5 flex items-center justify-between gap-2 text-sm">
                   <button
                     type="button"
                     onClick={() =>
                       navigate(`/msp/billing/invoices/${encodeURIComponent(entry.name)}`)
                     }
-                    className="font-bold text-blue-600 hover:underline"
+                    className="font-medium text-blue-600 hover:underline"
                   >
                     {entry.name}
                   </button>

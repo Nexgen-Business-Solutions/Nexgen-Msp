@@ -530,7 +530,7 @@ describe('somebody leaving, and coming back', () => {
       ],
     });
 
-    expect(await screen.findByText('Device history · 2')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Device history · 2' })).toBeInTheDocument();
 
     // the one they still hold says so; the one they gave back says when
     expect(screen.getByText('Still held')).toBeInTheDocument();

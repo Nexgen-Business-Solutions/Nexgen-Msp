@@ -13,7 +13,7 @@ type Props = {
 };
 
 const inputClass =
-  'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
+  'h-10 w-full rounded-md border-0 bg-slate-100/80 px-3.5 text-sm text-slate-900 outline-none transition focus:bg-white focus:ring-1 focus:ring-blue-500';
 
 /** Every personal service of one person, closed from one day. Their machines keep their own. */
 const StopAllServicesModal: React.FC<Props> = ({ person, sourceRequest, onClose, onDone }) => {
@@ -59,7 +59,7 @@ const StopAllServicesModal: React.FC<Props> = ({ person, sourceRequest, onClose,
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="rounded-full px-4 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"
           >
             Cancel
           </button>
@@ -67,7 +67,7 @@ const StopAllServicesModal: React.FC<Props> = ({ person, sourceRequest, onClose,
             type="button"
             onClick={submit}
             disabled={!date || stop.isLoading}
-            className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+            className="rounded-full bg-red-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-60"
           >
             {stop.isLoading ? 'Stopping…' : 'Stop all services'}
           </button>
@@ -87,11 +87,11 @@ const StopAllServicesModal: React.FC<Props> = ({ person, sourceRequest, onClose,
             onChange={(event) => setNote(event.target.value)}
             placeholder="Optional"
             aria-label="Note"
-            className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+            className="w-full resize-y py-3 rounded-xl border-0 bg-slate-100/80 px-3.5 text-sm text-slate-900 outline-none transition focus:bg-white focus:ring-1 focus:ring-blue-500"
           />
         </div>
         {stop.error instanceof Error && (
-          <p className="flex items-start gap-2 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
+          <p className="flex items-start gap-2 rounded-xl bg-red-50 ring-1 ring-red-100 px-3 py-2 text-sm font-medium text-red-700">
             <AlertCircle size={16} className="mt-0.5 shrink-0" />
             {stop.error.message}
           </p>

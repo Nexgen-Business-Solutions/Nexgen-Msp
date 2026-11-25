@@ -18,7 +18,7 @@ type Props = {
 
 const labelClass = 'mb-1.5 block text-xs font-semibold text-slate-700';
 const inputClass =
-  'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
+  'h-10 w-full rounded-md border-0 bg-slate-100/80 px-3.5 text-sm text-slate-900 outline-none transition focus:bg-white focus:ring-1 focus:ring-blue-500';
 
 const RepossessDeviceModal: React.FC<Props> = ({
   open,
@@ -73,7 +73,7 @@ const RepossessDeviceModal: React.FC<Props> = ({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+            className="rounded-full px-4 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50"
           >
             Cancel
           </button>
@@ -81,7 +81,7 @@ const RepossessDeviceModal: React.FC<Props> = ({
             type="button"
             onClick={submit}
             disabled={!effectiveDate || repossess.isLoading}
-            className="flex min-w-[9rem] items-center justify-center rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex min-w-[9rem] items-center justify-center rounded-full bg-slate-800 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {repossess.isLoading ? (
               <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
@@ -93,7 +93,7 @@ const RepossessDeviceModal: React.FC<Props> = ({
       }
     >
       <div className="space-y-4">
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <div className="rounded-xl bg-slate-50/70 ring-1 ring-slate-200/60 p-3">
           <p className="text-sm font-semibold text-slate-900">{hostname}</p>
           {serialNumber && <p className="mt-0.5 text-xs text-slate-500">{serialNumber}</p>}
         </div>
@@ -129,14 +129,14 @@ const RepossessDeviceModal: React.FC<Props> = ({
             value={note}
             onChange={(event) => setNote(event.target.value)}
             placeholder="Kept for Nexgen, not shown to the customer."
-            className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm leading-relaxed text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+            className="w-full resize-y py-3 leading-relaxed placeholder:text-slate-400 rounded-xl border-0 bg-slate-100/80 px-3.5 text-sm text-slate-900 outline-none transition focus:bg-white focus:ring-1 focus:ring-blue-500"
           />
         </div>
 
         <p className="text-xs text-slate-500">Device services will remain unchanged.</p>
 
         {repossess.error instanceof Error && (
-          <div className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
+          <div className="flex items-start gap-2.5 rounded-xl bg-red-50 ring-1 ring-red-100 p-3">
             <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
             <span className="text-sm font-medium text-red-700">{repossess.error.message}</span>
           </div>

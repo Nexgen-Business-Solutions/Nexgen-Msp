@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import BusinessText from '@/shared/components/BusinessText';
-import { AlertCircle, ArrowLeft, Laptop, Package, Search, TriangleAlert } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Laptop, Package, PackagePlus, Search, SearchX, TriangleAlert } from 'lucide-react';
 import Modal from '@/shared/components/Modal';
 import FieldLabel from '@/shared/components/FieldLabel';
 import Select from '@/shared/components/Select';
@@ -46,19 +46,19 @@ const SCOPES = [
 ];
 
 const inputClass =
-  'h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition-all placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
+  'h-10 w-full rounded-md border-0 bg-slate-100/80 px-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:bg-white focus:ring-1 focus:ring-blue-500';
 
 const Badge: React.FC<{ tone?: 'slate' | 'amber' | 'emerald'; children: React.ReactNode }> = ({
   tone = 'slate',
   children,
 }) => (
   <span
-    className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+    className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${
       tone === 'amber'
-        ? 'bg-amber-100 text-amber-700'
+        ? 'bg-amber-50 text-amber-700 ring-amber-200'
         : tone === 'emerald'
-          ? 'bg-emerald-100 text-emerald-700'
-          : 'bg-slate-100 text-slate-600'
+          ? 'bg-emerald-50 text-emerald-700 ring-emerald-100'
+          : 'bg-slate-100 text-slate-600 ring-slate-200'
     }`}
   >
     {children}
@@ -192,7 +192,7 @@ const ServiceModal: React.FC<Props> = ({ open, onClose, onSaved, item }) => {
             <button
               type="button"
               onClick={() => setStep(step === 'prepare' ? 'search' : 'choice')}
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-600 transition-colors hover:text-slate-900"
+              className="inline-flex items-center gap-1.5 rounded-full px-3 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
             >
               <ArrowLeft size={15} />
               Back
@@ -205,7 +205,7 @@ const ServiceModal: React.FC<Props> = ({ open, onClose, onSaved, item }) => {
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+              className="rounded-full bg-white px-4 py-2.5 text-sm font-medium text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50"
             >
               Cancel
             </button>
@@ -220,7 +220,7 @@ const ServiceModal: React.FC<Props> = ({ open, onClose, onSaved, item }) => {
                   setCode('');
                   setStep('create');
                 }}
-                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+                className="rounded-full bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-600"
               >
                 Create a service Item from this
               </button>
@@ -233,7 +233,7 @@ const ServiceModal: React.FC<Props> = ({ open, onClose, onSaved, item }) => {
                   submitExisting().catch(() => undefined);
                 }}
                 disabled={!scope || missing.length > 0 || adopt.isLoading}
-                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-full bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Apply changes &amp; add to MSP
               </button>
@@ -246,7 +246,7 @@ const ServiceModal: React.FC<Props> = ({ open, onClose, onSaved, item }) => {
                   submitNew().catch(() => undefined);
                 }}
                 disabled={!code.trim() || !itemName.trim() || !scope || create.isLoading}
-                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-full bg-blue-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Create service
               </button>
@@ -261,8 +261,14 @@ const ServiceModal: React.FC<Props> = ({ open, onClose, onSaved, item }) => {
             <button
               type="button"
               onClick={() => setStep('search')}
-              className="rounded-xl border border-slate-200 p-4 text-left transition-colors hover:border-blue-300 hover:bg-blue-50/40"
+              className="rounded-2xl bg-white p-4 text-left ring-1 ring-slate-200/70 transition hover:bg-blue-50/40 hover:ring-blue-300"
             >
+              <span
+                aria-hidden
+                className="mb-3 grid size-9 place-items-center rounded-lg bg-blue-50 text-blue-600 ring-1 ring-blue-100"
+              >
+                <Search size={16} strokeWidth={1.75} />
+              </span>
               <p className="text-sm font-semibold text-slate-900">Use existing Item</p>
               <p className="mt-1 text-xs text-slate-500">
                 Find any ERPNext Item, including disabled or stock Items, and check whether it
@@ -272,8 +278,14 @@ const ServiceModal: React.FC<Props> = ({ open, onClose, onSaved, item }) => {
             <button
               type="button"
               onClick={() => setStep('create')}
-              className="rounded-xl border border-slate-200 p-4 text-left transition-colors hover:border-blue-300 hover:bg-blue-50/40"
+              className="rounded-2xl bg-white p-4 text-left ring-1 ring-slate-200/70 transition hover:bg-blue-50/40 hover:ring-blue-300"
             >
+              <span
+                aria-hidden
+                className="mb-3 grid size-9 place-items-center rounded-lg bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100"
+              >
+                <PackagePlus size={16} strokeWidth={1.75} />
+              </span>
               <p className="text-sm font-semibold text-slate-900">Create new Item</p>
               <p className="mt-1 text-xs text-slate-500">
                 Create a new non-stock Item and its MSP service definition together.
@@ -298,16 +310,21 @@ const ServiceModal: React.FC<Props> = ({ open, onClose, onSaved, item }) => {
               />
             </div>
 
-            <div className="max-h-80 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200">
+            <div className="max-h-80 divide-y divide-slate-100 overflow-y-auto rounded-2xl bg-white ring-1 ring-slate-200/70">
               {(results.data?.rows ?? []).length === 0 && (
-                <p className="px-3 py-6 text-center text-xs text-slate-500">No Item matches that.</p>
+                <div className="flex items-center justify-center gap-3 px-3 py-6 text-xs text-slate-500">
+                  <span className="grid size-8 shrink-0 place-items-center rounded-full bg-slate-50 text-slate-400 ring-1 ring-slate-200">
+                    <SearchX className="size-4" strokeWidth={1.75} />
+                  </span>
+                  <p>No Item matches that.</p>
+                </div>
               )}
               {(results.data?.rows ?? []).map((row) => (
                 <button
                   key={row.name}
                   type="button"
                   onClick={() => choose(row)}
-                  className="flex w-full flex-col gap-1 px-3 py-2.5 text-left transition-colors hover:bg-slate-50"
+                  className="flex w-full flex-col gap-1 px-3.5 py-3 text-left transition-colors hover:bg-slate-50/80"
                 >
                   <span className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-semibold text-slate-900">
@@ -336,13 +353,18 @@ const ServiceModal: React.FC<Props> = ({ open, onClose, onSaved, item }) => {
         )}
 
         {step === 'prepare' && compatibility.isLoading && (
-          <p className="text-sm text-slate-500">Loading…</p>
+          <div className="flex items-center gap-3 text-sm text-slate-500">
+            <span className="size-5 animate-spin rounded-full border-2 border-blue-100 border-t-blue-500" />
+            <p>Loading…</p>
+          </div>
         )}
 
         {step === 'prepare' && card && stockBlocked && (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <div className="rounded-2xl bg-amber-50 p-4 ring-1 ring-amber-200">
             <p className="inline-flex items-center gap-2 text-sm font-semibold text-amber-900">
-              <Laptop size={15} />
+              <span className="grid size-7 place-items-center rounded-lg bg-white/70 text-amber-600 ring-1 ring-amber-200">
+                <Laptop size={14} />
+              </span>
               <BusinessText>{card.item.item_name}</BusinessText>
             </p>
             <p className="mt-2 text-sm text-amber-900">
@@ -379,8 +401,8 @@ const ServiceModal: React.FC<Props> = ({ open, onClose, onSaved, item }) => {
               </div>
             </div>
 
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
-              <p className="font-semibold uppercase tracking-wide text-slate-500">Infos</p>
+            <div className="rounded-xl bg-slate-50/70 p-3 text-xs text-slate-600 ring-1 ring-slate-200/60">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Infos</p>
               <p className="mt-1">Status: {card.item.disabled ? 'Disabled' : 'Enabled'}</p>
               <p>Stock item: {card.item.is_stock_item ? 'Yes' : 'No'}</p>
               <p>Sales item: {card.item.is_sales_item ? 'Yes' : 'No'}</p>
@@ -398,8 +420,8 @@ const ServiceModal: React.FC<Props> = ({ open, onClose, onSaved, item }) => {
               )}
             </div>
 
-            <div className="rounded-lg border border-slate-200 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <div className="rounded-xl bg-slate-50/70 p-3 ring-1 ring-slate-200/60">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
                 MSP billing UOM
               </p>
               <p className="mt-1 text-sm text-slate-800">{card.billing.required_uom}</p>
@@ -415,11 +437,11 @@ const ServiceModal: React.FC<Props> = ({ open, onClose, onSaved, item }) => {
             {card.repairs.map((repair) => (
               <label
                 key={repair.field}
-                className="flex cursor-pointer items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3"
+                className="flex cursor-pointer items-center gap-3 rounded-2xl bg-amber-50 p-3.5 ring-1 ring-amber-200"
               >
                 <input
                   type="checkbox"
-                  className="h-4 w-4 rounded border-amber-300 accent-amber-600"
+                  className="size-4 rounded border-amber-300 accent-amber-600"
                   checked={Boolean(consent[repair.field])}
                   onChange={(event) =>
                     setConsent((current) => ({ ...current, [repair.field]: event.target.checked }))
@@ -432,7 +454,7 @@ const ServiceModal: React.FC<Props> = ({ open, onClose, onSaved, item }) => {
             {card.warnings.map((warning) => (
               <p
                 key={warning}
-                className="inline-flex items-start gap-2 rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600"
+                className="inline-flex items-start gap-2 rounded-xl bg-white p-3 text-xs text-slate-600 ring-1 ring-slate-200/70"
               >
                 <TriangleAlert size={14} className="mt-0.5 shrink-0 text-amber-500" />
                 {warning}
@@ -527,7 +549,7 @@ const ServiceModal: React.FC<Props> = ({ open, onClose, onSaved, item }) => {
         )}
 
         {error && (
-          <div className="flex items-start gap-2.5 rounded-lg border border-red-100 bg-red-50 p-3">
+          <div className="flex items-start gap-2.5 rounded-2xl bg-red-50 p-3.5 ring-1 ring-red-200">
             <AlertCircle size={16} className="mt-0.5 shrink-0 text-red-600" />
             <span className="text-sm font-medium text-red-700">{error.message}</span>
           </div>
